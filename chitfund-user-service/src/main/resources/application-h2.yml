@@ -1,0 +1,33 @@
+# Local dev profile — no Docker required
+# Activate with: -Dspring.profiles.active=h2
+#
+# WHY H2 for local dev?
+# H2 is an in-memory database that Spring Boot can start embedded.
+# No Docker, no PostgreSQL install needed. Trade-off: data is gone on restart,
+# and H2 has minor SQL dialect differences from PostgreSQL.
+# Production always uses PostgreSQL. This profile is only for fast local iteration.
+spring:
+  datasource:
+    url: jdbc:h2:mem:chitfund_user;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;NON_KEYWORDS=VALUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      # Let Hibernate generate the schema from entity annotations for H2 dev
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    # Flyway SQL uses PostgreSQL-specific syntax (gen_random_uuid).
+    # For H2 dev: let Hibernate handle schema creation instead.
+    enabled: false
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
