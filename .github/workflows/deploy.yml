@@ -1,0 +1,112 @@
+name: Deploy Chit Fund Platform
+
+# Triggers on every push to main branch
+# Full pipeline: build frontend → sync to EC2 → docker compose rebuild → nginx reload
+on:
+  push:
+    branches: [main]
+
+env:
+  EC2_USER: ec2-user
+  APP_DIR: /app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Frontend Build ──────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: chitfund-frontend/package-lock.json
+
+      - name: Build React frontend
+        working-directory: chitfund-frontend
+        run: |
+          npm ci
+          npm run build
+
+      # ── SSH Setup ───────────────────────────────────────────────────────────
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy-key.pem
+          chmod 600 ~/.ssh/deploy-key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      # ── Sync Backend Source ─────────────────────────────────────────────────
+      - name: Sync backend source to EC2
+        run: |
+          rsync -az \
+            --exclude='.git' \
+            --exclude='*/target/' \
+            --exclude='node_modules' \
+            --exclude='chitfund-frontend' \
+            --exclude='chitfund-audit-service' \
+            --exclude='chitfund-notification-service' \
+            --exclude='chitfund-reporting-service' \
+            --exclude='chitfund-member-service' \
+            --exclude='restful-web-services' \
+            --exclude='MyVibeCodingApp' \
+            --exclude='*.pem' \
+            -e "ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no" \
+            . ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/
+
+      # ── Write env file ──────────────────────────────────────────────────────
+      # PROD_ENV secret holds the entire .env.prod content.
+      # Written fresh each deploy so DB_HOST / JWT_SECRET changes take effect.
+      - name: Update .env on EC2
+        run: |
+          echo "${{ secrets.PROD_ENV }}" | \
+            ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+              ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+              "cat > ${{ env.APP_DIR }}/.env"
+
+      # ── Docker Build & Restart ──────────────────────────────────────────────
+      - name: Build and restart services
+        run: |
+          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "cd ${{ env.APP_DIR }} && \
+             docker compose -f docker-compose.prod.yml build && \
+             docker compose -f docker-compose.prod.yml up -d && \
+             docker compose -f docker-compose.prod.yml ps"
+
+      # ── Frontend Deploy to Nginx ────────────────────────────────────────────
+      - name: Deploy frontend
+        run: |
+          rsync -az \
+            -e "ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no" \
+            chitfund-frontend/dist/ \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/chitfund-dist-new/
+
+          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "sudo cp -r /tmp/chitfund-dist-new/. /var/www/chitfund/ && \
+             sudo nginx -s reload && \
+             echo 'Frontend live'"
+
+      # ── Health Check ────────────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          echo "Waiting 60s for services to stabilize..."
+          sleep 60
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            http://${{ secrets.EC2_HOST }}/api/auth/login \
+            -X POST -H "Content-Type: application/json" \
+            -d '{"username":"invalid","password":"invalid"}')
+          echo "Auth endpoint HTTP status: $HTTP_STATUS"
+          # 401 = endpoint alive and responding (wrong creds expected)
+          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "200" ]; then
+            echo "Health check PASSED"
+          else
+            echo "Health check FAILED (got $HTTP_STATUS)"
+            exit 1
+          fi

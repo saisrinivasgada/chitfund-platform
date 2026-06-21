@@ -1,0 +1,33 @@
+# Java build output
+*/target/
+*.jar
+*.war
+*.class
+
+# Maven wrapper
+.mvn/wrapper/maven-wrapper.jar
+
+# Node
+node_modules/
+chitfund-frontend/node_modules/
+chitfund-frontend/dist/
+
+# Secrets — NEVER commit these
+*.pem
+.env
+.env.prod
+.env.local
+.env.*
+
+# AWS resource IDs (contain account numbers)
+aws-resources.txt
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+*.swp
+
+# Logs
+logs/
+*.log

@@ -1,0 +1,135 @@
+version: '3.8'
+
+# Production Docker Compose for Chit Fund Platform
+# Deploy on EC2: docker compose -f docker-compose.prod.yml up -d --build
+# All services talk to each other by container name (Docker internal DNS)
+# Only api-gateway is exposed externally on port 8080
+
+x-common-env: &common-env
+  JWT_SECRET: ${JWT_SECRET}
+  AWS_REGION: us-east-2
+
+x-db-env: &db-env
+  DB_HOST: ${DB_HOST}
+  DB_PORT: 3306
+  DB_USERNAME: chitfund
+  DB_PASSWORD: ${DB_PASSWORD}
+
+services:
+
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: chitfund-api-gateway/Dockerfile
+    image: chitfund/api-gateway:latest
+    container_name: chitfund-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *common-env
+      USER_SERVICE_URL: http://user-service:8081
+      CHIT_SERVICE_URL: http://chit-service:8082
+      MEMBER_SERVICE_URL: http://chit-service:8082
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      PAYOUT_SERVICE_URL: http://payout-service:8085
+    depends_on:
+      user-service:
+        condition: service_healthy
+      chit-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      payout-service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── User Service ─────────────────────────────────────────────────────────────
+  user-service:
+    build:
+      context: .
+      dockerfile: chitfund-user-service/Dockerfile
+    image: chitfund/user-service:latest
+    container_name: chitfund-user-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_user
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Chit Service ─────────────────────────────────────────────────────────────
+  chit-service:
+    build:
+      context: .
+      dockerfile: chitfund-chit-service/Dockerfile
+    image: chitfund/chit-service:latest
+    container_name: chitfund-chit-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_chit
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Payment Service ───────────────────────────────────────────────────────────
+  payment-service:
+    build:
+      context: .
+      dockerfile: chitfund-payment-service/Dockerfile
+    image: chitfund/payment-service:latest
+    container_name: chitfund-payment-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_payment
+      MEMBER_SERVICE_URL: http://chit-service:8082
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Payout Service ────────────────────────────────────────────────────────────
+  payout-service:
+    build:
+      context: .
+      dockerfile: chitfund-payout-service/Dockerfile
+    image: chitfund/payout-service:latest
+    container_name: chitfund-payout-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_payout
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+networks:
+  chitfund-net:
+    driver: bridge
