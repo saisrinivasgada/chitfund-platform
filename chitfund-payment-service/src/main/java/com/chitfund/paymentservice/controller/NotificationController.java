@@ -4,6 +4,7 @@ import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.CreateNotifRequest;
 import com.chitfund.paymentservice.dto.response.NotificationResponse;
 import com.chitfund.paymentservice.service.NotificationService;
+import com.chitfund.paymentservice.service.WhatsAppService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final WhatsAppService whatsAppService;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -71,6 +73,49 @@ public class NotificationController {
                 msg,
                 null, null, "/member");
         return ResponseEntity.ok(ApiResponse.success(null, "Reminder sent"));
+    }
+
+    /**
+     * Admin sends a WhatsApp message to a member.
+     * Body: { phone, memberName, outstandingAmount, chitName }
+     * The member's phone is passed by the frontend (which already has member data loaded).
+     * This avoids a cross-service DB call just to fetch a phone number.
+     *
+     * INTERVIEW: "Why pass phone from frontend instead of looking it up in backend?"
+     * payment-service doesn't own member data. Calling user-service synchronously adds
+     * latency and a failure point for what is a best-effort notification. The admin
+     * is already on the member's detail page — the phone is already on screen.
+     */
+    @PostMapping("/whatsapp/{userId}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendWhatsApp(
+            @PathVariable UUID userId,
+            @RequestBody Map<String, String> body) {
+        String phone = body.get("phone");
+        String memberName = body.getOrDefault("memberName", "Member");
+        String amount = body.getOrDefault("outstandingAmount", "");
+        String chitName = body.getOrDefault("chitName", "");
+
+        if (phone == null || phone.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("VALIDATION_FAILED", "Phone number is required"));
+        }
+
+        boolean sent = amount.isBlank()
+                ? whatsAppService.sendText(phone, "Hi " + memberName + ", this is a reminder from your chit fund admin.")
+                : whatsAppService.sendPaymentReminder(phone, memberName, amount, chitName.isBlank() ? "your chit" : chitName);
+
+        // Also create an in-app notification so the admin knows it was triggered
+        notificationService.notifyUser(userId,
+                com.chitfund.paymentservice.domain.enums.NotificationType.PAYMENT_REMINDER,
+                "WhatsApp Reminder Sent",
+                "A WhatsApp payment reminder was sent to " + memberName + (sent ? "" : " (delivery pending — check WhatsApp config)"),
+                null, null, "/member");
+
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("sent", sent, "phone", phone.replaceAll("(\\d{3})\\d+(\\d{2})", "$1****$2")),
+                sent ? "WhatsApp message sent" : "WhatsApp not configured — in-app notification created"
+        ));
     }
 
     /**

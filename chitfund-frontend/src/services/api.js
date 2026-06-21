@@ -334,11 +334,22 @@ export const getPaymentHistory = async ({ memberId, chitId }) => {
   return res.data.data ?? [];
 };
 
-export const getAllPaymentBatches = async ({ chitId, memberId } = {}) => {
+export const getAllPaymentBatches = async ({ chitId, memberId, fromDate, toDate } = {}) => {
   const params = {};
   if (chitId) params.chitId = chitId;
   if (memberId) params.memberId = memberId;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
   const res = await api.get('/payments/batches/all', { params });
+  return res.data.data ?? [];
+};
+
+export const getAllPayouts = async ({ chitId, fromDate, toDate } = {}) => {
+  const params = {};
+  if (chitId) params.chitId = chitId;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const res = await api.get('/payouts/all', { params });
   return res.data.data ?? [];
 };
 
@@ -538,6 +549,11 @@ export const markAllNotificationsRead = async () => {
 export const sendPaymentReminder = async (userId) => {
   const res = await api.post(`/notifications/reminder/${userId}`);
   return res.data.data;
+};
+
+export const sendWhatsAppReminder = async ({ userId, phone, memberName, outstandingAmount, chitName }) => {
+  const res = await api.post(`/notifications/whatsapp/${userId}`, { phone, memberName, outstandingAmount, chitName });
+  return res.data;
 };
 
 // ─── Admin Wallet / Treasury (payment-service) ────────────────────────────

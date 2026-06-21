@@ -1,30 +1,44 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 const KEY = 'dashboard_amounts_hidden';
 
-export function useHiddenAmounts() {
-  const [hidden, setHidden] = useState(() => {
-    try { return localStorage.getItem(KEY) === 'true'; } catch { return false; }
-  });
+// Module-level state so all hook instances on the same page stay in sync
+// without needing StorageEvent tricks inside a React state updater.
+const _listeners = new Set();
+let _current = (() => {
+  try { return localStorage.getItem(KEY) === 'true'; } catch { return false; }
+})();
 
-  // Sync across tabs and other page instances via storage event
+function _broadcast(next) {
+  _current = next;
+  try { localStorage.setItem(KEY, String(next)); } catch {}
+  _listeners.forEach((fn) => fn(next));
+}
+
+export function useHiddenAmounts() {
+  const [hidden, setHidden] = useState(_current);
+
   useEffect(() => {
+    // Same-page sync
+    _listeners.add(setHidden);
+
+    // Cross-tab sync (real native storage event from another tab)
     function onStorage(e) {
-      if (e.key === KEY) setHidden(e.newValue === 'true');
+      if (e.isTrusted && e.key === KEY) {
+        _broadcast(e.newValue === 'true');
+      }
     }
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+
+    return () => {
+      _listeners.delete(setHidden);
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
-  function toggle() {
-    setHidden((h) => {
-      const next = !h;
-      try { localStorage.setItem(KEY, String(next)); } catch {}
-      // Dispatch so other same-page components sync immediately
-      window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: String(next) }));
-      return next;
-    });
-  }
+  const toggle = useCallback(() => {
+    _broadcast(!_current);
+  }, []);
 
   return { hidden, toggle };
 }

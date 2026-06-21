@@ -7,6 +7,7 @@ import Badge, { statusBadge } from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import { PageSpinner } from '../components/ui/Spinner';
 import WorkerHomePage from './worker/WorkerHomePage';
+import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
@@ -56,6 +57,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   if (user?.role === 'WORKER') return <WorkerHomePage />;
+  if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 

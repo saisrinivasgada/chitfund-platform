@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, registerUser,
-  linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder,
+  linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -19,7 +19,7 @@ import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
 import {
   ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
-  ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet,
+  ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle,
 } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onReminder, onDelete, reminderPending }) {
+function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, reminderPending, whatsappPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -211,6 +211,15 @@ function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onRe
               >
                 {reminderPending ? 'Sending…' : 'Send Reminder'}
               </MenuButton>
+              {member.phone && (
+                <MenuButton
+                  icon={<MessageCircle size={14} className="text-green-600" />}
+                  disabled={whatsappPending}
+                  onClick={() => { onWhatsApp(); setOpen(false); }}
+                >
+                  {whatsappPending ? 'Sending…' : 'Send WhatsApp'}
+                </MenuButton>
+              )}
             </>
           ) : (
             <MenuButton
@@ -753,17 +762,16 @@ function PaymentHistorySection({ memberId }) {
           </h3>
         </div>
         {chits.length > 0 && (
-          <select
+          <Select
             value={selectedChitId}
             onChange={(e) => setSelectedChitId(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20"
           >
             {chits.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} · {c.status}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </div>
 
@@ -865,6 +873,18 @@ export default function MemberDetailPage() {
     onError: () => toast.error('Could not send reminder.'),
   });
 
+  const whatsappMutation = useMutation({
+    mutationFn: () => sendWhatsAppReminder({
+      userId: member.userId,
+      phone: member.phone,
+      memberName: member.fullName ?? member.name,
+      outstandingAmount: totalOutstanding > 0 ? `₹${Number(totalOutstanding).toLocaleString('en-IN')}` : '',
+      chitName: '',
+    }),
+    onSuccess: (res) => toast.success(res?.message ?? 'WhatsApp reminder sent.'),
+    onError: () => toast.error('Could not send WhatsApp message.'),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => softDeleteMember(id),
     onSuccess: () => {
@@ -890,12 +910,12 @@ export default function MemberDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Back — always goes to members list, not browser history */}
+      {/* Back */}
       <button
-        onClick={() => navigate('/members')}
-        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors"
+        onClick={() => navigate(-1)}
+        className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
       >
-        <ArrowLeft size={16} /> Back to Members
+        <ArrowLeft size={16} className="text-gray-600" />
       </button>
 
       {/* Deleted banner */}
@@ -985,8 +1005,10 @@ export default function MemberDetailPage() {
               onCreateLogin={() => setShowCreateLogin(true)}
               onResetPassword={() => setShowReset(true)}
               onReminder={() => reminderMutation.mutate()}
+              onWhatsApp={() => whatsappMutation.mutate()}
               onDelete={() => setShowDeleteConfirm(true)}
               reminderPending={reminderMutation.isPending}
+              whatsappPending={whatsappMutation.isPending}
             />
           </div>
         )}

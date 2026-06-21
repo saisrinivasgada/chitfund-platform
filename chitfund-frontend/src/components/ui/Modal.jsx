@@ -5,21 +5,26 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    // Lock body scroll while modal is open
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handler);
+      document.body.style.overflow = '';
+    };
   }, [onClose]);
 
   const maxW = {
-    sm:  'max-w-sm',
-    md:  'max-w-md',
-    lg:  'max-w-lg',
-    xl:  'max-w-xl',
-    '2xl': 'max-w-2xl',
-    '3xl': 'max-w-3xl',
-    '4xl': 'max-w-4xl',
-  }[size] ?? 'max-w-md';
+    sm:    'sm:max-w-sm',
+    md:    'sm:max-w-md',
+    lg:    'sm:max-w-lg',
+    xl:    'sm:max-w-xl',
+    '2xl': 'sm:max-w-2xl',
+    '3xl': 'sm:max-w-3xl',
+    '4xl': 'sm:max-w-4xl',
+  }[size] ?? 'sm:max-w-md';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-6">
       {/* Backdrop */}
       <div
         className="absolute inset-0"
@@ -27,13 +32,28 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
         onClick={onClose}
         aria-hidden="true"
       />
-      {/* Dialog */}
+
+      {/* Dialog
+          Mobile:  slides up from bottom, full width, rounded top corners
+          Tablet+: centred card with rounded corners all around
+      */}
       <div
-        className={`relative bg-white rounded-2xl shadow-2xl w-full ${maxW} flex flex-col`}
-        style={{ maxHeight: '92vh' }}
+        className={[
+          'relative bg-white w-full flex flex-col',
+          // Mobile: full-width sheet from bottom
+          'rounded-t-2xl max-h-[92vh]',
+          // Tablet+: centred card
+          `sm:rounded-2xl sm:shadow-2xl ${maxW}`,
+        ].join(' ')}
+        style={{ WebkitOverflowScrolling: 'touch' }}
       >
+        {/* Drag handle — mobile only */}
+        <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-gray-300" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <h3
             className="text-lg font-bold"
             style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
@@ -42,17 +62,20 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
           </h3>
           <button
             onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center rounded-xl transition-colors cursor-pointer"
-            style={{ color: '#9CA3AF' }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F3F4F6'; e.currentTarget.style.color = '#374151'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#9CA3AF'; }}
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
             aria-label="Close"
           >
             <X size={18} />
           </button>
         </div>
+
         {/* Body */}
-        <div className="px-6 py-5 overflow-y-auto flex-1 max-h-[70vh]">{children}</div>
+        <div
+          className="px-5 sm:px-6 py-5 overflow-y-auto flex-1"
+          style={{ maxHeight: 'calc(92vh - 120px)', WebkitOverflowScrolling: 'touch' }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

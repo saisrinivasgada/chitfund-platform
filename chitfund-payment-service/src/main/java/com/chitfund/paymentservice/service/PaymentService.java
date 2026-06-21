@@ -386,9 +386,13 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentBatchResponse> getAllBatches(UUID chitId, UUID memberId) {
+    public List<PaymentBatchResponse> getAllBatches(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate) {
         List<PaymentBatch> batches;
-        if (chitId != null && memberId != null) {
+        if (fromDate != null || toDate != null) {
+            LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
+            LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
+            batches = batchRepository.findByDateRange(start, end, chitId, memberId);
+        } else if (chitId != null && memberId != null) {
             batches = batchRepository.findByChitIdAndMemberIdOrderByCreatedAtDesc(chitId, memberId);
         } else if (chitId != null) {
             batches = batchRepository.findByChitIdOrderByCreatedAtDesc(chitId);

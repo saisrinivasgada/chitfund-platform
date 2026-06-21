@@ -17,6 +17,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -183,8 +184,10 @@ public class PaymentController {
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getAllBatches(
             @RequestParam(required = false) UUID chitId,
-            @RequestParam(required = false) UUID memberId) {
-        return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatches(chitId, memberId)));
+            @RequestParam(required = false) UUID memberId,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatches(chitId, memberId, fromDate, toDate)));
     }
 
     /**

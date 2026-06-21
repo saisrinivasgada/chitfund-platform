@@ -31,7 +31,7 @@ const ALL_NAV = [
   { to: '/chits',     icon: BookOpen,        label: 'Chit Funds',  roles: ['ADMIN', 'MANAGER'] },
   { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER', 'WORKER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
-  { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
+  // { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
   { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/treasury',  icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
   { to: '/team',      icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
@@ -151,7 +151,13 @@ function QuickNotes({ role }) {
   }
 
   function deleteNote() {
-    if (isViewingShared || ownNotes.length <= 1) return;
+    if (isViewingShared) return;
+    if (ownNotes.length <= 1) {
+      // Only one note — just clear its text instead of removing it
+      setOwnNotes([{ id: String(Date.now()), text: '', shared: false }]);
+      setIdx(sharedFromOther.length);
+      return;
+    }
     setOwnNotes(prev => prev.filter((_, i) => i !== ownIdx));
     setIdx(Math.max(0, safeIdx - 1));
   }
@@ -174,36 +180,36 @@ function QuickNotes({ role }) {
         <div className="absolute bottom-full left-2 mb-3 z-50">
           <div
             ref={popupRef}
-            className="rounded-2xl shadow-xl border border-amber-200 overflow-hidden flex flex-col relative"
+            className="rounded-xl shadow-xl border border-amber-200 overflow-hidden flex flex-col relative"
             style={{
-              background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+              background: 'linear-gradient(160deg, #fffbeb 0%, #fef3c7 100%)',
               width: popupSize.width,
               ...(popupSize.height ? { height: popupSize.height } : {}),
             }}
           >
 
             {/* Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-amber-200/60">
+            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-amber-200/60">
               <div className="flex items-center gap-1.5 min-w-0">
-                <StickyNote size={13} className="text-amber-600 flex-shrink-0" />
-                <span className="text-xs font-semibold text-amber-800">Quick Notes</span>
+                <StickyNote size={12} className="text-amber-600 flex-shrink-0" />
+                <span className="text-xs font-bold text-amber-900">Notes</span>
                 {isViewingShared && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold flex-shrink-0">
                     From {otherLabel}
                   </span>
                 )}
                 {!isViewingShared && currentNote?.shared && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800 font-semibold flex-shrink-0">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-semibold flex-shrink-0">
                     Shared
                   </span>
                 )}
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="text-amber-400 hover:text-amber-700 transition-colors p-0.5 rounded cursor-pointer flex-shrink-0 ml-2"
+                className="text-amber-500 hover:text-amber-800 transition-colors p-0.5 rounded cursor-pointer flex-shrink-0 ml-1"
                 title="Close"
               >
-                <X size={13} />
+                <X size={12} />
               </button>
             </div>
 
@@ -217,34 +223,34 @@ function QuickNotes({ role }) {
                   ? `${otherLabel}'s note (read-only)`
                   : 'Jot something down…'
               }
-              rows={popupSize.height ? undefined : 6}
-              className={`w-full px-3 py-2.5 text-sm placeholder-amber-300 resize-none focus:outline-none ${
+              rows={popupSize.height ? undefined : 5}
+              className={`w-full px-3 py-2 text-sm resize-none focus:outline-none ${
                 popupSize.height ? 'flex-1 min-h-0' : ''
-              } ${isViewingShared ? 'text-gray-400 cursor-default select-text' : 'text-amber-900'}`}
+              } ${isViewingShared ? 'text-gray-500 cursor-default select-text placeholder-amber-300' : 'text-gray-900 placeholder-amber-300'}`}
               style={{
                 background: isViewingShared ? 'rgba(0,0,0,0.025)' : 'transparent',
                 fontFamily: "'Caveat', 'Patrick Hand', cursive, sans-serif",
                 fontSize: '14px',
-                lineHeight: '1.7',
+                lineHeight: '1.6',
               }}
               autoFocus={!isViewingShared}
             />
 
             {/* Navigation bar */}
-            <div className="px-2 py-1.5 border-t border-amber-200/60 flex items-center gap-0.5">
+            <div className="px-2 py-1 border-t border-amber-200/60 flex items-center gap-0.5">
               {/* Left arrow */}
               <button
                 onClick={() => setIdx(Math.max(0, safeIdx - 1))}
                 disabled={safeIdx === 0}
                 title="Previous note"
-                className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="p-0.5 rounded text-amber-500 hover:text-amber-800 hover:bg-amber-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                <ChevronLeft size={14} />
+                <ChevronLeft size={13} />
               </button>
 
-              {/* Page indicator — always visible when more than one note */}
-              <span className="text-[10px] font-semibold text-amber-500 min-w-[38px] text-center">
-                {total > 1 ? `${safeIdx + 1} / ${total}` : ''}
+              {/* Page indicator */}
+              <span className="text-[10px] font-semibold text-amber-600 min-w-[32px] text-center">
+                {total > 1 ? `${safeIdx + 1}/${total}` : '1'}
               </span>
 
               {/* Right arrow */}
@@ -252,33 +258,33 @@ function QuickNotes({ role }) {
                 onClick={() => setIdx(Math.min(total - 1, safeIdx + 1))}
                 disabled={safeIdx >= total - 1}
                 title="Next note"
-                className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="p-0.5 rounded text-amber-500 hover:text-amber-800 hover:bg-amber-100 disabled:opacity-25 disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
-                <ChevronRight size={14} />
+                <ChevronRight size={13} />
               </button>
 
               <div className="flex-1" />
 
-              {/* Auto-saved hint for own notes */}
+              {/* Auto-saved hint */}
               {!isViewingShared && (currentNote?.text ?? '').length > 0 && (
-                <span className="text-[10px] text-amber-300 mr-1">saved</span>
+                <span className="text-[9px] text-amber-400 mr-1">saved</span>
               )}
 
               {/* Add new note */}
               <button
                 onClick={addNote}
                 title="New note"
-                className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
+                className="p-0.5 rounded text-amber-500 hover:text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
               >
-                <Plus size={14} />
+                <Plus size={13} />
               </button>
 
-              {/* Delete (own notes, and only when there are multiple own notes) */}
-              {!isViewingShared && ownNotes.length > 1 && (
+              {/* Delete — always visible for own notes */}
+              {!isViewingShared && (
                 <button
                   onClick={deleteNote}
-                  title="Delete this note"
-                  className="p-1 rounded text-amber-300 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                  title={ownNotes.length <= 1 ? 'Clear note' : 'Delete this note'}
+                  className="p-0.5 rounded text-amber-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -351,7 +357,7 @@ function QuickNotes({ role }) {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-export default function Sidebar() {
+export default function Sidebar({ open = false, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const role = user?.role ?? 'ADMIN';
@@ -360,9 +366,24 @@ export default function Sidebar() {
   const nav = ALL_NAV.filter((item) => !item.roles || item.roles.includes(role));
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-screen flex-shrink-0 overflow-hidden">
-      {/* Logo + Notification bell */}
-      <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between">
+    <aside
+      className={[
+        // ── Shared layout ──────────────────────────────────────────────
+        'flex flex-col bg-white overflow-hidden',
+
+        // ── Mobile / tablet: fixed drawer with slide transition ────────
+        'fixed inset-y-0 left-0 z-50 w-72',
+        'transition-transform duration-300 ease-in-out',
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+
+        // ── Desktop (lg+): static, always visible, no shadow ──────────
+        // These override the fixed/translate rules above at ≥1024px.
+        'lg:relative lg:translate-x-0 lg:w-64 lg:z-auto',
+        'lg:flex-shrink-0 lg:shadow-none lg:border-r lg:border-gray-200',
+      ].join(' ')}
+    >
+      {/* ── Logo row + close button (mobile) + notification bell (desktop) ─ */}
+      <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -380,11 +401,25 @@ export default function Sidebar() {
             <p className="text-xs text-gray-400">Management Platform</p>
           </div>
         </div>
-        <NotificationBell />
+
+        {/* Desktop: notification bell stays here */}
+        <div className="hidden lg:block">
+          <NotificationBell />
+        </div>
+
+        {/* Mobile/tablet: close (X) button */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+          aria-label="Close menu"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Role badge */}
-      <div className="px-6 py-2 border-b border-gray-100">
+      <div className="px-6 py-2 border-b border-gray-100 flex-shrink-0">
         <span
           className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
           style={{
@@ -396,15 +431,18 @@ export default function Sidebar() {
         </span>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto min-h-0">
+      {/* Navigation — scrollable if many items */}
+      <nav
+        className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto min-h-0"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         {nav.map(({ to, icon: Icon, label }) => (
           <NavLink
-            key={to}
+            key={to + label}
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+              `flex items-center gap-3 px-3 py-3 lg:py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                 isActive
                   ? 'text-white'
                   : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -420,19 +458,19 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Notes icon — ADMIN and MANAGER only */}
+      {/* Quick Notes — ADMIN and MANAGER only */}
       {(role === 'ADMIN' || role === 'MANAGER') && (
-        <div className="px-3 pb-1">
+        <div className="px-3 pb-1 flex-shrink-0">
           <QuickNotes role={role} />
         </div>
       )}
 
       {/* User + Logout */}
-      <div className="px-3 py-4 border-t border-gray-100">
+      <div className="px-3 py-4 border-t border-gray-100 flex-shrink-0">
         <button
           type="button"
-          onClick={() => navigate('/my-account')}
-          className="flex items-center gap-3 px-3 mb-2 w-full hover:bg-gray-50 rounded-lg py-1.5 transition-colors cursor-pointer text-left"
+          onClick={() => { navigate('/my-account'); onClose?.(); }}
+          className="flex items-center gap-3 px-3 mb-2 w-full hover:bg-gray-50 rounded-lg py-2 transition-colors cursor-pointer text-left"
           title="My Account"
         >
           <div

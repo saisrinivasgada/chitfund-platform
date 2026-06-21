@@ -16,6 +16,7 @@ import {
   getMe, listStaff,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
+import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Badge, { statusBadge } from '../../components/ui/Badge';
@@ -210,6 +211,8 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
 function MembersTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { user } = useAuth();
+  const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
   const [showEnroll, setShowEnroll] = useState(false);
   const [pendingRemove, setPendingRemove] = useState(null); // { memberId, displayName }
 
@@ -246,16 +249,19 @@ function MembersTab({ chitId, chit }) {
         <p className="text-sm text-gray-500">
           {enrollments.length} spots filled · {(chit?.totalMembers ?? 0) - enrollments.length} remaining
         </p>
-        <Button onClick={() => setShowEnroll(true)} size="sm">
-          <UserPlus size={14} /> Add Spot
-        </Button>
+        {canEdit && (
+          <Button onClick={() => setShowEnroll(true)} size="sm">
+            <UserPlus size={14} /> Add Spot
+          </Button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         {isLoading ? <PageSpinner /> : uniqueMembers.length === 0 ? (
           <EmptyState icon={Users} title="No members enrolled"
-            message="Enroll members to this chit fund." action="Add Spot"
-            onAction={() => setShowEnroll(true)} />
+            message="Enroll members to this chit fund."
+            action={canEdit ? 'Add Spot' : undefined}
+            onAction={canEdit ? () => setShowEnroll(true) : undefined} />
         ) : (
           <Table columns={['Member', 'Spots Held', 'Enrolled On', 'Actions']}>
             {uniqueMembers.map((e) => {
@@ -293,10 +299,12 @@ function MembersTab({ chitId, chit }) {
                   </Td>
                   <Td>{e.enrolledAt ? new Date(e.enrolledAt).toLocaleDateString() : '—'}</Td>
                   <Td>
-                    <Button variant="danger" size="sm"
-                      onClick={() => setPendingRemove({ memberId: mid, displayName })}>
-                      <Trash2 size={13} /> Remove
-                    </Button>
+                    {canEdit && (
+                      <Button variant="danger" size="sm"
+                        onClick={() => setPendingRemove({ memberId: mid, displayName })}>
+                        <Trash2 size={13} /> Remove
+                      </Button>
+                    )}
                   </Td>
                 </Tr>
               );
@@ -688,6 +696,8 @@ function SwapSlotsModal({ chitId, slots, memberMap, onClose }) {
 function ReservationScheduleTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { user } = useAuth();
+  const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
@@ -866,23 +876,26 @@ function ReservationScheduleTab({ chitId, chit }) {
             <p className="text-xs text-gray-400">Total planned payout: ₹{totalPayout.toLocaleString()}</p>
           )}
         </div>
-        <div className="flex gap-2">
-          {slots.filter((s) => s.status === 'RESERVED').length >= 2 && (
-            <Button variant="secondary" size="sm" onClick={() => setShowSwap(true)}>
-              <ArrowLeftRight size={14} /> Swap Slots
+        {canEdit && (
+          <div className="flex gap-2">
+            {slots.filter((s) => s.status === 'RESERVED').length >= 2 && (
+              <Button variant="secondary" size="sm" onClick={() => setShowSwap(true)}>
+                <ArrowLeftRight size={14} /> Swap Slots
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setShowAdd(true)}>
+              <Plus size={14} /> Add Slot
             </Button>
-          )}
-          <Button size="sm" onClick={() => setShowAdd(true)}>
-            <Plus size={14} /> Add Slot
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {isLoading ? <PageSpinner /> : slots.length === 0 ? (
           <EmptyState icon={List} title="No schedule yet"
             message="Add reservation slots to build the payout schedule."
-            action="Add Slot" onAction={() => setShowAdd(true)} />
+            action={canEdit ? 'Add Slot' : undefined}
+            onAction={canEdit ? () => setShowAdd(true) : undefined} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -938,10 +951,10 @@ function ReservationScheduleTab({ chitId, chit }) {
                               const isAlreadyAdmin = adminOption && edit.memberId === String(adminOption.id);
                               const canAddAdmin = adminHeld > 0 && (isAlreadyAdmin || allocatedAdminSlots < adminHeld);
                               return (
-                                <select
+                                <Select
                                   value={edit.memberId}
                                   onChange={(e) => updateEdit(slot, 'memberId', e.target.value)}
-                                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white min-w-44"
+                                  className="min-w-44"
                                 >
                                   <option value="">Unallocated</option>
                                   {adminOption && canAddAdmin && (
@@ -950,7 +963,7 @@ function ReservationScheduleTab({ chitId, chit }) {
                                   {activeMembers.map((m) => (
                                     <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
                                   ))}
-                                </select>
+                                </Select>
                               );
                             })()}
                             {edit.memberId && <MemberInfoPopover member={memberMap[edit.memberId]} />}
@@ -965,12 +978,12 @@ function ReservationScheduleTab({ chitId, chit }) {
                             {slot.payoutAmount ? `₹${Number(slot.payoutAmount).toLocaleString()}` : '—'}
                           </span>
                         ) : (
-                          <input
+                          <Input
                             type="number"
                             min="0"
                             value={edit.payoutAmount}
                             onChange={(e) => updateEdit(slot, 'payoutAmount', e.target.value)}
-                            className="w-36 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+                            className="w-36"
                           />
                         )}
                       </td>
@@ -996,7 +1009,7 @@ function ReservationScheduleTab({ chitId, chit }) {
 
                       {/* ── Actions ── */}
                       <td className="px-5 py-3">
-                        {isVoided ? (
+                        {canEdit ? (isVoided ? (
                           <div className="flex gap-2 items-center flex-wrap">
                             <Button variant="secondary" size="sm"
                               loading={unvoidMutation.isPending}
@@ -1027,6 +1040,8 @@ function ReservationScheduleTab({ chitId, chit }) {
                               <XCircle size={13} /> Void
                             </Button>
                           </div>
+                        )) : (
+                          <span className="text-xs text-gray-400 italic">—</span>
                         )}
                       </td>
                     </tr>
@@ -1358,9 +1373,8 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
             {addExtra && (
               <div className="grid grid-cols-2 gap-4 pt-2">
                 <FormField label="Member">
-                  <select value={extraMemberId}
-                    onChange={(e) => { setExtraMemberId(e.target.value); setExtraSlotId(''); }}
-                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white">
+                  <Select value={extraMemberId}
+                    onChange={(e) => { setExtraMemberId(e.target.value); setExtraSlotId(''); }}>
                     <option value="">Select member…</option>
                     {[...extraCandidates].sort((a, b) => {
                       const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
@@ -1370,7 +1384,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                       const mid = e.memberId ?? e.id;
                       return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
                     })}
-                  </select>
+                  </Select>
                 </FormField>
 
                 <FormField label="Their slot to settle">
@@ -1794,12 +1808,12 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                       {/* Void inline form */}
                       {isVoiding && (
                         <div className="flex gap-2 pt-1">
-                          <input
+                          <Input
                             autoFocus
                             value={voidReason}
                             onChange={(e) => setVoidReason(e.target.value)}
                             placeholder="Reason for voiding…"
-                            className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+                            className="flex-1"
                           />
                           <Button
                             size="sm"
@@ -1927,13 +1941,16 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
 
 // ── Collect payment modal — two tabs: settle now vs via worker ─────────────────
 function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
+  const { user } = useAuth();
+  const isWorker = user?.role === 'WORKER';
   const qc = useQueryClient();
   const toast = useToastContext();
   const balance = Number(paymentRecord?.balance ?? 0);
 
   const [tab, setTab] = useState('direct');           // 'direct' | 'worker'
   const [amount, setAmount] = useState(String(balance));
-  const [paymentMode, setPaymentMode] = useState('UPI');
+  // Workers can only collect cash physically — no UPI/Bank options
+  const [paymentMode, setPaymentMode] = useState(isWorker ? 'CASH' : 'UPI');
   const [notes, setNotes] = useState('');
   const [workerId, setWorkerId] = useState('');
 
@@ -2019,14 +2036,21 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
             value={amount} onChange={(e) => setAmount(e.target.value)} required />
         </FormField>
 
-        {/* Payment mode — only for direct tab */}
+        {/* Payment mode — only for direct tab; workers can only accept cash */}
         {tab === 'direct' && (
           <FormField label="Payment Mode" required>
-            <Select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
-              <option value="UPI">UPI</option>
-              <option value="BANK_TRANSFER">Bank Transfer</option>
-              <option value="CHEQUE">Cheque</option>
-              <option value="CASH">Cash (in hand — settles immediately)</option>
+            <Select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
+              disabled={isWorker}>
+              {isWorker ? (
+                <option value="CASH">Cash (in hand — settles immediately)</option>
+              ) : (
+                <>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank Transfer</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="CASH">Cash (in hand — settles immediately)</option>
+                </>
+              )}
             </Select>
           </FormField>
         )}
@@ -2483,6 +2507,8 @@ function RecordWinnerModal({ chitId, winnerSelectionMode, onClose }) {
 }
 
 function WinnersTab({ chitId, chit, winnerSelectionMode }) {
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
   const [showRecordModal, setShowRecordModal]   = useState(false);
   const [disburseTarget, setDisburseTarget]     = useState(null); // { winner, payout|null }
 
@@ -2516,9 +2542,11 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">{winners.length} winner{winners.length !== 1 ? 's' : ''} recorded</p>
-        <Button onClick={() => setShowRecordModal(true)} size="sm">
-          <Trophy size={14} /> Record Winner
-        </Button>
+        {!isManager && (
+          <Button onClick={() => setShowRecordModal(true)} size="sm">
+            <Trophy size={14} /> Record Winner
+          </Button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -2558,11 +2586,14 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
                     )}
                   </Td>
                   <Td className="text-right">
-                    <Button size="sm" variant={payout?.status === 'DISBURSED' ? 'secondary' : 'primary'}
-                      onClick={() => setDisburseTarget({ winner: w, payout, member })}>
-                      <Banknote size={13} />
-                      {payout ? (payout.status === 'DISBURSED' ? 'View' : payout.status === 'CANCELLED' ? 'Re-create' : 'Disburse') : 'Create Payout'}
-                    </Button>
+                    {/* Managers: view-only; Admins: full create/disburse access */}
+                    {(!isManager || payout?.status === 'DISBURSED') && (
+                      <Button size="sm" variant={payout?.status === 'DISBURSED' ? 'secondary' : 'primary'}
+                        onClick={() => setDisburseTarget({ winner: w, payout, member })}>
+                        <Banknote size={13} />
+                        {payout ? (payout.status === 'DISBURSED' ? 'View' : payout.status === 'CANCELLED' ? 'Re-create' : 'Disburse') : 'Create Payout'}
+                      </Button>
+                    )}
                   </Td>
                 </Tr>
               );
@@ -2941,6 +2972,8 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 function HeaderActions({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [pendingStatus, setPendingStatus] = useState(null); // status being confirmed
   const [pendingStartDate, setPendingStartDate] = useState('');
@@ -3021,7 +3054,7 @@ function HeaderActions({ chitId, chit }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {/* Pause */}
-      {status === 'ACTIVE' && (
+      {status === 'ACTIVE' && !isManager && (
         <Button variant="warning" size="sm" loading={pauseMutation.isPending}
           onClick={() => setShowPauseModal(true)}>
           <Pause size={14} /> Pause
@@ -3029,15 +3062,15 @@ function HeaderActions({ chitId, chit }) {
       )}
 
       {/* Resume */}
-      {status === 'PAUSED' && (
+      {status === 'PAUSED' && !isManager && (
         <Button variant="success" size="sm" loading={resumeMutation.isPending}
           onClick={() => resumeMutation.mutate()}>
           <Play size={14} /> Resume
         </Button>
       )}
 
-      {/* Status dropdown */}
-      {statusTargets.length > 0 && (
+      {/* Status dropdown — managers can only change status on DRAFT chits */}
+      {statusTargets.length > 0 && (!isManager || status === 'DRAFT') && (
         <div className="relative">
           <Button variant="secondary" size="sm" loading={statusMutation.isPending}
             onClick={() => setShowStatusMenu((o) => !o)}>
@@ -3062,8 +3095,8 @@ function HeaderActions({ chitId, chit }) {
         </div>
       )}
 
-      {/* Delete */}
-      {status !== 'DELETED' && (
+      {/* Delete — admins only */}
+      {status !== 'DELETED' && !isManager && (
         <Button variant="danger" size="sm" onClick={() => setShowDeleteModal(true)}>
           <Trash2 size={14} /> Delete
         </Button>
@@ -3169,8 +3202,8 @@ export default function ChitDetailPage() {
     <div className="space-y-6">
       {/* Back */}
       <button onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors">
-        <ArrowLeft size={16} /> Back
+        className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors">
+        <ArrowLeft size={16} className="text-gray-600" />
       </button>
 
       {/* Deleted banner */}

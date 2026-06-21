@@ -209,6 +209,22 @@ public class PayoutService {
     }
 
     @Transactional(readOnly = true)
+    public List<PayoutResponse> getAllPayouts(UUID chitId, LocalDate fromDate, LocalDate toDate) {
+        if (fromDate != null || toDate != null) {
+            LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
+            LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
+            return payoutRepository.findByDateRange(start, end, chitId)
+                    .stream().map(this::toResponse).toList();
+        }
+        if (chitId != null) {
+            return payoutRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+                    .stream().map(this::toResponse).toList();
+        }
+        return payoutRepository.findAllByOrderByCreatedAtDesc()
+                .stream().map(this::toResponse).toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<PayoutResponse> getTodaysPayouts() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);

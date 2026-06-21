@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listStaff, createStaff, deactivateStaff, activateStaff, softDeleteStaff, changeStaffRole } from '../../services/api';
+import { listStaff, createStaff, deactivateStaff, activateStaff, softDeleteStaff } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
@@ -12,7 +12,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { Plus, Briefcase, UserCheck, UserX, Trash2, RefreshCw } from 'lucide-react';
+import { Plus, Briefcase, UserCheck, UserX, Trash2 } from 'lucide-react';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
@@ -145,68 +145,8 @@ function AddStaffModal({ onClose }) {
   );
 }
 
-function ChangeRoleModal({ staff, onClose }) {
-  const qc = useQueryClient();
-  const toast = useToastContext();
-  const [role, setRole] = useState(staff.role);
-
-  const mutation = useMutation({
-    mutationFn: () => changeStaffRole({ id: staff.id, role }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['staff'] });
-      qc.invalidateQueries({ queryKey: ['staff-detail', staff.id] });
-      toast.success(`Role changed to ${role}`);
-      onClose();
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to change role'),
-  });
-
-  return (
-    <Modal title="Change Role" onClose={onClose} size="sm">
-      <div className="space-y-5">
-        <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-            style={{ backgroundColor: '#1E3A5F' }}>
-            {(staff.fullName ?? staff.username ?? 'U').slice(0, 2).toUpperCase()}
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">{staff.fullName ?? staff.username}</p>
-            <p className="text-xs text-gray-400">@{staff.username}</p>
-          </div>
-        </div>
-
-        <FormField label="New Role" required>
-          <Select value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="WORKER">Worker — field cash collector</option>
-            <option value="MANAGER">Manager — operations, no system edits</option>
-            <option value="ADMIN">Admin — full platform access</option>
-          </Select>
-        </FormField>
-
-        {role === 'ADMIN' && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Admin accounts have full platform access. Only assign this role to fully trusted members.
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3 pt-1">
-          <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            size="md"
-            loading={mutation.isPending}
-            disabled={role === staff.role}
-            onClick={() => mutation.mutate()}
-          >
-            Change Role
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 export default function TeamPage() {
+  const navigate = useNavigate();
   const toast = useToastContext();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
@@ -215,7 +155,6 @@ export default function TeamPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'deactivate'|'activate'|'delete', staff }
-  const [changeRoleTarget, setChangeRoleTarget] = useState(null); // staff object
 
   const { data: staff = [], isLoading } = useQuery({
     queryKey: ['staff', { deleted: showDeleted }],
@@ -262,17 +201,13 @@ export default function TeamPage() {
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (
-            <button
+            <Button
+              variant={showDeleted ? 'danger' : 'secondary'}
               onClick={() => setShowDeleted((v) => !v)}
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
-                showDeleted
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-              }`}
             >
               <Trash2 size={14} />
               {showDeleted ? 'Deleted Staff' : 'Show Deleted'}
-            </button>
+            </Button>
           )}
           {!showDeleted && (
             <Button variant="primary" size="md" onClick={() => setShowAdd(true)}>
@@ -304,7 +239,11 @@ export default function TeamPage() {
               const isSelf = s.id === currentUser?.id;
               const isDeleted = !!s.deletedAt;
               return (
-                <Tr key={s.id} className={isDeleted ? 'opacity-60' : ''}>
+                <Tr
+                  key={s.id}
+                  className={isDeleted ? 'opacity-60' : ''}
+                  onClick={() => !isDeleted && navigate(`/staff/${s.id}`)}
+                >
                   <Td>
                     <div className="flex items-center gap-3">
                       <div
@@ -364,15 +303,7 @@ export default function TeamPage() {
                     ) : isSelf || isManager ? (
                       <span className="text-xs text-gray-400 italic">—</span>
                     ) : isAdmin ? (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setChangeRoleTarget(s)}
-                        >
-                          <RefreshCw size={14} className="mr-1" />
-                          Change Role
-                        </Button>
+                      <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                         {isActive ? (
                           <Button
                             variant="muted"
@@ -413,7 +344,6 @@ export default function TeamPage() {
       )}
 
       {showAdd && <AddStaffModal onClose={() => setShowAdd(false)} />}
-      {changeRoleTarget && <ChangeRoleModal staff={changeRoleTarget} onClose={() => setChangeRoleTarget(null)} />}
 
       {confirmAction && (
         <ConfirmDialog

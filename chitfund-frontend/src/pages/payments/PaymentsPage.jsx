@@ -553,6 +553,7 @@ function SortIcon({ field, sortField, sortDir }) {
 }
 
 function PendingRemittanceTab() {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToastContext();
   const [confirmTarget, setConfirmTarget] = useState(null);
@@ -686,7 +687,8 @@ function PendingRemittanceTab() {
           'Action',
         ]}>
           {sortedBatches.map((b) => (
-            <Tr key={b.id}>
+            <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`)}
+              className="cursor-pointer hover:bg-blue-50/30 transition-colors">
               <Td>
                 <span className="text-sm font-medium text-gray-800">
                   {staffMap[b.collectedBy] ?? b.collectedBy?.slice(0, 8) ?? '—'}
@@ -702,9 +704,9 @@ function PendingRemittanceTab() {
               </Td>
               <Td>
                 <Button
+                  variant="success"
                   size="sm"
-                  onClick={() => setConfirmTarget(b)}
-                  className="flex items-center gap-1"
+                  onClick={(e) => { e.stopPropagation(); setConfirmTarget(b); }}
                 >
                   <CheckCircle size={13} /> Collected
                 </Button>

@@ -100,6 +100,9 @@ services:
       DB_NAME: chitfund_payment
       MEMBER_SERVICE_URL: http://chit-service:8082
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-NOT_CONFIGURED}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
       interval: 30s

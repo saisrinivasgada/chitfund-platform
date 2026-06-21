@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getWalletBalance, getWalletTransactions, addWalletTransaction,
@@ -12,7 +12,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash } from 'lucide-react';
 
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -26,85 +26,147 @@ function resolveDescription(desc, memberMap, chitMap) {
   });
 }
 
+// ─── Shared mini-components for the detail modal ──────────────────────────
+function TxInfoRow({ icon: Icon, label, value, valueClass = '' }) {
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
+      <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center mt-0.5">
+        <Icon size={15} className="text-gray-400" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-0.5">{label}</p>
+        <p className={`text-sm font-medium text-gray-800 break-words leading-snug ${valueClass}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function TxSection({ title, icon: Icon, children }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+        <Icon size={14} className="text-gray-400" />
+        <span className="text-sm font-semibold text-gray-700">{title}</span>
+      </div>
+      <div className="px-4">{children}</div>
+    </div>
+  );
+}
+
 function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
   const resolvedDesc = resolveDescription(tx.description, memberMap, chitMap);
   const isIn = tx.entryType === 'IN';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
         className="absolute inset-0"
         style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
-        onClick={onClose}
       />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
-            Transaction Details
-          </h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors">
-            <X size={16} />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
+        style={{ maxHeight: '90vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: isIn ? '#DCFCE7' : '#FEE2E2' }}
+            >
+              {isIn
+                ? <TrendingUp size={16} style={{ color: '#16A34A' }} />
+                : <TrendingDown size={16} style={{ color: '#DC2626' }} />}
+            </div>
+            <div>
+              <h3 className="text-base font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
+                Transaction Details
+              </h3>
+              <p className="text-xs text-gray-400">{tx.category ?? 'Manual entry'}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
+          >
+            <X size={15} />
           </button>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between py-2 border-b border-gray-50">
-            <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">Amount</span>
-            <span className={`text-xl font-bold ${isIn ? 'text-green-700' : 'text-red-600'}`}>
+        {/* Amount hero */}
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
+          style={{ backgroundColor: isIn ? '#F0FDF4' : '#FFF5F5' }}>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider mb-1"
+              style={{ color: isIn ? '#166534' : '#991B1B' }}>
+              {isIn ? 'Amount Received' : 'Amount Paid Out'}
+            </p>
+            <p className={`text-4xl font-bold ${isIn ? 'text-green-700' : 'text-red-600'}`}>
               {isIn ? '+' : '−'}₹{Number(tx.amount).toLocaleString('en-IN')}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              isIn ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
+            }`}>
+              {isIn ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+              {isIn ? 'Money In' : 'Money Out'}
+            </span>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              tx.accountType === 'CASH'
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : 'bg-blue-50 text-blue-700 border-blue-200'
+            }`}>
+              {tx.accountType === 'CASH' ? <Banknote size={11} /> : <CreditCard size={11} />}
+              {tx.accountType}
             </span>
           </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Type</p>
-              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-              }`}>
-                {isIn ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                {isIn ? 'Money In' : 'Money Out'}
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Account</p>
-              <span className={`inline-flex text-xs font-medium px-2 py-0.5 rounded-full ${
-                tx.accountType === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
-              }`}>
-                {tx.accountType}
-              </span>
-            </div>
-          </div>
-
-          {tx.category && (
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Category</p>
-              <p className="text-sm text-gray-800 font-medium">{tx.category}</p>
-            </div>
-          )}
-
-          {resolvedDesc && resolvedDesc !== '—' && (
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Description</p>
-              <p className="text-sm text-gray-800 leading-snug">{resolvedDesc}</p>
-            </div>
-          )}
-
-          <div>
-            <p className="text-xs text-gray-400 mb-0.5">Date & Time</p>
-            <p className="text-sm text-gray-800">
-              {new Date(tx.createdAt).toLocaleString('en-IN', {
+        {/* Body */}
+        <div className="overflow-y-auto px-6 py-4 space-y-3">
+          <TxSection title="Details" icon={FileText}>
+            {tx.category && <TxInfoRow icon={Tag} label="Category" value={tx.category} />}
+            {resolvedDesc && resolvedDesc !== '—' && (
+              <TxInfoRow icon={FileText} label="Description" value={resolvedDesc} />
+            )}
+            <TxInfoRow
+              icon={Calendar}
+              label="Date & Time"
+              value={new Date(tx.createdAt).toLocaleString('en-IN', {
                 day: 'numeric', month: 'short', year: 'numeric',
                 hour: '2-digit', minute: '2-digit', hour12: true,
               })}
-            </p>
-          </div>
+            />
+            {tx.createdBy && (
+              <TxInfoRow
+                icon={User}
+                label="Recorded By"
+                value={staffMap[tx.createdBy] ?? 'Admin'}
+              />
+            )}
+            {tx.id && (
+              <TxInfoRow
+                icon={Hash}
+                label="Reference ID"
+                value={<span className="font-mono text-xs text-gray-500">{String(tx.id).slice(0, 8)}…</span>}
+              />
+            )}
+          </TxSection>
+        </div>
 
-          {tx.createdBy && (
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Recorded by</p>
-              <p className="text-sm text-gray-800">{staffMap[tx.createdBy] ?? 'Admin'}</p>
-            </div>
-          )}
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -407,9 +469,19 @@ function AddTransactionModal({ onClose }) {
   );
 }
 
+const DATE_PRESETS = [
+  { label: 'Today',      days: 0  },
+  { label: 'Last 7 days', days: 7  },
+  { label: 'Last 30 days', days: 30 },
+  { label: 'All time',   days: null },
+];
+
 export default function TreasuryPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
+  const [activePreset, setActivePreset] = useState('All time');
+  const [filterAccount, setFilterAccount] = useState('ALL');
+  const [filterType, setFilterType] = useState('ALL');
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: balance, isLoading: balanceLoading } = useQuery({
@@ -434,6 +506,35 @@ export default function TreasuryPage() {
     IN:  'bg-green-100 text-green-700',
     OUT: 'bg-red-100 text-red-700',
   };
+
+  // ── Filter transactions client-side ───────────────────────────────────────
+  const filteredTx = useMemo(() => {
+    const preset = DATE_PRESETS.find((p) => p.label === activePreset);
+    const cutoff = preset?.days != null
+      ? new Date(Date.now() - preset.days * 86_400_000)
+      : null;
+    return transactions.filter((t) => {
+      if (cutoff && new Date(t.createdAt) < cutoff) return false;
+      if (activePreset === 'Today') {
+        const today = new Date().toDateString();
+        if (new Date(t.createdAt).toDateString() !== today) return false;
+      }
+      if (filterAccount !== 'ALL' && t.accountType !== filterAccount) return false;
+      if (filterType !== 'ALL' && t.entryType !== filterType) return false;
+      return true;
+    });
+  }, [transactions, activePreset, filterAccount, filterType]);
+
+  // ── Running balance (oldest → newest, then reverse for display) ───────────
+  const txWithRunning = useMemo(() => {
+    const asc = [...filteredTx].reverse();
+    let running = 0;
+    const result = asc.map((t) => {
+      running += t.entryType === 'IN' ? Number(t.amount) : -Number(t.amount);
+      return { ...t, runningBalance: running };
+    });
+    return result.reverse();
+  }, [filteredTx]);
 
   return (
     <div className="space-y-6">
@@ -470,22 +571,67 @@ export default function TreasuryPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Transaction History</h2>
+        <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h2 className="font-semibold text-gray-900">Transaction History</h2>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <Filter size={13} />
+              <span>{filteredTx.length} of {transactions.length} entries</span>
+            </div>
+          </div>
+
+          {/* Date preset chips */}
+          <div className="flex flex-wrap gap-2">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => setActivePreset(p.label)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
+                  activePreset === p.label
+                    ? 'text-white border-transparent'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
+                }`}
+                style={activePreset === p.label ? { backgroundColor: '#1E3A5F', borderColor: '#1E3A5F' } : {}}
+              >
+                {p.label}
+              </button>
+            ))}
+            <div className="flex gap-2 ml-auto">
+              <select
+                value={filterAccount}
+                onChange={(e) => setFilterAccount(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]"
+              >
+                <option value="ALL">All accounts</option>
+                <option value="CASH">Cash</option>
+                <option value="BANK">Bank</option>
+              </select>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 text-gray-600 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]"
+              >
+                <option value="ALL">IN + OUT</option>
+                <option value="IN">Money In</option>
+                <option value="OUT">Money Out</option>
+              </select>
+            </div>
+          </div>
         </div>
+
         {txLoading ? (
           <PageSpinner />
-        ) : transactions.length === 0 ? (
-          <EmptyState icon={Wallet} title="No transactions" message="Record your first transaction above." />
+        ) : filteredTx.length === 0 ? (
+          <EmptyState icon={Wallet} title="No transactions" message="No transactions match the selected filters." />
         ) : (
-          <Table columns={['Date', 'Account', 'Type', 'Category', 'Description', 'Amount']}>
-            {transactions.map((t) => (
+          <Table columns={['Date', 'Account', 'Type', 'Category', 'Description', 'Amount', 'Balance']}>
+            {txWithRunning.map((t) => (
               <Tr
                 key={t.id}
                 className="cursor-pointer hover:bg-blue-50/40 transition-colors"
                 onClick={() => setSelectedTx(t)}
               >
-                <Td className="text-gray-500 text-xs">
+                <Td className="text-gray-500 text-xs whitespace-nowrap">
                   {new Date(t.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </Td>
                 <Td>
@@ -508,8 +654,11 @@ export default function TreasuryPage() {
                 <Td className="text-gray-700 text-sm max-w-xs truncate">
                   {resolveDescription(t.description, memberMap, chitMap)}
                 </Td>
-                <Td className={`font-semibold ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
+                <Td className={`font-semibold whitespace-nowrap ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
                   {hidden ? '••••••' : `${t.entryType === 'IN' ? '+' : '−'}₹${Number(t.amount).toLocaleString('en-IN')}`}
+                </Td>
+                <Td className={`text-sm font-semibold whitespace-nowrap ${t.runningBalance >= 0 ? 'text-gray-700' : 'text-red-600'}`}>
+                  {hidden ? '••••••' : `₹${t.runningBalance.toLocaleString('en-IN')}`}
                 </Td>
               </Tr>
             ))}

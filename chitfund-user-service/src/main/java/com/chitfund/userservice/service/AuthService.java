@@ -98,29 +98,54 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        // Load user first so we can check the temp password before delegating to Spring Security.
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        User user = (User) authentication.getPrincipal();
+        boolean usedTempPassword = false;
+
+        if (user.getTempPasswordHash() != null
+                && passwordEncoder.matches(request.getPassword(), user.getTempPasswordHash())) {
+            // User logged in with the admin-generated temp password.
+            // Validate account state manually (Spring Security checks these in authenticate()).
+            if (!user.isEnabled() || user.isLocked())
+                throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
+            usedTempPassword = true;
+        } else {
+            // Normal path — let Spring Security validate against the real password hash.
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+            );
+            user = (User) authentication.getPrincipal();
+        }
+
         user.setFailedLoginAttempts(0);
         user.setLastLoginAt(LocalDateTime.now());
-        userRepository.save(user);
 
+        if (usedTempPassword) {
+            // Temp password used → force a password change on first session.
+            user.setMustChangePassword(true);
+        } else {
+            // Real (original) password used → the temp is no longer needed, clear it.
+            user.setTempPasswordHash(null);
+            user.setMustChangePassword(false);
+        }
+
+        userRepository.save(user);
         return buildAuthResponse(user, null);
     }
 
-    // Admin generates a new temp password for a member who forgot theirs.
-    // Returns the plaintext password — shown to admin once, never stored.
+    // Admin generates a new temp password alongside the user's existing real password.
+    // The user can still log in with the old password (no forced change) OR with the temp
+    // password (forces a change on first login). Returns the plaintext temp — shown once.
     public ResetPasswordResponse resetPassword(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
                         "User not found: " + userId));
         String tempPassword = generateTempPassword();
-        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        // Store the temp separately — real passwordHash is unchanged so old password still works.
+        user.setTempPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
-        // Revoke all active sessions so member is forced to log in with the new temp password
-        refreshTokenRepository.revokeAllActiveByUser(user);
         userRepository.save(user);
         return ResetPasswordResponse.builder()
                 .userId(user.getId())
@@ -129,16 +154,21 @@ public class AuthService {
                 .build();
     }
 
-    // Member changes their own password. Clears mustChangePassword flag.
+    // Member changes their own password. Clears mustChangePassword and temp hash.
     public void changePassword(UUID userId, ChangePasswordRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
                         "User not found: " + userId));
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+        // Accept either the real password or the temp password as "current password".
+        boolean matchesReal = passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash());
+        boolean matchesTemp = user.getTempPasswordHash() != null
+                && passwordEncoder.matches(request.getCurrentPassword(), user.getTempPasswordHash());
+        if (!matchesReal && !matchesTemp) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Current password is incorrect", HttpStatus.BAD_REQUEST);
         }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setTempPasswordHash(null);
         user.setMustChangePassword(false);
         // Rotate sessions after password change — new login required
         refreshTokenRepository.revokeAllActiveByUser(user);

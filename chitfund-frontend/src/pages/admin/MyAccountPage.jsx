@@ -268,9 +268,9 @@ export default function MyAccountPage() {
       {/* Back */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 cursor-pointer transition-colors"
+        className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
       >
-        <ArrowLeft size={16} /> Back
+        <ArrowLeft size={16} className="text-gray-600" />
       </button>
 
       {/* Header */}

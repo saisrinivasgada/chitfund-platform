@@ -5,6 +5,7 @@ import {
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
   listStaff, getMembers, getChits,
 } from '../services/api';
+import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import {
   Banknote, CreditCard, CheckCircle, XCircle, BookOpen,
   ArrowDownCircle, Clock, SkipForward, Gift, Ban,
@@ -66,9 +67,11 @@ function SectionCard({ icon: Icon, iconColor, iconBg, title, subtitle, count, ch
   );
 }
 
+const HIDDEN = '••••••';
+
 // ── Payment batch row (inside "Payments Collected" section) ────────────────
 
-function BatchRow({ batch, staffMap, memberMap, chitMap, chits }) {
+function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden }) {
   const navigate = useNavigate();
   const member = n(memberMap, batch.memberId);
   const chit = chits.find((c) => c.id === batch.chitId);
@@ -113,7 +116,7 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits }) {
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        <span className="text-sm font-bold text-gray-800">{fmtAmt(batch.totalAmount)}</span>
+        <span className="text-sm font-bold text-gray-800">{hidden ? HIDDEN : fmtAmt(batch.totalAmount)}</span>
         <ExternalLink size={13} className="text-gray-300 group-hover:text-blue-400 transition-colors" />
       </div>
     </div>
@@ -144,6 +147,8 @@ function EventRow({ icon: Icon, iconColor, iconBg, label, detail, sub, time }) {
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function TodaysActivityFeed() {
+  const { hidden } = useHiddenAmounts();
+
   const { data: batches = [], isLoading: batchesLoading, refetch: refetchBatches } =
     useQuery({ queryKey: ['today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
 
@@ -173,6 +178,8 @@ export default function TodaysActivityFeed() {
   const hasActivity = batches.length > 0 || draws.length > 0 || payouts.length > 0;
 
   function refetchAll() { refetchBatches(); refetchDraws(); refetchPayouts(); }
+
+  const amt = (v) => hidden ? HIDDEN : fmtAmt(v);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -209,7 +216,7 @@ export default function TodaysActivityFeed() {
               iconBg="bg-amber-50"
               title="Payments Collected"
               count={collectedBatches.length}
-              subtitle={`Total ${fmtAmt(totalCollected)} from ${collectedBatches.length} payment${collectedBatches.length !== 1 ? 's' : ''}`}
+              subtitle={`Total ${amt(totalCollected)} from ${collectedBatches.length} payment${collectedBatches.length !== 1 ? 's' : ''}`}
               defaultOpen={true}
             >
               {collectedBatches.map((b) => (
@@ -220,6 +227,7 @@ export default function TodaysActivityFeed() {
                   memberMap={memberMap}
                   chitMap={chitMap}
                   chits={chits}
+                  hidden={hidden}
                 />
               ))}
             </SectionCard>
@@ -233,7 +241,7 @@ export default function TodaysActivityFeed() {
               iconBg="bg-green-50"
               title="Remittances Confirmed"
               count={remittedBatches.length}
-              subtitle={`${fmtAmt(remittedBatches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0))} cash handed over`}
+              subtitle={`${amt(remittedBatches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0))} cash handed over`}
             >
               {remittedBatches.map((b) => (
                 <EventRow
@@ -242,7 +250,7 @@ export default function TodaysActivityFeed() {
                   iconColor="text-green-600"
                   iconBg="bg-green-50"
                   label="Remittance"
-                  detail={`${n(staffMap, b.remittedBy)} confirmed ${fmtAmt(b.totalAmount)} from ${n(staffMap, b.collectedBy)}`}
+                  detail={`${n(staffMap, b.remittedBy)} confirmed ${amt(b.totalAmount)} from ${n(staffMap, b.collectedBy)}`}
                   sub={`Member: ${n(memberMap, b.memberId)} · Chit: ${n(chitMap, b.chitId)}`}
                   time={fmtTime(b.remittedAt)}
                 />
@@ -266,7 +274,7 @@ export default function TodaysActivityFeed() {
                   iconColor="text-red-500"
                   iconBg="bg-red-50"
                   label="Voided"
-                  detail={`${n(staffMap, b.voidedBy)} voided ${fmtAmt(b.totalAmount)} from ${n(memberMap, b.memberId)}`}
+                  detail={`${n(staffMap, b.voidedBy)} voided ${amt(b.totalAmount)} from ${n(memberMap, b.memberId)}`}
                   sub={b.voidReason ? `Reason: ${b.voidReason}` : undefined}
                   time={fmtTime(b.voidedAt ?? b.createdAt)}
                 />
@@ -322,26 +330,26 @@ export default function TodaysActivityFeed() {
               {payouts.map((p) => {
                 const member = n(memberMap, p.memberId);
                 const chit = n(chitMap, p.chitId);
-                const amt = fmtAmt(p.netPayoutAmount);
+                const payAmt = amt(p.netPayoutAmount);
 
                 if (p.disbursedAt) return (
                   <EventRow key={`dis-${p.id}`} icon={Gift} iconColor="text-green-700" iconBg="bg-green-50"
                     label="Disbursed"
-                    detail={`${n(staffMap, p.disbursedBy)} disbursed ${amt} to ${member}`}
+                    detail={`${n(staffMap, p.disbursedBy)} disbursed ${payAmt} to ${member}`}
                     sub={`${chit} · Month #${p.monthNumber}${p.disbursementMode ? ` via ${MODE_LABEL[p.disbursementMode] ?? p.disbursementMode}` : ''}${p.referenceNumber ? ` · Ref: ${p.referenceNumber}` : ''}`}
                     time={fmtTime(p.disbursedAt)} />
                 );
                 if (p.status === 'PENDING' && p.createdAt) return (
                   <EventRow key={`pend-${p.id}`} icon={Clock} iconColor="text-orange-500" iconBg="bg-orange-50"
                     label="Payout Registered"
-                    detail={`${n(staffMap, p.createdBy)} registered ${amt} payout for ${member}`}
+                    detail={`${n(staffMap, p.createdBy)} registered ${payAmt} payout for ${member}`}
                     sub={`${chit} · Month #${p.monthNumber} — awaiting disbursement`}
                     time={fmtTime(p.createdAt)} />
                 );
                 if (p.cancelledAt) return (
                   <EventRow key={`can-${p.id}`} icon={Ban} iconColor="text-red-500" iconBg="bg-red-50"
                     label="Cancelled"
-                    detail={`${n(staffMap, p.cancelledBy)} cancelled ${amt} payout for ${member}`}
+                    detail={`${n(staffMap, p.cancelledBy)} cancelled ${payAmt} payout for ${member}`}
                     sub={p.cancellationReason} time={fmtTime(p.cancelledAt)} />
                 );
                 return null;

@@ -16,7 +16,7 @@ export default function MemberPortalLayout() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#F8F9FB' }}>
       {/* Top nav */}
-      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 sticky top-0 z-20">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 sticky top-0 z-20 shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center justify-between h-14">
           <div className="flex items-center gap-2.5">
             <div

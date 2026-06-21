@@ -21,6 +21,12 @@
   padding: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+  /* Prevent iOS bounce on the root — individual scroll containers handle their own */
+  overscroll-behavior: none;
+}
+
 body {
   font-family: 'Inter', system-ui, sans-serif;
   background-color: var(--color-bg);
@@ -28,6 +34,39 @@ body {
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent pull-to-refresh interfering with app scrolling */
+  overscroll-behavior-y: none;
+  touch-action: pan-y;
+}
+
+/* Every overflow-y-auto container gets smooth momentum scrolling on iOS */
+[class*="overflow-y-auto"],
+[class*="overflow-y-scroll"] {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Tables: horizontal scroll on small screens without ugly scrollbar */
+.table-scroll-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Thin, tasteful scrollbars on Webkit */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
 }
 
 h1, h2, h3 {
@@ -39,4 +78,10 @@ h1, h2, h3 {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Sidebar slide transition already uses Tailwind transition utilities,
+   but this ensures hardware acceleration for the transform */
+aside {
+  will-change: transform;
 }

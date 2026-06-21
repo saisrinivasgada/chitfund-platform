@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -90,6 +91,16 @@ public class PayoutController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(payoutService.disburse(id, request, adminId)));
+    }
+
+    /** All payouts across all chits, with optional date range and chit filter — for reports. */
+    @GetMapping("/all")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<List<PayoutResponse>>> getAllPayouts(
+            @RequestParam(required = false) UUID chitId,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate) {
+        return ResponseEntity.ok(ApiResponse.success(payoutService.getAllPayouts(chitId, fromDate, toDate)));
     }
 
     /** All payouts created or disbursed today — used in the daily activity feed. */

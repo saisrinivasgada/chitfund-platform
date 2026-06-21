@@ -402,9 +402,9 @@ function CreateChitModal({ onClose }) {
                               const isAlreadyAdmin = adminOption && row.memberId === String(adminOption.id);
                               const canAddAdmin = adminHeld > 0 && (isAlreadyAdmin || allocatedAdminSlots < adminHeld);
                               return (
-                                <select value={row.memberId}
+                                <Select value={row.memberId}
                                   onChange={(e) => setScheduleRow(i, 'memberId', e.target.value)}
-                                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] min-w-36 bg-white">
+                                  className="min-w-36">
                                   <option value="">Unallocated</option>
                                   {adminOption && canAddAdmin && (
                                     <option value={adminOption.id}>{adminOption.fullName}</option>
@@ -412,15 +412,15 @@ function CreateChitModal({ onClose }) {
                                   {members.map((m) => (
                                     <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
                                   ))}
-                                </select>
+                                </Select>
                               );
                             })()}
                           </td>
                           <td className="px-4 py-3">
-                            <input type="number" min="0" placeholder="e.g. 45000"
+                            <Input type="number" min="0" placeholder="e.g. 45000"
                               value={row.payoutAmount}
                               onChange={(e) => setScheduleRow(i, 'payoutAmount', e.target.value)}
-                              className="w-32 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]" />
+                              className="w-32" />
                           </td>
                           <td className="px-4 py-3">
                             {schedule.length > 1 && (
@@ -755,17 +755,13 @@ export default function ChitsPage() {
 
         <div className="flex items-center gap-3">
           {canSeeDeleted && (
-            <button
+            <Button
+              variant={showDeleted ? 'danger' : 'secondary'}
               onClick={() => setShowDeleted((v) => !v)}
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
-                showDeleted
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-              }`}
             >
               <Trash2 size={14} />
               {showDeleted ? 'Deleted Chits' : 'Show Deleted'}
-            </button>
+            </Button>
           )}
           {!showDeleted && (
             <div className="flex items-center gap-3">
@@ -793,9 +789,11 @@ export default function ChitsPage() {
                 </button>
               </div>
 
-              <Button onClick={() => setShowModal(true)}>
-                <Plus size={16} /> New Chit Fund
-              </Button>
+              {!isManager && (
+                <Button onClick={() => setShowModal(true)}>
+                  <Plus size={16} /> New Chit Fund
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -853,8 +851,8 @@ export default function ChitsPage() {
             icon={BookOpen}
             title="No chit funds yet"
             message="Create your first chit fund to get started."
-            action="Create Chit Fund"
-            onAction={() => setShowModal(true)}
+            action={!isManager ? 'Create Chit Fund' : undefined}
+            onAction={!isManager ? () => setShowModal(true) : undefined}
           />
         </div>
       ) : viewMode === 'board' ? (

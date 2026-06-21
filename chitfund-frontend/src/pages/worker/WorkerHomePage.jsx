@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getMyAssignedRequests, getMyRequestHistory, getMembers, getChits } from '../../services/api';
+import { getMyAssignedRequests, getMyRequestHistory, getMembers, getChits, getMyPendingBatches } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { PageSpinner } from '../../components/ui/Spinner';
 import {
-  ClipboardList, CheckCircle, IndianRupee, ArrowRight, Clock,
+  ClipboardList, CheckCircle, IndianRupee, ArrowRight, Clock, TrendingUp,
 } from 'lucide-react';
 
 function fmt(n) {
@@ -53,6 +53,12 @@ export default function WorkerHomePage() {
     staleTime: 60_000,
   });
 
+  const { data: pendingBatches = [] } = useQuery({
+    queryKey: ['worker-pending-batches'],
+    queryFn: getMyPendingBatches,
+    staleTime: 30_000,
+  });
+
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
@@ -70,8 +76,16 @@ export default function WorkerHomePage() {
 
   const collectedHistory = history.filter((r) => r.status === 'COLLECTED');
 
-  // Total collected amount from history
+  // Today: filter history by today's date
+  const todayStr = new Date().toDateString();
+  const collectedToday = collectedHistory.filter((r) => new Date(r.updatedAt).toDateString() === todayStr);
+  const todayAmount = collectedToday.reduce((sum, r) => sum + (r.requestedAmount ?? 0), 0);
+
+  // Total collected amount from history (all time)
   const totalCollected = collectedHistory.reduce((sum, r) => sum + (r.requestedAmount ?? 0), 0);
+
+  // Amount currently with worker (pending remittance)
+  const pendingAmount = pendingBatches.reduce((sum, b) => sum + (b.totalAmount ?? 0), 0);
 
   if (tasksLoading || histLoading) return <PageSpinner />;
 
@@ -101,7 +115,7 @@ export default function WorkerHomePage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={ClipboardList}
           label="Active Tasks"
@@ -110,18 +124,25 @@ export default function WorkerHomePage() {
           sub={tasks.length === 0 ? 'All clear' : 'Pending collection'}
         />
         <StatCard
-          icon={CheckCircle}
-          label="Total Collected"
-          value={collectedHistory.length}
+          icon={TrendingUp}
+          label="Collected Today"
+          value={`₹${fmt(todayAmount)}`}
           color="#16A34A"
-          sub="All time"
+          sub={`${collectedToday.length} payment${collectedToday.length !== 1 ? 's' : ''} today`}
+        />
+        <StatCard
+          icon={CheckCircle}
+          label="With Admin"
+          value={pendingBatches.length > 0 ? `₹${fmt(pendingAmount)}` : '—'}
+          color="#D97706"
+          sub={pendingBatches.length > 0 ? 'Awaiting remittance' : 'All submitted'}
         />
         <StatCard
           icon={IndianRupee}
-          label="Amount Collected"
+          label="All Time Total"
           value={`₹${fmt(totalCollected)}`}
           color="#D4A017"
-          sub="All time"
+          sub={`${collectedHistory.length} collections`}
         />
       </div>
 

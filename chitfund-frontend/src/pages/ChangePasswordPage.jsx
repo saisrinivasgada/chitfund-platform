@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { changePassword } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
-import { BookOpen, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 
 export default function ChangePasswordPage() {
   const { user, updateUser } = useAuth();
@@ -58,12 +58,13 @@ export default function ChangePasswordPage() {
           <h1 className="text-3xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
             ChitFund
           </h1>
+          <p className="text-gray-500 mt-1.5 text-sm">Management Platform</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#EFF3F8' }}>
-              <KeyRound size={18} className="text-[#1E3A5F]" />
+              <ShieldCheck size={18} className="text-[#1E3A5F]" />
             </div>
             <h2 className="text-xl font-semibold text-gray-900">Set Your Password</h2>
           </div>

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMembers, createMember, getMemberBalanceBulk, getDeletedMembers } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Badge, { statusBadge } from '../../components/ui/Badge';
@@ -12,7 +13,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Plus, Search, Users, Trash2 } from 'lucide-react';
+import { Plus, Search, Users, Trash2, Eye, EyeOff } from 'lucide-react';
 
 const INITIAL_FORM = {
   fullName: '',
@@ -202,6 +203,7 @@ function AddMemberModal({ onClose }) {
 export default function MembersPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const isAdmin = currentUser?.role === 'ADMIN';
   const canAddMembers = isAdmin || currentUser?.role === 'MANAGER';
   const [search, setSearch] = useState('');
@@ -254,19 +256,23 @@ export default function MembersPage() {
           </h2>
           <p className="text-sm text-gray-500 mt-1">{members.length} total members</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleHidden}
+            title={hidden ? 'Show amounts' : 'Hide amounts'}
+            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
+          </button>
           {isAdmin && (
-            <button
+            <Button
+              variant={showDeleted ? 'danger' : 'secondary'}
               onClick={() => setShowDeleted((v) => !v)}
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
-                showDeleted
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-              }`}
             >
               <Trash2 size={14} />
               {showDeleted ? 'Deleted Members' : 'Show Deleted'}
-            </button>
+            </Button>
           )}
           {!showDeleted && canAddMembers && (
             <Button onClick={() => setShowModal(true)}>
@@ -283,18 +289,17 @@ export default function MembersPage() {
           <h3 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
             {showDeleted ? 'Deleted Members' : 'All Members'}
           </h3>
-          {/* Fixed search box with proper icon padding */}
           <div className="relative">
             <Search
               size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10"
             />
-            <input
+            <Input
               type="text"
               placeholder="Search members…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] w-56 transition-colors"
+              className="pl-9 w-56"
             />
           </div>
         </div>
@@ -361,11 +366,15 @@ export default function MembersPage() {
                   <Td>{m.city ?? <span className="text-xs text-gray-300 italic">Unavailable</span>}</Td>
                   <Td>
                     <div className="flex items-center gap-2">
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: hasBalance ? '#DC2626' : '#16A34A' }}
-                      />
-                      {hasBalance ? (
+                      {!hidden && (
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: hasBalance ? '#DC2626' : '#16A34A' }}
+                        />
+                      )}
+                      {hidden ? (
+                        <span className="text-sm font-medium text-gray-400 tracking-widest">••••••</span>
+                      ) : hasBalance ? (
                         <span className="text-sm font-medium text-red-600">
                           ₹{outstanding.toLocaleString('en-IN')}
                         </span>

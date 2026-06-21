@@ -37,4 +37,16 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
            "(b.voidedAt >= :start AND b.voidedAt < :end) " +
            "ORDER BY b.createdAt DESC")
     List<PaymentBatch> findTodaysActivity(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // Reports: all batches in a date range, optionally filtered by chit and/or member
+    @Query("SELECT b FROM PaymentBatch b WHERE " +
+           "b.createdAt >= :start AND b.createdAt < :end " +
+           "AND (:chitId IS NULL OR b.chitId = :chitId) " +
+           "AND (:memberId IS NULL OR b.memberId = :memberId) " +
+           "ORDER BY b.createdAt DESC")
+    List<PaymentBatch> findByDateRange(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId);
 }

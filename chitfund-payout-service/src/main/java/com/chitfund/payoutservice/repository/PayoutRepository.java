@@ -35,4 +35,16 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
            "(p.disbursedAt >= :start AND p.disbursedAt < :end) " +
            "ORDER BY p.createdAt DESC")
     List<Payout> findTodaysPayouts(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // Reports: all payouts in a date range, optionally filtered by chit
+    @Query("SELECT p FROM Payout p WHERE " +
+           "p.createdAt >= :start AND p.createdAt < :end " +
+           "AND (:chitId IS NULL OR p.chitId = :chitId) " +
+           "ORDER BY p.createdAt DESC")
+    List<Payout> findByDateRange(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId);
+
+    List<Payout> findAllByOrderByCreatedAtDesc();
 }

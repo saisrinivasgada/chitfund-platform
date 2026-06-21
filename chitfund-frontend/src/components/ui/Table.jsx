@@ -1,6 +1,9 @@
 export default function Table({ columns, children, className = '' }) {
   return (
-    <div className={`w-full overflow-x-auto ${className}`}>
+    <div
+      className={`w-full overflow-x-auto ${className}`}
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100">

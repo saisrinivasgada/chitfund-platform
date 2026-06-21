@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { checkUsernameAvailability, updateMyUserProfile, updateMyMemberProfile } from '../../services/api';
 import { recordProfileChange } from '../../utils/profileHistory';
 import PhoneInput from '../ui/PhoneInput';
+import Button from '../ui/Button';
 import { X, Check, Loader, AlertCircle, User, Phone, Mail, MapPin, AtSign, UserCircle } from 'lucide-react';
 
 // ─── Labeled input ────────────────────────────────────────────────────────────
@@ -273,31 +274,26 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
     >
-      <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
-        style={{ maxHeight: '90vh' }}
-      >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col border border-gray-100" style={{ maxHeight: '90vh' }}>
+
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: '#F3F4F6' }}>
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: '#1E3A5F' }}
-            >
-              <User size={15} className="text-white" />
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1E3A5F' }}>
+              <User size={16} className="text-white" />
             </div>
-            <h2 className="text-base font-semibold" style={{ color: '#111827' }}>Edit Profile</h2>
+            <div>
+              <h2 className="text-base font-bold" style={{ color: '#1E3A5F' }}>Edit Profile</h2>
+              <p className="text-xs text-gray-400">Update your account details</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg transition-colors"
-            style={{ color: '#9CA3AF' }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F3F4F6'; e.currentTarget.style.color = '#374151'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#9CA3AF'; }}
+            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
 
@@ -373,34 +369,25 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           )}
 
           {error && (
-            <div className="px-4 py-3 rounded-xl" style={{ backgroundColor: '#FFF5F5', border: '1px solid #FED7D7' }}>
-              <p className="text-sm" style={{ color: '#C53030' }}>{error}</p>
+            <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+              <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{error}</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div
-          className="px-6 py-4 flex items-center justify-end gap-3 border-t"
-          style={{ borderColor: '#F3F4F6' }}
-        >
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
-            style={{ color: '#6B7280' }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#F9FAFB'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-          >
-            Cancel
-          </button>
-          <button
+        <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
+          <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
+          <Button
+            variant={saved ? 'success' : 'primary'}
+            size="md"
+            loading={isBusy}
+            disabled={saved}
             onClick={handleSave}
-            disabled={isBusy || saved}
-            className="px-5 py-2 rounded-lg text-white text-sm font-semibold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-            style={{ backgroundColor: saved ? '#16A34A' : '#1E3A5F' }}
           >
-            {saved ? '✓ Saved' : isBusy ? 'Saving…' : 'Save changes'}
-          </button>
+            {saved ? <><Check size={14} /> Saved</> : 'Save Changes'}
+          </Button>
         </div>
       </div>
     </div>

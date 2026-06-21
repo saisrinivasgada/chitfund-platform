@@ -9,6 +9,7 @@ import {
   getMember,
   getChit,
   softDeleteStaff,
+  changeStaffRole,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +20,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import Modal from '../../components/ui/Modal';
+import FormField, { Select } from '../../components/ui/FormField';
 import {
   ArrowLeft,
   KeyRound,
@@ -27,9 +29,9 @@ import {
   ClipboardList,
   History,
   IndianRupee,
-  User,
   Trash2,
   Banknote,
+  RefreshCw,
 } from 'lucide-react';
 
 const ROLE_BADGE = {
@@ -96,6 +98,66 @@ function ChitCell({ chitId }) {
   return <span className="text-sm text-gray-700">{name}</span>;
 }
 
+function ChangeRoleModal({ staff, onClose }) {
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const [role, setRole] = useState(staff.role);
+
+  const mutation = useMutation({
+    mutationFn: () => changeStaffRole({ id: staff.id, role }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff'] });
+      qc.invalidateQueries({ queryKey: ['staff-detail', staff.id] });
+      toast.success(`Role changed to ${role}`);
+      onClose();
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to change role'),
+  });
+
+  return (
+    <Modal title="Change Role" onClose={onClose} size="sm">
+      <div className="space-y-5">
+        <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+            style={{ backgroundColor: '#1E3A5F' }}
+          >
+            {(staff.fullName ?? staff.username ?? 'U').slice(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{staff.fullName ?? staff.username}</p>
+            <p className="text-xs text-gray-400">@{staff.username}</p>
+          </div>
+        </div>
+        <FormField label="New Role" required>
+          <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="WORKER">Worker — field cash collector</option>
+            <option value="MANAGER">Manager — operations, no system edits</option>
+            <option value="ADMIN">Admin — full platform access</option>
+          </Select>
+        </FormField>
+        {role === 'ADMIN' && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Admin accounts have full platform access. Only assign this role to fully trusted members.
+          </div>
+        )}
+        <div className="flex justify-end gap-3 pt-1">
+          <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            size="md"
+            loading={mutation.isPending}
+            disabled={role === staff.role}
+            onClick={() => mutation.mutate()}
+          >
+            Change Role
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function TempPassModal({ username, tempPassword, onClose }) {
   return (
     <Modal title="New Temporary Password" onClose={onClose} size="sm">
@@ -128,6 +190,7 @@ export default function StaffDetailPage() {
   const qc = useQueryClient();
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showChangeRole, setShowChangeRole] = useState(false);
   const [tempCreds, setTempCreds] = useState(null); // { username, tempPassword }
 
   const { data: staff, isLoading } = useQuery({
@@ -191,13 +254,12 @@ export default function StaffDetailPage() {
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
 
-      {/* Back nav */}
+      {/* Back */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+        className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
       >
-        <ArrowLeft size={15} />
-        Back to Team
+        <ArrowLeft size={16} className="text-gray-600" />
       </button>
 
       {/* Deleted banner */}
@@ -246,7 +308,7 @@ export default function StaffDetailPage() {
           </div>
 
           {!isDeleted && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="secondary"
               size="sm"
@@ -256,9 +318,15 @@ export default function StaffDetailPage() {
               Reset Password
             </Button>
             {isAdmin && currentUser?.id !== staff.id && (
-              <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={14} /> Delete Account
-              </Button>
+              <>
+                <Button variant="secondary" size="sm" onClick={() => setShowChangeRole(true)}>
+                  <RefreshCw size={14} className="mr-1.5" />
+                  Change Role
+                </Button>
+                <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={14} className="mr-1.5" /> Delete Account
+                </Button>
+              </>
             )}
           </div>
           )}
@@ -400,6 +468,11 @@ export default function StaffDetailPage() {
           tempPassword={tempCreds.tempPassword}
           onClose={() => setTempCreds(null)}
         />
+      )}
+
+      {/* Change role */}
+      {showChangeRole && (
+        <ChangeRoleModal staff={staff} onClose={() => setShowChangeRole(false)} />
       )}
 
       {/* Confirm delete */}
