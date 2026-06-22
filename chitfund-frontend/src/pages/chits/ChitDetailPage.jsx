@@ -2789,10 +2789,16 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     },
     onSuccess: (p) => {
       setPayout(p);
-      // Immediately inject the new payout into the cache so WinnersTab button
-      // switches from "Create Payout" → "Disburse" without waiting for a refetch
-      qc.setQueryData(['payouts', chitId], (old) => [...(old ?? []), p]);
-      invalidatePayouts();
+      // Directly write new payout into the WinnersTab cache so the button switches
+      // "Create Payout" → "Disburse" instantly. No invalidatePayouts() here — that
+      // triggers an immediate refetch which races against this setQueryData and can
+      // overwrite it before React re-renders, leaving the button stuck on "Create Payout".
+      qc.setQueryData(['payouts', chitId], (old) => {
+        const without = (old ?? []).filter(
+          (x) => !(String(x.monthNumber) === String(p.monthNumber) && String(x.memberId) === String(p.memberId))
+        );
+        return [...without, p];
+      });
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
       // Refresh draw payment cards so installment/cross-chit payments appear immediately
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
