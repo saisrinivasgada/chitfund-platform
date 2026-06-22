@@ -8,11 +8,12 @@ import {
 } from 'lucide-react';
 import {
   getPaymentBatchById, getMember, getChit, listStaff, getDraws,
-  getMembers, remitPayment,
+  getMembers, remitPayment, voidPaymentBatch,
   getMemberTotalBalance, getMemberBalance, getChitsForMember,
 } from '../services/api';
 import { useToastContext } from '../components/layout/AppLayout';
 import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 const STATUS_CONFIG = {
@@ -97,6 +98,8 @@ export default function TransactionDetailPage() {
   const toast       = useToastContext();
   const qc          = useQueryClient();
   const [showRemitConfirm, setShowRemitConfirm] = useState(false);
+  const [showVoidForm,    setShowVoidForm]    = useState(false);
+  const [voidReason,      setVoidReason]      = useState('');
 
   const { data: batch, isLoading, isError } = useQuery({
     queryKey: ['batch', batchId],
@@ -178,6 +181,20 @@ export default function TransactionDetailPage() {
     },
   });
 
+  const voidMutation = useMutation({
+    mutationFn: () => voidPaymentBatch({ batchId, reason: voidReason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['batch', batchId] });
+      qc.invalidateQueries({ queryKey: ['paymentBatches'] });
+      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      toast.success('Transaction voided — payment records reversed');
+      setShowVoidForm(false);
+      setVoidReason('');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Void failed'),
+  });
+
   // Unified name lookup: staff first, then members (covers admin-as-staff, member UUIDs, etc.)
   const nameMap = Object.fromEntries([
     ...allMembers.map((m) => [m.id, m.fullName ?? m.name]),
@@ -251,6 +268,47 @@ export default function TransactionDetailPage() {
           <Button variant="success" onClick={() => setShowRemitConfirm(true)} loading={remitMutation.isPending}>
             <CheckCircle size={14} /> Cash Collected
           </Button>
+        </div>
+      )}
+
+      {/* Void action — for COMPLETED and AWAITING_REMITTANCE batches */}
+      {(batch.status === 'COMPLETED' || batch.status === 'AWAITING_REMITTANCE') && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-red-800">Void Transaction</p>
+              <p className="text-xs text-red-600 mt-0.5">
+                Reverses all payment credits and updates treasury. This cannot be undone.
+              </p>
+            </div>
+            {!showVoidForm && (
+              <Button variant="danger" onClick={() => setShowVoidForm(true)}>
+                <XCircle size={14} /> Void
+              </Button>
+            )}
+          </div>
+          {showVoidForm && (
+            <div className="flex gap-2">
+              <Input
+                autoFocus
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                placeholder="Reason for voiding…"
+                className="flex-1"
+              />
+              <Button
+                variant="danger"
+                disabled={!voidReason.trim() || voidMutation.isPending}
+                loading={voidMutation.isPending}
+                onClick={() => voidMutation.mutate()}
+              >
+                Confirm Void
+              </Button>
+              <Button variant="secondary" onClick={() => { setShowVoidForm(false); setVoidReason(''); }}>
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
