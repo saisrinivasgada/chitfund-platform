@@ -311,12 +311,24 @@ public class ChitMonthDrawService {
         List<PaymentRecord> records = paymentRecordRepository
                 .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
 
+        // Auto-revert PAYOUT_DEDUCTED records — no real batch exists, safe to undo silently
+        records.stream()
+                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
+                .forEach(r -> {
+                    r.setAmountPaid(BigDecimal.ZERO);
+                    r.setStatus(PaymentRecordStatus.OUTSTANDING);
+                    r.setSettledByPayoutId(null);
+                    paymentRecordRepository.save(r);
+                });
+
         boolean hasPayments = records.stream()
-                .anyMatch(r -> r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0);
+                .anyMatch(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
+                        && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0);
 
         if (hasPayments) {
             long count = records.stream()
-                    .filter(r -> r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0)
+                    .filter(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
+                            && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0)
                     .count();
             throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
                     count + " member(s) have already paid for this cycle. Void their payment batches first, then delete.");

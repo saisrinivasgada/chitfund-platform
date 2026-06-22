@@ -2,6 +2,7 @@ package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
+import com.chitfund.paymentservice.dto.request.MarkPayoutDeductedRequest;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
 import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
@@ -212,5 +213,30 @@ public class PaymentController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(paymentService.voidPayment(batchId, request, adminId)));
+    }
+
+    /**
+     * Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
+     * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
+     */
+    @PostMapping("/mark-payout-deducted")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<Void> markPayoutDeducted(
+            @Valid @RequestBody MarkPayoutDeductedRequest request) {
+        paymentService.markPayoutDeducted(
+                request.getChitId(), request.getMemberId(),
+                request.getMonthNumber(), request.getPayoutId());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
+     * Called when a payout is cancelled or its draw is deleted.
+     */
+    @PostMapping("/revert-payout-deductions/{payoutId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<Void> revertPayoutDeductions(@PathVariable UUID payoutId) {
+        paymentService.revertPayoutDeductions(payoutId);
+        return ResponseEntity.noContent().build();
     }
 }

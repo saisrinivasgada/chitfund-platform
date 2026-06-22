@@ -44,6 +44,10 @@ public class PaymentRecord {
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private PaymentRecordStatus status;
 
+    // Set when status = PAYOUT_DEDUCTED — links back to the payout that withheld this installment.
+    // Used by revertPayoutDeductions to undo across all chits in one call.
+    private UUID settledByPayoutId;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

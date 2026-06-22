@@ -244,6 +244,46 @@ public class PaymentService {
         return toBatchResponse(batch, allocations);
     }
 
+    /**
+     * Marks a payment record as PAYOUT_DEDUCTED — the installment was withheld from the
+     * winner's payout. No batch is created, no treasury movement. amountPaid is set to
+     * amountDue so the draw card shows balance = 0. settledByPayoutId links back to the
+     * payout for reversal.
+     *
+     * Idempotent: safe to call even if already PAYOUT_DEDUCTED or SETTLED.
+     */
+    @Transactional
+    public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
+        paymentRecordRepository.findByChitIdAndMemberIdAndMonthNumber(chitId, memberId, monthNumber)
+                .ifPresent(record -> {
+                    if (record.getStatus() == PaymentRecordStatus.SETTLED
+                            || record.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED) return;
+                    record.setAmountPaid(record.getAmountDue());
+                    record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
+                    record.setSettledByPayoutId(payoutId);
+                    paymentRecordRepository.save(record);
+                    log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
+                            chitId, memberId, monthNumber, payoutId);
+                });
+    }
+
+    /**
+     * Reverses all PAYOUT_DEDUCTED records linked to a payout (across all chits).
+     * Called when a payout is cancelled or its draw is deleted.
+     */
+    @Transactional
+    public void revertPayoutDeductions(UUID payoutId) {
+        List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
+        for (PaymentRecord r : records) {
+            if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
+            r.setAmountPaid(BigDecimal.ZERO);
+            r.setStatus(PaymentRecordStatus.OUTSTANDING);
+            r.setSettledByPayoutId(null);
+            paymentRecordRepository.save(r);
+        }
+        log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", records.size(), payoutId);
+    }
+
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPaymentBatches(UUID memberId, UUID chitId) {
         return batchRepository.findByMemberIdAndChitIdOrderByCreatedAtDesc(memberId, chitId).stream()

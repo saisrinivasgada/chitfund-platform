@@ -23,6 +23,12 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     // All records for a given cycle (used in dashboard stats)
     List<PaymentRecord> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
+    // Single record lookup for mark/revert payout-deducted operations
+    Optional<PaymentRecord> findByChitIdAndMemberIdAndMonthNumber(UUID chitId, UUID memberId, int monthNumber);
+
+    // All records withheld by a specific payout — used to revert across chits in one call
+    List<PaymentRecord> findBySettledByPayoutId(UUID settledByPayoutId);
+
     void deleteByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
     // Total outstanding across all chits for a single member
