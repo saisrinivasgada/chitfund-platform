@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Publishes domain events to SQS queues.
  *
@@ -42,12 +44,20 @@ public class PaymentEventPublisher {
         send(SqsQueues.PAYMENT_COMPLETED, event);
     }
 
+    // WHY CompletableFuture.runAsync()?
+    // sqsTemplate.send() blocks until AWS SQS responds. If the queue doesn't exist
+    // or IAM credentials aren't set up, the AWS SDK retries with backoff for 30-60s
+    // before throwing — making every draw open hang for a minute. Running async means
+    // the HTTP response returns immediately after the DB commit; SQS delivery is
+    // best-effort in the background (matches the try-catch contract above).
     private void send(String queue, Object event) {
-        try {
-            sqsTemplate.send(queue, event);
-            log.debug("Published {} to queue {}", event.getClass().getSimpleName(), queue);
-        } catch (Exception e) {
-            log.warn("Failed to publish {} to queue {}: {}", event.getClass().getSimpleName(), queue, e.getMessage());
-        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                sqsTemplate.send(queue, event);
+                log.debug("Published {} to queue {}", event.getClass().getSimpleName(), queue);
+            } catch (Exception e) {
+                log.warn("Failed to publish {} to queue {}: {}", event.getClass().getSimpleName(), queue, e.getMessage());
+            }
+        });
     }
 }
