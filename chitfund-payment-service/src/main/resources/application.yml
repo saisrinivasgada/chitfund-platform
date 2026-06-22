@@ -31,7 +31,11 @@ spring:
       region:
         static: ${AWS_REGION:ap-south-1}
       credentials:
-        use-default-aws-credentials-chain: true
+        # Fallback to dummy values locally so the SqsAsyncClient bean starts without
+        # real credentials. SQS sends fail silently (caught by async wrapper). On EC2,
+        # AWS_ACCESS_KEY_ID env var overrides these with real credentials.
+        access-key: ${AWS_ACCESS_KEY_ID:local-dummy}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:local-dummy}
 
 server:
   port: 8084
