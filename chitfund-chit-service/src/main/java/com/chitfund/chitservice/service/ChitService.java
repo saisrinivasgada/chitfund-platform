@@ -129,7 +129,7 @@ public class ChitService {
                 && chit.getStatus() == ChitStatus.ACTIVE;
         chit.transitionTo(request.getStatus());
         chit.setUpdatedBy(request.getUpdatedBy());
-        if (activatingFromDraft && request.getStartDate() != null && chit.getStartDate() == null) {
+        if (activatingFromDraft && request.getStartDate() != null) {
             chit.setStartDate(request.getStartDate());
             chit.setEndDate(request.getStartDate().plusMonths(chit.getDurationMonths()));
         }

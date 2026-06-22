@@ -7,6 +7,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -24,6 +25,11 @@ public class PayoutResponse {
     private BigDecimal disbursedAmount;
     private BigDecimal remainingAmount;
 
+    // Settlement breakdown
+    private BigDecimal installmentSettlement;
+    private BigDecimal crossChitSettlement;
+    private BigDecimal manualAdjustment;
+
     private PayoutStatus status;
     private DisbursementMode disbursementMode;
     private String referenceNumber;
@@ -39,5 +45,12 @@ public class PayoutResponse {
     private UUID cancelledBy;
     private String cancellationReason;
 
+    private LocalDateTime voidedAt;
+    private UUID voidedBy;
+    private String voidReason;
+
     private LocalDateTime updatedAt;
+
+    // Individual disbursement transactions (empty list for PENDING payouts)
+    private List<PayoutDisbursementResponse> disbursements;
 }

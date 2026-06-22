@@ -43,7 +43,7 @@ public class WinnerService {
     public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
         Chit chit = chitService.findById(chitId);
 
-        if (chit.getStatus() != ChitStatus.ACTIVE) {
+        if (chit.getStatus() != ChitStatus.ACTIVE && chit.getStatus() != ChitStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
         }
         if (request.getMonthNumber() < 1 || request.getMonthNumber() > chit.getDurationMonths()) {

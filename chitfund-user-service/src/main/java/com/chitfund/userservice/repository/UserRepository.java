@@ -32,4 +32,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     java.util.List<User> findByRoleInAndDeletedAtIsNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 
     java.util.List<User> findByRoleInAndDeletedAtIsNotNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
+    // Mobile login — returns all active accounts with this phone number
+    java.util.List<User> findByPhoneAndDeletedAtIsNull(String phone);
+
+    // Used for duplicate-phone-in-category check: "does any active account with this phone
+    // already belong to one of these roles?"
+    boolean existsByPhoneAndRoleInAndDeletedAtIsNull(String phone, java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 }

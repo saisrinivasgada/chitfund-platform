@@ -34,10 +34,22 @@ public class Payout {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal winningAmount;
 
-    // Auction discount: winner bid ₹48k on a ₹60k chit → discount = ₹12k
-    // Lottery/Reservation: 0 (winner gets full amount)
+    // Total deduction from winning amount (sum of the three settlement fields below)
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal discountAmount;
+
+    // Breakdown of discountAmount:
+    @Column(nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal installmentSettlement = BigDecimal.ZERO;  // current month installment collected
+
+    @Column(nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal crossChitSettlement = BigDecimal.ZERO;    // dues from other chits collected
+
+    @Column(nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal manualAdjustment = BigDecimal.ZERO;       // admin-entered extra deduction
 
     // Computed: winningAmount - discountAmount (what winner actually receives)
     @Column(nullable = false, precision = 15, scale = 2)
@@ -74,6 +86,12 @@ public class Payout {
 
     @Column(columnDefinition = "text")
     private String cancellationReason;
+
+    private LocalDateTime voidedAt;
+    private UUID voidedBy;
+
+    @Column(columnDefinition = "text")
+    private String voidReason;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

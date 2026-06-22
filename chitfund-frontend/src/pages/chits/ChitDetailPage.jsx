@@ -29,8 +29,23 @@ import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, Wallet,
 } from 'lucide-react';
+
+function ToggleSwitch({ on, onToggle, disabled = false }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onToggle}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+        on ? 'bg-[#1E3A5F]' : 'bg-gray-300'
+      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : 'translate-x-1'}`} />
+    </button>
+  );
+}
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 function Tabs({ tabs, active, onChange }) {
@@ -82,8 +97,12 @@ function OverviewTab({ chit }) {
     ['Number of Months',     chit.durationMonths ?? chit.totalMembers],
     ['Admin Held Spots',     chit.adminHeldSpotsCount ?? 0],
     ['Monthly Due Date',     chit.monthlyDueDate ? `${chit.monthlyDueDate}th of each month` : '—'],
-    ['Start Date',           chit.startDate ?? '—'],
-    ['End Date',             chit.endDate ?? '—'],
+    ...(chit.status === 'DRAFT'
+      ? [['Anticipated Start Date', chit.startDate ?? '— (set when activating)']]
+      : [
+          ['Start Date', chit.startDate ?? '—'],
+          ['End Date',   chit.endDate ?? '—'],
+        ]),
     ['Winner Selection',     chit.winnerSelectionMode],
     ['Description',          chit.description ?? '—'],
   ];
@@ -1294,7 +1313,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
       // Mark winner slots PROCESSED — commitment is made at cycle open time
       if (slotsToProcess.length > 0) {
-        await Promise.all(slotsToProcess.map((sid) => markSlotProcessed({ chitId, reservationId: sid })));
+        await Promise.all(slotsToProcess.map((sid) => markSlotProcessed({ chitId, reservationId: sid }).catch(() => {})));
       }
 
       // Allocate winner(s) — records who won this cycle; payout is managed separately in Winners tab
@@ -1568,7 +1587,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
       });
       // Shift all future schedule slots forward by 1 — the skipped month is a moratorium,
       // so the member who was due in this month moves to the next real cycle.
-      await shiftReservations({ chitId, fromMonth: monthNum });
+      await shiftReservations({ chitId, fromMonth: monthNum }).catch(() => {});
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
@@ -2177,7 +2196,7 @@ function DrawsTab({ chitId, chit }) {
             memberId: slotToRevert.memberId,
             payoutAmount: slotToRevert.payoutAmount,
             postPayoutContribution: slotToRevert.postPayoutContribution ?? null,
-          });
+          }).catch(() => {});
         }
 
         // 3. Remove the winner record for this cycle
@@ -2536,6 +2555,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
     PENDING:   'bg-amber-100 text-amber-700',
     DISBURSED: 'bg-green-100 text-green-700',
     CANCELLED: 'bg-gray-100 text-gray-500',
+    VOIDED:    'bg-red-100 text-red-500 line-through',
   };
 
   return (
@@ -2575,23 +2595,27 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
                     {w.discountAmount ? `₹${Number(w.discountAmount).toLocaleString()}` : '—'}
                   </Td>
                   <Td>
-                    {payout ? (
+                    {payout && payout.status !== 'VOIDED' ? (
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${PAYOUT_STATUS_STYLE[payout.status] ?? ''}`}>
                         {payout.status === 'PENDING' ? `₹${Number(payout.netPayoutAmount).toLocaleString()} Pending`
                           : payout.status === 'DISBURSED' ? `₹${Number(payout.netPayoutAmount).toLocaleString()} Disbursed`
+                          : payout.status === 'PARTIALLY_DISBURSED' ? `₹${Number(payout.disbursedAmount ?? payout.netPayoutAmount).toLocaleString()} Partial`
                           : 'Cancelled'}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-400 italic">No payout</span>
+                      <span className="text-xs text-gray-400 italic">{payout?.status === 'VOIDED' ? 'Voided' : 'No payout'}</span>
                     )}
                   </Td>
                   <Td className="text-right">
                     {/* Managers: view-only; Admins: full create/disburse access */}
                     {(!isManager || payout?.status === 'DISBURSED') && (
-                      <Button size="sm" variant={payout?.status === 'DISBURSED' ? 'secondary' : 'primary'}
-                        onClick={() => setDisburseTarget({ winner: w, payout, member })}>
+                      <Button size="sm"
+                        variant={payout?.status === 'DISBURSED' ? 'secondary' : 'primary'}
+                        onClick={() => setDisburseTarget({ winner: w, payout: (payout?.status === 'VOIDED' || payout?.status === 'CANCELLED') ? null : payout, member })}>
                         <Banknote size={13} />
-                        {payout ? (payout.status === 'DISBURSED' ? 'View' : payout.status === 'CANCELLED' ? 'Re-create' : 'Disburse') : 'Create Payout'}
+                        {payout && payout.status !== 'VOIDED' && payout.status !== 'CANCELLED'
+                          ? (payout.status === 'DISBURSED' ? 'View' : 'Disburse')
+                          : 'Create Payout'}
                       </Button>
                     )}
                   </Td>
@@ -2632,9 +2656,12 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [payout, setPayout] = useState(initialPayout);
 
   // ── Create payout form state ──
-  const [winningAmt,  setWinningAmt]  = useState(String(winner.winningAmount ?? chit?.chitValue ?? ''));
-  const [discountAmt, setDiscountAmt] = useState(String(winner.discountAmount ?? '0'));
-  const [createNotes, setCreateNotes] = useState('');
+  const [winningAmt,          setWinningAmt]          = useState(String(winner.winningAmount ?? chit?.chitValue ?? ''));
+  const [manualAdjustment,    setManualAdjustment]    = useState(String(winner.discountAmount ?? '0'));
+  const [createNotes,         setCreateNotes]         = useState('');
+  const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
+  const [crossChitCollect,    setCrossChitCollect]    = useState({}); // { [chitId]: { enabled, amount } }
+  const installmentAmount = Number(chit?.installmentAmount ?? 0);
 
   // ── Disburse form state ──
   const [disbMode,  setDisbMode]  = useState('UPI');
@@ -2644,6 +2671,9 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   // ── Cancel payout form state ──
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason,   setCancelReason]   = useState('');
+
+  // ── Partial disburse amount state ──
+  const [disbAmount, setDisbAmount] = useState('');
 
   // ── Cross-chit balance ──
   const { data: memberChits = [] } = useQuery({
@@ -2674,40 +2704,127 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     enabled: memberChits.length > 0 && !!memberId,
   });
 
+  // ── Settlement helpers ──
+  const otherActiveChits = (memberChits ?? []).filter(
+    (c) => String(c.id) !== String(chitId) && c.status === 'ACTIVE'
+  );
+  const crossBalances = Object.fromEntries(
+    (perChitBalances ?? [])
+      .filter((b) => String(b.chitId) !== String(chitId))
+      .map((b) => [String(b.chitId), Number(b.totalOutstanding ?? 0)])
+  );
+  const otherChitsWithBalance = otherActiveChits.filter((c) => (crossBalances[String(c.id)] ?? 0) > 0);
+
+  const currentMonthDed = collectCurrentMonth ? installmentAmount : 0;
+  const crossDed = Object.entries(crossChitCollect)
+    .filter(([, v]) => v.enabled)
+    .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
+  const manualNum  = Number(manualAdjustment) || 0;
+  const totalDiscount = manualNum + currentMonthDed + crossDed;
+  const winNum     = Number(winningAmt) || 0;
+  const netCreate  = Math.max(0, winNum - totalDiscount);
+  const isOverDeducted = totalDiscount > winNum && winNum > 0;
+
+  function toggleCrossChit(cId) {
+    const balance = crossBalances[String(cId)] ?? 0;
+    setCrossChitCollect((prev) => {
+      const cur = prev[String(cId)];
+      if (cur?.enabled) return { ...prev, [String(cId)]: { enabled: false, amount: cur.amount } };
+      return { ...prev, [String(cId)]: { enabled: true, amount: String(balance) } };
+    });
+  }
+  function setCrossAmt(cId, val) {
+    setCrossChitCollect((prev) => ({ ...prev, [String(cId)]: { ...prev[String(cId)], amount: val } }));
+  }
+
   const invalidatePayouts = () => {
     qc.invalidateQueries({ queryKey: ['payouts', chitId] });
   };
 
   // ── Create payout ──
   const createMutation = useMutation({
-    mutationFn: () => createPayout({
-      chitId,
-      memberId,
-      monthNumber,
-      winningAmount:  Number(winningAmt),
-      discountAmount: Number(discountAmt),
-      notes: createNotes || undefined,
-    }),
+    mutationFn: async () => {
+      const p = await createPayout({
+        chitId,
+        memberId,
+        monthNumber,
+        winningAmount:         winNum,
+        discountAmount:        totalDiscount,
+        installmentSettlement: currentMonthDed || undefined,
+        crossChitSettlement:   crossDed || undefined,
+        manualAdjustment:      manualNum || undefined,
+        notes: createNotes || undefined,
+      });
+      // Record settlement payments best-effort; tag with payout ID so void can find them across chits
+      const payoutTag = `[payout=${p.id}]`;
+      const tasks = [];
+      if (collectCurrentMonth && installmentAmount > 0) {
+        tasks.push(recordPayment({
+          chitId,
+          memberId,
+          amount: installmentAmount,
+          paymentMode: 'BANK_TRANSFER',
+          notes: `Disbursement settlement — Draw ${monthNumber} installment ${payoutTag}`,
+        }).catch(() => null));
+      }
+      Object.entries(crossChitCollect)
+        .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+        .forEach(([xChitId, v]) => {
+          // Find oldest outstanding draw number for this cross-chit so the note is specific
+          const xBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(xChitId));
+          const oldestDraw = xBalance?.months?.[0]?.monthNumber;
+          const crossNote = oldestDraw
+            ? `Disbursement settlement — Draw ${oldestDraw} installment ${payoutTag}`
+            : `Disbursement settlement — installment collection ${payoutTag}`;
+          tasks.push(recordPayment({
+            chitId: xChitId,
+            memberId,
+            amount: Number(v.amount),
+            paymentMode: 'BANK_TRANSFER',
+            notes: crossNote,
+          }).catch(() => null));
+        });
+      if (tasks.length > 0) await Promise.all(tasks);
+      return p;
+    },
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();
-      toast.success('Payout record created — ready to disburse');
+      qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
+      // Refresh draw payment cards so installment/cross-chit payments appear immediately
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+      qc.invalidateQueries({ queryKey: ['draws', chitId] });
+      qc.invalidateQueries({ queryKey: ['paymentHistory', chitId, memberId] });
+      const msg = currentMonthDed > 0 || crossDed > 0
+        ? `Payout created · ₹${totalDiscount.toLocaleString('en-IN')} collected as settlement`
+        : 'Payout record created — ready to disburse';
+      toast.success(msg);
     },
     onError: (e) => toast.error(e.response?.data?.message ?? 'Failed to create payout'),
   });
 
   // ── Disburse ──
   const disbMutation = useMutation({
-    mutationFn: () => disbursePayout({
-      id: payout.id,
-      disbursementMode: disbMode,
-      referenceNumber:  disbMode !== 'CASH' ? refNum : undefined,
-      notes: disbNotes || undefined,
-    }),
+    mutationFn: () => {
+      const remaining = Number(payout.remainingAmount ?? payout.netPayoutAmount ?? 0);
+      const enteredAmt = disbAmount.trim() !== '' ? Number(disbAmount) : null;
+      return disbursePayout({
+        id: payout.id,
+        disbursementMode: disbMode,
+        referenceNumber:  disbMode !== 'CASH' ? refNum : undefined,
+        notes: disbNotes || undefined,
+        amount: enteredAmt != null && enteredAmt < remaining ? enteredAmt : undefined,
+      });
+    },
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();
-      toast.success('Payout disbursed successfully');
+      setDisbAmount('');
+      setRefNum('');
+      setDisbNotes('');
+      toast.success(p.status === 'DISBURSED'
+        ? 'Full amount disbursed — payout complete'
+        : `₹${Number(p.disbursedAmount).toLocaleString('en-IN')} disbursed — ₹${Number(p.remainingAmount).toLocaleString('en-IN')} remaining`);
     },
     onError: (e) => toast.error(e.response?.data?.message ?? 'Disbursement failed'),
   });
@@ -2724,7 +2841,8 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     onError: (e) => toast.error(e.response?.data?.message ?? 'Failed to cancel payout'),
   });
 
-  const net         = payout ? Number(payout.netPayoutAmount) : (Number(winningAmt) - Number(discountAmt));
+
+  const net         = payout ? Number(payout.netPayoutAmount) : netCreate;
   const totalDues   = Number(totalBalance ?? 0);
   const afterDues   = Math.max(0, net - totalDues);
   const hasDues     = totalDues > 0;
@@ -2733,7 +2851,9 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const STATUS_ICON = {
     PENDING:   <AlertCircle size={15} className="text-amber-500" />,
     DISBURSED: <CheckCircle size={15} className="text-green-500" />,
+    PARTIALLY_DISBURSED: <AlertCircle size={15} className="text-blue-500" />,
     CANCELLED: <XCircle    size={15} className="text-gray-400"  />,
+    VOIDED:    <XCircle    size={15} className="text-red-400"   />,
   };
 
   return (
@@ -2792,10 +2912,12 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
               {STATUS_ICON[payout.status]}
               <span className="text-sm font-semibold text-gray-800">Payout Record</span>
               <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${
-                payout.status === 'PENDING'   ? 'bg-amber-100 text-amber-700' :
-                payout.status === 'DISBURSED' ? 'bg-green-100 text-green-700' :
-                                                'bg-gray-100 text-gray-500'}`}>
-                {payout.status}
+                payout.status === 'PENDING'              ? 'bg-amber-100 text-amber-700' :
+                payout.status === 'DISBURSED'            ? 'bg-green-100 text-green-700' :
+                payout.status === 'PARTIALLY_DISBURSED'  ? 'bg-blue-100 text-blue-700' :
+                payout.status === 'VOIDED'               ? 'bg-red-100 text-red-500' :
+                                                           'bg-gray-100 text-gray-500'}`}>
+                {payout.status === 'PARTIALLY_DISBURSED' ? 'Partial' : payout.status}
               </span>
             </div>
             <div className="px-4 py-3 space-y-2 text-sm">
@@ -2826,29 +2948,49 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                   </p>
                 </>
               )}
-              {payout.status === 'DISBURSED' && (
-                <div className="pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Disbursed via</span>
-                    <span className="font-medium text-gray-700">{payout.disbursementMode}</span>
-                  </div>
-                  {payout.referenceNumber && (
-                    <div className="flex justify-between">
-                      <span>Reference</span>
-                      <span className="font-medium text-gray-700 font-mono">{payout.referenceNumber}</span>
+              {/* Disbursement transaction history — shown for any paid status */}
+              {(payout.status === 'DISBURSED' || payout.status === 'PARTIALLY_DISBURSED') && payout.disbursements?.length > 0 && (
+                <div className="pt-2 border-t border-gray-100 space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Disbursement{payout.disbursements.length > 1 ? ` transactions (${payout.disbursements.length})` : ''}
+                  </p>
+                  {payout.disbursements.map((d, i) => (
+                    <div key={d.id} className="text-xs bg-gray-50 rounded-lg px-3 py-2 space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-700">
+                          #{i + 1} · ₹{Number(d.amount).toLocaleString('en-IN')}
+                        </span>
+                        <span className="text-gray-500">{d.mode?.replace('_', ' ')}</span>
+                      </div>
+                      {d.referenceNumber && (
+                        <div className="text-gray-400 font-mono">{d.referenceNumber}</div>
+                      )}
+                      <div className="text-gray-400">
+                        {new Date(d.disbursedAt).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                      </div>
+                      {d.notes && <div className="text-gray-400 italic">{d.notes}</div>}
+                    </div>
+                  ))}
+                  {payout.status === 'PARTIALLY_DISBURSED' && (
+                    <div className="text-xs text-blue-600 font-medium pt-1">
+                      ₹{Number(payout.disbursedAmount).toLocaleString('en-IN')} disbursed · ₹{Number(payout.remainingAmount).toLocaleString('en-IN')} remaining
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span>Disbursed on</span>
-                    <span className="font-medium text-gray-700">
-                      {new Date(payout.disbursedAt).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
-                    </span>
-                  </div>
                 </div>
               )}
               {payout.status === 'CANCELLED' && (
                 <div className="pt-2 border-t border-gray-100 text-xs text-red-500">
                   Cancelled: {payout.cancellationReason}
+                </div>
+              )}
+              {payout.status === 'VOIDED' && (
+                <div className="pt-2 border-t border-gray-100 text-xs text-red-500">
+                  Voided: {payout.voidReason}
+                  {payout.voidedAt && (
+                    <span className="ml-2 text-gray-400">
+                      {new Date(payout.voidedAt).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                    </span>
+                  )}
                 </div>
               )}
               {payout.notes && (
@@ -2860,24 +3002,149 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
         {/* ── No payout yet — create form ── */}
         {!payout && (
-          <div className="border border-gray-200 rounded-xl p-4 space-y-4">
-            <p className="text-sm font-semibold text-gray-700">Create Payout Record</p>
-            <div className="grid grid-cols-2 gap-4">
-              <FormField label="Winning Amount (₹)" required>
-                <Input type="number" min="0" value={winningAmt}
-                  onChange={(e) => setWinningAmt(e.target.value)} />
-              </FormField>
-              <FormField label="Adjusted Amount (₹)" required>
-                <Input type="number" min="0" value={discountAmt}
-                  onChange={(e) => setDiscountAmt(e.target.value)} />
-              </FormField>
+          <div className="space-y-4">
+            <FormField label="Winning Amount (₹)" required>
+              <Input type="number" min="0" value={winningAmt}
+                onChange={(e) => setWinningAmt(e.target.value)} />
+            </FormField>
+
+            {/* ── Settlement Section ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
+                <Wallet size={14} className="text-[#1E3A5F]" />
+                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                  Collect at Disbursement
+                </span>
+              </div>
+              <div className="divide-y divide-gray-100">
+
+                {/* Current month installment */}
+                {installmentAmount > 0 && (
+                  <div className="px-4 py-3 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {collectCurrentMonth && (
+                        <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                      )}
+                      <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Cross-chit dues */}
+                {otherChitsWithBalance.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 bg-gray-50">
+                      <p className="text-xs font-medium text-gray-500">Outstanding dues in other chits</p>
+                    </div>
+                    {otherChitsWithBalance.map((c) => {
+                      const balance = crossBalances[String(c.id)] ?? 0;
+                      const state   = crossChitCollect[String(c.id)];
+                      const isOn    = state?.enabled ?? false;
+                      const amt     = state?.amount ?? String(balance);
+                      const amtNum  = Math.max(0, Number(amt) || 0);
+                      const exceeds = amtNum > balance;
+                      return (
+                        <div key={c.id} className="px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                Outstanding: <span className="text-red-600 font-medium">₹{balance.toLocaleString('en-IN')}</span>
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-gray-500">Collect now</span>
+                              <ToggleSwitch on={isOn} onToggle={() => toggleCrossChit(c.id)} />
+                            </div>
+                          </div>
+                          {isOn && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16 flex-shrink-0">Amount (₹)</span>
+                              <Input type="number" min="1" max={balance} value={amt}
+                                onChange={(e) => setCrossAmt(c.id, e.target.value)} className="w-40" />
+                              {amtNum > 0 && !exceeds && (
+                                <span className="text-xs font-semibold text-[#1E3A5F]">−₹{amtNum.toLocaleString('en-IN')}</span>
+                              )}
+                              {exceeds && (
+                                <p className="text-xs text-red-500 flex items-center gap-1">
+                                  <AlertCircle size={11} /> Max ₹{balance.toLocaleString('en-IN')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {otherChitsWithBalance.length === 0 && installmentAmount === 0 && (
+                  <div className="px-4 py-3 text-xs text-gray-400 italic">
+                    No outstanding dues or installment to collect.
+                  </div>
+                )}
+              </div>
             </div>
-            {Number(winningAmt) > 0 && (
-              <div className="flex justify-between text-sm bg-green-50 border border-green-200 rounded-lg px-4 py-2.5">
-                <span className="text-gray-600">Net payout</span>
-                <span className="font-semibold text-green-700">₹{Math.max(0, Number(winningAmt) - Number(discountAmt)).toLocaleString()}</span>
+
+            {/* Manual adjustment */}
+            <FormField label="Additional Adjustment (₹)">
+              <Input type="number" min="0" value={manualAdjustment}
+                onChange={(e) => setManualAdjustment(e.target.value)} placeholder="0" />
+              <p className="text-xs text-gray-400 mt-1">Any extra deduction e.g. security deposit, commission</p>
+            </FormField>
+
+            {/* Breakdown summary */}
+            {winNum > 0 && (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-200">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout Breakdown</p>
+                </div>
+                <div className="px-4 py-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Winning amount</span>
+                    <span className="font-medium text-gray-900">₹{winNum.toLocaleString('en-IN')}</span>
+                  </div>
+                  {collectCurrentMonth && installmentAmount > 0 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span className="flex items-center gap-1"><ArrowRight size={12} /> Draw {monthNumber} installment</span>
+                      <span>−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                  {Object.entries(crossChitCollect).filter(([, v]) => v.enabled && Number(v.amount) > 0).map(([cId, v]) => {
+                    const cName = otherActiveChits.find((c) => String(c.id) === cId)?.name ?? cId;
+                    return (
+                      <div key={cId} className="flex justify-between text-amber-700">
+                        <span className="flex items-center gap-1 truncate max-w-[200px]"><ArrowRight size={12} /> {cName}</span>
+                        <span>−₹{Number(v.amount).toLocaleString('en-IN')}</span>
+                      </div>
+                    );
+                  })}
+                  {manualNum > 0 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span className="flex items-center gap-1"><ArrowRight size={12} /> Adjustment</span>
+                      <span>−₹{manualNum.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+                  <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
+                    <span className="text-gray-700">Net cash to member</span>
+                    <span className={netCreate === 0 ? 'text-red-600' : 'text-green-700'}>
+                      ₹{netCreate.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
+
+            {isOverDeducted && (
+              <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5 text-sm text-red-700">
+                <AlertCircle size={14} /> Total deductions exceed winning amount.
+              </div>
+            )}
+
             <FormField label="Notes (optional)">
               <Textarea value={createNotes} onChange={(e) => setCreateNotes(e.target.value)}
                 placeholder="Any notes for this payout…" rows={2} />
@@ -2885,18 +3152,33 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             <Button
               className="w-full"
               loading={createMutation.isPending}
-              disabled={!winningAmt || Number(winningAmt) <= Number(discountAmt)}
+              disabled={!winningAmt || winNum <= 0 || isOverDeducted || netCreate <= 0 ||
+                Object.entries(crossChitCollect).some(([cId, v]) => {
+                  if (!v.enabled) return false;
+                  return Number(v.amount) > (crossBalances[String(cId)] ?? 0);
+                })
+              }
               onClick={() => createMutation.mutate()}
             >
-              Create Payout Record
+              <Banknote size={15} />
+              Create Payout · Net ₹{netCreate.toLocaleString('en-IN')}
             </Button>
           </div>
         )}
 
-        {/* ── Disburse form — only when PENDING ── */}
-        {payout?.status === 'PENDING' && !showCancelForm && (
+        {/* ── Disburse form — for PENDING and PARTIALLY_DISBURSED ── */}
+        {(payout?.status === 'PENDING' || payout?.status === 'PARTIALLY_DISBURSED') && !showCancelForm && (
           <div className="border border-gray-200 rounded-xl p-4 space-y-4">
-            <p className="text-sm font-semibold text-gray-700">Record Disbursement</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700">
+                {payout.status === 'PARTIALLY_DISBURSED' ? 'Record Next Disbursement' : 'Record Disbursement'}
+              </p>
+              {payout.status === 'PARTIALLY_DISBURSED' && (
+                <span className="text-xs text-blue-700 font-medium">
+                  ₹{Number(payout.remainingAmount).toLocaleString('en-IN')} remaining
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Mode" required>
                 <Select value={disbMode} onChange={(e) => { setDisbMode(e.target.value); setRefNum(''); }}>
@@ -2916,22 +3198,50 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                 </FormField>
               )}
             </div>
+            {/* Amount field — leave blank to disburse full remaining amount */}
+            <FormField label={`Amount to disburse (₹) — blank = full ₹${Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}`}>
+              <Input
+                type="number"
+                min="1"
+                max={Number(payout.remainingAmount ?? payout.netPayoutAmount)}
+                value={disbAmount}
+                onChange={(e) => setDisbAmount(e.target.value)}
+                placeholder={`Up to ₹${Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}`}
+              />
+              {disbAmount.trim() !== '' && Number(disbAmount) > Number(payout.remainingAmount ?? payout.netPayoutAmount) && (
+                <p className="text-xs text-red-500 mt-1">
+                  Cannot exceed remaining ₹{Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}
+                </p>
+              )}
+              {disbAmount.trim() !== '' && Number(disbAmount) > 0 && Number(disbAmount) < Number(payout.remainingAmount ?? payout.netPayoutAmount) && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Partial — ₹{(Number(payout.remainingAmount ?? payout.netPayoutAmount) - Number(disbAmount)).toLocaleString('en-IN')} will still be owed
+                </p>
+              )}
+            </FormField>
             <FormField label="Notes (optional)">
               <Textarea value={disbNotes} onChange={(e) => setDisbNotes(e.target.value)}
                 placeholder="Any disbursement notes…" rows={2} />
             </FormField>
             <div className="flex gap-3">
-              <Button variant="secondary" size="sm" onClick={() => setShowCancelForm(true)}>
-                Cancel Payout
-              </Button>
+              {payout.status === 'PENDING' && (
+                <Button variant="secondary" size="sm" onClick={() => setShowCancelForm(true)}>
+                  Cancel Payout
+                </Button>
+              )}
               <Button
                 className="flex-1"
                 loading={disbMutation.isPending}
-                disabled={needsRef && !refNum.trim()}
+                disabled={
+                  (needsRef && !refNum.trim()) ||
+                  (disbAmount.trim() !== '' && (Number(disbAmount) <= 0 || Number(disbAmount) > Number(payout.remainingAmount ?? payout.netPayoutAmount)))
+                }
                 onClick={() => disbMutation.mutate()}
               >
                 <Banknote size={15} />
-                Disburse ₹{Number(payout.netPayoutAmount).toLocaleString()}
+                {disbAmount.trim() !== '' && Number(disbAmount) > 0 && Number(disbAmount) < Number(payout.remainingAmount ?? payout.netPayoutAmount)
+                  ? `Disburse ₹${Number(disbAmount).toLocaleString('en-IN')}`
+                  : `Disburse ₹${Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}`}
               </Button>
             </div>
           </div>
@@ -2988,7 +3298,34 @@ function HeaderActions({ chitId, chit }) {
   };
 
   const statusMutation = useMutation({
-    mutationFn: ({ status, startDate }) => updateChitStatus({ id: chitId, status, startDate: startDate || null }),
+    mutationFn: async ({ status, startDate }) => {
+      // When activating with a start date that differs from the anticipated date,
+      // shift all RESERVED/UNALLOCATED reservation months to match the actual start date.
+      if (status === 'ACTIVE' && startDate && chit.startDate && startDate !== chit.startDate) {
+        const [ay, am] = chit.startDate.split('-').map(Number);
+        const [by, bm] = startDate.split('-').map(Number);
+        const offsetMonths = (by - ay) * 12 + (bm - am);
+        if (offsetMonths !== 0) {
+          const shiftable = reservations.filter((r) => r.status === 'RESERVED' || r.status === 'UNALLOCATED');
+          await Promise.all(shiftable.map((r) => {
+            const parts = r.reservationMonth.split('-').map(Number);
+            const totalMonths = (parts[0] - 1) * 12 + parts[1] + offsetMonths;
+            const newYear = Math.floor((totalMonths - 1) / 12) + 1;
+            const newMonth = ((totalMonths - 1) % 12) + 1;
+            const newDate = `${newYear}-${String(newMonth).padStart(2, '0')}-01`;
+            return updateReservationSlot({
+              chitId,
+              reservationId: r.id,
+              reservationMonth: newDate,
+              memberId: r.memberId || null,
+              payoutAmount: r.payoutAmount,
+              postPayoutContribution: r.postPayoutContribution || null,
+            }).catch(() => {});
+          }));
+        }
+      }
+      return updateChitStatus({ id: chitId, status, startDate: startDate || null });
+    },
     onSuccess: () => { invalidate(); toast.success('Status updated'); setPendingStatus(null); setPendingStartDate(''); setShowStatusMenu(false); },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to update status'),
   });
@@ -3082,7 +3419,7 @@ function HeaderActions({ chitId, chit }) {
               <div className="absolute right-0 top-full mt-1 bg-white rounded-lg border border-gray-200 shadow-lg z-20 min-w-[160px] py-1">
                 {statusTargets.map((s) => (
                   <button key={s}
-                    onClick={() => { setShowStatusMenu(false); setPendingStatus(s); }}
+                    onClick={() => { setShowStatusMenu(false); setPendingStatus(s); if (s === 'ACTIVE' && chit.startDate) setPendingStartDate(chit.startDate); }}
                     className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 font-medium ${
                       isDestructiveStatus(s) ? 'text-red-600' : s === 'COMPLETED' ? 'text-green-700' : s === 'DRAFT' ? 'text-amber-700' : 'text-gray-700'
                     }`}>
@@ -3135,16 +3472,20 @@ function HeaderActions({ chitId, chit }) {
             loading={statusMutation.isPending}
             onConfirm={() => statusMutation.mutate({ status: pendingStatus, startDate: pendingStartDate })}
             onClose={() => { setPendingStatus(null); setPendingStartDate(''); }}
-            confirmDisabled={pendingStatus === 'ACTIVE' && status === 'DRAFT' && !chit.startDate && !pendingStartDate}
+            confirmDisabled={pendingStatus === 'ACTIVE' && status === 'DRAFT' && !pendingStartDate}
           >
-            {pendingStatus === 'ACTIVE' && status === 'DRAFT' && !chit.startDate && (
-              <FormField label="Start Date" required>
+            {pendingStatus === 'ACTIVE' && status === 'DRAFT' && (
+              <FormField label="Actual Start Date" required>
                 <DateInput
-                  value={pendingStartDate}
+                  value={pendingStartDate || chit.startDate || ''}
                   onChange={(e) => setPendingStartDate(e.target.value)}
                   required
                 />
-                <p className="text-xs text-gray-400 mt-1">The schedule months will count from this date.</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {chit.startDate
+                    ? `Anticipated: ${new Date(chit.startDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}. Change if the actual start differs — schedule months will shift accordingly.`
+                    : 'Schedule months will count from this date.'}
+                </p>
               </FormField>
             )}
           </ConfirmDialog>

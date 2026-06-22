@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle, Clock, XCircle, Banknote, CreditCard, Building2,
   User, FileText, Calendar, Hash, Layers, AlertCircle, Receipt, AlertTriangle,
+  Mail, MapPin, Phone, Copy, Check, IndianRupee, Users, CalendarDays,
 } from 'lucide-react';
 import {
   getPaymentBatchById, getMember, getChit, listStaff, getDraws,
@@ -35,6 +36,33 @@ function fmtDateTime(dt) {
   const d = new Date(dt);
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     + ' · ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+function fmtDate(dt) {
+  if (!dt) return '—';
+  return new Date(dt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function CopyableId({ value }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="flex items-center gap-1.5 font-mono text-xs text-gray-400 hover:text-gray-700 transition-colors cursor-pointer group"
+      title="Copy transaction ID"
+    >
+      <span className="truncate max-w-[220px]">{value}</span>
+      {copied
+        ? <Check size={12} className="text-green-500 flex-shrink-0" />
+        : <Copy size={12} className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />}
+    </button>
+  );
 }
 
 function InfoRow({ icon: Icon, label, value, valueClass = '' }) {
@@ -203,7 +231,7 @@ export default function TransactionDetailPage() {
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-gray-900">Transaction Detail</h1>
-          <p className="text-xs text-gray-400 font-mono truncate">{batch.id}</p>
+          <CopyableId value={batch.id} />
         </div>
         <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
           <StatusIcon size={12} />
@@ -231,7 +259,10 @@ export default function TransactionDetailPage() {
         <div>
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Total Amount</p>
           <p className="text-4xl font-bold text-gray-900">{fmtAmt(batch.totalAmount)}</p>
-          <p className="text-xs text-gray-400 mt-1">{fmtDateTime(batch.createdAt)}</p>
+          <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+            <Calendar size={11} />
+            Recorded {fmtDateTime(batch.createdAt)}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-3">
           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
@@ -240,7 +271,7 @@ export default function TransactionDetailPage() {
           </span>
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700">
             <ModeIcon size={14} className="text-gray-500" />
-            {batch.paymentMode}
+            {batch.paymentMode?.replace('_', ' ')}
           </span>
         </div>
       </div>
@@ -249,13 +280,25 @@ export default function TransactionDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Member */}
         <Card title="Member" icon={User}>
-          <InfoRow icon={User}    label="Name"  value={memberName} />
-          {memberPhone && <InfoRow icon={Receipt} label="Phone" value={memberPhone} />}
+          <InfoRow icon={User} label="Name" value={memberName} />
+          {memberPhone && (
+            <InfoRow icon={Phone} label="Phone"
+              value={member?.phoneCountryCode ? `${member.phoneCountryCode} ${memberPhone}` : memberPhone} />
+          )}
+          {member?.email && <InfoRow icon={Mail} label="Email" value={member.email} />}
+          {member?.city && <InfoRow icon={MapPin} label="City" value={member.city} />}
+          {member?.status && (
+            <InfoRow icon={Hash} label="Status" value={member.status}
+              valueClass={
+                member.status === 'ACTIVE'      ? 'text-green-600' :
+                member.status === 'BLACKLISTED' ? 'text-red-600'   : 'text-gray-500'
+              } />
+          )}
         </Card>
 
         {/* Chit */}
-        <Card title="Chit" icon={Layers}>
-          <InfoRow icon={Layers} label="Chit Name" value={chitName} />
+        <Card title="Chit Fund" icon={Layers}>
+          <InfoRow icon={Layers} label="Name" value={chitName} />
           {chitStatus && (
             <InfoRow icon={Hash} label="Status" value={chitStatus}
               valueClass={
@@ -264,8 +307,25 @@ export default function TransactionDetailPage() {
                 chitStatus === 'PAUSED'    ? 'text-amber-600' : ''
               } />
           )}
+          {chit?.chitValue && (
+            <InfoRow icon={IndianRupee} label="Chit Value" value={fmtAmt(chit.chitValue)} />
+          )}
           {chit?.installmentAmount && (
             <InfoRow icon={Banknote} label="Monthly Installment" value={fmtAmt(chit.installmentAmount)} />
+          )}
+          {chit?.durationMonths && (
+            <InfoRow icon={CalendarDays} label="Duration"
+              value={`${chit.durationMonths} months`} />
+          )}
+          {chit?.totalMembers != null && (
+            <InfoRow icon={Users} label="Members"
+              value={`${chit.enrolledCount ?? '—'} enrolled / ${chit.totalMembers} total`} />
+          )}
+          {chit?.startDate && (
+            <InfoRow icon={Calendar} label="Start Date" value={fmtDate(chit.startDate)} />
+          )}
+          {chit?.endDate && (
+            <InfoRow icon={Calendar} label="End Date" value={fmtDate(chit.endDate)} />
           )}
         </Card>
       </div>

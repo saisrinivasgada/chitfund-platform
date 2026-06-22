@@ -276,6 +276,7 @@ function CreateChitModal({ onClose }) {
             <FormField label="Anticipated Start Date">
               <DateInput value={basic.startDate}
                 onChange={(e) => setBasicField('startDate', e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">Used to generate month labels in the schedule. Actual start date is set when activating.</p>
             </FormField>
           </div>
           <div className="flex gap-3 pt-4">
@@ -731,7 +732,7 @@ export default function ChitsPage() {
       .filter((c) => {
         if (c.status !== 'ACTIVE' || !c.startDate) return false;
         const elapsed = monthsElapsed(c.startDate);
-        if (elapsed < 0) return false; // chit hasn't started yet
+        if (elapsed <= 0) return false; // chit hasn't started yet or started this month
         const expectedCycle = elapsed + 1;
         const latestCycle = latestCycleMap[c.id] ?? 0;
         return latestCycle < expectedCycle;

@@ -24,10 +24,15 @@ public class CreatePayoutRequest {
     @DecimalMin("0.01")
     private BigDecimal winningAmount;
 
-    // 0 for lottery/reservation; auction bid discount for auction mode
+    // Total deduction = installmentSettlement + crossChitSettlement + manualAdjustment
     @NotNull
     @DecimalMin("0.00")
     private BigDecimal discountAmount;
+
+    // Breakdown of discountAmount (all optional, default 0)
+    private BigDecimal installmentSettlement;
+    private BigDecimal crossChitSettlement;
+    private BigDecimal manualAdjustment;
 
     private String notes;
 }

@@ -24,9 +24,6 @@ const INITIAL_FORM = {
   city: '',
   aadhaarLast4: '',
   panNumber: '',
-  bankName: '',
-  bankAccountNumber: '',
-  bankIfsc: '',
   notes: '',
   referredById: '',
 };
@@ -133,32 +130,6 @@ function AddMemberModal({ onClose }) {
               placeholder="ABCDE1234F"
               value={form.panNumber}
               onChange={(e) => set('panNumber', e.target.value.toUpperCase())}
-            />
-          </FormField>
-        </div>
-
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">Bank Details</p>
-
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Bank Name">
-            <Input
-              placeholder="SBI / HDFC / ICICI"
-              value={form.bankName}
-              onChange={(e) => set('bankName', e.target.value)}
-            />
-          </FormField>
-          <FormField label="Account Number">
-            <Input
-              placeholder="Account number"
-              value={form.bankAccountNumber}
-              onChange={(e) => set('bankAccountNumber', e.target.value)}
-            />
-          </FormField>
-          <FormField label="IFSC Code" className="col-span-2">
-            <Input
-              placeholder="SBIN0001234"
-              value={form.bankIfsc}
-              onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())}
             />
           </FormField>
         </div>

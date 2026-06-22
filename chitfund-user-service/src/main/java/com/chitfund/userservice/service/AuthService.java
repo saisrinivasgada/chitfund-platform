@@ -4,11 +4,14 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.ChangePasswordRequest;
 import com.chitfund.userservice.dto.request.LoginRequest;
+import com.chitfund.userservice.dto.request.MobileLoginRequest;
 import com.chitfund.userservice.dto.request.RefreshTokenRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
+import com.chitfund.userservice.dto.response.MobileLookupResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.mapper.UserMapper;
 import com.chitfund.userservice.repository.RefreshTokenRepository;
@@ -26,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -77,6 +81,22 @@ public class AuthService {
 
         if (email != null && userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.EMAIL_TAKEN);
+        }
+
+        // One phone number may have at most 1 MEMBER account AND at most 1 staff account.
+        // MEMBER + WORKER is fine. WORKER + MANAGER is not — both are staff.
+        String phone = (request.getPhone() != null && !request.getPhone().isBlank()) ? request.getPhone() : null;
+        Role role = request.getRole() != null ? request.getRole() : Role.MEMBER;
+        if (phone != null) {
+            List<Role> sameCategory = role == Role.MEMBER
+                    ? List.of(Role.MEMBER)
+                    : List.of(Role.ADMIN, Role.MANAGER, Role.WORKER, Role.AGENT);
+            if (userRepository.existsByPhoneAndRoleInAndDeletedAtIsNull(phone, sameCategory)) {
+                String categoryLabel = role == Role.MEMBER ? "member" : "staff (worker/manager)";
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "A " + categoryLabel + " account with this mobile number already exists",
+                        org.springframework.http.HttpStatus.CONFLICT);
+            }
         }
 
         // Admin omits password when creating member accounts → auto-generate a temp
@@ -202,6 +222,80 @@ public class AuthService {
                     token.setRevoked(true);
                     refreshTokenRepository.save(token);
                 });
+    }
+
+    // Returns which account types are registered under this mobile number.
+    // Frontend uses this to decide whether to show a role picker before the password step.
+    public MobileLookupResponse lookupByMobile(String phone) {
+        List<User> accounts = userRepository.findByPhoneAndDeletedAtIsNull(phone);
+        List<MobileLookupResponse.AccountOption> options = accounts.stream()
+                .map(u -> MobileLookupResponse.AccountOption.builder()
+                        .role(u.getRole())
+                        .displayLabel(switch (u.getRole()) {
+                            case MEMBER  -> "Member account";
+                            case WORKER, AGENT -> "Worker account";
+                            case MANAGER -> "Manager account";
+                            case ADMIN   -> "Admin account";
+                        })
+                        .build())
+                .toList();
+        return MobileLookupResponse.builder()
+                .singleAccount(options.size() == 1)
+                .accounts(options)
+                .build();
+    }
+
+    // Login with mobile number + password (+ optional role for disambiguation).
+    public AuthResponse loginByMobile(MobileLoginRequest request) {
+        List<User> accounts = userRepository.findByPhoneAndDeletedAtIsNull(request.getPhone());
+        if (accounts.isEmpty()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
+                    "No account found for this mobile number");
+        }
+        User user;
+        if (accounts.size() == 1) {
+            user = accounts.get(0);
+        } else {
+            // Multiple accounts — role is mandatory to identify which one to log in as
+            if (request.getRole() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Multiple accounts exist for this number — please specify your role",
+                        org.springframework.http.HttpStatus.CONFLICT);
+            }
+            user = accounts.stream()
+                    .filter(u -> u.getRole() == request.getRole())
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                            "No " + request.getRole() + " account found for this mobile number"));
+        }
+
+        // Authenticate password against this specific user (same logic as username login)
+        boolean usedTempPassword = false;
+        if (user.getTempPasswordHash() != null
+                && passwordEncoder.matches(request.getPassword(), user.getTempPasswordHash())) {
+            if (!user.isEnabled() || user.isLocked())
+                throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
+            usedTempPassword = true;
+        } else {
+            try {
+                authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Invalid password", org.springframework.http.HttpStatus.UNAUTHORIZED);
+            }
+        }
+
+        user.setFailedLoginAttempts(0);
+        user.setLastLoginAt(LocalDateTime.now());
+        if (usedTempPassword) {
+            user.setMustChangePassword(true);
+        } else {
+            user.setTempPasswordHash(null);
+            user.setMustChangePassword(false);
+        }
+        userRepository.save(user);
+        return buildAuthResponse(user, null);
     }
 
     private AuthResponse buildAuthResponse(User user, String tempPassword) {

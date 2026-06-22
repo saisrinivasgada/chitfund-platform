@@ -33,6 +33,16 @@ export const getMe = async () => {
   return res.data.data;
 };
 
+export const mobileLookup = async (phone) => {
+  const res = await api.post('/auth/mobile-lookup', null, { params: { phone } });
+  return res.data.data; // { singleAccount, accounts: [{ role, displayLabel }] }
+};
+
+export const loginByMobile = async ({ phone, password, role }) => {
+  const res = await api.post('/auth/login-mobile', { phone, password, role: role || undefined });
+  return res.data.data;
+};
+
 // ─── Auth helpers ──────────────────────────────────────────────────────────
 // password intentionally omitted — backend auto-generates a temp password for member accounts
 export const registerUser = async ({ username, email }) => {
@@ -500,6 +510,11 @@ export const disbursePayout = async ({ id, ...body }) => {
 
 export const cancelPayout = async ({ id, reason }) => {
   const res = await api.post(`/payouts/${id}/cancel`, { reason });
+  return res.data.data;
+};
+
+export const voidPayout = async ({ id, reason }) => {
+  const res = await api.post(`/payouts/${id}/void`, { reason });
   return res.data.data;
 };
 

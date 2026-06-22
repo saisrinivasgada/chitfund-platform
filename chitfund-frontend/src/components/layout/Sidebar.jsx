@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { getMe, mobileLookup, loginByMobile } from '../../services/api';
 import NotificationBell from '../notifications/NotificationBell';
+import Modal from '../ui/Modal';
+import Button from '../ui/Button';
+import { Input } from '../ui/FormField';
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +26,9 @@ import {
   Plus,
   X,
   Wallet,
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -79,9 +87,9 @@ function QuickNotes({ role }) {
       const stored = JSON.parse(localStorage.getItem(OWN_KEY)) ?? [];
       return stored.length > 0
         ? stored
-        : [{ id: String(Date.now()), text: '', shared: false }];
+        : [{ id: String(Date.now()), text: '', shared: false, createdAt: Date.now() }];
     } catch {
-      return [{ id: String(Date.now()), text: '', shared: false }];
+      return [{ id: String(Date.now()), text: '', shared: false, createdAt: Date.now() }];
     }
   });
 
@@ -144,7 +152,7 @@ function QuickNotes({ role }) {
   }
 
   function addNote() {
-    const newNote = { id: String(Date.now()), text: '', shared: false };
+    const newNote = { id: String(Date.now()), text: '', shared: false, createdAt: Date.now() };
     setOwnNotes(prev => [...prev, newNote]);
     // Jump to the new note (it'll be at the end of allNotes after state updates)
     setIdx(sharedFromOther.length + ownNotes.length);
@@ -213,6 +221,23 @@ function QuickNotes({ role }) {
               </button>
             </div>
 
+            {/* Date posted */}
+            {(() => {
+              const ts = isViewingShared
+                ? currentNote?.createdAt
+                : ownNotes[ownIdx]?.createdAt;
+              if (!ts) return null;
+              const label = new Date(Number(ts)).toLocaleString('en-IN', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: true,
+              });
+              return (
+                <div className="px-3 pt-1.5 pb-0 flex items-center gap-1">
+                  <span className="text-[9px] text-amber-400">{isViewingShared ? `${otherLabel} · ` : ''}{label}</span>
+                </div>
+              );
+            })()}
+
             {/* Textarea — flex-1 when popup has an explicit height so it fills the space */}
             <textarea
               value={currentNote?.text ?? ''}
@@ -279,14 +304,15 @@ function QuickNotes({ role }) {
                 <Plus size={13} />
               </button>
 
-              {/* Delete — always visible for own notes */}
+              {/* Delete — own notes only (respective role) */}
               {!isViewingShared && (
                 <button
                   onClick={deleteNote}
                   title={ownNotes.length <= 1 ? 'Clear note' : 'Delete this note'}
-                  className="p-0.5 rounded text-amber-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                  className="flex items-center gap-0.5 px-1 py-0.5 rounded text-amber-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                 >
-                  <Trash2 size={12} />
+                  <Trash2 size={11} />
+                  <span className="text-[9px] font-medium">Delete</span>
                 </button>
               )}
             </div>
@@ -356,12 +382,107 @@ function QuickNotes({ role }) {
   );
 }
 
+// ─── Switch-role modal (for WORKER/MANAGER switching to their MEMBER account) ──
+
+function SidebarSwitchModal({ phone, altRole, altLabel, onClose }) {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+
+  const switchMutation = useMutation({
+    mutationFn: () => loginByMobile({ phone, password, role: altRole }),
+    onSuccess: (data) => {
+      const token = data?.accessToken ?? data?.token;
+      const role = data?.user?.role ?? altRole;
+      login(token, {
+        name: data?.user?.fullName ?? data?.user?.username,
+        role,
+        id: data?.user?.id,
+        mustChangePassword: data?.user?.mustChangePassword ?? false,
+      });
+      onClose();
+      navigate(role === 'MEMBER' ? '/member' : '/tasks');
+    },
+    onError: (e) => {
+      setError(e.response?.data?.message ?? 'Invalid password. Please try again.');
+    },
+  });
+
+  return (
+    <Modal title={`Switch to ${altLabel} Account`} onClose={onClose} size="sm">
+      <div className="space-y-5">
+        <p className="text-sm text-gray-500 leading-relaxed">
+          Enter your password to switch to your <span className="font-semibold text-gray-700">{altLabel}</span> account.
+        </p>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Password</label>
+          <div className="relative">
+            <Input
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && password.trim()) switchMutation.mutate(); }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+        {error && (
+          <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+        <div className="flex gap-3 pt-1">
+          <Button variant="muted" size="md" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            size="md"
+            className="flex-1"
+            loading={switchMutation.isPending}
+            disabled={!password.trim()}
+            onClick={() => switchMutation.mutate()}
+          >
+            Switch
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar({ open = false, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const role = user?.role ?? 'ADMIN';
   const initials = (user?.name ?? user?.username ?? 'U').slice(0, 2).toUpperCase();
+  const [showSwitch, setShowSwitch] = useState(false);
+
+  // Detect dual account for WORKER / MANAGER only
+  const isStaff = role === 'WORKER' || role === 'MANAGER' || role === 'AGENT';
+  const { data: me } = useQuery({
+    queryKey: ['myUserAccount'],
+    queryFn: getMe,
+    enabled: isStaff,
+    staleTime: 5 * 60_000,
+  });
+  const { data: lookup } = useQuery({
+    queryKey: ['mobileLookup', me?.phone],
+    queryFn: () => mobileLookup(me.phone),
+    enabled: !!me?.phone,
+    staleTime: 10 * 60_000,
+  });
+  const memberAccount = lookup?.accounts?.find((a) => a.role === 'MEMBER');
+  const altPhone = me?.phone;
 
   const nav = ALL_NAV.filter((item) => !item.roles || item.roles.includes(role));
 
@@ -488,6 +609,17 @@ export default function Sidebar({ open = false, onClose }) {
             </p>
           </div>
         </button>
+        {/* Switch to Member — only when a linked member account exists */}
+        {memberAccount && altPhone && (
+          <button
+            onClick={() => setShowSwitch(true)}
+            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-1"
+          >
+            <RefreshCw size={18} />
+            Switch to Member
+          </button>
+        )}
+
         <button
           onClick={logout}
           className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
@@ -496,6 +628,15 @@ export default function Sidebar({ open = false, onClose }) {
           Sign out
         </button>
       </div>
+
+      {showSwitch && memberAccount && altPhone && (
+        <SidebarSwitchModal
+          phone={altPhone}
+          altRole="MEMBER"
+          altLabel="Member"
+          onClose={() => setShowSwitch(false)}
+        />
+      )}
     </aside>
   );
 }

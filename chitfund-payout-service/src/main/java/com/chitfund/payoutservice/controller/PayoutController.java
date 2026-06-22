@@ -111,6 +111,21 @@ public class PayoutController {
     }
 
     /**
+     * Void any payout regardless of status. Used when a disbursement needs to be reversed.
+     * Sets status to VOIDED, freeing the draw slot for a new payout to be created.
+     * Treasury payment batches created during settlement must be voided separately via payment-service.
+     */
+    @PostMapping("/{id}/void")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<PayoutResponse>> voidPayout(
+            @PathVariable UUID id,
+            @Valid @RequestBody CancelPayoutRequest request,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(payoutService.voidPayout(id, request, adminId)));
+    }
+
+    /**
      * Cancel a PENDING payout. Requires a reason — appended to the audit trail.
      * Cannot cancel a payout that has already been disbursed.
      */

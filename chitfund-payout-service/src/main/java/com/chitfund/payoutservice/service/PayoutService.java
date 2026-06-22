@@ -5,13 +5,16 @@ import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.payoutservice.domain.Payout;
+import com.chitfund.payoutservice.domain.PayoutDisbursement;
 import com.chitfund.payoutservice.domain.enums.DisbursementMode;
 import com.chitfund.payoutservice.domain.enums.PayoutStatus;
 import com.chitfund.payoutservice.dto.request.CancelPayoutRequest;
 import com.chitfund.payoutservice.dto.request.CreatePayoutRequest;
 import com.chitfund.payoutservice.dto.request.DisburseRequest;
+import com.chitfund.payoutservice.dto.response.PayoutDisbursementResponse;
 import com.chitfund.payoutservice.dto.response.PayoutResponse;
 import com.chitfund.payoutservice.kafka.PayoutEventPublisher;
+import com.chitfund.payoutservice.repository.PayoutDisbursementRepository;
 import com.chitfund.payoutservice.repository.PayoutRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,6 +36,7 @@ import java.util.UUID;
 public class PayoutService {
 
     private final PayoutRepository payoutRepository;
+    private final PayoutDisbursementRepository disbursementRepository;
     private final PayoutEventPublisher eventPublisher;
 
     /**
@@ -45,8 +50,9 @@ public class PayoutService {
      */
     @Transactional
     public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId) {
-        if (payoutRepository.existsByChitIdAndMonthNumberAndStatusNot(
-                request.getChitId(), request.getMonthNumber(), PayoutStatus.CANCELLED)) {
+        if (payoutRepository.existsByChitIdAndMonthNumberAndStatusNotIn(
+                request.getChitId(), request.getMonthNumber(),
+                List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))) {
             throw new BusinessException(ErrorCode.PAYOUT_ALREADY_EXISTS,
                     "An active payout already exists for chit " + request.getChitId()
                     + " cycle " + request.getMonthNumber());
@@ -60,6 +66,7 @@ public class PayoutService {
 
         BigDecimal netAmount = request.getWinningAmount().subtract(request.getDiscountAmount());
 
+        BigDecimal zero = BigDecimal.ZERO;
         Payout payout = Payout.builder()
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
@@ -67,6 +74,9 @@ public class PayoutService {
                 .winningAmount(request.getWinningAmount())
                 .discountAmount(request.getDiscountAmount())
                 .netPayoutAmount(netAmount)
+                .installmentSettlement(request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero)
+                .crossChitSettlement(request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero)
+                .manualAdjustment(request.getManualAdjustment() != null ? request.getManualAdjustment() : zero)
                 .notes(request.getNotes())
                 .createdBy(adminId)
                 .build();
@@ -122,15 +132,27 @@ public class PayoutService {
         BigDecimal newDisbursed = alreadyDisbursed.add(thisAmount);
         boolean fullyDisbursed = newDisbursed.compareTo(payout.getNetPayoutAmount()) >= 0;
 
+        LocalDateTime now = LocalDateTime.now();
         payout.setDisbursedAmount(newDisbursed);
         payout.setStatus(fullyDisbursed ? PayoutStatus.DISBURSED : PayoutStatus.PARTIALLY_DISBURSED);
         payout.setDisbursementMode(request.getDisbursementMode());
         if (request.getReferenceNumber() != null) payout.setReferenceNumber(request.getReferenceNumber());
-        payout.setDisbursedAt(LocalDateTime.now());
+        payout.setDisbursedAt(now);
         payout.setDisbursedBy(adminId);
         if (request.getNotes() != null) payout.setNotes(request.getNotes());
 
         payoutRepository.save(payout);
+
+        // Record this individual disbursement transaction so we can show the full history
+        disbursementRepository.save(PayoutDisbursement.builder()
+                .payoutId(payout.getId())
+                .amount(thisAmount)
+                .mode(request.getDisbursementMode())
+                .referenceNumber(request.getReferenceNumber())
+                .notes(request.getNotes())
+                .disbursedBy(adminId)
+                .disbursedAt(now)
+                .build());
         log.info("Payout {} — ₹{} disbursed (total so far: ₹{} / ₹{}) to member {} via {} status={}",
                 payoutId, thisAmount, newDisbursed, payout.getNetPayoutAmount(),
                 payout.getMemberId(), request.getDisbursementMode(), payout.getStatus());
@@ -149,6 +171,22 @@ public class PayoutService {
             ));
         }
 
+        return toResponse(payout);
+    }
+
+    @Transactional
+    public PayoutResponse voidPayout(UUID payoutId, CancelPayoutRequest request, UUID adminId) {
+        Payout payout = findOrThrow(payoutId);
+        if (payout.getStatus() == PayoutStatus.CANCELLED || payout.getStatus() == PayoutStatus.VOIDED) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Payout is already " + payout.getStatus(), HttpStatus.BAD_REQUEST);
+        }
+        payout.setStatus(PayoutStatus.VOIDED);
+        payout.setVoidedAt(LocalDateTime.now());
+        payout.setVoidedBy(adminId);
+        payout.setVoidReason(request.getReason());
+        payoutRepository.save(payout);
+        log.info("Payout {} voided by {}. Reason: {}", payoutId, adminId, request.getReason());
         return toResponse(payout);
     }
 
@@ -241,6 +279,19 @@ public class PayoutService {
     private PayoutResponse toResponse(Payout p) {
         BigDecimal disbursed = p.getDisbursedAmount() != null ? p.getDisbursedAmount() : BigDecimal.ZERO;
         BigDecimal remaining = p.getNetPayoutAmount().subtract(disbursed);
+        List<PayoutDisbursementResponse> disbursements = p.getId() != null
+                ? disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(p.getId()).stream()
+                        .map(d -> PayoutDisbursementResponse.builder()
+                                .id(d.getId())
+                                .amount(d.getAmount())
+                                .mode(d.getMode())
+                                .referenceNumber(d.getReferenceNumber())
+                                .notes(d.getNotes())
+                                .disbursedBy(d.getDisbursedBy())
+                                .disbursedAt(d.getDisbursedAt())
+                                .build())
+                        .toList()
+                : Collections.emptyList();
         return PayoutResponse.builder()
                 .id(p.getId())
                 .chitId(p.getChitId())
@@ -249,6 +300,9 @@ public class PayoutService {
                 .winningAmount(p.getWinningAmount())
                 .discountAmount(p.getDiscountAmount())
                 .netPayoutAmount(p.getNetPayoutAmount())
+                .installmentSettlement(p.getInstallmentSettlement())
+                .crossChitSettlement(p.getCrossChitSettlement())
+                .manualAdjustment(p.getManualAdjustment())
                 .disbursedAmount(disbursed)
                 .remainingAmount(remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining)
                 .status(p.getStatus())
@@ -262,7 +316,11 @@ public class PayoutService {
                 .cancelledAt(p.getCancelledAt())
                 .cancelledBy(p.getCancelledBy())
                 .cancellationReason(p.getCancellationReason())
+                .voidedAt(p.getVoidedAt())
+                .voidedBy(p.getVoidedBy())
+                .voidReason(p.getVoidReason())
                 .updatedAt(p.getUpdatedAt())
+                .disbursements(disbursements)
                 .build();
     }
 }

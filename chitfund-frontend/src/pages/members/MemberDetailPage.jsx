@@ -276,9 +276,6 @@ function EditMemberModal({ member, onClose }) {
     city: member.city ?? '',
     aadhaarLast4: member.aadhaarLast4 ?? '',
     panNumber: member.panNumber ?? '',
-    bankName: member.bankName ?? '',
-    bankAccountNumber: member.bankAccountNumber ?? '',
-    bankIfsc: member.bankIfsc ?? '',
     notes: member.notes ?? '',
     referredById: member.referredById ?? '',
   });
@@ -353,19 +350,6 @@ function EditMemberModal({ member, onClose }) {
           </FormField>
           <FormField label="PAN Number">
             <Input value={form.panNumber} onChange={(e) => set('panNumber', e.target.value.toUpperCase())} />
-          </FormField>
-        </div>
-
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-2">Bank Details</p>
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Bank Name">
-            <Input value={form.bankName} onChange={(e) => set('bankName', e.target.value)} />
-          </FormField>
-          <FormField label="Account Number">
-            <Input value={form.bankAccountNumber} onChange={(e) => set('bankAccountNumber', e.target.value)} />
-          </FormField>
-          <FormField label="IFSC Code" className="col-span-2">
-            <Input value={form.bankIfsc} onChange={(e) => set('bankIfsc', e.target.value.toUpperCase())} />
           </FormField>
         </div>
 
@@ -1044,18 +1028,6 @@ export default function MemberDetailPage() {
           </div>
         </div>
 
-        {/* Bank Details */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Building2 size={18} className="text-[#1E3A5F]" />
-            <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Bank Details
-            </h3>
-          </div>
-          <InfoRow label="Bank Name" value={member.bankName} />
-          <InfoRow label="Account No." value={member.bankAccountNumber} />
-          <InfoRow label="IFSC Code" value={member.bankIfsc} />
-        </div>
       </div>
 
       {/* Notes */}

@@ -5,9 +5,11 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
+import com.chitfund.userservice.dto.request.MobileLoginRequest;
 import com.chitfund.userservice.dto.request.RefreshTokenRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
+import com.chitfund.userservice.dto.response.MobileLookupResponse;
 import com.chitfund.userservice.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -52,5 +54,20 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> logout(@Valid @RequestBody RefreshTokenRequest request) {
         authService.logout(request.getRefreshToken());
         return ResponseEntity.ok(ApiResponse.success(null, "Logged out successfully"));
+    }
+
+    // Step 1 of mobile login: check how many accounts exist for this phone number.
+    // Returns 0, 1, or 2 account options — frontend shows role picker only when 2.
+    @PostMapping("/mobile-lookup")
+    public ResponseEntity<ApiResponse<MobileLookupResponse>> mobileLookup(
+            @RequestParam String phone) {
+        return ResponseEntity.ok(ApiResponse.success(authService.lookupByMobile(phone)));
+    }
+
+    // Step 2 of mobile login: authenticate with phone + password (+ role if 2 accounts exist).
+    @PostMapping("/login-mobile")
+    public ResponseEntity<ApiResponse<AuthResponse>> loginByMobile(
+            @Valid @RequestBody MobileLoginRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(authService.loginByMobile(request), "Login successful"));
     }
 }
