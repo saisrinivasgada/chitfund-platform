@@ -10,7 +10,7 @@ import {
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, markSlotProcessed, swapSlots,
   getMemberBalanceBulk,
   getDrawPayments, recordPayment, collectPayment, remitPayment, getPaymentHistory,
-  getPaymentBatches, voidPaymentBatch,
+  getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
   getMe, listStaff,
@@ -1635,19 +1635,21 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
 }
 
 const STATUS_ROW = {
-  SETTLED:        { bg: 'bg-green-50',  dot: 'bg-green-500',  text: 'Settled'     },
-  PARTIALLY_PAID: { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'     },
-  OUTSTANDING:    { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding' },
-  WAIVED:         { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'      },
+  SETTLED:          { bg: 'bg-green-50',  dot: 'bg-green-500',  text: 'Settled'         },
+  PARTIALLY_PAID:   { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'         },
+  OUTSTANDING:      { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding'     },
+  WAIVED:           { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'          },
+  PAYOUT_DEDUCTED:  { bg: 'bg-purple-50', dot: 'bg-purple-400', text: 'Paid at Payout'  },
 };
 
 function PaymentStatusBadge({ status, overdue }) {
   const style = STATUS_ROW[status] ?? STATUS_ROW.OUTSTANDING;
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full
-      ${status === 'SETTLED'        ? 'bg-green-100 text-green-700'
-      : status === 'PARTIALLY_PAID' ? 'bg-amber-100 text-amber-700'
-      : status === 'WAIVED'         ? 'bg-gray-100 text-gray-500'
+      ${status === 'SETTLED'          ? 'bg-green-100 text-green-700'
+      : status === 'PARTIALLY_PAID'   ? 'bg-amber-100 text-amber-700'
+      : status === 'WAIVED'           ? 'bg-gray-100 text-gray-500'
+      : status === 'PAYOUT_DEDUCTED'  ? 'bg-purple-100 text-purple-700'
       : 'bg-red-100 text-red-600'}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.text}
@@ -1896,7 +1898,8 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
             const member = memberMap[p.memberId];
             const style  = STATUS_ROW[p.status] ?? STATUS_ROW.OUTSTANDING;
             const canCollect   = p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID';
-            const hasPaidSomething = Number(p.amountPaid) > 0;
+            // PAYOUT_DEDUCTED has amountPaid > 0 but no batch — hide the Transactions link
+            const hasPaidSomething = Number(p.amountPaid) > 0 && p.status !== 'PAYOUT_DEDUCTED';
             return (
               <tr key={p.id} className={`${style.bg} hover:brightness-[0.98] transition-all`}>
                 <td className="px-5 py-3">
@@ -2182,28 +2185,18 @@ function DrawsTab({ chitId, chit }) {
       if (winner) {
         const winnerId = winner.memberId ?? winner.winnerId;
 
-        // 2. If a payout was created with a holding installment, the recordPayment call
-        //    would have set amountPaid > 0 on this draw's payment record — deleteDraw
-        //    backend rejects unless that is reversed first. Find and void settlement batches
-        //    tagged [payout=<id>] in their notes, then cancel the payout.
+        // 2. If a payout exists for this draw, revert any PAYOUT_DEDUCTED records and cancel it.
         const payout = payoutByMonth[monthNumber];
         if (payout) {
           if (payout.status === 'PARTIALLY_DISBURSED') {
-            throw new Error('Cannot delete draw — payout has been partially disbursed. Disburse the remaining amount or void the disbursement first.');
+            throw new Error('Cannot delete draw — payout has been partially disbursed. Disburse the remaining amount first.');
           }
           if (payout.status === 'DISBURSED') {
             throw new Error('Cannot delete draw — payout has already been fully disbursed.');
           }
           if (payout.status === 'PENDING') {
-            const batches = await getPaymentBatches({ memberId: winnerId, chitId });
-            const settlementBatches = batches.filter(
-              (b) => b.status === 'COMPLETED' && b.notes?.includes(`[payout=${payout.id}]`)
-            );
-            await Promise.all(
-              settlementBatches.map((b) =>
-                voidPaymentBatch({ batchId: b.id, reason: 'Draw deleted — settlement reversed' })
-              )
-            );
+            // Revert PAYOUT_DEDUCTED records across all chits linked to this payout
+            await revertPayoutDeductions(payout.id).catch(() => null);
             await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
           }
         }
@@ -2687,7 +2680,6 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [manualAdjustment,    setManualAdjustment]    = useState(String(winner.discountAmount ?? '0'));
   const [createNotes,         setCreateNotes]         = useState('');
   const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
-  const [holdingMode,         setHoldingMode]         = useState('BANK_TRANSFER');
   const [crossChitCollect,    setCrossChitCollect]    = useState({}); // { [chitId]: { enabled, amount } }
   const installmentAmount = Number(chit?.installmentAmount ?? 0);
 
@@ -2783,34 +2775,24 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
         manualAdjustment:      manualNum || undefined,
         notes: createNotes || undefined,
       });
-      // Record settlement payments best-effort; tag with payout ID so void can find them across chits
-      const payoutTag = `[payout=${p.id}]`;
+      // Mark installments as PAYOUT_DEDUCTED — no batch, no treasury movement.
+      // The installment was withheld from the payout amount, not physically received.
       const tasks = [];
       if (collectCurrentMonth && installmentAmount > 0) {
-        tasks.push(recordPayment({
-          chitId,
-          memberId,
-          amount: installmentAmount,
-          paymentMode: holdingMode,
-          notes: `Disbursement settlement — Draw ${monthNumber} installment ${payoutTag}`,
+        tasks.push(markPayoutDeducted({
+          chitId, memberId, monthNumber, payoutId: p.id,
         }).catch(() => null));
       }
       Object.entries(crossChitCollect)
         .filter(([, v]) => v.enabled && Number(v.amount) > 0)
         .forEach(([xChitId, v]) => {
-          // Find oldest outstanding draw number for this cross-chit so the note is specific
           const xBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(xChitId));
-          const oldestDraw = xBalance?.months?.[0]?.monthNumber;
-          const crossNote = oldestDraw
-            ? `Disbursement settlement — Draw ${oldestDraw} installment ${payoutTag}`
-            : `Disbursement settlement — installment collection ${payoutTag}`;
-          tasks.push(recordPayment({
-            chitId: xChitId,
-            memberId,
-            amount: Number(v.amount),
-            paymentMode: holdingMode,
-            notes: crossNote,
-          }).catch(() => null));
+          const oldestDrawMonth = xBalance?.months?.[0]?.monthNumber;
+          if (oldestDrawMonth) {
+            tasks.push(markPayoutDeducted({
+              chitId: xChitId, memberId, monthNumber: oldestDrawMonth, payoutId: p.id,
+            }).catch(() => null));
+          }
         });
       if (tasks.length > 0) await Promise.all(tasks);
       return p;
@@ -2877,10 +2859,15 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
   // ── Cancel ──
   const cancelMutation = useMutation({
-    mutationFn: () => cancelPayout({ id: payout.id, reason: cancelReason }),
+    mutationFn: async () => {
+      // Revert PAYOUT_DEDUCTED records before cancelling so installments go back to OUTSTANDING
+      await revertPayoutDeductions(payout.id).catch(() => null);
+      return cancelPayout({ id: payout.id, reason: cancelReason });
+    },
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
       toast.success('Payout cancelled');
       setShowCancelForm(false);
     },
@@ -3066,31 +3053,17 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
                 {/* Current month installment */}
                 {installmentAmount > 0 && (
-                  <div>
-                    <div className="px-4 py-3 flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {collectCurrentMonth && (
-                          <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
-                        )}
-                        <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
-                      </div>
+                  <div className="px-4 py-3 flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
                     </div>
-                    {collectCurrentMonth && (
-                      <div className="px-4 pb-3 flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Received via</span>
-                        {[['BANK_TRANSFER', 'Bank'], ['CASH', 'Cash']].map(([val, lbl]) => (
-                          <button key={val} type="button"
-                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer ${holdingMode === val ? 'bg-[#1E3A5F] text-white border-[#1E3A5F]' : 'bg-white text-gray-600 border-gray-300 hover:border-[#1E3A5F]'}`}
-                            onClick={() => setHoldingMode(val)}>
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {collectCurrentMonth && (
+                        <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                      )}
+                      <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
+                    </div>
                   </div>
                 )}
 
