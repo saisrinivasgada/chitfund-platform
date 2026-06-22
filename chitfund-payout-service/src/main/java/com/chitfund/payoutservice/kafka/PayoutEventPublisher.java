@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.CompletableFuture;
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -24,11 +26,13 @@ public class PayoutEventPublisher {
     }
 
     private void send(String queue, Object event) {
-        try {
-            sqsTemplate.send(queue, event);
-            log.debug("Published {} to queue {}", event.getClass().getSimpleName(), queue);
-        } catch (Exception e) {
-            log.warn("Failed to publish {} to queue {}: {}", event.getClass().getSimpleName(), queue, e.getMessage());
-        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                sqsTemplate.send(queue, event);
+                log.debug("Published {} to queue {}", event.getClass().getSimpleName(), queue);
+            } catch (Exception e) {
+                log.warn("Failed to publish {} to queue {}: {}", event.getClass().getSimpleName(), queue, e.getMessage());
+            }
+        });
     }
 }
