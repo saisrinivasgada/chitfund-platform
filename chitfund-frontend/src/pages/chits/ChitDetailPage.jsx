@@ -3254,13 +3254,19 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             <FormField label="Reason" required>
               <Input autoFocus value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
                 placeholder="Why is this payout being cancelled?" />
+              <div className="flex justify-between mt-1">
+                {cancelReason.trim().length > 0 && cancelReason.trim().length < 5
+                  ? <span className="text-xs text-red-500">Minimum 5 characters</span>
+                  : <span />}
+                <span className="text-xs text-gray-400 ml-auto">{cancelReason.length}/500</span>
+              </div>
             </FormField>
             <div className="flex gap-3">
               <Button variant="secondary" size="sm" onClick={() => { setShowCancelForm(false); setCancelReason(''); }}>
                 Back
               </Button>
               <Button variant="danger" size="sm"
-                disabled={!cancelReason.trim() || cancelMutation.isPending}
+                disabled={cancelReason.trim().length < 5 || cancelMutation.isPending}
                 loading={cancelMutation.isPending}
                 onClick={() => cancelMutation.mutate()}
               >

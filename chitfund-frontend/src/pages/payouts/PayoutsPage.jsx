@@ -901,10 +901,17 @@ function CancelPayoutModal({ payout, memberName, onClose }) {
         <FormField label="Reason" required>
           <Textarea placeholder="Reason for cancellation…"
             value={reason} onChange={(e) => setReason(e.target.value)} required />
+          <div className="flex justify-between mt-1">
+            {reason.trim().length > 0 && reason.trim().length < 5
+              ? <span className="text-xs text-red-500">Minimum 5 characters</span>
+              : <span />}
+            <span className="text-xs text-gray-400 ml-auto">{reason.length}/500</span>
+          </div>
         </FormField>
         <div className="flex gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">No, Keep</Button>
-          <Button type="submit" loading={mutation.isPending} variant="danger" className="flex-1">
+          <Button type="submit" loading={mutation.isPending} variant="danger" className="flex-1"
+            disabled={reason.trim().length < 5 || mutation.isPending}>
             <XCircle size={14} /> Cancel Payout
           </Button>
         </div>
