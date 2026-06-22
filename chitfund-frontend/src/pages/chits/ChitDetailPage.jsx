@@ -2179,11 +2179,36 @@ function DrawsTab({ chitId, chit }) {
       // 1. Find which member was the winner for this cycle
       const winner = winners.find((w) => w.monthNumber === monthNumber);
 
-      // 2. If there's a winner, find the PROCESSED slot that was marked when this cycle opened
-      //    and revert it to RESERVED so it can be assigned again
       if (winner) {
         const winnerId = winner.memberId ?? winner.winnerId;
-        // The slot that was most recently processed for this member is the one to revert
+
+        // 2. If a payout was created with a holding installment, the recordPayment call
+        //    would have set amountPaid > 0 on this draw's payment record — deleteDraw
+        //    backend rejects unless that is reversed first. Find and void settlement batches
+        //    tagged [payout=<id>] in their notes, then cancel the payout.
+        const payout = payoutByMonth[monthNumber];
+        if (payout) {
+          if (payout.status === 'PARTIALLY_DISBURSED') {
+            throw new Error('Cannot delete draw — payout has been partially disbursed. Disburse the remaining amount or void the disbursement first.');
+          }
+          if (payout.status === 'DISBURSED') {
+            throw new Error('Cannot delete draw — payout has already been fully disbursed.');
+          }
+          if (payout.status === 'PENDING') {
+            const batches = await getPaymentBatches({ memberId: winnerId, chitId });
+            const settlementBatches = batches.filter(
+              (b) => b.status === 'COMPLETED' && b.notes?.includes(`[payout=${payout.id}]`)
+            );
+            await Promise.all(
+              settlementBatches.map((b) =>
+                voidPaymentBatch({ batchId: b.id, reason: 'Draw deleted — settlement reversed' })
+              )
+            );
+            await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
+          }
+        }
+
+        // 3. Revert the PROCESSED reservation slot back to RESERVED
         const slotToRevert = [...reservations]
           .filter((r) => String(r.memberId) === String(winnerId) && r.status === 'PROCESSED')
           .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
@@ -2199,21 +2224,23 @@ function DrawsTab({ chitId, chit }) {
           }).catch(() => {});
         }
 
-        // 3. Remove the winner record for this cycle
+        // 4. Remove the winner record for this cycle
         await deleteWinnerForDraw({ chitId, monthNumber }).catch(() => {});
       }
 
-      // 4. Delete the cycle itself
+      // 5. Delete the cycle itself
       await deleteDraw(cycleId);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
       qc.invalidateQueries({ queryKey: ['winners', chitId] });
+      qc.invalidateQueries({ queryKey: ['payouts', chitId] });
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'paymentHistory' && String(q.queryKey[1]) === String(chitId) });
       toast.success('Draw deleted — schedule slot restored to RESERVED');
       setPendingDelete(null);
     },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete draw'),
+    onError: (err) => toast.error(err.message ?? err.response?.data?.message ?? 'Failed to delete draw'),
   });
 
   const today = new Date();
@@ -2660,6 +2687,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [manualAdjustment,    setManualAdjustment]    = useState(String(winner.discountAmount ?? '0'));
   const [createNotes,         setCreateNotes]         = useState('');
   const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
+  const [holdingMode,         setHoldingMode]         = useState('BANK_TRANSFER');
   const [crossChitCollect,    setCrossChitCollect]    = useState({}); // { [chitId]: { enabled, amount } }
   const installmentAmount = Number(chit?.installmentAmount ?? 0);
 
@@ -2763,7 +2791,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
           chitId,
           memberId,
           amount: installmentAmount,
-          paymentMode: 'BANK_TRANSFER',
+          paymentMode: holdingMode,
           notes: `Disbursement settlement — Draw ${monthNumber} installment ${payoutTag}`,
         }).catch(() => null));
       }
@@ -2780,7 +2808,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             chitId: xChitId,
             memberId,
             amount: Number(v.amount),
-            paymentMode: 'BANK_TRANSFER',
+            paymentMode: holdingMode,
             notes: crossNote,
           }).catch(() => null));
         });
@@ -3038,17 +3066,31 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
                 {/* Current month installment */}
                 {installmentAmount > 0 && (
-                  <div className="px-4 py-3 flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
+                  <div>
+                    <div className="px-4 py-3 flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {collectCurrentMonth && (
+                          <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                        )}
+                        <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {collectCurrentMonth && (
-                        <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
-                      )}
-                      <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
-                    </div>
+                    {collectCurrentMonth && (
+                      <div className="px-4 pb-3 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Received via</span>
+                        {[['BANK_TRANSFER', 'Bank'], ['CASH', 'Cash']].map(([val, lbl]) => (
+                          <button key={val} type="button"
+                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer ${holdingMode === val ? 'bg-[#1E3A5F] text-white border-[#1E3A5F]' : 'bg-white text-gray-600 border-gray-300 hover:border-[#1E3A5F]'}`}
+                            onClick={() => setHoldingMode(val)}>
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
