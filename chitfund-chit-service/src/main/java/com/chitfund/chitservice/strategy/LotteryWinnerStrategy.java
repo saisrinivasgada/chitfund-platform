@@ -32,6 +32,15 @@ public class LotteryWinnerStrategy implements WinnerSelectionStrategy {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE,
                     "No eligible members for lottery — all members have already won");
         }
+        // Use frontend-drawn winner if provided and valid — the admin ran the draw in the room
+        // and we must record exactly who was drawn, not re-randomize on the server
+        if (request.getWinnerId() != null) {
+            if (!eligibleMemberIds.contains(request.getWinnerId())) {
+                throw new BusinessException(ErrorCode.MEMBER_ALREADY_WON,
+                        "The drawn member is not eligible (already won or not enrolled)");
+            }
+            return request.getWinnerId();
+        }
         int index = SECURE_RANDOM.nextInt(eligibleMemberIds.size());
         return eligibleMemberIds.get(index);
     }

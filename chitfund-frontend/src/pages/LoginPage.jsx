@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { login as loginApi, mobileLookup, loginByMobile } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
+import PhoneInput from '../components/ui/PhoneInput';
 import { BookOpen, Phone, ShieldCheck, TrendingUp, Users, User } from 'lucide-react';
 
 function FeaturePill({ icon: Icon, text }) {
@@ -23,21 +24,25 @@ function FeaturePill({ icon: Icon, text }) {
 // Step 2b: multiple accounts → pick role first
 // Step 3: enter password → login
 function MobileLoginForm({ onSuccess }) {
-  const [step, setStep]       = useState('phone');   // 'phone' | 'role' | 'password'
-  const [phone, setPhone]     = useState('');
-  const [accounts, setAccounts] = useState([]);      // [{ role, displayLabel }]
-  const [role, setRole]       = useState(null);
+  const [step, setStep]         = useState('phone');   // 'phone' | 'role' | 'password'
+  const [countryCode, setCountryCode] = useState('+91');
+  const [phone, setPhone]       = useState('');
+  const [accounts, setAccounts] = useState([]);        // [{ role, displayLabel }]
+  const [role, setRole]         = useState(null);
   const [password, setPassword] = useState('');
-  const [error, setError]     = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
+
+  // Send full number (country code + local) so numbers stored with or without code both work
+  const fullPhone = countryCode + phone;
 
   async function handlePhoneLookup(e) {
     e.preventDefault();
-    if (!/^[0-9]{10}$/.test(phone)) { setError('Enter a valid 10-digit mobile number'); return; }
+    if (phone.replace(/\D/g, '').length < 7) { setError('Enter a valid phone number'); return; }
     setError('');
     setLoading(true);
     try {
-      const data = await mobileLookup(phone);
+      const data = await mobileLookup(fullPhone);
       if (!data.accounts || data.accounts.length === 0) {
         setError('No account found for this mobile number');
         return;
@@ -61,7 +66,7 @@ function MobileLoginForm({ onSuccess }) {
     setError('');
     setLoading(true);
     try {
-      const data = await loginByMobile({ phone, password, role });
+      const data = await loginByMobile({ phone: fullPhone, password, role });
       onSuccess(data);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');
@@ -73,17 +78,14 @@ function MobileLoginForm({ onSuccess }) {
   if (step === 'phone') {
     return (
       <form onSubmit={handlePhoneLookup} className="space-y-5">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Mobile number</label>
-          <Input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-            placeholder="10-digit mobile number"
-            autoComplete="tel"
-            required
-          />
-        </div>
+        <PhoneInput
+          label="Mobile number"
+          countryCode={countryCode}
+          phone={phone}
+          onCountryChange={setCountryCode}
+          onPhoneChange={setPhone}
+          required
+        />
         {error && (
           <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100">
             <p className="text-sm text-red-600">{error}</p>
@@ -141,7 +143,7 @@ function MobileLoginForm({ onSuccess }) {
     <form onSubmit={handleLogin} className="space-y-5">
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
         <Phone size={14} className="text-gray-400 flex-shrink-0" />
-        <span className="text-sm text-gray-600">{phone}</span>
+        <span className="text-sm text-gray-600">{countryCode} {phone}</span>
         {role && (
           <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium"
             style={{ backgroundColor: '#EFF4FA', color: '#1E3A5F' }}>

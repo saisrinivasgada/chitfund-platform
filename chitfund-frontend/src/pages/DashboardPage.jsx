@@ -64,16 +64,19 @@ export default function DashboardPage() {
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
+    staleTime: 5 * 60_000,
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
+    staleTime: 5 * 60_000,
   });
 
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: () => getPendingPayouts(),
+    staleTime: 2 * 60_000,
   });
 
   const isAdmin = user?.role === 'ADMIN';
@@ -82,6 +85,7 @@ export default function DashboardPage() {
     queryKey: ['wallet-balance'],
     queryFn: getWalletBalance,
     enabled: isAdmin,
+    staleTime: 2 * 60_000,
   });
 
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');

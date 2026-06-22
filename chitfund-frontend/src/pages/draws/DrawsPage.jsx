@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, getEnrollments, getWinners, recordWinner } from '../../services/api';
+import { getChits, getEnrollments, getWinners, recordWinner, getMembers } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Badge, { statusBadge } from '../../components/ui/Badge';
@@ -147,7 +147,6 @@ function Step3Draw({ chit, month, onNext, onBack }) {
   const [winner, setWinner] = useState(null);
   const [bids, setBids] = useState({});
   const [reservedMember, setReservedMember] = useState('');
-  const [discountAmount, setDiscountAmount] = useState('');
 
   const { data: enrollments = [], isLoading: enrollLoading } = useQuery({
     queryKey: ['enrollments', chit.id],
@@ -159,8 +158,17 @@ function Step3Draw({ chit, month, onNext, onBack }) {
     queryFn: () => getWinners(chit.id),
   });
 
-  const wonMemberIds = new Set(existingWinners.map((w) => String(w.winnerId ?? w.memberId)));
-  const eligible = enrollments.filter((e) => !wonMemberIds.has(String(e.memberId ?? e.id)));
+  const { data: allMembers = [] } = useQuery({
+    queryKey: ['members'],
+    queryFn: getMembers,
+    staleTime: 5 * 60_000,
+  });
+
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m]));
+  const getName = (memberId) => memberMap[String(memberId)]?.fullName ?? memberMap[String(memberId)]?.name ?? 'Unknown';
+
+  const wonMemberIds = new Set(existingWinners.map((w) => String(w.memberId)));
+  const eligible = enrollments.filter((e) => !wonMemberIds.has(String(e.memberId)));
 
   if (enrollLoading) return <PageSpinner />;
 
@@ -185,38 +193,39 @@ function Step3Draw({ chit, month, onNext, onBack }) {
 
         {/* Eligible members list */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-50 max-h-56 overflow-y-auto">
-          {eligible.map((e) => (
-            <div
-              key={e.memberId ?? e.id}
-              className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                winner && (e.memberId ?? e.id) === (winner.memberId ?? winner.id)
-                  ? 'bg-green-50 border-l-4 border-l-green-500'
-                  : ''
-              }`}
-            >
+          {eligible.map((e) => {
+            const name = getName(e.memberId);
+            return (
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                style={{ backgroundColor: '#1E3A5F' }}
+                key={e.memberId}
+                className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                  winner && e.memberId === winner.memberId
+                    ? 'bg-green-50 border-l-4 border-l-green-500'
+                    : ''
+                }`}
               >
-                {(e.memberName ?? e.fullName ?? '?')[0].toUpperCase()}
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                  style={{ backgroundColor: '#1E3A5F' }}
+                >
+                  {name[0].toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-gray-900">{name}</span>
+                {winner && e.memberId === winner.memberId && (
+                  <span className="ml-auto text-xs font-bold text-green-600 flex items-center gap-1">
+                    <Trophy size={12} /> WINNER
+                  </span>
+                )}
               </div>
-              <span className="text-sm font-medium text-gray-900">
-                {e.memberName ?? e.fullName}
-              </span>
-              {winner && (e.memberId ?? e.id) === (winner.memberId ?? winner.id) && (
-                <span className="ml-auto text-xs font-bold text-green-600 flex items-center gap-1">
-                  <Trophy size={12} /> WINNER
-                </span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {winner && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
             <Trophy size={28} className="text-green-500 mx-auto mb-2" />
             <p className="text-base font-bold text-green-800">
-              {winner.memberName ?? winner.fullName} wins Month {month}!
+              {getName(winner.memberId)} wins Month {month}!
             </p>
           </div>
         )}
@@ -236,8 +245,8 @@ function Step3Draw({ chit, month, onNext, onBack }) {
           {winner && (
             <Button
               onClick={() => onNext({
-                winnerId: winner.memberId ?? winner.id,
-                winnerName: winner.memberName ?? winner.fullName,
+                winnerId: winner.memberId,
+                winnerName: getName(winner.memberId),
                 discountAmount: 0,
               })}
               className="flex-1"
@@ -254,16 +263,14 @@ function Step3Draw({ chit, month, onNext, onBack }) {
   if (chit.winnerSelectionMode === 'AUCTION') {
     const totalValue = (chit.installmentAmount ?? 0) * (chit.totalMembers ?? 0);
     const sortedByBid = [...eligible].sort(
-      (a, b) => (bids[b.memberId ?? b.id] ?? 0) - (bids[a.memberId ?? a.id] ?? 0)
+      (a, b) => (bids[b.memberId] ?? 0) - (bids[a.memberId] ?? 0)
     );
     const highestBidder = sortedByBid[0];
-    const highestBid = bids[highestBidder?.memberId ?? highestBidder?.id] ?? 0;
+    const highestBid = bids[highestBidder?.memberId] ?? 0;
 
     function awardHighest() {
       if (!highestBidder || highestBid <= 0) return;
-      const w = highestBidder;
-      setWinner(w);
-      setDiscountAmount(String(highestBid));
+      setWinner(highestBidder);
     }
 
     return (
@@ -287,11 +294,11 @@ function Step3Draw({ chit, month, onNext, onBack }) {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {eligible.map((e) => {
-                const mid = e.memberId ?? e.id;
+                const mid = e.memberId;
                 return (
-                  <tr key={mid} className={winner && (e.memberId ?? e.id) === (winner.memberId ?? winner.id) ? 'bg-green-50' : 'hover:bg-gray-50'}>
+                  <tr key={mid} className={winner && mid === winner.memberId ? 'bg-green-50' : 'hover:bg-gray-50'}>
                     <td className="px-6 py-3 font-medium text-gray-900">
-                      {e.memberName ?? e.fullName}
+                      {getName(mid)}
                     </td>
                     <td className="px-6 py-3">
                       <Input
@@ -316,7 +323,7 @@ function Step3Draw({ chit, month, onNext, onBack }) {
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
             <Gavel size={28} className="text-green-500 mx-auto mb-2" />
             <p className="text-base font-bold text-green-800">
-              {winner.memberName ?? winner.fullName} wins with a bid of ₹{highestBid.toLocaleString()}!
+              {getName(winner.memberId)} wins with a bid of ₹{highestBid.toLocaleString()}!
             </p>
           </div>
         )}
@@ -336,8 +343,8 @@ function Step3Draw({ chit, month, onNext, onBack }) {
           {winner && (
             <Button
               onClick={() => onNext({
-                winnerId: winner.memberId ?? winner.id,
-                winnerName: winner.memberName ?? winner.fullName,
+                winnerId: winner.memberId,
+                winnerName: getName(winner.memberId),
                 discountAmount: highestBid,
               })}
               className="flex-1"
@@ -364,8 +371,8 @@ function Step3Draw({ chit, month, onNext, onBack }) {
         <Select value={reservedMember} onChange={(e) => setReservedMember(e.target.value)}>
           <option value="">— Select member —</option>
           {eligible.map((e) => (
-            <option key={e.memberId ?? e.id} value={e.memberId ?? e.id}>
-              {e.memberName ?? e.fullName}
+            <option key={e.memberId} value={e.memberId}>
+              {getName(e.memberId)}
             </option>
           ))}
         </Select>
@@ -377,14 +384,11 @@ function Step3Draw({ chit, month, onNext, onBack }) {
         </Button>
         <Button
           disabled={!reservedMember}
-          onClick={() => {
-            const m = eligible.find((e) => String(e.memberId ?? e.id) === reservedMember);
-            onNext({
-              winnerId: reservedMember,
-              winnerName: m?.memberName ?? m?.fullName ?? '',
-              discountAmount: 0,
-            });
-          }}
+          onClick={() => onNext({
+            winnerId: reservedMember,
+            winnerName: getName(reservedMember),
+            discountAmount: 0,
+          })}
           className="flex-1"
         >
           Assign <ChevronRight size={14} />
