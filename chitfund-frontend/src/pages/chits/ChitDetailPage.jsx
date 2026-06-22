@@ -2789,6 +2789,9 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     },
     onSuccess: (p) => {
       setPayout(p);
+      // Immediately inject the new payout into the cache so WinnersTab button
+      // switches from "Create Payout" → "Disburse" without waiting for a refetch
+      qc.setQueryData(['payouts', chitId], (old) => [...(old ?? []), p]);
       invalidatePayouts();
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
       // Refresh draw payment cards so installment/cross-chit payments appear immediately
