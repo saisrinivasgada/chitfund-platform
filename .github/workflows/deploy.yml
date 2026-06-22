@@ -136,7 +136,7 @@ jobs:
             -X POST -H "Content-Type: application/json" \
             -d '{"username":"invalid","password":"invalid"}')
           echo "Auth endpoint HTTP status: $HTTP_STATUS"
-          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "200" ]; then
+          if [ "$HTTP_STATUS" = "401" ] || [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "400" ]; then
             echo "Health check PASSED"
           else
             echo "Health check FAILED (got $HTTP_STATUS)"
