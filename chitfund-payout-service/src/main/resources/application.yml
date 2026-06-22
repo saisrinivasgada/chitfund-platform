@@ -31,7 +31,8 @@ spring:
       region:
         static: ${AWS_REGION:ap-south-1}
       credentials:
-        use-default-aws-credentials-chain: true
+        access-key: ${AWS_ACCESS_KEY_ID:local-dummy}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:local-dummy}
 
 server:
   port: 8085
