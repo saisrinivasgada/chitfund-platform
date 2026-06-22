@@ -2827,7 +2827,16 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     },
     onSuccess: (p) => {
       setPayout(p);
-      invalidatePayouts();
+      // Same pattern as createMutation — directly upsert into cache so WinnersTab
+      // button stays "Disburse" for PARTIALLY_DISBURSED. invalidatePayouts() would
+      // race: refetch can resolve before PARTIALLY_DISBURSED lands, clearing the entry.
+      qc.setQueryData(['payouts', chitId], (old) => {
+        const without = (old ?? []).filter(
+          (x) => !(String(x.monthNumber) === String(p.monthNumber) && String(x.memberId) === String(p.memberId))
+        );
+        return [...without, p];
+      });
+      qc.invalidateQueries({ queryKey: ['draws', chitId] });
       setDisbAmount('');
       setRefNum('');
       setDisbNotes('');
