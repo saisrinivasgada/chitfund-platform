@@ -30,7 +30,7 @@ services:
       <<: *common-env
       USER_SERVICE_URL: http://user-service:8081
       CHIT_SERVICE_URL: http://chit-service:8082
-      MEMBER_SERVICE_URL: http://chit-service:8082
+      MEMBER_SERVICE_URL: http://user-service:8081
       PAYMENT_SERVICE_URL: http://payment-service:8084
       PAYOUT_SERVICE_URL: http://payout-service:8085
     depends_on:
@@ -98,7 +98,7 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_payment
-      MEMBER_SERVICE_URL: http://chit-service:8082
+      MEMBER_SERVICE_URL: http://user-service:8081
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
