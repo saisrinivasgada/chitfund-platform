@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: notification-service
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:chitfund_notification}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:chitfund}
+    password: ${DB_PASSWORD:chitfund_secret}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        type:
+          preferred_uuid_jdbc_type: VARCHAR
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+server:
+  port: 8086
+
+jwt:
+  secret: ${JWT_SECRET:chitfund-super-secret-key-that-is-at-least-256-bits-long-for-hs256-algorithm}
+
+# Internal service key — other services include this as X-Internal-Key header
+# when calling /internal/notify endpoints (no JWT needed for service-to-service calls)
+notification:
+  internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
+
+  # Sender mode: LOGGING (dev) or SMS / WHATSAPP / EMAIL (production)
+  # LOGGING mode prints messages to console — no provider credentials needed.
+  # To switch to real SMS: set mode=SMS and configure provider below.
+  sender:
+    mode: ${NOTIFICATION_SENDER_MODE:LOGGING}
+
+  # Production SMS provider (MSG91 — popular in India)
+  # sms:
+  #   provider: MSG91
+  #   api-key: ${MSG91_API_KEY}
+  #   sender-id: CHITFD
+  #   route: 4   # transactional route
+
+  # Production WhatsApp (Twilio)
+  # whatsapp:
+  #   provider: TWILIO
+  #   account-sid: ${TWILIO_ACCOUNT_SID}
+  #   auth-token: ${TWILIO_AUTH_TOKEN}
+  #   from-number: whatsapp:+14155238886
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.chitfund: INFO
+    org.springframework.security: WARN
+    org.flywaydb: INFO
