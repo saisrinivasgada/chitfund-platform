@@ -196,7 +196,7 @@ jobs:
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled') &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
