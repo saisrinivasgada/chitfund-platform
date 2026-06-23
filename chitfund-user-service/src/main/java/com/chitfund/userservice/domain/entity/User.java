@@ -65,7 +65,7 @@ public class User implements UserDetails {
     @Column(length = 500)
     private String address;
 
-    @Column(length = 4)
+    @Column(columnDefinition = "char(4)")
     private String aadhaarLast4;
 
     @Column(length = 10)
