@@ -1,33 +1,38 @@
 import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
-import { checkUsernameAvailability, updateMyUserProfile, updateMyMemberProfile } from '../../services/api';
+import {
+  checkUsernameAvailability, updateMyUserProfile, updateMyMemberProfile, changePassword,
+} from '../../services/api';
 import { recordProfileChange } from '../../utils/profileHistory';
 import PhoneInput from '../ui/PhoneInput';
 import Button from '../ui/Button';
-import { X, Check, Loader, AlertCircle, User, Phone, Mail, MapPin, AtSign, UserCircle } from 'lucide-react';
+import {
+  X, Check, Loader, AlertCircle, User, Phone, Mail, MapPin, AtSign,
+  UserCircle, Lock, Eye, EyeOff, ShieldCheck,
+} from 'lucide-react';
 
-// ─── Labeled input ────────────────────────────────────────────────────────────
-function FloatField({ label, icon: Icon, type = 'text', value, onChange, hint, maxLength, disabled, rightSlot }) {
+// ─── Shared styled input ──────────────────────────────────────────────────────
+function Field({ label, icon: Icon, type = 'text', value, onChange, hint, maxLength, disabled, rightSlot }) {
   const inputId = useId();
   const [focused, setFocused] = useState(false);
 
   return (
-    <div>
+    <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className="block text-xs font-medium mb-1.5"
-        style={{ color: focused ? '#1E3A5F' : '#6B7280', transition: 'color 150ms' }}
+        className="text-sm font-medium"
+        style={{ color: focused ? '#1E3A5F' : '#374151', transition: 'color 150ms' }}
       >
         {label}
       </label>
       <div className="relative">
         {Icon && (
           <span
-            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
             style={{ color: focused ? '#1E3A5F' : '#9CA3AF', transition: 'color 150ms' }}
           >
-            <Icon size={14} />
+            <Icon size={15} />
           </span>
         )}
         <input
@@ -39,25 +44,49 @@ function FloatField({ label, icon: Icon, type = 'text', value, onChange, hint, m
           onBlur={() => setFocused(false)}
           maxLength={maxLength}
           disabled={disabled}
-          className={`w-full ${Icon ? 'pl-9' : 'pl-3'} ${rightSlot ? 'pr-28' : 'pr-3'} py-2.5 text-sm rounded-xl border focus:outline-none`}
+          className={`w-full ${Icon ? 'pl-10' : 'pl-3.5'} ${rightSlot ? 'pr-12' : 'pr-3.5'} py-3 text-sm rounded-xl border focus:outline-none transition-all`}
           style={{
             borderColor: focused ? '#1E3A5F' : '#E5E7EB',
-            boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.08)' : 'none',
+            boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
             backgroundColor: disabled ? '#F9FAFB' : '#FFFFFF',
             color: disabled ? '#9CA3AF' : '#111827',
-            transition: 'border-color 150ms, box-shadow 150ms',
           }}
         />
         {rightSlot && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2">{rightSlot}</span>
+          <span className="absolute right-3.5 top-1/2 -translate-y-1/2">{rightSlot}</span>
         )}
       </div>
-      {hint && <p className="mt-1 pl-1 text-xs" style={{ color: '#9CA3AF' }}>{hint}</p>}
+      {hint && <p className="text-xs text-gray-400 pl-0.5">{hint}</p>}
     </div>
   );
 }
 
-// ─── Username field with availability check ───────────────────────────────────
+// ─── Password field with show/hide toggle ─────────────────────────────────────
+function PasswordField({ label, value, onChange, hint }) {
+  const [show, setShow] = useState(false);
+  return (
+    <Field
+      label={label}
+      icon={Lock}
+      type={show ? 'text' : 'password'}
+      value={value}
+      onChange={onChange}
+      hint={hint}
+      rightSlot={
+        <button
+          type="button"
+          onClick={() => setShow((s) => !s)}
+          className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+          tabIndex={-1}
+        >
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        </button>
+      }
+    />
+  );
+}
+
+// ─── Username field with live availability check ──────────────────────────────
 function UsernameField({ value, currentUsername, onChange }) {
   const inputId = useId();
   const [status, setStatus] = useState('idle');
@@ -79,11 +108,11 @@ function UsernameField({ value, currentUsername, onChange }) {
   }, [value, currentUsername]);
 
   const indicator = {
-    checking: <Loader size={13} className="animate-spin" style={{ color: '#9CA3AF' }} />,
-    available: <span className="flex items-center gap-1 text-xs font-medium" style={{ color: '#16A34A' }}><Check size={12} />Available</span>,
-    taken: <span className="flex items-center gap-1 text-xs font-medium" style={{ color: '#DC2626' }}><AlertCircle size={12} />Taken</span>,
-    invalid: <span className="text-xs" style={{ color: '#9CA3AF' }}>Min 3 chars</span>,
-    idle: null,
+    checking:  <Loader size={13} className="animate-spin text-gray-400" />,
+    available: <span className="flex items-center gap-1 text-xs font-medium text-green-600"><Check size={12} />Available</span>,
+    taken:     <span className="flex items-center gap-1 text-xs font-medium text-red-500"><AlertCircle size={12} />Taken</span>,
+    invalid:   <span className="text-xs text-gray-400">Min 3 chars</span>,
+    idle:      null,
   }[status];
 
   const borderColor = status === 'available' ? '#22C55E'
@@ -92,20 +121,20 @@ function UsernameField({ value, currentUsername, onChange }) {
     : '#E5E7EB';
 
   return (
-    <div>
+    <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className="block text-xs font-medium mb-1.5"
-        style={{ color: focused ? '#1E3A5F' : '#6B7280', transition: 'color 150ms' }}
+        className="text-sm font-medium"
+        style={{ color: focused ? '#1E3A5F' : '#374151', transition: 'color 150ms' }}
       >
         Username
       </label>
       <div className="relative">
         <span
-          className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+          className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
           style={{ color: focused ? '#1E3A5F' : '#9CA3AF', transition: 'color 150ms' }}
         >
-          <AtSign size={14} />
+          <AtSign size={15} />
         </span>
         <input
           id={inputId}
@@ -115,53 +144,87 @@ function UsernameField({ value, currentUsername, onChange }) {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           maxLength={30}
-          className="w-full pl-9 pr-28 py-2.5 text-sm rounded-xl border focus:outline-none"
+          className="w-full pl-10 pr-28 py-3 text-sm rounded-xl border focus:outline-none transition-all"
           style={{
             borderColor,
-            boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.08)' : 'none',
-            transition: 'border-color 150ms, box-shadow 150ms',
+            boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
           }}
         />
         {indicator && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2">{indicator}</span>
+          <span className="absolute right-3.5 top-1/2 -translate-y-1/2">{indicator}</span>
         )}
       </div>
-      <p className="mt-1 pl-1 text-xs" style={{ color: '#9CA3AF' }}>Letters, numbers, _ and . only</p>
+      <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>
     </div>
   );
 }
 
-// ─── Section divider label ────────────────────────────────────────────────────
-function SectionLabel({ children }) {
+// ─── Segment tab switcher ─────────────────────────────────────────────────────
+function SegmentTabs({ active, onChange }) {
+  const tabs = [
+    { id: 'profile',  label: 'Profile',  icon: User },
+    { id: 'security', label: 'Security', icon: ShieldCheck },
+  ];
   return (
-    <div className="flex items-center gap-2 pt-1">
-      <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>
-        {children}
-      </span>
-      <div className="flex-1 h-px" style={{ backgroundColor: '#F3F4F6' }} />
+    <div className="flex gap-1 p-1 rounded-xl bg-gray-100">
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onChange(id)}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+            active === id
+              ? 'bg-white shadow-sm text-[#1E3A5F]'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Icon size={14} />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }
 
-// ─── Modal ────────────────────────────────────────────────────────────────────
+// ─── Error banner ─────────────────────────────────────────────────────────────
+function ErrorBanner({ message }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+      <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+      <p className="text-sm text-red-700">{message}</p>
+    </div>
+  );
+}
+
+// ─── Main modal ───────────────────────────────────────────────────────────────
 export default function EditProfileModal({ onClose, role, currentUser, currentMember, userId }) {
   const { updateUser } = useAuth();
   const queryClient = useQueryClient();
 
-  const [fullName, setFullName] = useState(currentUser?.fullName ?? '');
-  const [username, setUsername] = useState(currentUser?.username ?? '');
-  const [email, setEmail] = useState(currentUser?.email ?? '');
-  const [phone, setPhone] = useState(currentUser?.phone ?? '');
+  const [activeTab, setActiveTab] = useState('profile');
 
-  const [memberFullName, setMemberFullName] = useState(currentMember?.fullName ?? '');
-  const [memberPhone, setMemberPhone] = useState(currentMember?.phone ?? '');
-  const [memberPhoneCountryCode, setMemberPhoneCountryCode] = useState(currentMember?.phoneCountryCode ?? '+91');
-  const [memberEmail, setMemberEmail] = useState(currentMember?.email ?? '');
-  const [address, setAddress] = useState(currentMember?.address ?? '');
-  const [city, setCity] = useState(currentMember?.city ?? '');
+  // Profile fields
+  const [fullName,              setFullName]              = useState(currentUser?.fullName ?? '');
+  const [username,              setUsername]              = useState(currentUser?.username ?? '');
+  const [email,                 setEmail]                 = useState(currentUser?.email ?? '');
+  const [phone,                 setPhone]                 = useState(currentUser?.phone ?? '');
+  const [memberFullName,        setMemberFullName]        = useState(currentMember?.fullName ?? '');
+  const [memberPhone,           setMemberPhone]           = useState(currentMember?.phone ?? '');
+  const [memberPhoneCountryCode,setMemberPhoneCountryCode]= useState(currentMember?.phoneCountryCode ?? '+91');
+  const [memberEmail,           setMemberEmail]           = useState(currentMember?.email ?? '');
+  const [address,               setAddress]               = useState(currentMember?.address ?? '');
+  const [city,                  setCity]                  = useState(currentMember?.city ?? '');
 
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  // Security fields
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword,     setNewPassword]     = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [profileError,  setProfileError]  = useState('');
+  const [securityError, setSecurityError] = useState('');
+  const [profileSaved,  setProfileSaved]  = useState(false);
+  const [securitySaved, setSecuritySaved] = useState(false);
 
   const userMutation = useMutation({
     mutationFn: updateMyUserProfile,
@@ -186,40 +249,47 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
     },
   });
 
+  const passwordMutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess: () => {
+      setSecuritySaved(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(onClose, 1000);
+    },
+    onError: (err) => {
+      setSecurityError(err.response?.data?.message ?? 'Failed to change password. Check your current password.');
+    },
+  });
+
   const computeChanges = useCallback(() => {
     const cu = currentUser ?? {};
     const cm = currentMember ?? {};
     const changes = [];
-
     if (role !== 'MEMBER') {
       if (fullName !== (cu.fullName ?? '')) changes.push({ field: 'Full Name', from: cu.fullName ?? '', to: fullName });
-      if (phone !== (cu.phone ?? '')) changes.push({ field: 'Phone', from: cu.phone ?? '', to: phone });
+      if (phone   !== (cu.phone   ?? '')) changes.push({ field: 'Phone',     from: cu.phone   ?? '', to: phone });
     }
     if (username !== (cu.username ?? '')) changes.push({ field: 'Username', from: cu.username ?? '', to: username });
-    if (email !== (cu.email ?? '')) changes.push({ field: 'Email', from: cu.email ?? '', to: email });
-
+    if (email    !== (cu.email    ?? '')) changes.push({ field: 'Email',    from: cu.email    ?? '', to: email });
     if (role === 'MEMBER') {
-      if (memberFullName !== (cm.fullName ?? '')) changes.push({ field: 'Full Name', from: cm.fullName ?? '', to: memberFullName });
-      if (memberPhone !== (cm.phone ?? '')) changes.push({ field: 'Phone', from: cm.phone ?? '', to: memberPhone });
-      if (memberEmail !== (cm.email ?? '')) changes.push({ field: 'Contact Email', from: cm.email ?? '', to: memberEmail });
-      if (address !== (cm.address ?? '')) changes.push({ field: 'Address', from: cm.address ?? '', to: address });
-      if (city !== (cm.city ?? '')) changes.push({ field: 'City', from: cm.city ?? '', to: city });
+      if (memberFullName !== (cm.fullName ?? '')) changes.push({ field: 'Full Name',     from: cm.fullName ?? '', to: memberFullName });
+      if (memberPhone    !== (cm.phone    ?? '')) changes.push({ field: 'Phone',         from: cm.phone    ?? '', to: memberPhone });
+      if (memberEmail    !== (cm.email    ?? '')) changes.push({ field: 'Contact Email', from: cm.email    ?? '', to: memberEmail });
+      if (address        !== (cm.address  ?? '')) changes.push({ field: 'Address',       from: cm.address  ?? '', to: address });
+      if (city           !== (cm.city     ?? '')) changes.push({ field: 'City',          from: cm.city     ?? '', to: city });
     }
-
     return changes;
-  }, [fullName, username, email, phone, memberFullName, memberPhone, memberPhoneCountryCode, memberEmail, address, city, currentUser, currentMember, role]);
+  }, [fullName, username, email, phone, memberFullName, memberPhone, memberEmail, address, city, currentUser, currentMember, role]);
 
-  const handleSave = useCallback(async () => {
-    setError('');
+  async function handleSaveProfile() {
+    setProfileError('');
     try {
       const ops = [];
-
       const cu = currentUser ?? {};
-      const userChanged =
-        fullName !== (cu.fullName ?? '') ||
-        username !== (cu.username ?? '') ||
-        email !== (cu.email ?? '') ||
-        phone !== (cu.phone ?? '');
+      const userChanged = fullName !== (cu.fullName ?? '') || username !== (cu.username ?? '')
+        || email !== (cu.email ?? '') || phone !== (cu.phone ?? '');
       if (userChanged) {
         ops.push(userMutation.mutateAsync({
           fullName: fullName || undefined,
@@ -228,16 +298,11 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           phone: phone || undefined,
         }));
       }
-
       if (role === 'MEMBER') {
         const cm = currentMember ?? {};
-        const memberChanged =
-          memberFullName !== (cm.fullName ?? '') ||
-          memberPhone !== (cm.phone ?? '') ||
-          memberPhoneCountryCode !== (cm.phoneCountryCode ?? '+91') ||
-          memberEmail !== (cm.email ?? '') ||
-          address !== (cm.address ?? '') ||
-          city !== (cm.city ?? '');
+        const memberChanged = memberFullName !== (cm.fullName ?? '') || memberPhone !== (cm.phone ?? '')
+          || memberPhoneCountryCode !== (cm.phoneCountryCode ?? '+91') || memberEmail !== (cm.email ?? '')
+          || address !== (cm.address ?? '') || city !== (cm.city ?? '');
         if (memberChanged) {
           ops.push(memberMutation.mutateAsync({
             fullName: memberFullName || undefined,
@@ -249,129 +314,193 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           }));
         }
       }
-
       if (ops.length === 0) { onClose(); return; }
-
       await Promise.all(ops);
-
       const changes = computeChanges();
       if (userId && changes.length > 0) recordProfileChange(userId, changes);
-
-      setSaved(true);
+      setProfileSaved(true);
       setTimeout(onClose, 900);
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Failed to save changes. Please try again.');
+      setProfileError(err.response?.data?.message ?? 'Failed to save changes. Please try again.');
     }
-  }, [
-    fullName, username, email, phone,
-    memberFullName, memberPhone, memberPhoneCountryCode, memberEmail, address, city,
-    currentUser, currentMember, role,
-    userMutation, memberMutation, onClose, userId, computeChanges,
-  ]);
+  }
 
-  const isBusy = userMutation.isPending || memberMutation.isPending;
+  function handleChangePassword() {
+    setSecurityError('');
+    if (!currentPassword) { setSecurityError('Enter your current password.'); return; }
+    if (newPassword.length < 8) { setSecurityError('New password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword) { setSecurityError('Passwords do not match.'); return; }
+    passwordMutation.mutate({ currentPassword, newPassword });
+  }
+
+  const isProfileBusy = userMutation.isPending || memberMutation.isPending;
+  const isSecurityBusy = passwordMutation.isPending;
+
+  const passwordStrength = (() => {
+    if (!newPassword) return null;
+    let score = 0;
+    if (newPassword.length >= 8)  score++;
+    if (newPassword.length >= 12) score++;
+    if (/[A-Z]/.test(newPassword)) score++;
+    if (/[0-9]/.test(newPassword)) score++;
+    if (/[^A-Za-z0-9]/.test(newPassword)) score++;
+    if (score <= 2) return { label: 'Weak',   color: '#EF4444', width: '33%' };
+    if (score <= 3) return { label: 'Fair',   color: '#F59E0B', width: '60%' };
+    return             { label: 'Strong', color: '#16A34A', width: '100%' };
+  })();
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col border border-gray-100" style={{ maxHeight: '90vh' }}>
-
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full flex flex-col border border-gray-100"
+        style={{ maxWidth: '480px', maxHeight: '90vh' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1E3A5F' }}>
-              <User size={16} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold" style={{ color: '#1E3A5F' }}>Edit Profile</h2>
-              <p className="text-xs text-gray-400">Update your account details</p>
-            </div>
+        <div className="flex items-center justify-between px-6 pt-5 pb-4">
+          <div>
+            <h2 className="text-lg font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
+              Account Settings
+            </h2>
+            <p className="text-sm text-gray-400 mt-0.5">Update your profile and security</p>
           </div>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
+            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
           >
             <X size={15} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="overflow-y-auto px-6 py-5 space-y-4">
-          <SectionLabel>Account</SectionLabel>
+        {/* Segment tabs */}
+        <div className="px-6 pb-2">
+          <SegmentTabs active={activeTab} onChange={setActiveTab} />
+        </div>
 
-          <FloatField
-            label="Full Name"
-            icon={UserCircle}
-            value={role === 'MEMBER' ? memberFullName : fullName}
-            onChange={role === 'MEMBER' ? setMemberFullName : setFullName}
-          />
+        {/* Scrollable body */}
+        <div className="overflow-y-auto px-6 py-4 flex-1">
 
-          <UsernameField
-            value={username}
-            currentUsername={currentUser?.username}
-            onChange={setUsername}
-          />
+          {/* ── Profile tab ── */}
+          {activeTab === 'profile' && (
+            <div className="space-y-4">
+              <Field
+                label="Full Name"
+                icon={UserCircle}
+                value={role === 'MEMBER' ? memberFullName : fullName}
+                onChange={role === 'MEMBER' ? setMemberFullName : setFullName}
+              />
 
-          <FloatField
-            label="Email"
-            icon={Mail}
-            type="email"
-            value={email}
-            onChange={setEmail}
-          />
+              <UsernameField
+                value={username}
+                currentUsername={currentUser?.username}
+                onChange={setUsername}
+              />
 
-          {role === 'MEMBER' ? (
-            <PhoneInput
-              label="Phone"
-              countryCode={memberPhoneCountryCode}
-              phone={memberPhone}
-              onCountryChange={setMemberPhoneCountryCode}
-              onPhoneChange={setMemberPhone}
-            />
-          ) : (
-            <FloatField
-              label="Phone"
-              icon={Phone}
-              value={phone}
-              onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 15))}
-              hint="Digits only"
-            />
-          )}
-
-          {role === 'MEMBER' && (
-            <>
-              <SectionLabel>Contact Details</SectionLabel>
-
-              <FloatField
-                label="Contact Email"
+              <Field
+                label="Email"
                 icon={Mail}
                 type="email"
-                value={memberEmail}
-                onChange={setMemberEmail}
-                hint="Shown to your admin — separate from login email"
+                value={email}
+                onChange={setEmail}
               />
 
-              <FloatField
-                label="Street / Area"
-                icon={MapPin}
-                value={address}
-                onChange={setAddress}
-              />
+              {role === 'MEMBER' ? (
+                <PhoneInput
+                  label="Phone"
+                  countryCode={memberPhoneCountryCode}
+                  phone={memberPhone}
+                  onCountryChange={setMemberPhoneCountryCode}
+                  onPhoneChange={setMemberPhone}
+                />
+              ) : (
+                <Field
+                  label="Phone"
+                  icon={Phone}
+                  value={phone}
+                  onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 15))}
+                  hint="Digits only"
+                />
+              )}
 
-              <FloatField
-                label="City"
-                value={city}
-                onChange={setCity}
-              />
-            </>
+              {role === 'MEMBER' && (
+                <>
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">Contact Details</p>
+                    <div className="space-y-4">
+                      <Field
+                        label="Contact Email"
+                        icon={Mail}
+                        type="email"
+                        value={memberEmail}
+                        onChange={setMemberEmail}
+                        hint="Shown to your admin — separate from login email"
+                      />
+                      <Field label="Street / Area" icon={MapPin} value={address} onChange={setAddress} />
+                      <Field label="City" value={city} onChange={setCity} />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <ErrorBanner message={profileError} />
+            </div>
           )}
 
-          {error && (
-            <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-200">
-              <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700">{error}</p>
+          {/* ── Security tab ── */}
+          {activeTab === 'security' && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
+                <ShieldCheck size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-blue-700">
+                  Choose a strong password you don't use anywhere else.
+                </p>
+              </div>
+
+              <PasswordField
+                label="Current Password"
+                value={currentPassword}
+                onChange={setCurrentPassword}
+              />
+
+              <div className="space-y-1.5">
+                <PasswordField
+                  label="New Password"
+                  value={newPassword}
+                  onChange={setNewPassword}
+                  hint="Minimum 8 characters"
+                />
+                {passwordStrength && (
+                  <div className="flex items-center gap-3 pt-0.5">
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{ width: passwordStrength.width, backgroundColor: passwordStrength.color }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: passwordStrength.color }}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <PasswordField
+                label="Confirm New Password"
+                value={confirmPassword}
+                onChange={setConfirmPassword}
+                hint={
+                  confirmPassword && newPassword !== confirmPassword
+                    ? 'Passwords do not match'
+                    : confirmPassword && newPassword === confirmPassword
+                    ? 'Passwords match'
+                    : undefined
+                }
+              />
+
+              <ErrorBanner message={securityError} />
             </div>
           )}
         </div>
@@ -379,15 +508,30 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
         {/* Footer */}
         <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-gray-100">
           <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
-          <Button
-            variant={saved ? 'success' : 'primary'}
-            size="md"
-            loading={isBusy}
-            disabled={saved}
-            onClick={handleSave}
-          >
-            {saved ? <><Check size={14} /> Saved</> : 'Save Changes'}
-          </Button>
+
+          {activeTab === 'profile' && (
+            <Button
+              variant={profileSaved ? 'success' : 'primary'}
+              size="md"
+              loading={isProfileBusy}
+              disabled={profileSaved}
+              onClick={handleSaveProfile}
+            >
+              {profileSaved ? <><Check size={14} /> Saved</> : 'Save Changes'}
+            </Button>
+          )}
+
+          {activeTab === 'security' && (
+            <Button
+              variant={securitySaved ? 'success' : 'primary'}
+              size="md"
+              loading={isSecurityBusy}
+              disabled={securitySaved || !currentPassword || !newPassword || !confirmPassword}
+              onClick={handleChangePassword}
+            >
+              {securitySaved ? <><Check size={14} /> Password Changed</> : 'Update Password'}
+            </Button>
+          )}
         </div>
       </div>
     </div>

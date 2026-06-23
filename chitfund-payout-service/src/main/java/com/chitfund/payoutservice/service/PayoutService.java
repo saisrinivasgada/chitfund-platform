@@ -4,6 +4,7 @@ import com.chitfund.common.event.PayoutCreatedEvent;
 import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.payoutservice.client.PaymentServiceClient;
 import com.chitfund.payoutservice.domain.Payout;
 import com.chitfund.payoutservice.domain.PayoutDisbursement;
 import com.chitfund.payoutservice.domain.enums.DisbursementMode;
@@ -38,6 +39,7 @@ public class PayoutService {
     private final PayoutRepository payoutRepository;
     private final PayoutDisbursementRepository disbursementRepository;
     private final PayoutEventPublisher eventPublisher;
+    private final PaymentServiceClient paymentServiceClient;
 
     /**
      * Admin registers a payout obligation after the winner is announced in chit-service.
@@ -84,6 +86,20 @@ public class PayoutService {
         payoutRepository.save(payout);
         log.info("Payout created for member {} — chit {} month {} — net ₹{}",
                 request.getMemberId(), request.getChitId(), request.getMonthNumber(), netAmount);
+
+        // Atomically mark deducted installments so the frontend doesn't have to do it separately
+        if (Boolean.TRUE.equals(request.getCollectCurrentMonthInstallment())
+                && payout.getInstallmentSettlement() != null
+                && payout.getInstallmentSettlement().compareTo(java.math.BigDecimal.ZERO) > 0) {
+            paymentServiceClient.markPayoutDeducted(
+                    request.getChitId(), request.getMemberId(), request.getMonthNumber(), payout.getId());
+        }
+        if (request.getCrossChitDeductions() != null) {
+            for (var deduction : request.getCrossChitDeductions()) {
+                paymentServiceClient.markPayoutDeducted(
+                        deduction.getChitId(), request.getMemberId(), deduction.getMonthNumber(), payout.getId());
+            }
+        }
 
         eventPublisher.publish(new PayoutCreatedEvent(
                 payout.getId().toString(),
@@ -156,6 +172,9 @@ public class PayoutService {
         log.info("Payout {} — ₹{} disbursed (total so far: ₹{} / ₹{}) to member {} via {} status={}",
                 payoutId, thisAmount, newDisbursed, payout.getNetPayoutAmount(),
                 payout.getMemberId(), request.getDisbursementMode(), payout.getStatus());
+
+        // Record treasury OUT for every disbursement — partial or full
+        paymentServiceClient.recordPayoutDebit(thisAmount, request.getDisbursementMode(), payoutId, payout.getMemberId());
 
         if (fullyDisbursed) {
             eventPublisher.publish(new PayoutDisbursedEvent(

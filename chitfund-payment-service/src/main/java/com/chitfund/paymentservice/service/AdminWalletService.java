@@ -4,6 +4,7 @@ import com.chitfund.paymentservice.domain.AdminWalletEntry;
 import com.chitfund.paymentservice.domain.enums.AccountType;
 import com.chitfund.paymentservice.domain.enums.WalletEntryType;
 import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
+import com.chitfund.paymentservice.dto.request.TransferRequest;
 import com.chitfund.paymentservice.dto.response.AdminWalletBalanceResponse;
 import com.chitfund.paymentservice.dto.response.AdminWalletEntryResponse;
 import com.chitfund.paymentservice.repository.AdminWalletRepository;
@@ -60,6 +61,41 @@ public class AdminWalletService {
     public List<AdminWalletEntryResponse> listAll() {
         return walletRepository.findAllByOrderByCreatedAtDesc()
                 .stream().map(this::toResponse).toList();
+    }
+
+    @Transactional
+    public List<AdminWalletEntryResponse> transfer(TransferRequest req, UUID createdBy) {
+        AccountType from = req.getFromAccount();
+        AccountType to = from == AccountType.CASH ? AccountType.BANK : AccountType.CASH;
+        LocalDateTime now = LocalDateTime.now();
+        String desc = req.getDescription() != null && !req.getDescription().isBlank()
+                ? req.getDescription()
+                : "Transfer " + from + " → " + to;
+
+        AdminWalletEntry outEntry = AdminWalletEntry.builder()
+                .id(UUID.randomUUID())
+                .accountType(from)
+                .entryType(WalletEntryType.OUT)
+                .amount(req.getAmount())
+                .category("TRANSFER")
+                .description(desc)
+                .createdAt(now)
+                .createdBy(createdBy)
+                .build();
+
+        AdminWalletEntry inEntry = AdminWalletEntry.builder()
+                .id(UUID.randomUUID())
+                .accountType(to)
+                .entryType(WalletEntryType.IN)
+                .amount(req.getAmount())
+                .category("TRANSFER")
+                .description(desc)
+                .createdAt(now)
+                .createdBy(createdBy)
+                .build();
+
+        return List.of(toResponse(walletRepository.save(outEntry)),
+                       toResponse(walletRepository.save(inEntry)));
     }
 
     private AdminWalletEntryResponse toResponse(AdminWalletEntry e) {

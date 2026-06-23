@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getWalletBalance, getWalletTransactions, addWalletTransaction,
+  getWalletBalance, getWalletTransactions, addWalletTransaction, transferWallet,
   getMembers, getChits, getChitsForMember, getMemberTotalBalance, listStaff,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -12,18 +13,74 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight } from 'lucide-react';
 
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
+// Plain text version — used where JSX cannot be rendered (e.g. title/subtitle text)
 function resolveDescription(desc, memberMap, chitMap) {
   if (!desc) return '—';
   return desc.replace(UUID_RE, (uuid) => {
-    if (memberMap[uuid]) return memberMap[uuid];
-    if (chitMap[uuid]) return chitMap[uuid];
+    const lower = uuid.toLowerCase();
+    if (memberMap[lower] ?? memberMap[uuid]) return memberMap[lower] ?? memberMap[uuid];
+    if (chitMap[lower] ?? chitMap[uuid]) return chitMap[lower] ?? chitMap[uuid];
     return uuid;
   });
+}
+
+// JSX version — renders member/chit UUIDs as clickable links, unknown UUIDs as short mono text
+function ResolvedDescription({ desc, memberMap, chitMap, navigate }) {
+  if (!desc) return <span className="text-gray-400">—</span>;
+
+  const parts = [];
+  let lastIndex = 0;
+  const re = new RegExp(UUID_RE.source, 'gi');
+  let match;
+
+  while ((match = re.exec(desc)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(<span key={lastIndex}>{desc.slice(lastIndex, match.index)}</span>);
+    }
+    const uuid = match[0];
+    const lower = uuid.toLowerCase();
+    const memberName = memberMap[lower] ?? memberMap[uuid];
+    const chitName   = chitMap[lower]  ?? chitMap[uuid];
+    if (memberName) {
+      parts.push(
+        <button
+          key={uuid}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); navigate(`/members/${lower}`); }}
+          className="text-[#1E3A5F] font-semibold hover:underline cursor-pointer"
+        >
+          {memberName}
+        </button>
+      );
+    } else if (chitName) {
+      parts.push(
+        <button
+          key={uuid}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); navigate(`/chits/${lower}`); }}
+          className="text-[#1E3A5F] font-semibold hover:underline cursor-pointer"
+        >
+          {chitName}
+        </button>
+      );
+    } else {
+      parts.push(
+        <span key={uuid} className="font-mono text-xs text-gray-400">{uuid.slice(0, 8)}…</span>
+      );
+    }
+    lastIndex = match.index + uuid.length;
+  }
+
+  if (lastIndex < desc.length) {
+    parts.push(<span key="tail">{desc.slice(lastIndex)}</span>);
+  }
+
+  return <>{parts}</>;
 }
 
 // ─── Shared mini-components for the detail modal ──────────────────────────
@@ -54,8 +111,17 @@ function TxSection({ title, icon: Icon, children }) {
 }
 
 function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
-  const resolvedDesc = resolveDescription(tx.description, memberMap, chitMap);
+  const navigate = useNavigate();
+  const isTransfer = tx.category === 'TRANSFER';
   const isIn = tx.entryType === 'IN';
+
+  const heroIcon = isTransfer
+    ? <ArrowLeftRight size={16} style={{ color: '#7C3AED' }} />
+    : isIn
+      ? <TrendingUp size={16} style={{ color: '#16A34A' }} />
+      : <TrendingDown size={16} style={{ color: '#DC2626' }} />;
+
+  const heroBg = isTransfer ? '#F5F3FF' : isIn ? '#DCFCE7' : '#FEE2E2';
 
   return (
     <div
@@ -76,11 +142,9 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
           <div className="flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: isIn ? '#DCFCE7' : '#FEE2E2' }}
+              style={{ backgroundColor: heroBg }}
             >
-              {isIn
-                ? <TrendingUp size={16} style={{ color: '#16A34A' }} />
-                : <TrendingDown size={16} style={{ color: '#DC2626' }} />}
+              {heroIcon}
             </div>
             <div>
               <h3 className="text-base font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
@@ -99,23 +163,29 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 
         {/* Amount hero */}
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
-          style={{ backgroundColor: isIn ? '#F0FDF4' : '#FFF5F5' }}>
+          style={{ backgroundColor: isTransfer ? '#FAF5FF' : isIn ? '#F0FDF4' : '#FFF5F5' }}>
           <div>
             <p className="text-xs font-medium uppercase tracking-wider mb-1"
-              style={{ color: isIn ? '#166534' : '#991B1B' }}>
-              {isIn ? 'Amount Received' : 'Amount Paid Out'}
+              style={{ color: isTransfer ? '#6D28D9' : isIn ? '#166534' : '#991B1B' }}>
+              {isTransfer ? 'Transfer Amount' : isIn ? 'Amount Received' : 'Amount Paid Out'}
             </p>
-            <p className={`text-4xl font-bold ${isIn ? 'text-green-700' : 'text-red-600'}`}>
+            <p className={`text-4xl font-bold ${isTransfer ? 'text-purple-700' : isIn ? 'text-green-700' : 'text-red-600'}`}>
               {isIn ? '+' : '−'}₹{Number(tx.amount).toLocaleString('en-IN')}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-              isIn ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
-            }`}>
-              {isIn ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-              {isIn ? 'Money In' : 'Money Out'}
-            </span>
+            {isTransfer ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-purple-50 text-purple-700 border-purple-200">
+                <ArrowLeftRight size={11} /> Transfer
+              </span>
+            ) : (
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                isIn ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
+              }`}>
+                {isIn ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                {isIn ? 'Money In' : 'Money Out'}
+              </span>
+            )}
             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
               tx.accountType === 'CASH'
                 ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -131,8 +201,9 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
         <div className="overflow-y-auto px-6 py-4 space-y-3">
           <TxSection title="Details" icon={FileText}>
             {tx.category && <TxInfoRow icon={Tag} label="Category" value={tx.category} />}
-            {resolvedDesc && resolvedDesc !== '—' && (
-              <TxInfoRow icon={FileText} label="Description" value={resolvedDesc} />
+            {tx.description && (
+              <TxInfoRow icon={FileText} label="Description"
+                value={<ResolvedDescription desc={tx.description} memberMap={memberMap} chitMap={chitMap} navigate={navigate} />} />
             )}
             <TxInfoRow
               icon={Calendar}
@@ -174,7 +245,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 }
 
 const CATEGORIES_IN = ['Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
-const CATEGORIES_OUT = ['Salary', 'Expense', 'Personal Withdrawal', 'Chit Disbursement', 'Other Expense'];
+const CATEGORIES_OUT = ['Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
 
 // ─── Mini member contact card (hover popover) ─────────────────────────────
 function MemberContactCard({ member }) {
@@ -469,6 +540,131 @@ function AddTransactionModal({ onClose }) {
   );
 }
 
+function TransferModal({ onClose }) {
+  const toast = useToastContext();
+  const qc = useQueryClient();
+  const [fromAccount, setFromAccount] = useState('CASH');
+  const [amount, setAmount] = useState('');
+  const [description, setDescription] = useState('');
+
+  const toAccount = fromAccount === 'CASH' ? 'BANK' : 'CASH';
+
+  const mutation = useMutation({
+    mutationFn: () => transferWallet({
+      fromAccount,
+      amount: Number(amount),
+      description: description || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      toast.success(`Transferred ₹${Number(amount).toLocaleString('en-IN')} from ${fromAccount} to ${toAccount}`);
+      onClose();
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Transfer failed'),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose}
+      />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#EFF4FA' }}>
+              <ArrowLeftRight size={16} style={{ color: '#1E3A5F' }} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
+              Transfer Funds
+            </h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-pointer transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {/* From / To selector */}
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Transfer direction</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 'CASH', label: 'Cash → Bank', icon: Banknote },
+                { value: 'BANK', label: 'Bank → Cash', icon: CreditCard },
+              ].map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFromAccount(value)}
+                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border-2 transition-all cursor-pointer text-sm font-medium ${
+                    fromAccount === value
+                      ? 'border-[#1E3A5F] bg-[#1E3A5F]/5 text-[#1E3A5F]'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
+                  }`}
+                >
+                  <Icon size={18} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Visual flow indicator */}
+          <div className="flex items-center justify-center gap-3 py-2">
+            <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+              fromAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+            }`}>
+              {fromAccount}
+            </span>
+            <ArrowLeftRight size={14} className="text-gray-400" />
+            <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
+              toAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+            }`}>
+              {toAccount}
+            </span>
+          </div>
+
+          <FormField label="Amount (₹)" required>
+            <Input
+              type="number"
+              min="1"
+              placeholder="Enter amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+          </FormField>
+
+          <FormField label="Notes">
+            <Input
+              type="text"
+              placeholder="Optional notes…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </FormField>
+
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              loading={mutation.isPending}
+              disabled={!amount || Number(amount) <= 0}
+              className="flex-1"
+            >
+              Transfer
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const DATE_PRESETS = [
   { label: 'Today',      days: 0  },
   { label: 'Last 7 days', days: 7  },
@@ -477,7 +673,9 @@ const DATE_PRESETS = [
 ];
 
 export default function TreasuryPage() {
+  const navigate = useNavigate();
   const [showAdd, setShowAdd] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
   const [activePreset, setActivePreset] = useState('All time');
   const [filterAccount, setFilterAccount] = useState('ALL');
@@ -506,6 +704,23 @@ export default function TreasuryPage() {
     IN:  'bg-green-100 text-green-700',
     OUT: 'bg-red-100 text-red-700',
   };
+
+  function EntryTypeBadge({ t }) {
+    if (t.category === 'TRANSFER') {
+      return (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 flex items-center gap-1">
+          <ArrowLeftRight size={10} /> TRANSFER
+        </span>
+      );
+    }
+    return (
+      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTRY_TYPE_STYLE[t.entryType] ?? ''}`}>
+        {t.entryType === 'IN'
+          ? <span className="flex items-center gap-1"><TrendingUp size={10} /> IN</span>
+          : <span className="flex items-center gap-1"><TrendingDown size={10} /> OUT</span>}
+      </span>
+    );
+  }
 
   // ── Filter transactions client-side ───────────────────────────────────────
   const filteredTx = useMemo(() => {
@@ -554,6 +769,9 @@ export default function TreasuryPage() {
           >
             {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
           </button>
+          <Button variant="secondary" onClick={() => setShowTransfer(true)}>
+            <ArrowLeftRight size={15} /> Transfer
+          </Button>
           <Button onClick={() => setShowAdd(true)}>
             <Plus size={15} /> Record Transaction
           </Button>
@@ -641,21 +859,27 @@ export default function TreasuryPage() {
                     {t.accountType}
                   </span>
                 </Td>
-                <Td>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTRY_TYPE_STYLE[t.entryType] ?? ''}`}>
-                    {t.entryType === 'IN' ? (
-                      <span className="flex items-center gap-1"><TrendingUp size={10} /> IN</span>
-                    ) : (
-                      <span className="flex items-center gap-1"><TrendingDown size={10} /> OUT</span>
-                    )}
-                  </span>
+                <Td><EntryTypeBadge t={t} /></Td>
+                <Td className="text-gray-600 text-sm">
+                  {t.category === 'TRANSFER' ? (
+                    <span className="text-purple-600 font-medium">Transfer</span>
+                  ) : (t.category ?? '—')}
                 </Td>
-                <Td className="text-gray-600 text-sm">{t.category ?? '—'}</Td>
-                <Td className="text-gray-700 text-sm max-w-xs truncate">
-                  {resolveDescription(t.description, memberMap, chitMap)}
+                <Td className="text-gray-700 text-sm max-w-xs">
+                  <div className="truncate">
+                    <ResolvedDescription desc={t.description} memberMap={memberMap} chitMap={chitMap} navigate={navigate} />
+                  </div>
                 </Td>
-                <Td className={`font-semibold whitespace-nowrap ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
-                  {hidden ? '••••••' : `${t.entryType === 'IN' ? '+' : '−'}₹${Number(t.amount).toLocaleString('en-IN')}`}
+                <Td className={`font-semibold whitespace-nowrap ${
+                  t.category === 'TRANSFER'
+                    ? 'text-purple-600'
+                    : t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'
+                }`}>
+                  {hidden ? '••••••' : `${
+                    t.category === 'TRANSFER'
+                      ? (t.entryType === 'IN' ? '+' : '−')
+                      : (t.entryType === 'IN' ? '+' : '−')
+                  }₹${Number(t.amount).toLocaleString('en-IN')}`}
                 </Td>
                 <Td className={`text-sm font-semibold whitespace-nowrap ${t.runningBalance >= 0 ? 'text-gray-700' : 'text-red-600'}`}>
                   {hidden ? '••••••' : `₹${t.runningBalance.toLocaleString('en-IN')}`}
@@ -667,6 +891,7 @@ export default function TreasuryPage() {
       </div>
 
       {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} />}
+      {showTransfer && <TransferModal onClose={() => setShowTransfer(false)} />}
 
       {selectedTx && (
         <TransactionDetailModal

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getWinners,
   createPayout, getAllPayouts, getPendingPayouts,
-  disbursePayout, cancelPayout, addWalletTransaction,
+  disbursePayout, cancelPayout,
   getChitsForMember, getMemberBalance, recordPayment,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -736,18 +736,7 @@ function DisburseModal({ payout, memberName, onClose }) {
         referenceNumber: form.referenceNumber || undefined,
         notes: form.notes || undefined,
       };
-      const result = await disbursePayout(payload);
-
-      const accountType = form.disbursementMode === 'CASH' ? 'CASH' : 'BANK';
-      await addWalletTransaction({
-        accountType,
-        entryType: 'OUT',
-        amount: amountNum,
-        category: 'Chit Disbursement',
-        description: `Payout to ${memberName ?? payout.memberId} — Month #${payout.monthNumber}${isPartial ? ' (partial)' : ''}${form.referenceNumber ? ` · Ref: ${form.referenceNumber}` : ''}`,
-      }).catch(() => {});
-
-      return result;
+      return disbursePayout(payload);
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['payouts'] });

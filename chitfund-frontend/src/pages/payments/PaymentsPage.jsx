@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, NavLink, Outlet } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getChitsForMember,
@@ -24,30 +24,40 @@ const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Pending Remittance', '
 const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
 const WORKER_TABS  = ['Record Payment'];
 
-function TabBar({ active, onChange, tabs }) {
-  const ICONS = {
-    'Record Payment':     CreditCard,
-    'Cash Requests':      Banknote,
-    'Pending Remittance': Clock,
-    'History':            History,
-  };
+const TAB_ROUTES = {
+  'Record Payment':     'record',
+  'Cash Requests':      'cash-requests',
+  'Pending Remittance': 'remittance',
+  'History':            'history',
+};
+
+const TAB_ICONS = {
+  'Record Payment':     CreditCard,
+  'Cash Requests':      Banknote,
+  'Pending Remittance': Clock,
+  'History':            History,
+};
+
+function TabBar({ tabs }) {
   return (
     <div className="flex border-b border-gray-200 gap-1">
       {tabs.map((t) => {
-        const Icon = ICONS[t];
+        const Icon = TAB_ICONS[t];
         return (
-          <button
+          <NavLink
             key={t}
-            onClick={() => onChange(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px flex items-center gap-2 ${
-              active === t
-                ? 'border-[#1E3A5F] text-[#1E3A5F]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            to={TAB_ROUTES[t]}
+            className={({ isActive }) =>
+              `px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px flex items-center gap-2 ${
+                isActive
+                  ? 'border-[#1E3A5F] text-[#1E3A5F]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`
+            }
           >
             {Icon && <Icon size={14} />}
             {t}
-          </button>
+          </NavLink>
         );
       })}
     </div>
@@ -231,7 +241,7 @@ function SetupCashPickupModal({ onClose }) {
   );
 }
 
-function CashRequestsTab() {
+export function CashRequestsTab() {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [assignTarget, setAssignTarget] = useState(null);
@@ -356,7 +366,7 @@ const PAYMENT_MODES = [
   { value: 'BANK_TRANSFER', label: 'Bank Transfer',  desc: 'NEFT/RTGS/IMPS — credited to treasury bank' },
 ];
 
-function RecordPaymentTab() {
+export function RecordPaymentTab() {
   const { user } = useAuth();
   const toast = useToastContext();
   const qc = useQueryClient();
@@ -552,7 +562,7 @@ function SortIcon({ field, sortField, sortDir }) {
   return <span className="text-[#1E3A5F] ml-1 text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>;
 }
 
-function PendingRemittanceTab() {
+export function PendingRemittanceTab() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -687,7 +697,7 @@ function PendingRemittanceTab() {
           'Action',
         ]}>
           {sortedBatches.map((b) => (
-            <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`)}
+            <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'Pending Remittance' } })}
               className="cursor-pointer hover:bg-blue-50/30 transition-colors">
               <Td>
                 <span className="text-sm font-medium text-gray-800">
@@ -732,7 +742,7 @@ function PendingRemittanceTab() {
 }
 
 // ─── History Tab ────────────────────────────────────────────────────────────
-function HistoryTab() {
+export function HistoryTab() {
   const navigate = useNavigate();
   const [chitId, setChitId]     = useState('');
   const [memberId, setMemberId] = useState('');
@@ -828,7 +838,7 @@ function HistoryTab() {
         ) : (
           <Table columns={['Member', 'Chit', 'Draw(s)', 'Amount', 'Mode', 'Collected By', 'Date & Time', 'Status']}>
             {batches.map((b) => (
-              <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`)} className="cursor-pointer hover:bg-blue-50/30 transition-colors">
+              <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'History' } })} className="cursor-pointer hover:bg-blue-50/30 transition-colors">
                 <Td className="font-medium text-gray-900">
                   {memberMap[b.memberId] ?? b.memberId?.slice(0, 8) ?? '—'}
                 </Td>
@@ -882,7 +892,6 @@ export default function PaymentsPage() {
   const { user } = useAuth();
   const role = user?.role ?? 'ADMIN';
   const tabs = role === 'WORKER' ? WORKER_TABS : role === 'MANAGER' ? MANAGER_TABS : ADMIN_TABS;
-  const [activeTab, setActiveTab] = useState(tabs[0]);
 
   return (
     <div className="space-y-6">
@@ -898,11 +907,8 @@ export default function PaymentsPage() {
       </div>
 
       <div className="space-y-5">
-        <TabBar active={activeTab} onChange={setActiveTab} tabs={tabs} />
-        {activeTab === 'Record Payment' && <RecordPaymentTab />}
-        {activeTab === 'Cash Requests' && <CashRequestsTab />}
-        {activeTab === 'Pending Remittance' && <PendingRemittanceTab />}
-        {activeTab === 'History' && <HistoryTab />}
+        <TabBar tabs={tabs} />
+        <Outlet />
       </div>
     </div>
   );

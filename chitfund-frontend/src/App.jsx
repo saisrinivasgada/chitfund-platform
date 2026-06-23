@@ -8,7 +8,12 @@ import MembersPage from './pages/members/MembersPage';
 import MemberDetailPage from './pages/members/MemberDetailPage';
 import ChitsPage from './pages/chits/ChitsPage';
 import ChitDetailPage from './pages/chits/ChitDetailPage';
-import PaymentsPage from './pages/payments/PaymentsPage';
+import PaymentsPage, {
+  RecordPaymentTab,
+  CashRequestsTab,
+  PendingRemittanceTab,
+  HistoryTab,
+} from './pages/payments/PaymentsPage';
 import PayoutsPage from './pages/payouts/PayoutsPage';
 import DrawsPage from './pages/draws/DrawsPage';
 import ReportsPage from './pages/reports/ReportsPage';
@@ -41,7 +46,13 @@ export default function App() {
         <Route path="/admin/member-view/:memberId" element={<AdminMemberViewPage />} />
         <Route path="/chits" element={<ChitsPage />} />
         <Route path="/chits/:id" element={<ChitDetailPage />} />
-        <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/payments" element={<PaymentsPage />}>
+          <Route index element={<Navigate to="record" replace />} />
+          <Route path="record" element={<RecordPaymentTab />} />
+          <Route path="cash-requests" element={<CashRequestsTab />} />
+          <Route path="remittance" element={<PendingRemittanceTab />} />
+          <Route path="history" element={<HistoryTab />} />
+        </Route>
         <Route path="/payouts" element={<PayoutsPage />} />
         <Route path="/draws" element={<DrawsPage />} />
         <Route path="/reports" element={<ReportsPage />} />

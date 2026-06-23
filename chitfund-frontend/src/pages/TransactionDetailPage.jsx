@@ -13,7 +13,7 @@ import {
 } from '../services/api';
 import { useToastContext } from '../components/layout/AppLayout';
 import Button from '../components/ui/Button';
-import Input from '../components/ui/Input';
+import { Input } from '../components/ui/FormField';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 const STATUS_CONFIG = {
@@ -419,9 +419,9 @@ export default function TransactionDetailPage() {
         </div>
       )}
 
-      {/* FIFO Allocations */}
+      {/* Draw Allocations */}
       {batch.allocations && batch.allocations.length > 0 && (
-        <Card title="Month Allocations (FIFO)" icon={Calendar}>
+        <Card title={`Draw Allocations — ${chitName}`} icon={Calendar}>
           <div className="py-2 space-y-0">
             {batch.allocations.map((alloc, idx) => {
               const draw = drawByMonth[alloc.monthNumber];
@@ -436,8 +436,8 @@ export default function TransactionDetailPage() {
                       <Calendar size={13} className="text-blue-500" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-800">Month #{alloc.monthNumber}</p>
-                      {monthLabel && <p className="text-xs text-gray-400">{monthLabel}</p>}
+                      <p className="text-sm font-medium text-gray-800">Draw #{alloc.monthNumber}</p>
+                      {monthLabel && <p className="text-xs text-gray-400">{chitName} · {monthLabel}</p>}
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-gray-900">{fmtAmt(alloc.allocatedAmount)}</span>

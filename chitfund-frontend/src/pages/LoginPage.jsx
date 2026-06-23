@@ -221,7 +221,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ backgroundColor: '#F8F9FB' }}>
+    <div className="min-h-screen flex bg-white">
       {/* ── Left panel: brand ─────────────────────────────────────────────── */}
       <div
         className="hidden lg:flex lg:w-[44%] flex-col justify-between p-12 relative overflow-hidden"
@@ -238,14 +238,14 @@ export default function LoginPage() {
               <BookOpen size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white" style={{ fontFamily: 'Merriweather, serif' }}>
-                ChitFund
+              <h1 className="text-xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>
+                ChitWise
               </h1>
               <p className="text-xs text-white/50">Management Platform</p>
             </div>
           </div>
 
-          <h2 className="text-3xl font-bold text-white leading-snug mb-4" style={{ fontFamily: 'Merriweather, serif' }}>
+          <h2 className="text-3xl font-bold leading-snug mb-4" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>
             Manage your chit funds with confidence
           </h2>
           <p className="text-white/60 text-sm leading-relaxed">
@@ -275,21 +275,22 @@ export default function LoginPage() {
       </div>
 
       {/* ── Right panel: login form ───────────────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-sm">
+      <div className="flex-1 bg-white overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center px-6 py-12">
+          <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-10 lg:hidden">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1E3A5F' }}>
               <BookOpen size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitFund</h1>
+              <h1 className="text-lg font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitWise</h1>
               <p className="text-xs text-gray-400">Management Platform</p>
             </div>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
+            <h2 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#1A202C' }}>
               Welcome back
             </h2>
             <p className="text-sm text-gray-500 mt-1">Sign in to your account to continue</p>
@@ -396,6 +397,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>

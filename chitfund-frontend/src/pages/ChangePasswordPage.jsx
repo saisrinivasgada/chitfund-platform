@@ -56,7 +56,7 @@ export default function ChangePasswordPage() {
             <BookOpen size={28} className="text-white" />
           </div>
           <h1 className="text-3xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
-            ChitFund
+            ChitWise
           </h1>
           <p className="text-gray-500 mt-1.5 text-sm">Management Platform</p>
         </div>

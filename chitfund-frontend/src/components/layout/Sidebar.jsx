@@ -490,7 +490,7 @@ export default function Sidebar({ open = false, onClose }) {
     <aside
       className={[
         // ── Shared layout ──────────────────────────────────────────────
-        'flex flex-col bg-white overflow-hidden',
+        'flex flex-col bg-white',
 
         // ── Mobile / tablet: fixed drawer with slide transition ────────
         'fixed inset-y-0 left-0 z-50 w-72',
@@ -517,7 +517,7 @@ export default function Sidebar({ open = false, onClose }) {
               className="text-base font-bold leading-tight"
               style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
             >
-              ChitFund
+              ChitWise
             </h1>
             <p className="text-xs text-gray-400">Management Platform</p>
           </div>

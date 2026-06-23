@@ -2735,6 +2735,12 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   );
   const otherChitsWithBalance = otherActiveChits.filter((c) => (crossBalances[String(c.id)] ?? 0) > 0);
 
+  // Only show "collect current month installment" if the member actually owes that draw
+  const currentChitBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(chitId));
+  const currentMonthOwed = currentChitBalance?.months?.some(
+    (m) => m.monthNumber === monthNumber && Number(m.balance) > 0
+  ) ?? false;
+
   const currentMonthDed = collectCurrentMonth ? installmentAmount : 0;
   const crossDed = Object.entries(crossChitCollect)
     .filter(([, v]) => v.enabled)
@@ -2764,38 +2770,28 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   // ── Create payout ──
   const createMutation = useMutation({
     mutationFn: async () => {
-      const p = await createPayout({
+      // Build cross-chit deduction list so backend marks them atomically
+      const crossChitDeductions = Object.entries(crossChitCollect)
+        .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+        .flatMap(([xChitId]) => {
+          const xBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(xChitId));
+          const oldestDrawMonth = xBalance?.months?.[0]?.monthNumber;
+          return oldestDrawMonth ? [{ chitId: xChitId, monthNumber: oldestDrawMonth }] : [];
+        });
+
+      return createPayout({
         chitId,
         memberId,
         monthNumber,
-        winningAmount:         winNum,
-        discountAmount:        totalDiscount,
-        installmentSettlement: currentMonthDed || undefined,
-        crossChitSettlement:   crossDed || undefined,
-        manualAdjustment:      manualNum || undefined,
-        notes: createNotes || undefined,
+        winningAmount:                    winNum,
+        discountAmount:                   totalDiscount,
+        installmentSettlement:            currentMonthDed || undefined,
+        crossChitSettlement:              crossDed || undefined,
+        manualAdjustment:                 manualNum || undefined,
+        notes:                            createNotes || undefined,
+        collectCurrentMonthInstallment:   collectCurrentMonth && installmentAmount > 0,
+        crossChitDeductions:              crossChitDeductions.length > 0 ? crossChitDeductions : undefined,
       });
-      // Mark installments as PAYOUT_DEDUCTED — no batch, no treasury movement.
-      // The installment was withheld from the payout amount, not physically received.
-      const tasks = [];
-      if (collectCurrentMonth && installmentAmount > 0) {
-        tasks.push(markPayoutDeducted({
-          chitId, memberId, monthNumber, payoutId: p.id,
-        }).catch(() => null));
-      }
-      Object.entries(crossChitCollect)
-        .filter(([, v]) => v.enabled && Number(v.amount) > 0)
-        .forEach(([xChitId, v]) => {
-          const xBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(xChitId));
-          const oldestDrawMonth = xBalance?.months?.[0]?.monthNumber;
-          if (oldestDrawMonth) {
-            tasks.push(markPayoutDeducted({
-              chitId: xChitId, memberId, monthNumber: oldestDrawMonth, payoutId: p.id,
-            }).catch(() => null));
-          }
-        });
-      if (tasks.length > 0) await Promise.all(tasks);
-      return p;
     },
     onSuccess: (p) => {
       setPayout(p);
@@ -3051,8 +3047,8 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
               </div>
               <div className="divide-y divide-gray-100">
 
-                {/* Current month installment */}
-                {installmentAmount > 0 && (
+                {/* Current month installment — only if member actually owes this draw */}
+                {installmentAmount > 0 && currentMonthOwed && (
                   <div className="px-4 py-3 flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
@@ -3115,7 +3111,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                   </>
                 )}
 
-                {otherChitsWithBalance.length === 0 && installmentAmount === 0 && (
+                {otherChitsWithBalance.length === 0 && (!currentMonthOwed || installmentAmount === 0) && (
                   <div className="px-4 py-3 text-xs text-gray-400 italic">
                     No outstanding dues or installment to collect.
                   </div>

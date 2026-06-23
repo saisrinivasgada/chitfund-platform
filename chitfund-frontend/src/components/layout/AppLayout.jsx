@@ -77,7 +77,7 @@ export default function AppLayout() {
                 className="text-base font-bold"
                 style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
               >
-                ChitFund
+                ChitWise
               </span>
             </div>
 

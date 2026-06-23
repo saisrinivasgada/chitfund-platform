@@ -598,4 +598,9 @@ export const addWalletTransaction = async (payload) => {
   return res.data.data;
 };
 
+export const transferWallet = async (payload) => {
+  const res = await api.post('/admin/wallet/transfer', payload);
+  return res.data.data;
+};
+
 export default api;
