@@ -35,6 +35,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
                 .requestMatchers("/notifications/internal/**").permitAll()
+                .requestMatchers("/admin/wallet/internal/**").permitAll()
+                .requestMatchers("/payments/internal/**").permitAll()
+                .requestMatchers("/admin/draws/internal/**").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

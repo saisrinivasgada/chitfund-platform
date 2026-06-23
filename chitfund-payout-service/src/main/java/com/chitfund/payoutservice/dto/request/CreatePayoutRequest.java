@@ -4,6 +4,7 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -35,4 +36,10 @@ public class CreatePayoutRequest {
     private BigDecimal manualAdjustment;
 
     private String notes;
+
+    // When true, marks winner's installment for this chit+month as PAYOUT_DEDUCTED atomically
+    private Boolean collectCurrentMonthInstallment;
+
+    // Cross-chit dues deducted from this payout — each entry marks that chit+month as PAYOUT_DEDUCTED
+    private List<CrossChitDeductionDto> crossChitDeductions;
 }

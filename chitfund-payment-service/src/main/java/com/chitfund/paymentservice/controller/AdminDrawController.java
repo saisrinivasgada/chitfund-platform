@@ -8,6 +8,7 @@ import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.service.ChitMonthDrawService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +28,9 @@ import java.util.stream.Collectors;
 public class AdminDrawController {
 
     private final ChitMonthDrawService drawService;
+
+    @Value("${app.internal-key:chitfund-internal-service-key}")
+    private String internalKey;
 
     /**
      * Admin dashboard: shows all OPEN cycles with payment progress.
@@ -127,5 +131,21 @@ public class AdminDrawController {
     @GetMapping("/today")
     public ResponseEntity<ApiResponse<List<DrawSummaryResponse>>> getTodaysDraws() {
         return ResponseEntity.ok(ApiResponse.success(drawService.getTodaysDraws()));
+    }
+
+    /**
+     * Internal endpoint — called by chit-service when a chit is completed.
+     * Auto-closes all OPEN draws so they don't pollute the admin dashboard.
+     */
+    @PostMapping("/internal/close-for-chit/{chitId}")
+    @PreAuthorize("true")
+    public ResponseEntity<Void> closeDrawsForChit(
+            @PathVariable UUID chitId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        drawService.closeOpenDrawsForChit(chitId);
+        return ResponseEntity.ok().build();
     }
 }

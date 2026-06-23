@@ -143,6 +143,7 @@ public class ChitService {
             sendChitStatusNotifications(chit, "CHIT_COMPLETED",
                     "Chit Completed — " + chit.getName(),
                     "Your chit '" + chit.getName() + "' has been completed. Thank you for participating!");
+            notificationClient.closeDrawsForChit(chit.getId());
         } else if (revertingToDraft) {
             // Clear enrollments so admin can freely edit the schedule and re-activate
             List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndActiveTrue(chit.getId());

@@ -40,6 +40,10 @@ server:
 jwt:
   secret: ${JWT_SECRET:chitfund-super-secret-key-that-is-at-least-256-bits-long-for-hs256-algorithm}
 
+app:
+  payment-service-url: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+  internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
+
 management:
   endpoints:
     web:

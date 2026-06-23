@@ -11,6 +11,7 @@ import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
 import com.chitfund.paymentservice.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,6 +32,9 @@ import java.util.stream.Collectors;
 public class PaymentController {
 
     private final PaymentService paymentService;
+
+    @Value("${app.internal-key:chitfund-internal-service-key}")
+    private String internalKey;
 
     /**
      * Worker collects cash from a member during their rounds.
@@ -237,6 +241,23 @@ public class PaymentController {
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<Void> revertPayoutDeductions(@PathVariable UUID payoutId) {
         paymentService.revertPayoutDeductions(payoutId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Internal endpoint — called by payout-service during payout creation to atomically
+     * mark installments as PAYOUT_DEDUCTED without requiring a user JWT.
+     */
+    @PostMapping("/internal/mark-payout-deducted")
+    public ResponseEntity<Void> markPayoutDeductedInternal(
+            @Valid @RequestBody MarkPayoutDeductedRequest request,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        paymentService.markPayoutDeducted(
+                request.getChitId(), request.getMemberId(),
+                request.getMonthNumber(), request.getPayoutId());
         return ResponseEntity.noContent().build();
     }
 }

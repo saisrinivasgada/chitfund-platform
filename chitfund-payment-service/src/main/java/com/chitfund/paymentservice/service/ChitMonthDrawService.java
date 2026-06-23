@@ -194,6 +194,26 @@ public class ChitMonthDrawService {
         return buildSummaryWithLiveStats(cycle);
     }
 
+    /**
+     * Auto-closes all OPEN draws for a chit when the chit is completed.
+     * Called internally from chit-service via X-Internal-Key endpoint.
+     */
+    @Transactional
+    public void closeOpenDrawsForChit(UUID chitId) {
+        List<ChitMonthDraw> openDraws = drawRepository.findByChitIdAndStatus(chitId, DrawStatus.OPEN);
+        if (openDraws.isEmpty()) return;
+        LocalDateTime now = LocalDateTime.now();
+        // Use a fixed system UUID for system-initiated closes
+        UUID systemActor = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        for (ChitMonthDraw draw : openDraws) {
+            draw.setStatus(DrawStatus.CLOSED);
+            draw.setClosedAt(now);
+            draw.setClosedBy(systemActor);
+        }
+        drawRepository.saveAll(openDraws);
+        log.info("Auto-closed {} OPEN draws for completed chit {}", openDraws.size(), chitId);
+    }
+
     @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getDashboard() {
         List<ChitMonthDraw> openCycles = drawRepository.findByStatusOrderByDueDateAsc(DrawStatus.OPEN);

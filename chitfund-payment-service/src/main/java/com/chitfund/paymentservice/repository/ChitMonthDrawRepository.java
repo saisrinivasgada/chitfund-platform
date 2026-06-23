@@ -21,6 +21,8 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     List<ChitMonthDraw> findByStatusOrderByDueDateAsc(DrawStatus status);
 
+    List<ChitMonthDraw> findByChitIdAndStatus(UUID chitId, DrawStatus status);
+
     List<ChitMonthDraw> findByChitIdOrderByMonthNumberAsc(UUID chitId);
 
     @Query("SELECT c.chitId, MAX(c.monthNumber) FROM ChitMonthDraw c WHERE c.chitId IN :chitIds GROUP BY c.chitId")

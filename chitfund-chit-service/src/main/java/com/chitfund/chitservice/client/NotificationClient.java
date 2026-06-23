@@ -34,6 +34,24 @@ public class NotificationClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
+    /**
+     * Tells payment-service to auto-close all OPEN draws for a completed chit
+     * so they don't show up as stale on the admin dashboard.
+     */
+    public void closeDrawsForChit(java.util.UUID chitId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Internal-Key", internalKey);
+            restTemplate.postForObject(
+                    paymentServiceUrl + "/admin/draws/internal/close-for-chit/" + chitId,
+                    new HttpEntity<>(null, headers),
+                    Void.class);
+        } catch (RestClientException e) {
+            log.warn("Could not close draws for completed chit {}: {}", chitId, e.getMessage());
+        }
+    }
+
     public void sendBulk(List<Map<String, Object>> notifications) {
         if (notifications == null || notifications.isEmpty()) return;
         try {
