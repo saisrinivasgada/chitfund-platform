@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 
-const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours of inactivity
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes of inactivity
 const ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
 
 const AuthContext = createContext(null);

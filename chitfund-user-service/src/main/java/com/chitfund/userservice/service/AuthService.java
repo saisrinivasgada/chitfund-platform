@@ -146,9 +146,10 @@ public class AuthService {
             // Temp password used → force a password change on first session.
             user.setMustChangePassword(true);
         } else {
-            // Real (original) password used → the temp is no longer needed, clear it.
+            // Real password used → clear any admin-generated temp hash.
+            // mustChangePassword is intentionally NOT cleared here — that is only done
+            // in changePassword() after the user actually sets a new password.
             user.setTempPasswordHash(null);
-            user.setMustChangePassword(false);
         }
 
         userRepository.save(user);
