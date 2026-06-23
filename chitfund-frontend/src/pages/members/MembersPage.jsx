@@ -77,7 +77,7 @@ function AddMemberModal({ onClose }) {
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Full Name" required className="col-span-2">
             <Input
-              placeholder="e.g. Ravi Kumar"
+              placeholder="e.g. Sai Srinivas"
               value={form.fullName}
               onChange={(e) => set('fullName', e.target.value)}
               required

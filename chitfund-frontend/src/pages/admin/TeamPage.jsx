@@ -218,7 +218,7 @@ function AddStaffModal({ onClose }) {
             <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
             <StyledInput
               icon={User}
-              placeholder="Ravi Kumar"
+              placeholder="Sai Srinivas"
               value={form.fullName}
               onChange={(e) => set('fullName', e.target.value)}
               required
@@ -240,7 +240,7 @@ function AddStaffModal({ onClose }) {
           <label className="text-sm font-medium text-gray-700">Username <span className="text-red-500">*</span></label>
           <StyledInput
             icon={AtSign}
-            placeholder="ravi.worker"
+            placeholder="sai.worker"
             value={form.username}
             onChange={(e) => set('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
             required
@@ -254,7 +254,7 @@ function AddStaffModal({ onClose }) {
           <StyledInput
             icon={Mail}
             type="email"
-            placeholder="ravi@example.com"
+            placeholder="sai@example.com"
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
           />

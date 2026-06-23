@@ -452,7 +452,7 @@ function CreateLoginModal({ member, onClose }) {
           <Input
             value={form.username}
             onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-            placeholder="e.g. ravi_sharma"
+            placeholder="e.g. sai_srinivas"
             pattern="^[a-zA-Z0-9_]+$"
             required
           />
