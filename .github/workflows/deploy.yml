@@ -5,6 +5,16 @@ on:
     branches: [main, test]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: 'Force deploy backend'
+        type: boolean
+        default: false
+      deploy_frontend:
+        description: 'Force deploy frontend'
+        type: boolean
+        default: false
 
 env:
   EC2_USER: ec2-user
@@ -19,13 +29,13 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      user:     ${{ steps.f.outputs.user }}
-      chit:     ${{ steps.f.outputs.chit }}
-      payment:  ${{ steps.f.outputs.payment }}
-      payout:   ${{ steps.f.outputs.payout }}
-      gateway:  ${{ steps.f.outputs.gateway }}
-      frontend: ${{ steps.f.outputs.frontend }}
-      backend:  ${{ steps.f.outputs.backend }}
+      user:     ${{ steps.f.outputs.user     == 'true' || inputs.deploy_backend  == 'true' }}
+      chit:     ${{ steps.f.outputs.chit     == 'true' || inputs.deploy_backend  == 'true' }}
+      payment:  ${{ steps.f.outputs.payment  == 'true' || inputs.deploy_backend  == 'true' }}
+      payout:   ${{ steps.f.outputs.payout   == 'true' || inputs.deploy_backend  == 'true' }}
+      gateway:  ${{ steps.f.outputs.gateway  == 'true' || inputs.deploy_backend  == 'true' }}
+      frontend: ${{ steps.f.outputs.frontend == 'true' || inputs.deploy_frontend == 'true' }}
+      backend:  ${{ steps.f.outputs.backend  == 'true' || inputs.deploy_backend  == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
