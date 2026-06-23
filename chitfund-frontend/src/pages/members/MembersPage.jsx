@@ -260,19 +260,14 @@ export default function MembersPage() {
           <h3 className="text-base font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
             {showDeleted ? 'Deleted Members' : 'All Members'}
           </h3>
-          <div className="relative">
-            <Search
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10"
-            />
-            <Input
-              type="text"
-              placeholder="Search members…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 w-56"
-            />
-          </div>
+          <Input
+            type="text"
+            placeholder="Search members…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-56"
+            iconLeft={<Search size={15} />}
+          />
         </div>
 
         {isLoadingView ? (

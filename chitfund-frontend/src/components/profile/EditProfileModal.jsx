@@ -44,8 +44,10 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, maxLen
           onBlur={() => setFocused(false)}
           maxLength={maxLength}
           disabled={disabled}
-          className={`w-full ${Icon ? 'pl-10' : 'pl-3.5'} ${rightSlot ? 'pr-12' : 'pr-3.5'} py-3 text-sm rounded-xl border focus:outline-none transition-all`}
+          className="w-full py-3 text-sm rounded-xl border focus:outline-none transition-all"
           style={{
+            paddingLeft:  Icon      ? '2.5rem'  : '0.875rem',
+            paddingRight: rightSlot ? '3rem'    : '0.875rem',
             borderColor: focused ? '#1E3A5F' : '#E5E7EB',
             boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
             backgroundColor: disabled ? '#F9FAFB' : '#FFFFFF',
@@ -144,8 +146,10 @@ function UsernameField({ value, currentUsername, onChange }) {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           maxLength={30}
-          className="w-full pl-10 pr-28 py-3 text-sm rounded-xl border focus:outline-none transition-all"
+          className="w-full py-3 text-sm rounded-xl border focus:outline-none transition-all"
           style={{
+            paddingLeft: '2.5rem',
+            paddingRight: '7rem',
             borderColor,
             boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
           }}
