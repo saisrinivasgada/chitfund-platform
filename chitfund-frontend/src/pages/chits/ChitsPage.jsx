@@ -761,7 +761,7 @@ export default function ChitsPage() {
               onClick={() => setShowDeleted((v) => !v)}
             >
               <Trash2 size={14} />
-              {showDeleted ? 'Deleted Chits' : 'Show Deleted'}
+              {showDeleted ? 'Show Active' : 'Show Deleted'}
             </Button>
           )}
           {!showDeleted && (

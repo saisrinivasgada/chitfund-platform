@@ -242,7 +242,7 @@ export default function MembersPage() {
               onClick={() => setShowDeleted((v) => !v)}
             >
               <Trash2 size={14} />
-              {showDeleted ? 'Deleted Members' : 'Show Deleted'}
+              {showDeleted ? 'Show Active' : 'Show Deleted'}
             </Button>
           )}
           {!showDeleted && canAddMembers && (

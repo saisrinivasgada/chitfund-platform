@@ -9,10 +9,9 @@ import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
 import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
-import FormField, { Input, Select } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { Plus, Briefcase, UserCheck, UserX, Trash2 } from 'lucide-react';
+import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Phone, Mail, AtSign, Copy, Check, AlertTriangle } from 'lucide-react';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
@@ -23,6 +22,84 @@ const ROLE_BADGE = {
 
 const INITIAL_FORM = { username: '', email: '', fullName: '', phone: '', role: 'WORKER' };
 
+const ROLE_OPTIONS = [
+  {
+    value: 'WORKER',
+    label: 'Worker',
+    desc: 'Collects cash in the field',
+    icon: UserCheck,
+    color: '#16A34A',
+    bg: '#F0FDF4',
+    border: '#BBF7D0',
+  },
+  {
+    value: 'MANAGER',
+    label: 'Manager',
+    desc: 'Operations oversight, no system edits',
+    icon: Briefcase,
+    color: '#D97706',
+    bg: '#FFFBEB',
+    border: '#FDE68A',
+  },
+  {
+    value: 'ADMIN',
+    label: 'Admin',
+    desc: 'Full platform access',
+    icon: Shield,
+    color: '#1E3A5F',
+    bg: '#EFF3F8',
+    border: '#BFCFDE',
+  },
+];
+
+function StyledInput({ icon: Icon, ...props }) {
+  return (
+    <div className="relative">
+      {Icon && (
+        <span className="absolute top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 flex items-center" style={{ left: '0.75rem' }}>
+          <Icon size={15} />
+        </span>
+      )}
+      <input
+        className="w-full py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 transition-all text-gray-900 placeholder-gray-400"
+        style={{
+          paddingLeft: Icon ? '2.25rem' : '0.875rem',
+          paddingRight: '0.875rem',
+        }}
+        {...props}
+      />
+    </div>
+  );
+}
+
+function CredentialRow({ label, value, mono }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+  return (
+    <div className="flex items-center justify-between px-4 py-3.5">
+      <span className="text-sm text-gray-500 font-medium">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className={`text-sm font-bold ${mono ? 'font-mono tracking-wide text-[#1E3A5F]' : 'text-gray-900'}`}>
+          {value}
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+          title="Copy"
+        >
+          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AddStaffModal({ onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -31,12 +108,16 @@ function AddStaffModal({ onClose }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [tempPass, setTempPass] = useState(null);
 
+  const availableRoles = ROLE_OPTIONS.filter((r) =>
+    isManager ? r.value === 'WORKER' : true
+  );
+
   const mutation = useMutation({
     mutationFn: createStaff,
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['staff'] });
       setTempPass(data.tempPassword ?? null);
-      const label = form.role === 'ADMIN' ? 'Admin' : form.role === 'MANAGER' ? 'Manager' : 'Worker';
+      const label = ROLE_OPTIONS.find((r) => r.value === form.role)?.label ?? form.role;
       toast.success(`${label} account created`);
     },
     onError: (err) => {
@@ -46,30 +127,32 @@ function AddStaffModal({ onClose }) {
 
   function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    mutation.mutate(form);
-  }
-
   if (tempPass) {
     return (
       <Modal title="Account Created" onClose={onClose} size="sm">
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Share these login credentials with the new team member. The temporary password
-            will expire after their first login.
-          </p>
-          <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
-            <div className="flex justify-between px-4 py-3 text-sm">
-              <span className="text-gray-500 font-medium">Username</span>
-              <span className="font-semibold text-gray-900">{form.username}</span>
+        <div className="space-y-5">
+          {/* Success icon */}
+          <div className="flex flex-col items-center pt-2 pb-1 gap-3">
+            <div className="w-14 h-14 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center">
+              <Check size={28} className="text-green-500" />
             </div>
-            <div className="flex justify-between px-4 py-3 text-sm">
-              <span className="text-gray-500 font-medium">Temp Password</span>
-              <span className="font-mono font-bold text-[#1E3A5F] select-all">{tempPass}</span>
+            <div className="text-center">
+              <p className="text-base font-bold text-gray-900">Ready to go!</p>
+              <p className="text-sm text-gray-400 mt-0.5">Share these credentials with the new team member.</p>
             </div>
           </div>
-          <Button variant="primary" className="w-full" onClick={onClose} size="md">
+
+          {/* Credentials card */}
+          <div className="rounded-2xl border border-gray-200 divide-y divide-gray-100 overflow-hidden bg-gray-50">
+            <CredentialRow label="Username" value={form.username} />
+            <CredentialRow label="Temp Password" value={tempPass} mono />
+          </div>
+
+          <p className="text-xs text-center text-gray-400">
+            The temporary password expires after first login.
+          </p>
+
+          <Button variant="primary" size="md" className="w-full" onClick={onClose}>
             Done
           </Button>
         </div>
@@ -79,64 +162,108 @@ function AddStaffModal({ onClose }) {
 
   return (
     <Modal title="Add Team Member" onClose={onClose} size="md">
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <FormField label="Role" required>
-          <Select value={form.role} onChange={(e) => set('role', e.target.value)}>
-            <option value="WORKER">Worker — field cash collector</option>
-            {!isManager && <option value="MANAGER">Manager — operations, no system edits</option>}
-            {!isManager && <option value="ADMIN">Admin — full platform access</option>}
-          </Select>
-        </FormField>
+      <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(form); }} className="space-y-5">
+
+        {/* Role selector */}
+        <div>
+          <p className="text-sm font-medium text-gray-700 mb-3">Role</p>
+          <div className={`grid gap-3 ${availableRoles.length === 1 ? 'grid-cols-1' : availableRoles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            {availableRoles.map((r) => {
+              const Icon = r.icon;
+              const active = form.role === r.value;
+              return (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => set('role', r.value)}
+                  className="flex flex-col items-center gap-2 p-3.5 rounded-xl border-2 text-center transition-all cursor-pointer"
+                  style={{
+                    borderColor: active ? r.color : '#E5E7EB',
+                    backgroundColor: active ? r.bg : '#FAFAFA',
+                  }}
+                >
+                  <div
+                    className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ backgroundColor: active ? r.color : '#F3F4F6' }}
+                  >
+                    <Icon size={16} style={{ color: active ? '#fff' : '#9CA3AF' }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: active ? r.color : '#374151' }}>
+                      {r.label}
+                    </p>
+                    <p className="text-[11px] leading-snug mt-0.5" style={{ color: active ? r.color : '#9CA3AF' }}>
+                      {r.desc}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Admin warning */}
         {form.role === 'ADMIN' && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Admin accounts have full platform access including creating other staff accounts and managing all data. Only create this for trusted team members.
+          <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50">
+            <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800">
+              Admin accounts have full platform access including creating other staff and managing all data. Only add trusted team members.
+            </p>
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Full Name" required>
-            <Input
-              placeholder="e.g. Ravi Kumar"
+        {/* Name + Phone */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
+            <StyledInput
+              icon={User}
+              placeholder="Ravi Kumar"
               value={form.fullName}
               onChange={(e) => set('fullName', e.target.value)}
               required
             />
-          </FormField>
-          <FormField label="Phone">
-            <Input
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">Phone</label>
+            <StyledInput
+              icon={Phone}
               placeholder="9876543210"
               value={form.phone}
-              onChange={(e) => set('phone', e.target.value)}
+              onChange={(e) => set('phone', e.target.value.replace(/\D/g, '').slice(0, 15))}
             />
-          </FormField>
+          </div>
         </div>
 
-        <FormField label="Username" required>
-          <Input
-            placeholder="e.g. ravi.worker"
+        {/* Username */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Username <span className="text-red-500">*</span></label>
+          <StyledInput
+            icon={AtSign}
+            placeholder="ravi.worker"
             value={form.username}
-            onChange={(e) => set('username', e.target.value)}
+            onChange={(e) => set('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
             required
           />
-        </FormField>
+          <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>
+        </div>
 
-        <FormField label="Email">
-          <Input
+        {/* Email */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Email</label>
+          <StyledInput
+            icon={Mail}
             type="email"
             placeholder="ravi@example.com"
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
           />
-        </FormField>
+        </div>
 
-        <div className="flex justify-end gap-3 pt-2">
+        {/* Footer */}
+        <div className="flex justify-end gap-3 pt-1">
           <Button variant="muted" onClick={onClose} size="md">Cancel</Button>
-          <Button
-            type="submit"
-            variant="primary"
-            loading={mutation.isPending}
-            size="md"
-          >
+          <Button type="submit" variant="primary" loading={mutation.isPending} size="md">
             Create Account
           </Button>
         </div>
@@ -206,7 +333,7 @@ export default function TeamPage() {
               onClick={() => setShowDeleted((v) => !v)}
             >
               <Trash2 size={14} />
-              {showDeleted ? 'Deleted Staff' : 'Show Deleted'}
+              {showDeleted ? 'Show Active' : 'Show Deleted'}
             </Button>
           )}
           {!showDeleted && (
