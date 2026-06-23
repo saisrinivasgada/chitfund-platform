@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 // ─── Shared styled input ──────────────────────────────────────────────────────
-function Field({ label, icon: Icon, type = 'text', value, onChange, hint, maxLength, disabled, rightSlot }) {
+function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeholder, maxLength, disabled, rightSlot }) {
   const inputId = useId();
   const [focused, setFocused] = useState(false);
 
@@ -44,6 +44,7 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, maxLen
           onBlur={() => setFocused(false)}
           maxLength={maxLength}
           disabled={disabled}
+          placeholder={placeholder}
           className="w-full py-3 text-sm rounded-xl border focus:outline-none transition-all"
           style={{
             paddingLeft:  Icon      ? '2.5rem'  : '0.875rem',
@@ -393,6 +394,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
               <Field
                 label="Full Name"
                 icon={UserCircle}
+                placeholder="Sai Srinivas"
                 value={role === 'MEMBER' ? memberFullName : fullName}
                 onChange={role === 'MEMBER' ? setMemberFullName : setFullName}
               />
@@ -407,6 +409,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                 label="Email"
                 icon={Mail}
                 type="email"
+                placeholder="sai@example.com"
                 value={email}
                 onChange={setEmail}
               />
@@ -423,6 +426,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                 <Field
                   label="Phone"
                   icon={Phone}
+                  placeholder="9876543210"
                   value={phone}
                   onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 15))}
                   hint="Digits only"
@@ -438,12 +442,13 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                         label="Contact Email"
                         icon={Mail}
                         type="email"
+                        placeholder="sai@example.com"
                         value={memberEmail}
                         onChange={setMemberEmail}
                         hint="Shown to your admin — separate from login email"
                       />
-                      <Field label="Street / Area" icon={MapPin} value={address} onChange={setAddress} />
-                      <Field label="City" value={city} onChange={setCity} />
+                      <Field label="Street / Area" icon={MapPin} placeholder="123 MG Road, Hyderabad" value={address} onChange={setAddress} />
+                      <Field label="City" placeholder="Hyderabad" value={city} onChange={setCity} />
                     </div>
                   </div>
                 </>
