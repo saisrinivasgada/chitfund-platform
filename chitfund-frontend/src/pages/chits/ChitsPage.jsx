@@ -11,7 +11,7 @@ import FormField, { Input, Select, Textarea, DateInput } from '../../components/
 import { PageSpinner } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, FileText, DollarSign } from 'lucide-react';
 
 const MODE_LABELS = {
   AUCTION: 'Auction',
@@ -177,63 +177,96 @@ function CreateChitModal({ onClose }) {
     });
   }
 
+  const STEP_META = [
+    { label: 'Type',         icon: BookMarked },
+    { label: 'Details',      icon: FileText },
+    { label: 'Contribution', icon: DollarSign },
+    { label: 'Schedule',     icon: Calendar },
+  ];
 
-  const STEPS = ['Type', 'Details', 'Contribution', 'Schedule'];
+  // Computed values for the live summary panel in Step 2
+  const fmtINR = (n) => n ? Number(n).toLocaleString('en-IN') : '—';
+  const monthlyCollection = basic.installmentAmount && basic.numberOfMembers
+    ? (Number(basic.installmentAmount) * Number(basic.numberOfMembers)).toLocaleString('en-IN')
+    : '—';
 
   return (
     <Modal title="Create New Chit Fund" onClose={onClose} size="xl">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-6">
-        {STEPS.map((label, i) => {
+      {/* ── Step indicator ─────────────────────────────────────────────────── */}
+      <div className="flex items-center mb-8">
+        {STEP_META.map(({ label, icon: Icon }, i) => {
           const n = i + 1;
-          const active = step === n;
           const done = step > n;
+          const active = step === n;
           return (
-            <div key={label} className="flex items-center gap-2 flex-1">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors ${
-                done ? 'bg-green-500 text-white' : active ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-400'
-              }`}>{done ? '✓' : n}</div>
-              <span className={`text-xs font-medium hidden sm:block ${active ? 'text-[#1E3A5F]' : 'text-gray-400'}`}>{label}</span>
-              {i < STEPS.length - 1 && <div className="flex-1 h-px bg-gray-200 mx-1" />}
+            <div key={label} className="flex items-center flex-1 last:flex-none">
+              <div className="flex flex-col items-center gap-1.5">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
+                  done    ? 'bg-green-500 text-white' :
+                  active  ? 'bg-[#1E3A5F] text-white ring-4 ring-[#1E3A5F]/15' :
+                            'bg-gray-100 text-gray-400'
+                }`}>
+                  {done ? <Check size={16} /> : <Icon size={15} />}
+                </div>
+                <span className={`text-xs font-medium hidden sm:block leading-none ${
+                  active ? 'text-[#1E3A5F] font-semibold' : done ? 'text-green-600' : 'text-gray-400'
+                }`}>{label}</span>
+              </div>
+              {i < STEP_META.length - 1 && (
+                <div className={`flex-1 h-px mx-3 mb-5 transition-colors duration-300 ${
+                  done ? 'bg-green-400' : 'bg-gray-200'
+                }`} />
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* ── Step 1: Type ─────────────────────────────────────────────────── */}
+      {/* ── Step 1: Type ──────────────────────────────────────────────────── */}
       {step === 1 && (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-500 mb-4">Select the type of chit fund you want to create.</p>
-          {CHIT_TYPES.map(({ type, icon: Icon, label, desc, available }) => (
-            <button
-              key={type}
-              type="button"
-              disabled={!available}
-              onClick={() => setChitType(type)}
-              className={`w-full flex items-start gap-4 p-4 rounded-xl border-2 text-left transition-all ${
-                !available
-                  ? 'opacity-40 cursor-not-allowed border-gray-100 bg-gray-50'
-                  : chitType === type
-                  ? 'border-[#1E3A5F] bg-[#1E3A5F]/5'
-                  : 'border-gray-200 hover:border-[#1E3A5F]/40 bg-white'
-              }`}
-            >
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                chitType === type ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-500'
-              }`}>
-                <Icon size={20} />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">{label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-                {!available && <span className="text-xs text-amber-600 font-medium">Coming soon</span>}
-              </div>
-            </button>
-          ))}
-          <div className="flex gap-3 pt-4">
+        <div>
+          <p className="text-sm text-gray-500 mb-5">Choose how the monthly winner is determined.</p>
+          <div className="space-y-3">
+            {CHIT_TYPES.map(({ type, icon: Icon, label, desc, available }) => (
+              <button
+                key={type}
+                type="button"
+                disabled={!available}
+                onClick={() => setChitType(type)}
+                className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                  !available
+                    ? 'opacity-40 cursor-not-allowed border-gray-100 bg-gray-50'
+                    : chitType === type
+                    ? 'border-[#1E3A5F] bg-[#1E3A5F]/5 shadow-sm'
+                    : 'border-gray-200 hover:border-[#1E3A5F]/30 bg-white hover:bg-gray-50/50'
+                }`}
+              >
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                  chitType === type ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  <Icon size={22} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-gray-900">{label}</p>
+                    {!available && (
+                      <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Coming soon</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500 mt-0.5">{desc}</p>
+                </div>
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                  chitType === type ? 'border-[#1E3A5F] bg-[#1E3A5F]' : 'border-gray-300'
+                }`}>
+                  {chitType === type && <div className="w-2 h-2 rounded-full bg-white" />}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3 pt-6">
             <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
             <Button onClick={() => setStep(2)} disabled={!chitType} className="flex-1">
-              Next <ChevronRight size={15} />
+              Continue <ChevronRight size={15} />
             </Button>
           </div>
         </div>
@@ -242,51 +275,114 @@ function CreateChitModal({ onClose }) {
       {/* ── Step 2: Basic Details ─────────────────────────────────────────── */}
       {step === 2 && (
         <div className="space-y-5">
-          <FormField label="Chit Name" required>
-            <Input placeholder="e.g. Family Gold Chit 2027" value={basic.name}
-              onChange={(e) => setBasicField('name', e.target.value)} required />
-          </FormField>
-          <FormField label="Description">
-            <Textarea placeholder="Optional description" value={basic.description}
-              onChange={(e) => setBasicField('description', e.target.value)} />
-          </FormField>
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Chit Value (₹)" required>
-              <Input type="number" min="1000" placeholder="200000" value={basic.chitValue}
-                onChange={(e) => setBasicField('chitValue', e.target.value)} required />
-            </FormField>
-            <FormField label="Number of Members" required>
-              <Input type="number" min="2" max="100" placeholder="20" value={basic.numberOfMembers}
-                onChange={(e) => setBasicField('numberOfMembers', e.target.value)} required />
-              <p className="text-xs text-gray-400 mt-1">Duration equals number of members (1 member wins per month)</p>
-            </FormField>
-            <FormField label="Monthly Installment Amount (₹)" required>
-              <Input type="number" min="1" placeholder="10000" value={basic.installmentAmount}
-                onChange={(e) => setBasicField('installmentAmount', e.target.value)} required />
-              <p className="text-xs text-gray-400 mt-1">Amount each member pays per month</p>
-            </FormField>
-            <FormField label="Admin Held Spots">
-              <Input type="number" min="0" placeholder="0" value={basic.adminHeldSpotsCount}
-                onChange={(e) => setBasicField('adminHeldSpotsCount', e.target.value)} />
-            </FormField>
-            <FormField label="Monthly Due Date (day)">
-              <Input type="number" min="1" max="28" placeholder="5" value={basic.monthlyDueDate}
-                onChange={(e) => setBasicField('monthlyDueDate', e.target.value)} />
-            </FormField>
-            <FormField label="Anticipated Start Date">
-              <DateInput value={basic.startDate}
-                onChange={(e) => setBasicField('startDate', e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">Used to generate month labels in the schedule. Actual start date is set when activating.</p>
-            </FormField>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            {/* Left — form fields */}
+            <div className="lg:col-span-3 space-y-5">
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Fund Identity</p>
+                <div className="space-y-4">
+                  <FormField label="Chit Name" required>
+                    <Input placeholder="e.g. Family Gold Chit 2027" value={basic.name}
+                      onChange={(e) => setBasicField('name', e.target.value)} required />
+                  </FormField>
+                  <FormField label="Description">
+                    <Textarea placeholder="Optional notes about this chit" value={basic.description}
+                      onChange={(e) => setBasicField('description', e.target.value)} />
+                  </FormField>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Fund Structure</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField label="Chit Value (₹)" required>
+                    <Input type="number" min="1000" placeholder="200000" value={basic.chitValue}
+                      onChange={(e) => setBasicField('chitValue', e.target.value)} required />
+                  </FormField>
+                  <FormField label="Number of Members" required>
+                    <Input type="number" min="2" max="100" placeholder="20" value={basic.numberOfMembers}
+                      onChange={(e) => setBasicField('numberOfMembers', e.target.value)} required />
+                  </FormField>
+                  <FormField label="Monthly Installment (₹)" required>
+                    <Input type="number" min="1" placeholder="10000" value={basic.installmentAmount}
+                      onChange={(e) => setBasicField('installmentAmount', e.target.value)} required />
+                  </FormField>
+                  <FormField label="Admin Held Spots">
+                    <Input type="number" min="0" placeholder="0" value={basic.adminHeldSpotsCount}
+                      onChange={(e) => setBasicField('adminHeldSpotsCount', e.target.value)} />
+                  </FormField>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Schedule</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField label="Monthly Due Date (day)">
+                    <Input type="number" min="1" max="28" placeholder="5" value={basic.monthlyDueDate}
+                      onChange={(e) => setBasicField('monthlyDueDate', e.target.value)} />
+                  </FormField>
+                  <FormField label="Anticipated Start Date">
+                    <DateInput value={basic.startDate}
+                      onChange={(e) => setBasicField('startDate', e.target.value)} />
+                  </FormField>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Start date generates month labels for the schedule. Actual start is set when activating.</p>
+              </div>
+            </div>
+
+            {/* Right — live summary card */}
+            <div className="lg:col-span-2">
+              <div className="rounded-xl border border-[#1E3A5F]/20 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2a4f7c 100%)' }}>
+                <div className="px-5 pt-5 pb-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: 'rgba(255,255,255,0.5)' }}>Fund Summary</p>
+                  <div>
+                    <p className="text-xs mb-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Total Fund Value</p>
+                    <p className="text-3xl font-bold text-white">₹{fmtINR(basic.chitValue)}</p>
+                  </div>
+                  <div className="mt-4 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    {[
+                      { label: 'Duration',           value: basic.numberOfMembers ? `${basic.numberOfMembers} months` : '—' },
+                      { label: 'Per Member / Mo',    value: basic.installmentAmount ? `₹${fmtINR(basic.installmentAmount)}` : '—' },
+                      { label: 'Monthly Collection', value: `₹${monthlyCollection}` },
+                      { label: 'Due Day',            value: basic.monthlyDueDate ? `${basic.monthlyDueDate}th` : '—' },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <p className="text-xs mb-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}</p>
+                        <p className="text-sm font-semibold text-white">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {basic.startDate && (
+                    <>
+                      <div className="mt-4 h-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                      <div className="mt-4">
+                        <p className="text-xs mb-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Starts</p>
+                        <p className="text-sm font-semibold text-white">
+                          {new Date(basic.startDate + 'T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="px-5 py-3 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.15)' }}>
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: '#D4A017' }} />
+                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                    {chitType === 'RESERVATION' ? 'Reservation Chit' : chitType}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex gap-3 pt-4">
+
+          <div className="flex gap-3 pt-2 border-t border-gray-100">
             <Button variant="secondary" onClick={() => setStep(1)} className="flex-1">
               <ChevronLeft size={15} /> Back
             </Button>
             <Button onClick={() => setStep(3)}
               disabled={!basic.name || !basic.chitValue || !basic.numberOfMembers || !basic.installmentAmount}
               className="flex-1">
-              Next <ChevronRight size={15} />
+              Continue <ChevronRight size={15} />
             </Button>
           </div>
         </div>
@@ -295,43 +391,55 @@ function CreateChitModal({ onClose }) {
       {/* ── Step 3: Contribution Rule ─────────────────────────────────────── */}
       {step === 3 && (
         <div className="space-y-5">
-          <p className="text-sm text-gray-600">
-            After a member receives their payout, do they pay a <strong>different</strong> monthly amount?
-          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <p className="text-sm text-amber-800">
+              After a member receives their payout{basic.chitValue ? ` (₹${fmtINR(basic.chitValue)})` : ''}, do they pay a <strong>different</strong> monthly installment for the rest of the chit?
+            </p>
+          </div>
           <div className="space-y-3">
             {[
-              { val: false, label: 'No — same amount for everyone throughout', sublabel: `₹${basic.installmentAmount || '—'} / month for all members` },
-              { val: true,  label: 'Yes — post-payout members pay a different amount', sublabel: 'Specify the new monthly contribution below' },
+              {
+                val: false,
+                label: 'Same amount throughout',
+                sublabel: `All members pay ₹${fmtINR(basic.installmentAmount)} / month`,
+              },
+              {
+                val: true,
+                label: 'Different post-payout amount',
+                sublabel: 'Members who\'ve received their payout pay a different monthly amount',
+              },
             ].map(({ val, label, sublabel }) => (
               <button key={String(val)} type="button"
                 onClick={() => setContrib((c) => ({ ...c, enabled: val }))}
-                className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
+                className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${
                   contrib.enabled === val
                     ? 'border-[#1E3A5F] bg-[#1E3A5F]/5'
-                    : 'border-gray-200 hover:border-gray-300'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                 }`}>
-                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center ${
-                  contrib.enabled === val ? 'border-[#1E3A5F]' : 'border-gray-300'
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                  contrib.enabled === val ? 'border-[#1E3A5F] bg-[#1E3A5F]' : 'border-gray-300'
                 }`}>
-                  {contrib.enabled === val && <div className="w-2.5 h-2.5 rounded-full bg-[#1E3A5F]" />}
+                  {contrib.enabled === val && <div className="w-2 h-2 rounded-full bg-white" />}
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">{label}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{sublabel}</p>
+                  <p className="font-semibold text-gray-900">{label}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">{sublabel}</p>
                 </div>
               </button>
             ))}
           </div>
           {contrib.enabled && (
-            <FormField label="Default post-payout monthly contribution (₹)" required>
-              <Input type="number" min="0" placeholder="12000" value={contrib.amount}
-                onChange={(e) => setContrib((c) => ({ ...c, amount: e.target.value }))} />
-              <p className="text-xs text-gray-400 mt-1">
-                Can be overridden per slot in the schedule. Normal payment: ₹{basic.installmentAmount || '—'}
-              </p>
-            </FormField>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+              <FormField label="Post-payout monthly contribution (₹)" required>
+                <Input type="number" min="0" placeholder="12000" value={contrib.amount}
+                  onChange={(e) => setContrib((c) => ({ ...c, amount: e.target.value }))} />
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Normal payment: ₹{fmtINR(basic.installmentAmount)} / month · Can be overridden per slot in schedule
+                </p>
+              </FormField>
+            </div>
           )}
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-2">
             <Button variant="secondary" onClick={() => setStep(2)} className="flex-1">
               <ChevronLeft size={15} /> Back
             </Button>
@@ -348,7 +456,7 @@ function CreateChitModal({ onClose }) {
                 setStep(4);
               }}
               disabled={contrib.enabled && !contrib.amount} className="flex-1">
-              Next <ChevronRight size={15} />
+              Continue <ChevronRight size={15} />
             </Button>
           </div>
         </div>
@@ -358,11 +466,12 @@ function CreateChitModal({ onClose }) {
       {step === 4 && (
         <div className="space-y-4">
           <p className="text-sm text-gray-500">
-            Assign who gets the payout each month. Member is optional — slots can stay unallocated and be filled later.
+            Assign who receives the payout each month. Slots can stay unallocated and be filled later.
           </p>
 
           {schedule.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 space-y-3">
+            <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200 space-y-3">
+              <Calendar size={32} className="mx-auto text-gray-300" />
               <p className="text-sm text-gray-400">
                 Set an Anticipated Start Date and Number of Members in Step 2 to auto-generate the schedule.
               </p>
@@ -377,9 +486,11 @@ function CreateChitModal({ onClose }) {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
-                      {['#', 'Member (optional)', 'Payout Amount (₹)', ''].map((h) => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap" width={h === '' ? 40 : undefined}>{h}</th>
-                      ))}
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap w-12">#</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Month</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Member (optional)</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Payout (₹)</th>
+                      <th className="w-10 px-2 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -387,14 +498,19 @@ function CreateChitModal({ onClose }) {
                       const prevMonth = i > 0 ? schedule[i - 1].reservationMonth : null;
                       const isExtra = row.reservationMonth === prevMonth;
                       return (
-                        <tr key={i} className={`${isExtra ? 'bg-amber-50/60' : 'bg-white'} hover:bg-gray-50 transition-colors`}>
-                          <td className="px-4 py-3 w-12">
+                        <tr key={i} className={`${isExtra ? 'bg-amber-50/60' : 'bg-white'} hover:bg-gray-50/70 transition-colors`}>
+                          <td className="px-4 py-2.5 w-12">
                             {isExtra
                               ? <span className="text-amber-500 text-xs font-medium pl-2">↳</span>
-                              : <span className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 text-xs font-bold inline-flex items-center justify-center">{i + 1}</span>
+                              : <span className="w-7 h-7 rounded-full bg-slate-100 text-slate-600 text-xs font-bold inline-flex items-center justify-center">{i + 1}</span>
                             }
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-2.5">
+                            <span className="inline-flex items-center text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full whitespace-nowrap">
+                              {row.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
                             {(() => {
                               const adminHeld = Number(basic.adminHeldSpotsCount) || 0;
                               const allocatedAdminSlots = adminOption
@@ -417,17 +533,17 @@ function CreateChitModal({ onClose }) {
                               );
                             })()}
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-2.5">
                             <Input type="number" min="0" placeholder="e.g. 45000"
                               value={row.payoutAmount}
                               onChange={(e) => setScheduleRow(i, 'payoutAmount', e.target.value)}
                               className="w-32" />
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-2 py-2.5">
                             {schedule.length > 1 && (
                               <button type="button" title="Remove this slot" onClick={() => removeSlot(i)}
-                                className="text-red-400 hover:bg-red-50 rounded-md p-1">
-                                <Trash2 size={12} />
+                                className="text-red-400 hover:bg-red-50 rounded-md p-1.5 transition-colors">
+                                <Trash2 size={13} />
                               </button>
                             )}
                           </td>
@@ -442,7 +558,7 @@ function CreateChitModal({ onClose }) {
 
           {schedule.length > 0 && (
             <button type="button" onClick={addSlotAtEnd}
-              className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium text-[#1E3A5F] border border-dashed border-[#1E3A5F]/30 rounded-lg hover:bg-[#1E3A5F]/5 transition-colors">
+              className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-medium text-[#1E3A5F] border border-dashed border-[#1E3A5F]/30 rounded-xl hover:bg-[#1E3A5F]/5 transition-colors">
               <Plus size={14} /> Add Slot
             </button>
           )}
@@ -457,7 +573,7 @@ function CreateChitModal({ onClose }) {
                 onClick={() => submit(true)}
                 loading={mutation.isPending}
                 className="flex-1">
-                Save
+                Create Chit Fund
               </Button>
             </div>
             <button
