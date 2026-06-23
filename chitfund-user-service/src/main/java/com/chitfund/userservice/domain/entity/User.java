@@ -56,6 +56,27 @@ public class User implements UserDetails {
     @Column(length = 15)
     private String phone;
 
+    @Column(length = 10)
+    private String phoneCountryCode;
+
+    @Column(length = 100)
+    private String city;
+
+    @Column(length = 500)
+    private String address;
+
+    @Column(length = 4)
+    private String aadhaarLast4;
+
+    @Column(length = 10)
+    private String panNumber;
+
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
+    @Column(columnDefinition = "char(36)")
+    private UUID referredById;
+
     @Column(nullable = false)
     private String passwordHash;
 
