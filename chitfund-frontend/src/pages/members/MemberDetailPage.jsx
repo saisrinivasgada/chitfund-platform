@@ -19,7 +19,7 @@ import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
 import {
   ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
-  ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle,
+  ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
 } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -232,6 +232,12 @@ function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onRe
           {isAdmin && (
             <>
               <div className="border-t border-gray-100 my-1" />
+              <MenuButton
+                icon={<HandCoins size={14} className="text-[#1E3A5F]" />}
+                onClick={() => { navigate(`/settlement?memberId=${member.id}`); setOpen(false); }}
+              >
+                Settle Account
+              </MenuButton>
               <MenuButton
                 icon={<Trash2 size={14} />}
                 danger

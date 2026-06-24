@@ -22,6 +22,7 @@ import AdminMemberViewPage from './pages/admin/AdminMemberViewPage';
 import TeamPage from './pages/admin/TeamPage';
 import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
+import SettlementPage from './pages/admin/SettlementPage';
 import WorkerTasksPage from './pages/worker/WorkerTasksPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/my-account" element={<MyAccountPage />} />
         <Route path="/treasury" element={<TreasuryPage />} />
+        <Route path="/settlement" element={<SettlementPage />} />
         <Route path="/team" element={<TeamPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
         <Route path="/tasks" element={<WorkerTasksPage />} />

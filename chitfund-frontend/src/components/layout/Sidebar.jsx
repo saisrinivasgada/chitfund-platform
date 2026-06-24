@@ -26,6 +26,7 @@ import {
   Plus,
   X,
   Wallet,
+  HandCoins,
   RefreshCw,
   Eye,
   EyeOff,
@@ -41,8 +42,9 @@ const ALL_NAV = [
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   // { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
   { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'] },
-  { to: '/treasury',  icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
-  { to: '/team',      icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
+  { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
+  { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'] },
+  { to: '/team',       icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
 ];
 
 // ─── Quick Notes (ADMIN + MANAGER, cross-role sharing via localStorage) ───────

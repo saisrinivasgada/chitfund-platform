@@ -99,12 +99,12 @@ function TooltipInfo({ text }) {
 }
 
 // ─── Main SettlementTab ────────────────────────────────────────────────────
-export default function SettlementTab() {
+export default function SettlementTab({ initialMemberId = '' }) {
   const toast = useToastContext();
   const qc = useQueryClient();
   const { hidden } = useHiddenAmounts();
 
-  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState(initialMemberId);
   const [toggledChits, setToggledChits] = useState({}); // chitId → true/false
   const [modes, setModes] = useState({});               // chitId → 'FAIR' | 'ADMIN_WIN'
   const [notes, setNotes] = useState('');
@@ -118,7 +118,7 @@ export default function SettlementTab() {
     staleTime: 300_000,
   });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
-  const selectedMember = activeMembers.find((m) => m.id === selectedMemberId) ?? null;
+  const selectedMember = allMembers.find((m) => m.id === selectedMemberId) ?? null;
 
   // Preview: triggered whenever member selection changes
   const {
