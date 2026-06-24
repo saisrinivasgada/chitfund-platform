@@ -23,6 +23,7 @@ import TeamPage from './pages/admin/TeamPage';
 import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
 import SettlementPage from './pages/admin/SettlementPage';
+import AdminParticipationPage from './pages/admin/AdminParticipationPage';
 import WorkerTasksPage from './pages/worker/WorkerTasksPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
@@ -62,6 +63,7 @@ export default function App() {
         <Route path="/settlement" element={<SettlementPage />} />
         <Route path="/team" element={<TeamPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
+        <Route path="/admin/participation/:adminId" element={<AdminParticipationPage />} />
         <Route path="/tasks" element={<WorkerTasksPage />} />
         <Route path="/transactions/:batchId" element={<TransactionDetailPage />} />
       </Route>

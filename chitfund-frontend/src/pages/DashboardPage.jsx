@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getChits, getMembers, getPendingPayouts, getWalletBalance } from '../services/api';
+import { getChits, getMembers, getPendingPayouts, getWalletBalance, getActiveCashRequests } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import Badge, { statusBadge } from '../components/ui/Badge';
@@ -11,7 +11,7 @@ import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
-  ArrowRight, Eye, EyeOff, Wallet,
+  ArrowRight, Eye, EyeOff, Wallet, Truck,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
@@ -88,6 +88,16 @@ export default function DashboardPage() {
     staleTime: 2 * 60_000,
   });
 
+  const { data: cashRequests = [] } = useQuery({
+    queryKey: ['cashRequests', 'active'],
+    queryFn: getActiveCashRequests,
+    enabled: isAdmin,
+    staleTime: 60_000,
+  });
+
+  const today = new Date().toISOString().split('T')[0];
+  const todaysPickups = cashRequests.filter((r) => r.requestedAt?.startsWith(today));
+
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
 
   if (chitsLoading || membersLoading) return <PageSpinner />;
@@ -157,6 +167,28 @@ export default function DashboardPage() {
           hidden={false}
         />
       </div>
+
+      {/* Cash Pickup Stats (admin only) */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatCard
+            icon={Truck}
+            label="Active Cash Pickups"
+            value={cashRequests.length}
+            color="#7C3AED"
+            sub="pending collection"
+            hidden={false}
+          />
+          <StatCard
+            icon={Truck}
+            label="Today's Cash Pickups"
+            value={todaysPickups.length}
+            color="#0891B2"
+            sub="raised today"
+            hidden={false}
+          />
+        </div>
+      )}
 
       {/* Treasury Balance (admin only) */}
       {isAdmin && walletBalance && (

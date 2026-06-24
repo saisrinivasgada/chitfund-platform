@@ -13,7 +13,7 @@ import {
   getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
-  getMe, listStaff,
+  getMe, listStaff, getUserById,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -155,6 +155,33 @@ function OverviewTab({ chit }) {
 }
 
 // ─── Members Tab ─────────────────────────────────────────────────────────────
+
+// Resolves a non-member admin UUID to their user account name
+function AdminSpotCell({ adminId }) {
+  const navigate = useNavigate();
+  const { data: adminUser } = useQuery({
+    queryKey: ['user', adminId],
+    queryFn: () => getUserById(adminId),
+    staleTime: 10 * 60_000,
+    enabled: !!adminId,
+  });
+  const name = adminUser?.fullName ?? adminUser?.username ?? 'Admin';
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/admin/participation/${adminId}`)}
+      className="flex items-center gap-2 text-left group cursor-pointer"
+    >
+      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+        style={{ backgroundColor: '#B45309' }}>
+        ★
+      </div>
+      <span className="text-amber-700 font-medium group-hover:underline">{name}</span>
+      <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">★ Admin</span>
+    </button>
+  );
+}
+
 function EnrollMemberModal({ chitId, chit, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -286,28 +313,22 @@ function MembersTab({ chitId, chit }) {
             {uniqueMembers.map((e) => {
               const mid = e.memberId ?? e.id;
               const member = memberMap[mid];
-              const isAdmin = !member; // UUID not in member-service = admin reserved their own slot
-              const avatarBg = isAdmin ? '#B45309' : '#1E3A5F'; // amber for admin, navy for member
-              const displayName = isAdmin ? 'Admin (Self)' : member.fullName;
-              const initial = isAdmin ? '★' : member.fullName[0].toUpperCase();
+              const isAdmin = !member; // UUID not in member-service = admin/staff holding a spot
               return (
                 <Tr key={mid}>
                   <Td className="font-medium text-gray-900">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ backgroundColor: avatarBg }}>
-                        {initial}
+                    {isAdmin ? (
+                      <AdminSpotCell adminId={mid} />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                          style={{ backgroundColor: '#1E3A5F' }}>
+                          {member.fullName[0].toUpperCase()}
+                        </div>
+                        <MemberLink id={mid} name={member.fullName} />
+                        <MemberInfoPopover member={member} />
                       </div>
-                      {isAdmin ? (
-                        <span className="text-amber-700">{displayName}</span>
-                      ) : (
-                        <MemberLink id={mid} name={displayName} />
-                      )}
-                      {isAdmin && (
-                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">★</span>
-                      )}
-                      {!isAdmin && <MemberInfoPopover member={member} />}
-                    </div>
+                    )}
                   </Td>
                   <Td>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -885,12 +906,16 @@ function ReservationScheduleTab({ chitId, chit }) {
 
   const active = slots.filter((s) => s.status !== 'VOIDED');
   const totalPayout = active.reduce((sum, s) => sum + Number(s.payoutAmount ?? 0), 0);
+  const maxSlots = chit?.durationMonths ?? chit?.totalMembers ?? Infinity;
+  const slotsAreFull = active.length >= maxSlots;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-500">{active.length} active slots</p>
+          <p className="text-sm text-gray-500">
+            {active.length} active slots{maxSlots < Infinity ? ` / ${maxSlots}` : ''}
+          </p>
           {totalPayout > 0 && (
             <p className="text-xs text-gray-400">Total planned payout: ₹{totalPayout.toLocaleString()}</p>
           )}
@@ -902,9 +927,11 @@ function ReservationScheduleTab({ chitId, chit }) {
                 <ArrowLeftRight size={14} /> Swap Slots
               </Button>
             )}
-            <Button size="sm" onClick={() => setShowAdd(true)}>
-              <Plus size={14} /> Add Slot
-            </Button>
+            {!slotsAreFull && (
+              <Button size="sm" onClick={() => setShowAdd(true)}>
+                <Plus size={14} /> Add Slot
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -913,8 +940,8 @@ function ReservationScheduleTab({ chitId, chit }) {
         {isLoading ? <PageSpinner /> : slots.length === 0 ? (
           <EmptyState icon={List} title="No schedule yet"
             message="Add reservation slots to build the payout schedule."
-            action={canEdit ? 'Add Slot' : undefined}
-            onAction={canEdit ? () => setShowAdd(true) : undefined} />
+            action={canEdit && !slotsAreFull ? 'Add Slot' : undefined}
+            onAction={canEdit && !slotsAreFull ? () => setShowAdd(true) : undefined} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1881,16 +1908,16 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
   );
 
   return (
-    <div className="border-t border-gray-100">
-      <table className="w-full text-sm">
+    <div className="border-t border-gray-100 overflow-auto max-h-80" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <table className="w-full text-sm min-w-[560px]">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
-            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Due</th>
-            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Paid</th>
-            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Balance</th>
-            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-            <th className="px-3 py-2.5" />
+            <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Member</th>
+            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Due</th>
+            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Paid</th>
+            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Balance</th>
+            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Status</th>
+            <th className="px-3 py-2.5 sticky top-0 bg-gray-50 z-10" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
