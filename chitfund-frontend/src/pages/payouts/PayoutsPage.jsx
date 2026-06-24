@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getWinners,
@@ -1092,7 +1093,11 @@ export default function PayoutsPage() {
   const { user } = useAuth();
   const isManager = user?.role === 'MANAGER';
   const tabs = isManager ? ['Pending', 'All Payouts'] : TABS;
-  const [activeTab, setActiveTab] = useState(isManager ? 'Pending' : 'Create Payout');
+  const defaultTab = isManager ? 'Pending' : 'Create Payout';
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const activeTab = (rawTab && tabs.includes(rawTab)) ? rawTab : defaultTab;
+  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
 
   return (
     <div className="space-y-6">

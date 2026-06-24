@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getChits, getMembers,
   getAllPaymentBatches, getAllPayouts,
@@ -523,7 +523,9 @@ function ChitwiseTab({ chits, batches, payouts }) {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────
 export default function ReportsPage() {
-  const [activeTab,      setActiveTab]      = useState('Overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') ?? 'Overview';
+  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
   const [from,           setFrom]           = useState(monthStart());
   const [to,             setTo]             = useState(today());
   const [activePreset,   setActivePreset]   = useState('This Month');

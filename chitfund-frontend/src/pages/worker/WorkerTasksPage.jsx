@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   getMyAssignedRequests,
   getMyRequestHistory,
@@ -318,8 +318,9 @@ function MyHistoryTab({ memberMap, chitMap }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function WorkerTasksPage() {
-  const location = useLocation();
-  const [tab, setTab] = useState(location.state?.tab ?? 'tasks');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') ?? 'tasks';
+  const setTab = (t) => setSearchParams((prev) => { prev.set('tab', t); return prev; }, { replace: true });
   const { memberMap, chitMap } = useLookupMaps();
 
   const { data: tasks = [] } = useQuery({

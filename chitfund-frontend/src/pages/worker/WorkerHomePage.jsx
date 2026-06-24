@@ -223,7 +223,7 @@ export default function WorkerHomePage() {
               <h3 className="text-base font-semibold text-gray-900">Recent History</h3>
             </div>
             <button
-              onClick={() => navigate('/tasks', { state: { tab: 'history' } })}
+              onClick={() => navigate('/tasks?tab=history')}
               className="flex items-center gap-1 text-sm font-medium hover:underline cursor-pointer"
               style={{ color: '#1E3A5F' }}
             >

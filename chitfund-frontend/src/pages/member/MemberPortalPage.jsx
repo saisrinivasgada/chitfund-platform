@@ -133,7 +133,7 @@ function ChitAccordion({ memberId, chit }) {
           )}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); navigate(`/chits/${chit.id}`, { state: { tab: 'draws' } }); }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/chits/${chit.id}?tab=Draws`); }}
             className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
             title="View chit"
           >

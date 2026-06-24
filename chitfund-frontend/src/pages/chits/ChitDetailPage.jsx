@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChit, updateChitStatus, pauseChit, resumeChit, deleteChit,
@@ -3574,11 +3574,10 @@ function HeaderActions({ chitId, chit }) {
 export default function ChitDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [activeTab, setActiveTab] = useState(() => {
-    const t = location.state?.tab;
-    return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Overview';
-  });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab');
+  const activeTab = rawTab ? rawTab.charAt(0).toUpperCase() + rawTab.slice(1) : 'Overview';
+  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
 
   const { data: chit, isLoading } = useQuery({
     queryKey: ['chit', id],

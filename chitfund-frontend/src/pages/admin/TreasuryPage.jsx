@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getWalletBalance, getWalletTransactions, addWalletTransaction, transferWallet,
@@ -680,7 +680,9 @@ const TABS = [
 
 export default function TreasuryPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('treasury');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') ?? 'treasury';
+  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
   const [showAdd, setShowAdd] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
