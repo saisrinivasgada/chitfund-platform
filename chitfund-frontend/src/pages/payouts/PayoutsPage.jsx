@@ -231,7 +231,10 @@ function CreatePayoutTab() {
     mutationFn: async () => {
       const mid = selectedWinner.memberId ?? selectedWinner.winnerId;
 
-      // Step 1: Create the payout with total deduction + breakdown
+      // Step 1: Create the payout.
+      // collectCurrentMonthInstallment=true tells the backend to call markPayoutDeducted,
+      // which clears the payment record with no treasury IN — the installment is withheld
+      // from the payout (netting), not received as a new cash payment.
       const payout = await createPayout({
         chitId,
         memberId: mid,
@@ -242,21 +245,12 @@ function CreatePayoutTab() {
         crossChitSettlement: crossDed,
         manualAdjustment: discountNum,
         notes: notes || undefined,
+        collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
       });
 
-      // Step 2: Record settlement payments in parallel (best-effort)
+      // Step 2: Cross-chit dues go through recordPayment so FIFO correctly applies
+      // the collected amount across however many outstanding months exist on each chit.
       const tasks = [];
-      if (collectCurrentMonth && installmentAmount > 0) {
-        tasks.push(
-          recordPayment({
-            chitId,
-            memberId: mid,
-            amount: installmentAmount,
-            paymentMode: 'BANK_TRANSFER',
-            notes: `Disbursement settlement — Month ${selectedWinner.monthNumber} installment`,
-          }).catch(() => null)
-        );
-      }
       Object.entries(crossChitCollect)
         .filter(([, v]) => v.enabled && Number(v.amount) > 0)
         .forEach(([xChitId, v]) => {
