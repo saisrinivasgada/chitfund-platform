@@ -405,13 +405,13 @@ export const remitPayment = async (batchId) => {
   return res.data.data;
 };
 
-// Marks a payment record as DISBURSEMENT_SETTLED — installment withheld from winner's payout.
+// Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
 // No batch, no treasury movement. amountPaid set to amountDue so draw card shows paid.
 export const markPayoutDeducted = async ({ chitId, memberId, monthNumber, payoutId }) => {
   await api.post('/payments/mark-payout-deducted', { chitId, memberId, monthNumber, payoutId });
 };
 
-// Reverts all DISBURSEMENT_SETTLED records linked to a payout back to OUTSTANDING.
+// Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
 export const revertPayoutDeductions = async (payoutId) => {
   await api.post(`/payments/revert-payout-deductions/${payoutId}`);
 };

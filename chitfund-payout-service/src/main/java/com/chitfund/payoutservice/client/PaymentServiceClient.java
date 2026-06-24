@@ -27,7 +27,7 @@ public class PaymentServiceClient {
     private String internalKey;
 
     /**
-     * Marks a specific month's payment record as DISBURSEMENT_SETTLED — winner's installment withheld from payout.
+     * Marks a specific month's payment record as PAYOUT_DEDUCTED — winner's installment withheld from payout.
      * Called during payout creation so the mark is atomic with the payout record.
      */
     public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
@@ -48,9 +48,9 @@ public class PaymentServiceClient {
                     new HttpEntity<>(body, headers),
                     Void.class
             );
-            log.info("DISBURSEMENT_SETTLED marked — chit {} member {} month {} payout {}", chitId, memberId, monthNumber, payoutId);
+            log.info("PAYOUT_DEDUCTED marked — chit {} member {} month {} payout {}", chitId, memberId, monthNumber, payoutId);
         } catch (Exception e) {
-            log.error("Failed to mark DISBURSEMENT_SETTLED for chit {} member {} month {} — {}", chitId, memberId, monthNumber, e.getMessage());
+            log.error("Failed to mark PAYOUT_DEDUCTED for chit {} member {} month {} — {}", chitId, memberId, monthNumber, e.getMessage());
         }
     }
 
@@ -75,9 +75,9 @@ public class PaymentServiceClient {
                     new HttpEntity<>(body, headers),
                     Void.class
             );
-            log.info("Cross-chit DISBURSEMENT_SETTLED — chit {} member {} ₹{} payout {}", chitId, memberId, amount, payoutId);
+            log.info("Cross-chit PAYOUT_DEDUCTED — chit {} member {} ₹{} payout {}", chitId, memberId, amount, payoutId);
         } catch (Exception e) {
-            log.error("Failed to mark cross-chit DISBURSEMENT_SETTLED for chit {} member {} — {}", chitId, memberId, e.getMessage());
+            log.error("Failed to mark cross-chit PAYOUT_DEDUCTED for chit {} member {} — {}", chitId, memberId, e.getMessage());
         }
     }
 

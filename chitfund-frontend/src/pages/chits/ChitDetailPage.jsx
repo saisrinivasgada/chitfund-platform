@@ -1666,7 +1666,7 @@ const STATUS_ROW = {
   PARTIALLY_PAID:   { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'         },
   OUTSTANDING:      { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding'     },
   WAIVED:           { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'          },
-  DISBURSEMENT_SETTLED:  { bg: 'bg-purple-50', dot: 'bg-purple-400', text: 'Disbursement Settled'  },
+  PAYOUT_DEDUCTED:  { bg: 'bg-purple-50', dot: 'bg-purple-400', text: 'Paid at Payout'  },
 };
 
 function PaymentStatusBadge({ status, overdue }) {
@@ -1676,7 +1676,7 @@ function PaymentStatusBadge({ status, overdue }) {
       ${status === 'SETTLED'          ? 'bg-green-100 text-green-700'
       : status === 'PARTIALLY_PAID'   ? 'bg-amber-100 text-amber-700'
       : status === 'WAIVED'           ? 'bg-gray-100 text-gray-500'
-      : status === 'DISBURSEMENT_SETTLED'  ? 'bg-purple-100 text-purple-700'
+      : status === 'PAYOUT_DEDUCTED'  ? 'bg-purple-100 text-purple-700'
       : 'bg-red-100 text-red-600'}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.text}
@@ -1925,8 +1925,8 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
             const member = memberMap[p.memberId];
             const style  = STATUS_ROW[p.status] ?? STATUS_ROW.OUTSTANDING;
             const canCollect   = p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID';
-            // DISBURSEMENT_SETTLED has amountPaid > 0 but no batch — hide the Transactions link
-            const hasPaidSomething = Number(p.amountPaid) > 0 && p.status !== 'DISBURSEMENT_SETTLED';
+            // PAYOUT_DEDUCTED has amountPaid > 0 but no batch — hide the Transactions link
+            const hasPaidSomething = Number(p.amountPaid) > 0 && p.status !== 'PAYOUT_DEDUCTED';
             return (
               <tr key={p.id} className={`${style.bg} hover:brightness-[0.98] transition-all`}>
                 <td className="px-5 py-3">
@@ -2212,7 +2212,7 @@ function DrawsTab({ chitId, chit }) {
       if (winner) {
         const winnerId = winner.memberId ?? winner.winnerId;
 
-        // 2. If a payout exists for this draw, revert any DISBURSEMENT_SETTLED records and cancel it.
+        // 2. If a payout exists for this draw, revert any PAYOUT_DEDUCTED records and cancel it.
         const payout = payoutByMonth[monthNumber];
         if (payout) {
           if (payout.status === 'PARTIALLY_DISBURSED') {
@@ -2222,7 +2222,7 @@ function DrawsTab({ chitId, chit }) {
             throw new Error('Cannot delete draw — payout has already been fully disbursed.');
           }
           if (payout.status === 'PENDING') {
-            // Revert DISBURSEMENT_SETTLED records across all chits linked to this payout
+            // Revert PAYOUT_DEDUCTED records across all chits linked to this payout
             await revertPayoutDeductions(payout.id).catch(() => null);
             await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
           }
@@ -2883,7 +2883,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   // ── Cancel ──
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      // Revert DISBURSEMENT_SETTLED records before cancelling so installments go back to OUTSTANDING
+      // Revert PAYOUT_DEDUCTED records before cancelling so installments go back to OUTSTANDING
       await revertPayoutDeductions(payout.id).catch(() => null);
       return cancelPayout({ id: payout.id, reason: cancelReason });
     },

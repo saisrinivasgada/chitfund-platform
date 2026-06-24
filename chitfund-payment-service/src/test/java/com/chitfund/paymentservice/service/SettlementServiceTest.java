@@ -160,8 +160,8 @@ class SettlementServiceTest {
         List<PaymentRecord> records = List.of(
                 record(CHIT_A_ID, 4, 10_000, 10_000, PaymentRecordStatus.SETTLED),
                 record(CHIT_A_ID, 5, 8_000,   8_000, PaymentRecordStatus.SETTLED),
-                // Month 3 was DISBURSEMENT_SETTLED (handled at payout creation)
-                record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED)
+                // Month 3 was PAYOUT_DEDUCTED (handled at payout creation)
+                record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED)
         );
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
@@ -294,12 +294,12 @@ class SettlementServiceTest {
                 draw(CHIT_A_ID, 1), draw(CHIT_A_ID, 2), draw(CHIT_A_ID, 3),
                 draw(CHIT_A_ID, 4), draw(CHIT_A_ID, 5), draw(CHIT_A_ID, 6));
 
-        // Months 1-4 DISBURSEMENT_SETTLED or SETTLED; months 5,6 SETTLED post-payout
+        // Months 1-4 PAYOUT_DEDUCTED or SETTLED; months 5,6 SETTLED post-payout
         List<PaymentRecord> records = List.of(
-                record(CHIT_A_ID, 1,  10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 2,  10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 3,  10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 4,  10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
+                record(CHIT_A_ID, 1,  10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 2,  10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 3,  10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 4,  10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
                 record(CHIT_A_ID, 5,   8_000,  8_000, PaymentRecordStatus.SETTLED),
                 record(CHIT_A_ID, 6,   8_000,  8_000, PaymentRecordStatus.SETTLED)
         );
@@ -345,10 +345,10 @@ class SettlementServiceTest {
                 draw(CHIT_A_ID, 4), draw(CHIT_A_ID, 5), draw(CHIT_A_ID, 6));
 
         List<PaymentRecord> records = List.of(
-                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 4, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
+                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 4, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
                 record(CHIT_A_ID, 5,  8_000,  8_000, PaymentRecordStatus.SETTLED),
                 record(CHIT_A_ID, 6,  8_000,  8_000, PaymentRecordStatus.SETTLED)
         );
@@ -409,7 +409,7 @@ class SettlementServiceTest {
 
         List<PaymentRecord> recordsA = new ArrayList<>();
         for (int i = 1; i <= 8; i++) {
-            recordsA.add(record(CHIT_A_ID, i, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED));
+            recordsA.add(record(CHIT_A_ID, i, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED));
         }
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chitA);
@@ -491,7 +491,7 @@ class SettlementServiceTest {
 
         List<PaymentRecord> recordsA = new ArrayList<>();
         for (int i = 1; i <= 8; i++) {
-            recordsA.add(record(CHIT_A_ID, i, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED));
+            recordsA.add(record(CHIT_A_ID, i, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED));
         }
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chitA);
@@ -534,8 +534,8 @@ class SettlementServiceTest {
         // One OUTSTANDING record (month 3 unpaid)
         PaymentRecord outstanding = record(CHIT_A_ID, 3, 10_000, 0, PaymentRecordStatus.OUTSTANDING);
         List<PaymentRecord> allRecords = List.of(
-                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
-                record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
+                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
+                record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
                 outstanding
         );
 
@@ -610,7 +610,7 @@ class SettlementServiceTest {
         List<com.chitfund.paymentservice.domain.ChitMonthDraw> draws = List.of(
                 draw(CHIT_A_ID, 1), draw(CHIT_A_ID, 2), draw(CHIT_A_ID, 3));
         List<PaymentRecord> records = List.of(
-                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.DISBURSEMENT_SETTLED),
+                record(CHIT_A_ID, 1, 10_000, 10_000, PaymentRecordStatus.PAYOUT_DEDUCTED),
                 record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.SETTLED),
                 record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.SETTLED)
         );

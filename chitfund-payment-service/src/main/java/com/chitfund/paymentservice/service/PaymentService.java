@@ -245,30 +245,30 @@ public class PaymentService {
     }
 
     /**
-     * Marks a specific month's payment record as DISBURSEMENT_SETTLED — the installment was
+     * Marks a specific month's payment record as PAYOUT_DEDUCTED — the installment was
      * withheld from the winner's payout. No batch, no treasury movement. amountPaid is set to
      * amountDue so the draw card shows balance = 0. settledByPayoutId links back for reversal.
      *
-     * Idempotent: safe to call even if already DISBURSEMENT_SETTLED or SETTLED.
+     * Idempotent: safe to call even if already PAYOUT_DEDUCTED or SETTLED.
      */
     @Transactional
     public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
         paymentRecordRepository.findByChitIdAndMemberIdAndMonthNumber(chitId, memberId, monthNumber)
                 .ifPresent(record -> {
                     if (record.getStatus() == PaymentRecordStatus.SETTLED
-                            || record.getStatus() == PaymentRecordStatus.DISBURSEMENT_SETTLED) return;
+                            || record.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED) return;
                     record.setAmountPaid(record.getAmountDue());
-                    record.setStatus(PaymentRecordStatus.DISBURSEMENT_SETTLED);
+                    record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
                     record.setSettledByPayoutId(payoutId);
                     paymentRecordRepository.save(record);
-                    log.info("Marked payment record ({}/{}/{}) as DISBURSEMENT_SETTLED for payout {}",
+                    log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
                             chitId, memberId, monthNumber, payoutId);
                 });
     }
 
     /**
      * Clears cross-chit dues withheld from a payout using FIFO — oldest outstanding month first.
-     * Fully cleared months get DISBURSEMENT_SETTLED. If the amount runs out mid-month, that
+     * Fully cleared months get PAYOUT_DEDUCTED. If the amount runs out mid-month, that
      * month stays PARTIALLY_PAID (no settledByPayoutId link — cannot be auto-reverted).
      * No batch, no treasury movement.
      */
@@ -285,7 +285,7 @@ public class PaymentService {
             BigDecimal owed = record.getAmountDue().subtract(record.getAmountPaid());
             if (remaining.compareTo(owed) >= 0) {
                 record.setAmountPaid(record.getAmountDue());
-                record.setStatus(PaymentRecordStatus.DISBURSEMENT_SETTLED);
+                record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
                 record.setSettledByPayoutId(payoutId);
                 remaining = remaining.subtract(owed);
             } else {
@@ -294,25 +294,25 @@ public class PaymentService {
             }
             paymentRecordRepository.save(record);
         }
-        log.info("Cross-chit DISBURSEMENT_SETTLED applied — chit {} member {} ₹{} for payout {}",
+        log.info("Cross-chit PAYOUT_DEDUCTED applied — chit {} member {} ₹{} for payout {}",
                 chitId, memberId, amount, payoutId);
     }
 
     /**
-     * Reverses all DISBURSEMENT_SETTLED records linked to a payout (across all chits).
+     * Reverses all PAYOUT_DEDUCTED records linked to a payout (across all chits).
      * Called when a payout is cancelled or its draw is deleted.
      */
     @Transactional
     public void revertPayoutDeductions(UUID payoutId) {
         List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
         for (PaymentRecord r : records) {
-            if (r.getStatus() != PaymentRecordStatus.DISBURSEMENT_SETTLED) continue;
+            if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
             r.setAmountPaid(BigDecimal.ZERO);
             r.setStatus(PaymentRecordStatus.OUTSTANDING);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
         }
-        log.info("Reverted {} DISBURSEMENT_SETTLED records for payout {}", records.size(), payoutId);
+        log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", records.size(), payoutId);
     }
 
     @Transactional(readOnly = true)

@@ -220,7 +220,7 @@ public class PaymentController {
     }
 
     /**
-     * Marks a payment record as DISBURSEMENT_SETTLED — installment withheld from winner's payout.
+     * Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
      * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
      */
     @PostMapping("/mark-payout-deducted")
@@ -234,7 +234,7 @@ public class PaymentController {
     }
 
     /**
-     * Reverts all DISBURSEMENT_SETTLED records linked to a payout back to OUTSTANDING.
+     * Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
      * Called when a payout is cancelled or its draw is deleted.
      */
     @PostMapping("/revert-payout-deductions/{payoutId}")
@@ -246,7 +246,7 @@ public class PaymentController {
 
     /**
      * Internal endpoint — called by payout-service during payout creation to atomically
-     * mark the winner's installment as DISBURSEMENT_SETTLED without requiring a user JWT.
+     * mark the winner's installment as PAYOUT_DEDUCTED without requiring a user JWT.
      */
     @PostMapping("/internal/mark-payout-deducted")
     public ResponseEntity<Void> markPayoutDeductedInternal(

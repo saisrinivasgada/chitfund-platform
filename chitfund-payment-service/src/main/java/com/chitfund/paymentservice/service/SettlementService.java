@@ -131,7 +131,7 @@ public class SettlementService {
      *  3. AdminWalletEntry (treasury movement)
      *
      * Does NOT touch ChitEnrollment.active — leave that as-is.
-     * Does NOT mark PaymentRecords that are already SETTLED / DISBURSEMENT_SETTLED / WAIVED.
+     * Does NOT mark PaymentRecords that are already SETTLED / PAYOUT_DEDUCTED / WAIVED.
      */
     @Transactional
     public SettlementResponse confirm(ConfirmSettlementRequest request, UUID adminId) {
@@ -382,13 +382,13 @@ public class SettlementService {
             netPayoutAmt = orZero(payout.getNetPayoutAmount());
             stillOwedByFund = netPayoutAmt.subtract(disbursedAmt);
 
-            // installmentsPaidSincePayout = sum of amountPaid for SETTLED/DISBURSEMENT_SETTLED records
+            // installmentsPaidSincePayout = sum of amountPaid for SETTLED/PAYOUT_DEDUCTED records
             //  where monthNumber > payout.monthNumber
             final int payoutMonth = payout.getMonthNumber();
             installmentsPaidSincePayout = allRecords.stream()
                     .filter(r -> r.getMonthNumber() > payoutMonth
                             && (r.getStatus() == PaymentRecordStatus.SETTLED
-                             || r.getStatus() == PaymentRecordStatus.DISBURSEMENT_SETTLED))
+                             || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED))
                     .map(PaymentRecord::getAmountPaid)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 

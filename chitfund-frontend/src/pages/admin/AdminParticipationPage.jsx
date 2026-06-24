@@ -19,7 +19,7 @@ function PaymentStatusBadge({ status, overdue }) {
     PARTIALLY_PAID:   { bg: 'bg-amber-100',  text: 'text-amber-700'  },
     OUTSTANDING:      { bg: overdue ? 'bg-red-100'  : 'bg-gray-100', text: overdue ? 'text-red-700' : 'text-gray-600' },
     WAIVED:           { bg: 'bg-gray-100',   text: 'text-gray-400'   },
-    DISBURSEMENT_SETTLED:  { bg: 'bg-blue-100',   text: 'text-blue-700'   },
+    PAYOUT_DEDUCTED:  { bg: 'bg-blue-100',   text: 'text-blue-700'   },
     SETTLEMENT_CLEARED: { bg: 'bg-purple-100', text: 'text-purple-700' },
   }[status] ?? { bg: 'bg-gray-100', text: 'text-gray-500' };
   return (
