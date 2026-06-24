@@ -31,7 +31,7 @@ public class PayoutController {
      * In the future this will be triggered automatically by a Kafka WinnerSelectedEvent.
      */
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PayoutResponse>> createPayout(
             @Valid @RequestBody CreatePayoutRequest request,
             Authentication auth) {
