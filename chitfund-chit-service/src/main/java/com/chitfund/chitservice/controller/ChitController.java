@@ -28,7 +28,7 @@ public class ChitController {
     private final ChitService chitService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> createChit(
             @Valid @RequestBody CreateChitRequest request,
             Authentication auth) {
@@ -52,7 +52,7 @@ public class ChitController {
     }
 
     @GetMapping("/deleted")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<PagedResponse<ChitResponse>>> listDeletedChits(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -68,7 +68,7 @@ public class ChitController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> updateStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateChitStatusRequest request,
@@ -78,7 +78,7 @@ public class ChitController {
     }
 
     @PostMapping("/{id}/pause")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> pauseChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -86,7 +86,7 @@ public class ChitController {
     }
 
     @PostMapping("/{id}/resume")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> resumeChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -94,7 +94,7 @@ public class ChitController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitResponse>> deleteChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
