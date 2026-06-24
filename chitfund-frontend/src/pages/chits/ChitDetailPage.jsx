@@ -3577,7 +3577,7 @@ export default function ChitDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   const activeTab = rawTab ? rawTab.charAt(0).toUpperCase() + rawTab.slice(1) : 'Overview';
-  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
+  const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
 
   const { data: chit, isLoading } = useQuery({
     queryKey: ['chit', id],

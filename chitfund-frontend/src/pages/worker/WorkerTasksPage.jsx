@@ -320,7 +320,7 @@ function MyHistoryTab({ memberMap, chitMap }) {
 export default function WorkerTasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') ?? 'tasks';
-  const setTab = (t) => setSearchParams((prev) => { prev.set('tab', t); return prev; }, { replace: true });
+  const setTab = (t) => { const p = new URLSearchParams(searchParams); p.set('tab', t); setSearchParams(p, { replace: true }); };
   const { memberMap, chitMap } = useLookupMaps();
 
   const { data: tasks = [] } = useQuery({

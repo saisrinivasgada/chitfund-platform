@@ -525,7 +525,7 @@ function ChitwiseTab({ chits, batches, payouts }) {
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') ?? 'Overview';
-  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
+  const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
   const [from,           setFrom]           = useState(monthStart());
   const [to,             setTo]             = useState(today());
   const [activePreset,   setActivePreset]   = useState('This Month');

@@ -1097,7 +1097,7 @@ export default function PayoutsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   const activeTab = (rawTab && tabs.includes(rawTab)) ? rawTab : defaultTab;
-  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
+  const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
 
   return (
     <div className="space-y-6">
