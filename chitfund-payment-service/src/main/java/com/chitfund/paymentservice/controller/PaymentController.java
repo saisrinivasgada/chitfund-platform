@@ -220,7 +220,7 @@ public class PaymentController {
     }
 
     /**
-     * Marks a payment record as PAYOUT_DEDUCTED — installment withheld from winner's payout.
+     * Marks a payment record as DISBURSEMENT_SETTLED — installment withheld from winner's payout.
      * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
      */
     @PostMapping("/mark-payout-deducted")
@@ -234,7 +234,7 @@ public class PaymentController {
     }
 
     /**
-     * Reverts all PAYOUT_DEDUCTED records linked to a payout back to OUTSTANDING.
+     * Reverts all DISBURSEMENT_SETTLED records linked to a payout back to OUTSTANDING.
      * Called when a payout is cancelled or its draw is deleted.
      */
     @PostMapping("/revert-payout-deductions/{payoutId}")
@@ -246,7 +246,7 @@ public class PaymentController {
 
     /**
      * Internal endpoint — called by payout-service during payout creation to atomically
-     * mark installments as PAYOUT_DEDUCTED without requiring a user JWT.
+     * mark the winner's installment as DISBURSEMENT_SETTLED without requiring a user JWT.
      */
     @PostMapping("/internal/mark-payout-deducted")
     public ResponseEntity<Void> markPayoutDeductedInternal(
@@ -258,6 +258,25 @@ public class PaymentController {
         paymentService.markPayoutDeducted(
                 request.getChitId(), request.getMemberId(),
                 request.getMonthNumber(), request.getPayoutId());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Internal endpoint — called by payout-service for cross-chit dues withheld from payout.
+     * Applies FIFO across outstanding months of the specified chit, no treasury movement.
+     */
+    @PostMapping("/internal/mark-cross-chit-disbursement-settled")
+    public ResponseEntity<Void> markCrossChitDisbursementSettledInternal(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        UUID chitId   = UUID.fromString((String) body.get("chitId"));
+        UUID memberId = UUID.fromString((String) body.get("memberId"));
+        UUID payoutId = UUID.fromString((String) body.get("payoutId"));
+        java.math.BigDecimal amount = new java.math.BigDecimal(body.get("amount").toString());
+        paymentService.markCrossChitDisbursementSettled(chitId, memberId, amount, payoutId);
         return ResponseEntity.noContent().build();
     }
 }

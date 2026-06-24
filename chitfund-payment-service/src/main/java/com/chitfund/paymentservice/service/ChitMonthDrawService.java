@@ -331,9 +331,9 @@ public class ChitMonthDrawService {
         List<PaymentRecord> records = paymentRecordRepository
                 .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
 
-        // Auto-revert PAYOUT_DEDUCTED records — no real batch exists, safe to undo silently
+        // Auto-revert DISBURSEMENT_SETTLED records — no real batch exists, safe to undo silently
         records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
+                .filter(r -> r.getStatus() == PaymentRecordStatus.DISBURSEMENT_SETTLED)
                 .forEach(r -> {
                     r.setAmountPaid(BigDecimal.ZERO);
                     r.setStatus(PaymentRecordStatus.OUTSTANDING);
@@ -342,12 +342,12 @@ public class ChitMonthDrawService {
                 });
 
         boolean hasPayments = records.stream()
-                .anyMatch(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
+                .anyMatch(r -> r.getStatus() != PaymentRecordStatus.DISBURSEMENT_SETTLED
                         && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0);
 
         if (hasPayments) {
             long count = records.stream()
-                    .filter(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
+                    .filter(r -> r.getStatus() != PaymentRecordStatus.DISBURSEMENT_SETTLED
                             && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0)
                     .count();
             throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,

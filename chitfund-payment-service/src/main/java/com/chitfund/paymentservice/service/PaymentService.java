@@ -245,43 +245,74 @@ public class PaymentService {
     }
 
     /**
-     * Marks a payment record as PAYOUT_DEDUCTED — the installment was withheld from the
-     * winner's payout. No batch is created, no treasury movement. amountPaid is set to
-     * amountDue so the draw card shows balance = 0. settledByPayoutId links back to the
-     * payout for reversal.
+     * Marks a specific month's payment record as DISBURSEMENT_SETTLED — the installment was
+     * withheld from the winner's payout. No batch, no treasury movement. amountPaid is set to
+     * amountDue so the draw card shows balance = 0. settledByPayoutId links back for reversal.
      *
-     * Idempotent: safe to call even if already PAYOUT_DEDUCTED or SETTLED.
+     * Idempotent: safe to call even if already DISBURSEMENT_SETTLED or SETTLED.
      */
     @Transactional
     public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
         paymentRecordRepository.findByChitIdAndMemberIdAndMonthNumber(chitId, memberId, monthNumber)
                 .ifPresent(record -> {
                     if (record.getStatus() == PaymentRecordStatus.SETTLED
-                            || record.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED) return;
+                            || record.getStatus() == PaymentRecordStatus.DISBURSEMENT_SETTLED) return;
                     record.setAmountPaid(record.getAmountDue());
-                    record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
+                    record.setStatus(PaymentRecordStatus.DISBURSEMENT_SETTLED);
                     record.setSettledByPayoutId(payoutId);
                     paymentRecordRepository.save(record);
-                    log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
+                    log.info("Marked payment record ({}/{}/{}) as DISBURSEMENT_SETTLED for payout {}",
                             chitId, memberId, monthNumber, payoutId);
                 });
     }
 
     /**
-     * Reverses all PAYOUT_DEDUCTED records linked to a payout (across all chits).
+     * Clears cross-chit dues withheld from a payout using FIFO — oldest outstanding month first.
+     * Fully cleared months get DISBURSEMENT_SETTLED. If the amount runs out mid-month, that
+     * month stays PARTIALLY_PAID (no settledByPayoutId link — cannot be auto-reverted).
+     * No batch, no treasury movement.
+     */
+    @Transactional
+    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, BigDecimal amount, UUID payoutId) {
+        List<PaymentRecord> records = paymentRecordRepository
+                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                        memberId, chitId,
+                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+
+        BigDecimal remaining = amount;
+        for (PaymentRecord record : records) {
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+            BigDecimal owed = record.getAmountDue().subtract(record.getAmountPaid());
+            if (remaining.compareTo(owed) >= 0) {
+                record.setAmountPaid(record.getAmountDue());
+                record.setStatus(PaymentRecordStatus.DISBURSEMENT_SETTLED);
+                record.setSettledByPayoutId(payoutId);
+                remaining = remaining.subtract(owed);
+            } else {
+                record.setAmountPaid(record.getAmountPaid().add(remaining));
+                remaining = BigDecimal.ZERO;
+            }
+            paymentRecordRepository.save(record);
+        }
+        log.info("Cross-chit DISBURSEMENT_SETTLED applied — chit {} member {} ₹{} for payout {}",
+                chitId, memberId, amount, payoutId);
+    }
+
+    /**
+     * Reverses all DISBURSEMENT_SETTLED records linked to a payout (across all chits).
      * Called when a payout is cancelled or its draw is deleted.
      */
     @Transactional
     public void revertPayoutDeductions(UUID payoutId) {
         List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
         for (PaymentRecord r : records) {
-            if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
+            if (r.getStatus() != PaymentRecordStatus.DISBURSEMENT_SETTLED) continue;
             r.setAmountPaid(BigDecimal.ZERO);
             r.setStatus(PaymentRecordStatus.OUTSTANDING);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
         }
-        log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", records.size(), payoutId);
+        log.info("Reverted {} DISBURSEMENT_SETTLED records for payout {}", records.size(), payoutId);
     }
 
     @Transactional(readOnly = true)

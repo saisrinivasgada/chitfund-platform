@@ -96,8 +96,8 @@ public class PayoutService {
         }
         if (request.getCrossChitDeductions() != null) {
             for (var deduction : request.getCrossChitDeductions()) {
-                paymentServiceClient.markPayoutDeducted(
-                        deduction.getChitId(), request.getMemberId(), deduction.getMonthNumber(), payout.getId());
+                paymentServiceClient.markCrossChitDisbursementSettled(
+                        deduction.getChitId(), request.getMemberId(), deduction.getAmount(), payout.getId());
             }
         }
 

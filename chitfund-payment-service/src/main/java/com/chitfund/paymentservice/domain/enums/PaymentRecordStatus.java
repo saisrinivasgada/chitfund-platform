@@ -5,6 +5,6 @@ public enum PaymentRecordStatus {
     PARTIALLY_PAID,     // some amount paid, balance still remaining
     SETTLED,            // fully paid — amount_paid == amount_due
     WAIVED,             // month was skipped; no payment required; amount_due shows what was forgiven
-    PAYOUT_DEDUCTED,    // installment withheld from winner's payout — no cash received; amountPaid == amountDue
+    DISBURSEMENT_SETTLED, // installment/dues withheld from winner's payout — no cash received; amountPaid == amountDue
     SETTLEMENT_CLEARED  // wiped out as part of a member exit settlement — no further collection
 }

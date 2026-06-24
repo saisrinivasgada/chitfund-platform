@@ -37,9 +37,9 @@ public class CreatePayoutRequest {
 
     private String notes;
 
-    // When true, marks winner's installment for this chit+month as PAYOUT_DEDUCTED atomically
+    // When true, marks winner's installment for this chit+month as DISBURSEMENT_SETTLED atomically
     private Boolean collectCurrentMonthInstallment;
 
-    // Cross-chit dues deducted from this payout — each entry marks that chit+month as PAYOUT_DEDUCTED
+    // Cross-chit dues deducted from this payout — each entry marks that chit+month as DISBURSEMENT_SETTLED
     private List<CrossChitDeductionDto> crossChitDeductions;
 }

@@ -4,7 +4,7 @@ import {
   getChits, getMembers, getWinners,
   createPayout, getAllPayouts, getPendingPayouts,
   disbursePayout, cancelPayout,
-  getChitsForMember, getMemberBalance, recordPayment,
+  getChitsForMember, getMemberBalance,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -231,11 +231,11 @@ function CreatePayoutTab() {
     mutationFn: async () => {
       const mid = selectedWinner.memberId ?? selectedWinner.winnerId;
 
-      // Step 1: Create the payout.
-      // collectCurrentMonthInstallment=true tells the backend to call markPayoutDeducted,
-      // which clears the payment record with no treasury IN — the installment is withheld
-      // from the payout (netting), not received as a new cash payment.
-      const payout = await createPayout({
+      // createPayout handles all deductions atomically in the backend with no treasury IN:
+      // - collectCurrentMonthInstallment → markPayoutDeducted (clears that specific month)
+      // - crossChitDeductions → markCrossChitDisbursementSettled per chit (FIFO, no treasury)
+      // Both use DISBURSEMENT_SETTLED status — the money is withheld from the payout, not received.
+      return await createPayout({
         chitId,
         memberId: mid,
         monthNumber: selectedWinner.monthNumber,
@@ -246,27 +246,10 @@ function CreatePayoutTab() {
         manualAdjustment: discountNum,
         notes: notes || undefined,
         collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
+        crossChitDeductions: Object.entries(crossChitCollect)
+          .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+          .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) })),
       });
-
-      // Step 2: Cross-chit dues go through recordPayment so FIFO correctly applies
-      // the collected amount across however many outstanding months exist on each chit.
-      const tasks = [];
-      Object.entries(crossChitCollect)
-        .filter(([, v]) => v.enabled && Number(v.amount) > 0)
-        .forEach(([xChitId, v]) => {
-          tasks.push(
-            recordPayment({
-              chitId: xChitId,
-              memberId: mid,
-              amount: Number(v.amount),
-              paymentMode: 'BANK_TRANSFER',
-              notes: `Disbursement settlement — cross-chit dues collected`,
-            }).catch(() => null)
-          );
-        });
-
-      if (tasks.length > 0) await Promise.all(tasks);
-      return payout;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['payouts'] });

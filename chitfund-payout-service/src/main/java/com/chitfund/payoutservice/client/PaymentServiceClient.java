@@ -27,8 +27,8 @@ public class PaymentServiceClient {
     private String internalKey;
 
     /**
-     * Marks a payment record as PAYOUT_DEDUCTED in the payment service.
-     * Called during payout creation so the mark is atomic with the payout record, not dependent on the frontend.
+     * Marks a specific month's payment record as DISBURSEMENT_SETTLED — winner's installment withheld from payout.
+     * Called during payout creation so the mark is atomic with the payout record.
      */
     public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
         HttpHeaders headers = new HttpHeaders();
@@ -48,9 +48,36 @@ public class PaymentServiceClient {
                     new HttpEntity<>(body, headers),
                     Void.class
             );
-            log.info("PAYOUT_DEDUCTED marked — chit {} member {} month {} payout {}", chitId, memberId, monthNumber, payoutId);
+            log.info("DISBURSEMENT_SETTLED marked — chit {} member {} month {} payout {}", chitId, memberId, monthNumber, payoutId);
         } catch (Exception e) {
-            log.error("Failed to mark PAYOUT_DEDUCTED for chit {} member {} month {} — {}", chitId, memberId, monthNumber, e.getMessage());
+            log.error("Failed to mark DISBURSEMENT_SETTLED for chit {} member {} month {} — {}", chitId, memberId, monthNumber, e.getMessage());
+        }
+    }
+
+    /**
+     * Clears cross-chit dues withheld from a payout using FIFO — oldest month first, no treasury movement.
+     */
+    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, java.math.BigDecimal amount, UUID payoutId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+        headers.set("Content-Type", "application/json");
+
+        Map<String, Object> body = Map.of(
+                "chitId", chitId.toString(),
+                "memberId", memberId.toString(),
+                "amount", amount,
+                "payoutId", payoutId.toString()
+        );
+
+        try {
+            restTemplate.postForObject(
+                    paymentServiceUrl + "/payments/internal/mark-cross-chit-disbursement-settled",
+                    new HttpEntity<>(body, headers),
+                    Void.class
+            );
+            log.info("Cross-chit DISBURSEMENT_SETTLED — chit {} member {} ₹{} payout {}", chitId, memberId, amount, payoutId);
+        } catch (Exception e) {
+            log.error("Failed to mark cross-chit DISBURSEMENT_SETTLED for chit {} member {} — {}", chitId, memberId, e.getMessage());
         }
     }
 

@@ -1,0 +1,3 @@
+UPDATE payment_records
+SET status = 'DISBURSEMENT_SETTLED'
+WHERE status = 'PAYOUT_DEDUCTED';
