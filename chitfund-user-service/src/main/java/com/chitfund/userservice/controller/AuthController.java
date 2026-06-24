@@ -60,8 +60,9 @@ public class AuthController {
     // Returns 0, 1, or 2 account options — frontend shows role picker only when 2.
     @PostMapping("/mobile-lookup")
     public ResponseEntity<ApiResponse<MobileLookupResponse>> mobileLookup(
-            @RequestParam String phone) {
-        return ResponseEntity.ok(ApiResponse.success(authService.lookupByMobile(phone)));
+            @RequestParam String phone,
+            @RequestParam String phoneCountryCode) {
+        return ResponseEntity.ok(ApiResponse.success(authService.lookupByMobile(phone, phoneCountryCode)));
     }
 
     // Step 2 of mobile login: authenticate with phone + password (+ role if 2 accounts exist).

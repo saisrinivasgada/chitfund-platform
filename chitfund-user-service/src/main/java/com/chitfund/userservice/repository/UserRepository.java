@@ -33,8 +33,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     java.util.List<User> findByRoleInAndDeletedAtIsNotNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 
-    // Mobile login — returns all active accounts with this phone number
-    java.util.List<User> findByPhoneAndDeletedAtIsNull(String phone);
+    // Mobile login: match phone number + country code together
+    java.util.List<User> findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(String phone, String phoneCountryCode);
 
     // Used for duplicate-phone-in-category check: "does any active account with this phone
     // already belong to one of these roles?"

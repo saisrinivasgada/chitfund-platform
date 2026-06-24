@@ -225,27 +225,14 @@ public class AuthService {
                 });
     }
 
-    // Strips leading country code from a phone number for backward-compat matching.
-    // "+919876543210" → "9876543210", "+12025551234" → "2025551234"
-    private String stripCountryCode(String phone) {
-        if (phone == null || !phone.startsWith("+")) return phone;
-        return phone.replaceFirst("^\\+\\d{1,3}", "");
-    }
-
-    // Finds users by phone — tries exact match first, then strips country code prefix
-    // so numbers stored without country code (legacy) still match "+91..." lookups.
-    private List<User> findByPhoneFlexible(String phone) {
-        List<User> accounts = userRepository.findByPhoneAndDeletedAtIsNull(phone);
-        if (accounts.isEmpty() && phone != null && phone.startsWith("+")) {
-            accounts = userRepository.findByPhoneAndDeletedAtIsNull(stripCountryCode(phone));
-        }
-        return accounts;
+    private List<User> findByPhone(String phone, String countryCode) {
+        return userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, countryCode);
     }
 
     // Returns which account types are registered under this mobile number.
     // Frontend uses this to decide whether to show a role picker before the password step.
-    public MobileLookupResponse lookupByMobile(String phone) {
-        List<User> accounts = findByPhoneFlexible(phone);
+    public MobileLookupResponse lookupByMobile(String phone, String phoneCountryCode) {
+        List<User> accounts = findByPhone(phone, phoneCountryCode);
         List<MobileLookupResponse.AccountOption> options = accounts.stream()
                 .map(u -> MobileLookupResponse.AccountOption.builder()
                         .role(u.getRole())
@@ -265,7 +252,7 @@ public class AuthService {
 
     // Login with mobile number + password (+ optional role for disambiguation).
     public AuthResponse loginByMobile(MobileLoginRequest request) {
-        List<User> accounts = findByPhoneFlexible(request.getPhone());
+        List<User> accounts = findByPhone(request.getPhone(), request.getPhoneCountryCode());
         if (accounts.isEmpty()) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND,
                     "No account found for this mobile number");

@@ -9,8 +9,12 @@ import lombok.Data;
 public class MobileLoginRequest {
 
     @NotBlank
-    @Pattern(regexp = "^[0-9]{10}$", message = "Mobile number must be exactly 10 digits")
+    @Pattern(regexp = "^[0-9]{10,15}$", message = "Mobile number must be 10–15 digits")
     private String phone;
+
+    @NotBlank
+    @Pattern(regexp = "^\\+[0-9]{1,4}$", message = "Country code must be in the format +91")
+    private String phoneCountryCode;
 
     @NotBlank
     private String password;

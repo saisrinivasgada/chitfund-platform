@@ -20,4 +20,7 @@ public class UpdateUserProfileRequest {
 
     @Pattern(regexp = "^[0-9]{10,15}$", message = "Enter a valid phone number (10–15 digits)")
     private String phone;
+
+    @Size(max = 10)
+    private String phoneCountryCode;
 }

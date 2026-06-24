@@ -68,6 +68,7 @@ public class UserService {
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getPhone() != null) user.setPhone(request.getPhone());
+        if (request.getPhoneCountryCode() != null) user.setPhoneCountryCode(request.getPhoneCountryCode());
 
         if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
             if (userRepository.existsByUsername(request.getUsername())) {
