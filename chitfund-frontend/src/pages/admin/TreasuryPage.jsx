@@ -13,7 +13,8 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight, HandCoins } from 'lucide-react';
+import SettlementTab from './SettlementTab';
 
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -672,8 +673,14 @@ const DATE_PRESETS = [
   { label: 'All time',   days: null },
 ];
 
+const TABS = [
+  { id: 'treasury', label: 'Treasury', icon: Wallet },
+  { id: 'settlement', label: 'Settlement', icon: HandCoins },
+];
+
 export default function TreasuryPage() {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('treasury');
   const [showAdd, setShowAdd] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
@@ -758,7 +765,7 @@ export default function TreasuryPage() {
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
             Treasury
           </h1>
-          <p className="text-sm text-gray-500 mt-0.5">Track cash and bank balances</p>
+          <p className="text-sm text-gray-500 mt-0.5">Track cash and bank balances · settle member accounts</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -769,14 +776,43 @@ export default function TreasuryPage() {
           >
             {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
           </button>
-          <Button variant="secondary" onClick={() => setShowTransfer(true)}>
-            <ArrowLeftRight size={15} /> Transfer
-          </Button>
-          <Button onClick={() => setShowAdd(true)}>
-            <Plus size={15} /> Record Transaction
-          </Button>
+          {activeTab === 'treasury' && (
+            <>
+              <Button variant="secondary" onClick={() => setShowTransfer(true)}>
+                <ArrowLeftRight size={15} /> Transfer
+              </Button>
+              <Button onClick={() => setShowAdd(true)}>
+                <Plus size={15} /> Record Transaction
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+              activeTab === id
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Icon size={15} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Settlement tab */}
+      {activeTab === 'settlement' && <SettlementTab />}
+
+      {/* Treasury tab content (rendered but hidden when settlement tab is active) */}
+      {activeTab === 'treasury' && (<>
 
       {balanceLoading ? (
         <PageSpinner />
@@ -889,6 +925,9 @@ export default function TreasuryPage() {
           </Table>
         )}
       </div>
+
+      )}
+      {/* End treasury tab */}
 
       {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} />}
       {showTransfer && <TransferModal onClose={() => setShowTransfer(false)} />}

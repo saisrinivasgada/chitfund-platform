@@ -589,6 +589,22 @@ export const sendWhatsAppReminder = async ({ userId, phone, memberName, outstand
   return res.data;
 };
 
+// ─── Settlement (payment-service) ─────────────────────────────────────────
+export const getSettlementPreview = async ({ memberId, chitIds }) => {
+  const res = await api.post('/settlement/preview', { memberId, chitIds: chitIds ?? null });
+  return res.data.data;
+};
+
+export const confirmSettlement = async ({ memberId, chitItems, notes }) => {
+  const res = await api.post('/settlement/confirm', { memberId, chitItems, notes: notes ?? null });
+  return res.data.data;
+};
+
+export const getMemberSettlements = async (memberId) => {
+  const res = await api.get(`/settlement/member/${memberId}`);
+  return res.data.data ?? [];
+};
+
 // ─── Admin Wallet / Treasury (payment-service) ────────────────────────────
 export const getWalletBalance = async () => {
   const res = await api.get('/admin/wallet/balance');
