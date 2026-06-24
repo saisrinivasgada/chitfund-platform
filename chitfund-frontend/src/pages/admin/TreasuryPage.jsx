@@ -926,7 +926,7 @@ export default function TreasuryPage() {
         )}
       </div>
 
-      )}
+      </>)}
       {/* End treasury tab */}
 
       {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} />}
