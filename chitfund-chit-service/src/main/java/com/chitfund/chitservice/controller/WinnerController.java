@@ -23,7 +23,7 @@ public class WinnerController {
     private final WinnerService winnerService;
 
     @PostMapping("/winners")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<MonthlyWinnerResponse>> assignWinner(
             @PathVariable UUID chitId,
             @Valid @RequestBody AssignWinnerRequest request,
@@ -41,7 +41,7 @@ public class WinnerController {
 
     // Called when a cycle is deleted — rolls back the winner assignment for that cycle number
     @DeleteMapping("/winners/draw/{monthNumber}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteWinnerForDraw(
             @PathVariable UUID chitId,
             @PathVariable Integer monthNumber) {

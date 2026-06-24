@@ -44,7 +44,7 @@ public class SettlementController {
      * toggles the mode on a CASE_C row (by re-submitting with updated chitIds/mode).
      */
     @PostMapping("/preview")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SettlementPreviewResponse>> preview(
             @Valid @RequestBody SettlementPreviewRequest request) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.preview(request)));
@@ -55,7 +55,7 @@ public class SettlementController {
      * saves Settlement + SettlementChitItem records, and creates an AdminWalletEntry.
      */
     @PostMapping("/confirm")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SettlementResponse>> confirm(
             @Valid @RequestBody ConfirmSettlementRequest request,
             Authentication auth) {
@@ -69,7 +69,7 @@ public class SettlementController {
      * Used in the Settlement history section of the frontend.
      */
     @GetMapping("/member/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<List<SettlementResponse>>> getMemberSettlements(
             @PathVariable UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId)));

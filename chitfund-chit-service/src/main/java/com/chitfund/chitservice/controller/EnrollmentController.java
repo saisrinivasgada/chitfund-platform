@@ -22,7 +22,7 @@ public class EnrollmentController {
     private final EnrollmentService enrollmentService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<ChitEnrollmentResponse>> enroll(
             @PathVariable UUID chitId,
             @Valid @RequestBody EnrollMemberRequest request) {
@@ -36,7 +36,7 @@ public class EnrollmentController {
     }
 
     @DeleteMapping("/{memberId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> remove(
             @PathVariable UUID chitId,
             @PathVariable UUID memberId) {

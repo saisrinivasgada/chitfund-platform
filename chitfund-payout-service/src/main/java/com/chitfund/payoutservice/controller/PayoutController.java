@@ -84,7 +84,7 @@ public class PayoutController {
      * Non-CASH modes require a reference number (UTR / UPI ID / cheque no.) for audit.
      */
     @PostMapping("/{id}/disburse")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> disburse(
             @PathVariable UUID id,
             @Valid @RequestBody DisburseRequest request,
@@ -116,7 +116,7 @@ public class PayoutController {
      * Treasury payment batches created during settlement must be voided separately via payment-service.
      */
     @PostMapping("/{id}/void")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> voidPayout(
             @PathVariable UUID id,
             @Valid @RequestBody CancelPayoutRequest request,
@@ -130,7 +130,7 @@ public class PayoutController {
      * Cannot cancel a payout that has already been disbursed.
      */
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> cancel(
             @PathVariable UUID id,
             @Valid @RequestBody CancelPayoutRequest request,

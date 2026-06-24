@@ -47,7 +47,7 @@ public class ReservationController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<MonthReservationResponse>> addSlot(
             @PathVariable UUID chitId,
             @Valid @RequestBody ReservationSlotRequest request,
@@ -91,7 +91,7 @@ public class ReservationController {
     }
 
     @PutMapping("/{reservationId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<MonthReservationResponse>> updateSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -114,7 +114,7 @@ public class ReservationController {
     }
 
     @PatchMapping("/{reservationId}/process")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<MonthReservationResponse>> processSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -133,7 +133,7 @@ public class ReservationController {
     }
 
     @DeleteMapping("/{reservationId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> removeSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -160,7 +160,7 @@ public class ReservationController {
      * Member C (was at slot 4) shifts to slot 5, etc. PROCESSED and VOIDED slots are unchanged.
      */
     @PostMapping("/shift")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Integer>>> shiftReservations(
             @PathVariable UUID chitId,
@@ -187,7 +187,7 @@ public class ReservationController {
     }
 
     @PostMapping("/swap")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public ResponseEntity<ApiResponse<Void>> swapSlots(
             @PathVariable UUID chitId,
@@ -222,7 +222,7 @@ public class ReservationController {
     // Permanently deletes a slot — only allowed if it is already VOIDED.
     // Use this after confirming with the admin; the void audit trail is lost on hard delete.
     @DeleteMapping("/{reservationId}/permanent")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> permanentlyDeleteSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,

@@ -59,7 +59,7 @@ public class PaymentController {
      * FIFO is applied immediately — payment_records updated in the same transaction.
      */
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> recordPayment(
             @Valid @RequestBody RecordPaymentRequest request,
             Authentication auth) {
@@ -73,7 +73,7 @@ public class PaymentController {
      * FIFO is applied here — this is when the member's payment is officially credited.
      */
     @PostMapping("/{batchId}/remit")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> remitCash(
             @PathVariable UUID batchId,
             Authentication auth) {
@@ -227,7 +227,7 @@ public class PaymentController {
      * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
      */
     @PostMapping("/mark-payout-deducted")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<Void> markPayoutDeducted(
             @Valid @RequestBody MarkPayoutDeductedRequest request) {
         paymentService.markPayoutDeducted(
@@ -241,7 +241,7 @@ public class PaymentController {
      * Called when a payout is cancelled or its draw is deleted.
      */
     @PostMapping("/revert-payout-deductions/{payoutId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<Void> revertPayoutDeductions(@PathVariable UUID payoutId) {
         paymentService.revertPayoutDeductions(payoutId);
         return ResponseEntity.noContent().build();

@@ -46,6 +46,7 @@ public class AdminDrawController {
      * Call this when the month starts and you're ready to collect installments.
      */
     @PostMapping("/open")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> openMonth(
             @Valid @RequestBody OpenMonthRequest request,
             Authentication auth) {
@@ -60,6 +61,7 @@ public class AdminDrawController {
      * - Publishes ChitMonthSkippedEvent → notifies members + workers + extends chit end date
      */
     @PostMapping("/skip")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> skipMonth(
             @Valid @RequestBody SkipMonthRequest request,
             Authentication auth) {
@@ -73,6 +75,7 @@ public class AdminDrawController {
      * Works even if some members are still OUTSTANDING (force-close).
      */
     @PostMapping("/{id}/close")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> closeMonth(
             @PathVariable UUID id,
             Authentication auth) {
@@ -104,6 +107,7 @@ public class AdminDrawController {
      * Blocked if any member has already paid — admin must void those batches first.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<Void> deleteDraw(
             @PathVariable UUID id,
             Authentication auth) {

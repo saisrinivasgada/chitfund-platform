@@ -34,7 +34,7 @@ public class MemberController {
      * Phone must be unique — it's the field workers use to identify members in the field.
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> createMember(
             @Valid @RequestBody CreateMemberRequest request,
             Authentication auth) {
