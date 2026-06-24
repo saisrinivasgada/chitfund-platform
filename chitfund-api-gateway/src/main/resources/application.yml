@@ -48,6 +48,14 @@ spring:
             - StripPrefix=1
 
         # ── Payment Service ───────────────────────────────────────────────────
+        # Settlement: controller at /api/settlement/** — no stripping needed.
+        - id: payment-service-settlement
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/settlement/**
+          filters:
+            - JwtAuthGatewayFilter
+
         # Controllers: /payments/**, /admin/draws/**  External: /api/payments/**, /api/admin/**
         - id: payment-service-payments
           uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
