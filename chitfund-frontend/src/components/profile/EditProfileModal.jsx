@@ -214,6 +214,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   const [username,              setUsername]              = useState(currentUser?.username ?? '');
   const [email,                 setEmail]                 = useState(currentUser?.email ?? '');
   const [phone,                 setPhone]                 = useState(currentUser?.phone ?? '');
+  const [phoneCountryCode,      setPhoneCountryCode]      = useState(currentUser?.phoneCountryCode ?? '+91');
   const [memberFullName,        setMemberFullName]        = useState(currentMember?.fullName ?? '');
   const [memberPhone,           setMemberPhone]           = useState(currentMember?.phone ?? '');
   const [memberPhoneCountryCode,setMemberPhoneCountryCode]= useState(currentMember?.phoneCountryCode ?? '+91');
@@ -240,6 +241,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
         username: data.username,
         email: data.email,
         phone: data.phone,
+        phoneCountryCode: data.phoneCountryCode,
       });
       queryClient.invalidateQueries({ queryKey: ['me'] });
       queryClient.invalidateQueries({ queryKey: ['myUserAccount'] });
@@ -273,8 +275,9 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
     const cm = currentMember ?? {};
     const changes = [];
     if (role !== 'MEMBER') {
-      if (fullName !== (cu.fullName ?? '')) changes.push({ field: 'Full Name', from: cu.fullName ?? '', to: fullName });
-      if (phone   !== (cu.phone   ?? '')) changes.push({ field: 'Phone',     from: cu.phone   ?? '', to: phone });
+      if (fullName         !== (cu.fullName         ?? ''))    changes.push({ field: 'Full Name',          from: cu.fullName         ?? '',    to: fullName });
+      if (phone            !== (cu.phone            ?? ''))    changes.push({ field: 'Phone',              from: cu.phone            ?? '',    to: phone });
+      if (phoneCountryCode !== (cu.phoneCountryCode ?? '+91')) changes.push({ field: 'Phone Country Code', from: cu.phoneCountryCode ?? '+91', to: phoneCountryCode });
     }
     if (username !== (cu.username ?? '')) changes.push({ field: 'Username', from: cu.username ?? '', to: username });
     if (email    !== (cu.email    ?? '')) changes.push({ field: 'Email',    from: cu.email    ?? '', to: email });
@@ -286,7 +289,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
       if (city           !== (cm.city     ?? '')) changes.push({ field: 'City',          from: cm.city     ?? '', to: city });
     }
     return changes;
-  }, [fullName, username, email, phone, memberFullName, memberPhone, memberEmail, address, city, currentUser, currentMember, role]);
+  }, [fullName, username, email, phone, phoneCountryCode, memberFullName, memberPhone, memberEmail, address, city, currentUser, currentMember, role]);
 
   async function handleSaveProfile() {
     setProfileError('');
@@ -294,13 +297,15 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
       const ops = [];
       const cu = currentUser ?? {};
       const userChanged = fullName !== (cu.fullName ?? '') || username !== (cu.username ?? '')
-        || email !== (cu.email ?? '') || phone !== (cu.phone ?? '');
+        || email !== (cu.email ?? '') || phone !== (cu.phone ?? '')
+        || phoneCountryCode !== (cu.phoneCountryCode ?? '+91');
       if (userChanged) {
         ops.push(userMutation.mutateAsync({
           fullName: fullName || undefined,
           username: username || undefined,
           email: email || undefined,
           phone: phone || undefined,
+          phoneCountryCode: phoneCountryCode || undefined,
         }));
       }
       if (role === 'MEMBER') {
@@ -423,13 +428,12 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                   onPhoneChange={setMemberPhone}
                 />
               ) : (
-                <Field
+                <PhoneInput
                   label="Phone"
-                  icon={Phone}
-                  placeholder="9876543210"
-                  value={phone}
-                  onChange={(v) => setPhone(v.replace(/\D/g, '').slice(0, 15))}
-                  hint="Digits only"
+                  countryCode={phoneCountryCode}
+                  phone={phone}
+                  onCountryChange={setPhoneCountryCode}
+                  onPhoneChange={setPhone}
                 />
               )}
 

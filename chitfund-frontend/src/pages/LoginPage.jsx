@@ -33,16 +33,13 @@ function MobileLoginForm({ onSuccess }) {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
-  // Send full number (country code + local) so numbers stored with or without code both work
-  const fullPhone = countryCode + phone;
-
   async function handlePhoneLookup(e) {
     e.preventDefault();
     if (phone.replace(/\D/g, '').length < 7) { setError('Enter a valid phone number'); return; }
     setError('');
     setLoading(true);
     try {
-      const data = await mobileLookup(fullPhone);
+      const data = await mobileLookup(phone, countryCode);
       if (!data.accounts || data.accounts.length === 0) {
         setError('No account found for this mobile number');
         return;
@@ -66,7 +63,7 @@ function MobileLoginForm({ onSuccess }) {
     setError('');
     setLoading(true);
     try {
-      const data = await loginByMobile({ phone: fullPhone, password, role });
+      const data = await loginByMobile({ phone, phoneCountryCode: countryCode, password, role });
       onSuccess(data);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');

@@ -33,13 +33,20 @@ export const getMe = async () => {
   return res.data.data;
 };
 
-export const mobileLookup = async (phone) => {
-  const res = await api.post('/auth/mobile-lookup', null, { params: { phone } });
+export const mobileLookup = async (phone, phoneCountryCode) => {
+  const params = { phone };
+  if (phoneCountryCode) params.phoneCountryCode = phoneCountryCode;
+  const res = await api.post('/auth/mobile-lookup', null, { params });
   return res.data.data; // { singleAccount, accounts: [{ role, displayLabel }] }
 };
 
-export const loginByMobile = async ({ phone, password, role }) => {
-  const res = await api.post('/auth/login-mobile', { phone, password, role: role || undefined });
+export const loginByMobile = async ({ phone, phoneCountryCode, password, role }) => {
+  const res = await api.post('/auth/login-mobile', {
+    phone,
+    phoneCountryCode: phoneCountryCode || undefined,
+    password,
+    role: role || undefined,
+  });
   return res.data.data;
 };
 
@@ -70,8 +77,8 @@ export const checkUsernameAvailability = async (username) => {
   return res.data.data; // { available: true/false }
 };
 
-export const updateMyUserProfile = async ({ fullName, username, email, phone }) => {
-  const res = await api.patch('/users/me/profile', { fullName, username, email, phone });
+export const updateMyUserProfile = async ({ fullName, username, email, phone, phoneCountryCode }) => {
+  const res = await api.patch('/users/me/profile', { fullName, username, email, phone, phoneCountryCode });
   return res.data.data; // updated UserResponse
 };
 
