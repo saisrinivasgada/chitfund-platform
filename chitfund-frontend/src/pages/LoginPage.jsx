@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { login as loginApi, mobileLookup, loginByMobile } from '../services/api';
 import Button from '../components/ui/Button';
@@ -177,8 +177,14 @@ function MobileLoginForm({ onSuccess }) {
 }
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
+
+  // Already authenticated — redirect to the right home page
+  if (isAuthenticated) {
+    const dest = user?.role === 'MEMBER' ? '/member' : user?.role === 'WORKER' ? '/tasks' : '/';
+    return <Navigate to={dest} replace />;
+  }
   const [loginMode, setLoginMode] = useState('username'); // 'username' | 'mobile'
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
@@ -197,9 +203,9 @@ export default function LoginPage() {
     };
     login(token, userData);
     if (mustChangePassword) {
-      navigate('/change-password');
+      navigate('/change-password', { replace: true });
     } else {
-      navigate(role === 'MEMBER' ? '/member' : role === 'WORKER' ? '/tasks' : '/');
+      navigate(role === 'MEMBER' ? '/member' : role === 'WORKER' ? '/tasks' : '/', { replace: true });
     }
   }
 
