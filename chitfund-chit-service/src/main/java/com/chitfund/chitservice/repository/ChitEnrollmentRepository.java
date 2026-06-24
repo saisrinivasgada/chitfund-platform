@@ -31,6 +31,9 @@ public interface ChitEnrollmentRepository extends JpaRepository<ChitEnrollment, 
     @Query("SELECT DISTINCT e.chit.id FROM ChitEnrollment e WHERE e.memberId = :memberId AND e.active = true")
     List<UUID> findDistinctChitIdsByMemberId(UUID memberId);
 
+    // ALL enrollments for a member (active AND inactive) — used by settlement service
+    List<ChitEnrollment> findAllByMemberId(UUID memberId);
+
     // One spot at a time (first found) — used by remove endpoint
     @Query("SELECT e FROM ChitEnrollment e WHERE e.chit.id = :chitId AND e.memberId = :memberId AND e.active = true ORDER BY e.enrolledAt ASC")
     Optional<ChitEnrollment> findFirstActiveSpot(UUID chitId, UUID memberId);

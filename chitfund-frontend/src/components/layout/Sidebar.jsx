@@ -478,8 +478,8 @@ export default function Sidebar({ open = false, onClose }) {
     staleTime: 5 * 60_000,
   });
   const { data: lookup } = useQuery({
-    queryKey: ['mobileLookup', me?.phone],
-    queryFn: () => mobileLookup(me.phone),
+    queryKey: ['mobileLookup', me?.phone, me?.phoneCountryCode],
+    queryFn: () => mobileLookup(me.phone, me.phoneCountryCode),
     enabled: !!me?.phone,
     staleTime: 10 * 60_000,
   });

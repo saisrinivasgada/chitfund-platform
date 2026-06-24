@@ -145,7 +145,7 @@ export default function NotificationBell() {
       {/* Dropdown panel — opens rightward since the bell lives in the left sidebar */}
       {open && (
         <div
-          className="absolute left-0 mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
+          className="absolute left-0 mt-2 z-[200] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
           style={{ width: '340px', top: '100%' }}
         >
           {/* Header */}
