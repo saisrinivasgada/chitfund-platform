@@ -185,6 +185,23 @@ function CreatePayoutTab() {
     staleTime: 60_000,
   });
 
+  // Fetch the winning month's actual remaining balance for the current chit.
+  // Member may have partially paid before winning — deduct only what's still owed.
+  const { data: currentChitBalance, isLoading: currentBalanceLoading } = useQuery({
+    queryKey: ['memberCurrentChitBalance', selectedMemberId, chitId],
+    queryFn: () => getMemberBalance({ memberId: selectedMemberId, chitId }),
+    enabled: !!selectedMemberId && !!chitId,
+    staleTime: 60_000,
+  });
+
+  const winningMonthRemaining = (() => {
+    if (!selectedWinner || !currentChitBalance?.months) return installmentAmount;
+    const month = currentChitBalance.months.find(
+      (m) => m.monthNumber === selectedWinner.monthNumber
+    );
+    return month ? Number(month.balance ?? 0) : 0;
+  })();
+
   // Chits with actual outstanding balance
   const otherChitsWithBalance = otherActiveChits.filter(
     (c) => (crossBalances[String(c.id)] ?? 0) > 0
@@ -219,7 +236,7 @@ function CreatePayoutTab() {
   // ── Calculations ─────────────────────────────────────────────────────────
   const winningAmt      = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
   const discountNum     = Number(discountAmt) || 0;
-  const currentMonthDed = collectCurrentMonth ? installmentAmount : 0;
+  const currentMonthDed = collectCurrentMonth ? winningMonthRemaining : 0;
   const crossDed        = Object.entries(crossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
@@ -268,7 +285,7 @@ function CreatePayoutTab() {
   });
 
   const dropdownLoading = loadingAllWinners && activeChits.length > 0;
-  const settlementLoading = memberChitsLoading || balancesLoading;
+  const settlementLoading = memberChitsLoading || balancesLoading || currentBalanceLoading;
 
   return (
     <div className="max-w-xl">
@@ -362,18 +379,33 @@ function CreatePayoutTab() {
                           Month {selectedWinner.monthNumber} installment
                         </p>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {selectedChit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}
+                          {selectedChit?.name} —{' '}
+                          {winningMonthRemaining === 0 ? (
+                            <span className="text-green-600 font-medium">Already fully paid</span>
+                          ) : winningMonthRemaining < installmentAmount ? (
+                            <>
+                              <span className="text-amber-600 font-medium">
+                                ₹{winningMonthRemaining.toLocaleString('en-IN')} remaining
+                              </span>
+                              <span className="text-gray-400 ml-1">
+                                (₹{(installmentAmount - winningMonthRemaining).toLocaleString('en-IN')} already paid)
+                              </span>
+                            </>
+                          ) : (
+                            `₹${installmentAmount.toLocaleString('en-IN')}`
+                          )}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {collectCurrentMonth && (
+                        {collectCurrentMonth && winningMonthRemaining > 0 && (
                           <span className="text-xs font-semibold text-[#1E3A5F]">
-                            −₹{installmentAmount.toLocaleString('en-IN')}
+                            −₹{winningMonthRemaining.toLocaleString('en-IN')}
                           </span>
                         )}
                         <ToggleSwitch
                           on={collectCurrentMonth}
-                          onToggle={() => setCollectCurrentMonth((v) => !v)}
+                          onToggle={() => winningMonthRemaining > 0 && setCollectCurrentMonth((v) => !v)}
+                          disabled={winningMonthRemaining === 0}
                         />
                       </div>
                     </div>
