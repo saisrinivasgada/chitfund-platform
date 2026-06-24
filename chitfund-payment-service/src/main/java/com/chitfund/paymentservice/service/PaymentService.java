@@ -54,12 +54,15 @@ public class PaymentService {
     private final NotificationService notificationService;
 
     /**
-     * Step 1 of the cash flow: worker records collection from a member.
-     * Money is physically with the worker — FIFO is NOT applied yet.
-     * Admin must call remitCash() after receiving from the worker.
+     * Step 1 of the cash flow: worker/manager records collection from a member.
+     * Money is physically with the collector — FIFO is NOT applied yet.
+     * Admin must call remitCash() after receiving from the worker/manager.
+     *
+     * Exception: if the caller is ADMIN and has no overrideCollectedBy, they collected
+     * the cash themselves and are already the treasury keeper — complete immediately.
      */
     @Transactional
-    public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId) {
+    public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin) {
         if (!memberServiceClient.isMemberActive(request.getMemberId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
@@ -68,20 +71,31 @@ public class PaymentService {
         UUID effectiveCollector = request.getOverrideCollectedBy() != null
                 ? request.getOverrideCollectedBy() : workerId;
 
+        boolean adminSelfCollect = callerIsAdmin && request.getOverrideCollectedBy() == null;
+
         PaymentBatch batch = PaymentBatch.builder()
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .totalAmount(request.getAmount())
                 .paymentMode(PaymentMode.CASH)
-                .status(BatchStatus.AWAITING_REMITTANCE)
+                .status(adminSelfCollect ? BatchStatus.COMPLETED : BatchStatus.AWAITING_REMITTANCE)
                 .collectedBy(effectiveCollector)
                 .collectedAt(LocalDateTime.now())
                 .notes(request.getNotes())
                 .build();
         batchRepository.save(batch);
 
-        log.info("Worker {} collected ₹{} cash from member {} for chit {} — awaiting remittance",
-                workerId, request.getAmount(), request.getMemberId(), request.getChitId());
+        if (adminSelfCollect) {
+            List<PaymentAllocation> allocations = applyFifo(batch);
+            log.info("Admin {} collected ₹{} cash directly from member {} for chit {} — completed immediately",
+                    workerId, request.getAmount(), request.getMemberId(), request.getChitId());
+            creditWallet(batch, workerId);
+            eventPublisher.publish(buildCompletedEvent(batch, workerId));
+            return toBatchResponse(batch, allocations);
+        }
+
+        log.info("Collector {} collected ₹{} cash from member {} for chit {} — awaiting remittance",
+                effectiveCollector, request.getAmount(), request.getMemberId(), request.getChitId());
 
         eventPublisher.publish(new CashCollectedEvent(
                 batch.getId().toString(),

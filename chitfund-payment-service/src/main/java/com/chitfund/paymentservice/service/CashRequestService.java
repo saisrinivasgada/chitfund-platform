@@ -226,7 +226,7 @@ public class CashRequestService {
         collectReq.setAmount(req.getRequestedAmount());
         collectReq.setNotes("Collected via request #" + requestId);
 
-        PaymentBatchResponse batch = paymentService.collectCash(collectReq, workerId);
+        PaymentBatchResponse batch = paymentService.collectCash(collectReq, workerId, false);
 
         req.setStatus(CashRequestStatus.COLLECTED);
         req.setCollectedBatchId(batch.getId());

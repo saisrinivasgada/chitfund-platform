@@ -37,9 +37,10 @@ public class PaymentController {
     private String internalKey;
 
     /**
-     * Worker collects cash from a member during their rounds.
-     * Creates AWAITING_REMITTANCE batch — payment_records NOT yet updated.
-     * Admin must call /remit after receiving the cash from the worker.
+     * Worker/manager collects cash from a member during their rounds.
+     * If the effective collector is an ADMIN (no overrideCollectedBy and caller is admin),
+     * the batch completes immediately — admin doesn't remit to themselves.
+     * Otherwise creates AWAITING_REMITTANCE; admin calls /remit after receiving from the worker.
      */
     @PostMapping("/collect")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER') or hasRole('ROLE_MANAGER')")
@@ -47,7 +48,9 @@ public class PaymentController {
             @Valid @RequestBody CollectCashRequest request,
             Authentication auth) {
         UUID workerId = (UUID) auth.getPrincipal();
-        PaymentBatchResponse response = paymentService.collectCash(request, workerId);
+        boolean callerIsAdmin = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        PaymentBatchResponse response = paymentService.collectCash(request, workerId, callerIsAdmin);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
