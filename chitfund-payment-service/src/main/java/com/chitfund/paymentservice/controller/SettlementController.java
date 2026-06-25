@@ -30,7 +30,7 @@ import java.util.UUID;
  *  GET  /api/settlement/member/{memberId} — history of past settlements for a member
  */
 @RestController
-@RequestMapping("/api/settlement")
+@RequestMapping("/settlement")
 @RequiredArgsConstructor
 public class SettlementController {
 
@@ -44,7 +44,7 @@ public class SettlementController {
      * toggles the mode on a CASE_C row (by re-submitting with updated chitIds/mode).
      */
     @PostMapping("/preview")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<SettlementPreviewResponse>> preview(
             @Valid @RequestBody SettlementPreviewRequest request) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.preview(request)));
@@ -69,7 +69,7 @@ public class SettlementController {
      * Used in the Settlement history section of the frontend.
      */
     @GetMapping("/member/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<SettlementResponse>>> getMemberSettlements(
             @PathVariable UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId)));

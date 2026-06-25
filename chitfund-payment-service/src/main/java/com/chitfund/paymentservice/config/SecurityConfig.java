@@ -38,7 +38,7 @@ public class SecurityConfig {
                 .requestMatchers("/admin/wallet/internal/**").permitAll()
                 .requestMatchers("/payments/internal/**").permitAll()
                 .requestMatchers("/admin/draws/internal/**").permitAll()
-                .requestMatchers("/api/settlement/**").authenticated()
+                .requestMatchers("/settlement/**").authenticated()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

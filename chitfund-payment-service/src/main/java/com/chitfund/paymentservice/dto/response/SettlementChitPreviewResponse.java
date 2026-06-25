@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -63,4 +65,18 @@ public class SettlementChitPreviewResponse {
 
     // Step-by-step breakdown for tooltip
     private String tooltipDetail;
+
+    // Per-month payment records — shown when user expands the chit row
+    private List<PaymentRecordDetail> paymentRecords;
+
+    @Data
+    @Builder
+    public static class PaymentRecordDetail {
+        private int monthNumber;
+        private LocalDate dueDate;
+        private BigDecimal amountDue;
+        private BigDecimal amountPaid;
+        private BigDecimal balance;   // amountDue - amountPaid
+        private String status;        // OUTSTANDING, SETTLED, PARTIALLY_PAID, PAYOUT_DEDUCTED, WAIVED
+    }
 }

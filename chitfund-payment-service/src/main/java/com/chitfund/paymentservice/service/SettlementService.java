@@ -18,6 +18,7 @@ import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
 import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse;
+import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse.PaymentRecordDetail;
 import com.chitfund.paymentservice.dto.response.SettlementPreviewResponse;
 import com.chitfund.paymentservice.dto.response.SettlementResponse;
 import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
@@ -348,9 +349,14 @@ public class SettlementService {
                         .add(unpaidDues)
                         .add(futureInstallments);
             } else {
-                // CASE B2 — no slot at all
+                // CASE B2 — no slot, no payout.
+                // Member owes unpaid past dues; what they already paid is credited back.
+                // Future months are forgiven since they never got value from the fund.
+                // net = unpaidDues - totalPaidIn
+                //   positive  → member still owes
+                //   negative  → fund refunds the excess they paid
                 settlementCase = SettlementCase.CASE_B2;
-                netAmount = totalPaidIn.negate();
+                netAmount = unpaidDues.subtract(totalPaidIn);
             }
             payoutStatusStr = payout != null ? payout.getStatus() : "NONE";
 
@@ -425,6 +431,19 @@ public class SettlementService {
                 netPayoutAmt, disbursedAmt, stillOwedByFund, installmentsPaidSincePayout,
                 reservedPayoutAmount, totalPaidIn, alternativeModeAmount, alternativeModeName);
 
+        // Map all payment records for the expandable draw-cards view
+        List<PaymentRecordDetail> recordDetails = allRecords.stream()
+                .sorted(java.util.Comparator.comparingInt(PaymentRecord::getMonthNumber))
+                .map(r -> PaymentRecordDetail.builder()
+                        .monthNumber(r.getMonthNumber())
+                        .dueDate(r.getDueDate())
+                        .amountDue(r.getAmountDue())
+                        .amountPaid(r.getAmountPaid())
+                        .balance(r.getAmountDue().subtract(r.getAmountPaid()))
+                        .status(r.getStatus().name())
+                        .build())
+                .collect(Collectors.toList());
+
         return SettlementChitPreviewResponse.builder()
                 .chitId(chitId)
                 .chitName(chit.getName())
@@ -449,6 +468,7 @@ public class SettlementService {
                 .alternativeModeName(alternativeModeName)
                 .description(description)
                 .tooltipDetail(tooltipDetail)
+                .paymentRecords(recordDetails)
                 .build();
     }
 
@@ -530,9 +550,16 @@ public class SettlementService {
                         fundOwes ? "fund refunds " + fmt(absNet) : "member owes " + fmt(netAmount));
             }
 
-            case CASE_B2 -> String.format(
-                    "No payout received and no reserved slot. Total paid into this chit: %s. Fund refunds: %s.",
-                    fmt(totalPaidIn), fmt(totalPaidIn));
+            case CASE_B2 -> {
+                BigDecimal net = unpaidDues.subtract(totalPaidIn);
+                boolean memberOwes = net.compareTo(BigDecimal.ZERO) > 0;
+                yield String.format(
+                    "No payout received. Unpaid dues: %s. Already paid: %s. %s",
+                    fmt(unpaidDues), fmt(totalPaidIn),
+                    memberOwes ? "Member owes: " + fmt(net) : net.compareTo(BigDecimal.ZERO) == 0
+                        ? "Accounts balanced — no payment needed."
+                        : "Fund refunds: " + fmt(net.abs()));
+            }
 
             case CASE_C -> {
                 if (mode == SettlementMode.FAIR) {
@@ -578,10 +605,14 @@ public class SettlementService {
                 sb.append("\nNote: No alternative mode for this case.");
             }
             case CASE_B2 -> {
+                BigDecimal net = unpaidDues.subtract(totalPaidIn);
                 sb.append("How this was calculated (Case B2 — No Payout, No Slot):\n");
-                sb.append("  Total paid into this chit: ").append(fmt(totalPaidIn)).append("\n");
-                sb.append("= Fund refunds: ").append(fmt(totalPaidIn)).append("\n");
-                sb.append("\nNote: No alternative mode for this case.");
+                sb.append("  Unpaid dues (past months owed): ").append(fmt(unpaidDues)).append("\n");
+                sb.append("− Already paid (credited back): ").append(fmt(totalPaidIn)).append("\n");
+                sb.append("= Net: ").append(net.compareTo(BigDecimal.ZERO) >= 0
+                        ? "Member owes " + fmt(net)
+                        : "Fund refunds " + fmt(net.abs())).append("\n");
+                sb.append("\nFuture installments are waived since member exited without a payout.");
             }
             case CASE_C -> {
                 if (mode == SettlementMode.FAIR) {

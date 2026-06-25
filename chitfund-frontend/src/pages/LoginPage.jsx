@@ -244,7 +244,7 @@ export default function LoginPage() {
               <h1 className="text-xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>
                 ChitWise
               </h1>
-              <p className="text-xs text-white/50">Management Platform</p>
+              <p className="text-xs text-white/50">Chitfund Management Platform</p>
             </div>
           </div>
 
@@ -288,7 +288,7 @@ export default function LoginPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitWise</h1>
-              <p className="text-xs text-gray-400">Management Platform</p>
+              <p className="text-xs text-gray-400">Chitfund Management Platform</p>
             </div>
           </div>
 

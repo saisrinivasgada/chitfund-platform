@@ -14,7 +14,7 @@ import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
-  ArrowRight, Eye, EyeOff, Wallet, Truck, Clock, Calendar,
+  ArrowRight, Wallet, Truck, Clock, Calendar,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
@@ -127,7 +127,7 @@ export default function DashboardPage() {
   if (user?.role === 'WORKER')  return <WorkerHomePage />;
   if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
-  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
+  const { hidden } = useHiddenAmounts();
   const isAdmin = user?.role === 'ADMIN';
 
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
@@ -203,14 +203,6 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleHidden}
-            title={hidden ? 'Show amounts' : 'Hide amounts'}
-            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
-          </button>
           <Button onClick={() => navigate('/chits')} size="md">
             <Plus size={15} /> New Chit
           </Button>

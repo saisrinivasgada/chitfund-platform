@@ -1,8 +1,6 @@
 #!/bin/bash
 # ChitFund Platform — start all services + frontend
 
-set -e
-
 BASE=/Users/saisrinivas/Projects/learning
 MVN=$HOME/.m2/wrapper/dists/apache-maven-3.9.14-bin/1cb7fhup6b5n3bed6kckbrnspv/apache-maven-3.9.14/bin/mvn
 KAFKA_HOME=/Users/saisrinivas/Downloads/kafka_2.12-3.9.1
@@ -94,9 +92,14 @@ echo ""
 for svc in "${SERVICE_ORDER[@]}"; do
   port=${SERVICES[$svc]}
   if check_port_free $port "$svc"; then
+    log "Building $svc..."
+    if ! bash -c "cd $BASE/$svc && $MVN package -DskipTests -q >> $LOG_DIR/$svc.log 2>&1"; then
+      err "$svc build failed — check $LOG_DIR/$svc.log"
+      continue
+    fi
+    JAR=$(ls "$BASE/$svc"/target/*.jar 2>/dev/null | grep -v original | head -1)
     log "Starting $svc on port $port..."
-    cd "$BASE/$svc"
-    $MVN spring-boot:run -q > "$LOG_DIR/$svc.log" 2>&1 &
+    nohup java -jar "$JAR" >> "$LOG_DIR/$svc.log" 2>&1 &
     wait_for_port $port "$svc"
   fi
 done

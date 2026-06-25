@@ -6,7 +6,8 @@ import Toast from '../ui/Toast';
 import NotificationBell from '../notifications/NotificationBell';
 import useToast from '../../hooks/useToast';
 import { createContext, useContext } from 'react';
-import { Menu, BookOpen } from 'lucide-react';
+import { Menu, BookOpen, Eye, EyeOff } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 const ToastContext = createContext(null);
 export const useToastContext = () => useContext(ToastContext);
@@ -16,10 +17,39 @@ export default function AppLayout() {
   const { toasts, toast, dismiss } = useToast();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   // Close drawer whenever the route changes (tapping a nav link on mobile)
   useEffect(() => {
     setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Update browser tab title per route
+  useEffect(() => {
+    const p = location.pathname;
+    const titles = [
+      ['/members/', 'Member Detail'],
+      ['/members', 'Members'],
+      ['/chits/', 'Chit Detail'],
+      ['/chits', 'Chits'],
+      ['/payments/record', 'Payments — Record'],
+      ['/payments/cash-requests', 'Payments — Cash Requests'],
+      ['/payments/remittance', 'Payments — Remittance'],
+      ['/payments/history', 'Payments — History'],
+      ['/payments', 'Payments'],
+      ['/payouts', 'Payouts'],
+      ['/draws', 'Draws'],
+      ['/reports', 'Reports'],
+      ['/treasury', 'Treasury'],
+      ['/settlement', 'Settlement'],
+      ['/team', 'Team'],
+      ['/my-account', 'My Account'],
+      ['/staff/', 'Staff Detail'],
+      ['/transactions/', 'Transaction Detail'],
+      ['/', 'Dashboard'],
+    ];
+    const match = titles.find(([prefix]) => p === prefix || p.startsWith(prefix));
+    document.title = match ? `${match[1]} — ChitWise` : 'ChitWise';
   }, [location.pathname]);
 
   // Prevent body scroll when drawer is open on mobile
@@ -81,8 +111,18 @@ export default function AppLayout() {
               </span>
             </div>
 
-            {/* Right: notification bell */}
-            <NotificationBell />
+            {/* Right: notification bell + hide toggle */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleHidden}
+                title={hidden ? 'Show amounts' : 'Hide amounts'}
+                className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                {hidden ? <Eye size={20} /> : <EyeOff size={20} />}
+              </button>
+              <NotificationBell />
+            </div>
           </header>
 
           {/* ── Scrollable content ──────────────────────────────────────── */}
@@ -95,6 +135,16 @@ export default function AppLayout() {
             </div>
           </main>
         </div>
+
+        {/* ── Fixed hide/show amounts button — desktop only ─────────────── */}
+        <button
+          type="button"
+          onClick={toggleHidden}
+          title={hidden ? 'Show amounts' : 'Hide amounts'}
+          className="hidden lg:flex fixed top-4 right-4 z-50 items-center justify-center p-2 rounded-lg bg-white border border-gray-200 shadow-sm text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer"
+        >
+          {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
+        </button>
 
         <Toast toasts={toasts} onDismiss={dismiss} />
       </div>

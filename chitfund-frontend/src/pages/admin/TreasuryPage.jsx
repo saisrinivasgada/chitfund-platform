@@ -13,7 +13,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, Eye, EyeOff, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight, HandCoins } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight, HandCoins } from 'lucide-react';
 import SettlementTab from './SettlementTab';
 
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
@@ -689,7 +689,7 @@ export default function TreasuryPage() {
   const [activePreset, setActivePreset] = useState('All time');
   const [filterAccount, setFilterAccount] = useState('ALL');
   const [filterType, setFilterType] = useState('ALL');
-  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
+  const { hidden } = useHiddenAmounts();
 
   const { data: balance, isLoading: balanceLoading } = useQuery({
     queryKey: ['wallet-balance'],
@@ -770,14 +770,6 @@ export default function TreasuryPage() {
           <p className="text-sm text-gray-500 mt-0.5">Track cash and bank balances · settle member accounts</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleHidden}
-            title={hidden ? 'Show amounts' : 'Hide amounts'}
-            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
-          </button>
           {activeTab === 'treasury' && (
             <>
               <Button variant="secondary" onClick={() => setShowTransfer(true)}>
