@@ -58,12 +58,12 @@ public class SettlementPaymentTransaction {
 
     /** How the payment was made. */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, columnDefinition = "varchar(20)")
     private PaymentMode mode;
 
     /** Whether money moved into or out of the fund. */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 15)
+    @Column(nullable = false, columnDefinition = "varchar(15)")
     private TransactionDirection direction;
 
     /** UTR number, UPI transaction ID, cheque number, etc. Nullable for CASH. */

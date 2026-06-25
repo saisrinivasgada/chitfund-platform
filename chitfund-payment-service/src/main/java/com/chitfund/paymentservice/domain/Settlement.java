@@ -80,7 +80,7 @@ public class Settlement {
      * Updated by SettlementTransactionService as transactions are recorded.
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "payment_status", nullable = false, length = 25)
+    @Column(name = "payment_status", nullable = false, columnDefinition = "varchar(25)")
     @Builder.Default
     private SettlementPaymentStatus paymentStatus = SettlementPaymentStatus.PENDING;
 
