@@ -9,12 +9,10 @@ import com.chitfund.paymentservice.client.PayoutServiceClient.PayoutDto;
 import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.domain.SettlementChitItem;
 import com.chitfund.paymentservice.domain.PaymentRecord;
-import com.chitfund.paymentservice.domain.enums.AccountType;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
-import com.chitfund.paymentservice.domain.enums.WalletEntryType;
-import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
+import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
 import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse;
@@ -64,7 +62,6 @@ public class SettlementService {
     private final SettlementRepository settlementRepository;
     private final ChitServiceClient chitServiceClient;
     private final PayoutServiceClient payoutServiceClient;
-    private final AdminWalletService adminWalletService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // PREVIEW
@@ -201,9 +198,23 @@ public class SettlementService {
             chitItems.add(item);
         }
 
-        BigDecimal netAmount = totalOwed.subtract(totalRefunded);
+        BigDecimal baseNetAmount = totalOwed.subtract(totalRefunded);
+
+        // Apply optional admin adjustment (positive = extra charge, negative = discount/waiver)
+        BigDecimal adjustment = request.getAdjustmentAmount() != null
+                ? request.getAdjustmentAmount()
+                : BigDecimal.ZERO;
+        BigDecimal netAmount = baseNetAmount.add(adjustment);
 
         // 4. Save Settlement entity
+        // WHY set paymentStatus here?
+        // If netAmount==0 the settlement is immediately balanced — no payments needed.
+        // Otherwise it starts as PENDING and transitions via SettlementTransactionService
+        // as individual payment transactions are recorded.
+        SettlementPaymentStatus initialPaymentStatus = netAmount.compareTo(BigDecimal.ZERO) == 0
+                ? SettlementPaymentStatus.BALANCED
+                : SettlementPaymentStatus.PENDING;
+
         Settlement settlement = Settlement.builder()
                 .memberId(memberId)
                 .settledBy(adminId)
@@ -212,6 +223,11 @@ public class SettlementService {
                 .totalRefunded(totalRefunded)
                 .netAmount(netAmount)
                 .notes(request.getNotes())
+                .adjustmentAmount(adjustment)
+                .adjustmentReason(request.getAdjustmentReason())
+                .paymentStatus(initialPaymentStatus)
+                .collectedAmount(BigDecimal.ZERO)
+                .disbursedAmount(BigDecimal.ZERO)
                 .build();
         // Link items to settlement
         for (SettlementChitItem item : chitItems) {
@@ -220,27 +236,8 @@ public class SettlementService {
         settlement.setChitItems(chitItems);
         Settlement saved = settlementRepository.save(settlement);
 
-        // 5. Treasury movement
-        if (netAmount.compareTo(BigDecimal.ZERO) != 0) {
-            AdminWalletEntryRequest walletReq = new AdminWalletEntryRequest();
-            walletReq.setAccountType(AccountType.BANK);
-            if (netAmount.compareTo(BigDecimal.ZERO) > 0) {
-                // Member owes → money comes INTO treasury
-                walletReq.setEntryType(WalletEntryType.IN);
-                walletReq.setAmount(netAmount);
-                walletReq.setDescription("Settlement — member " + memberId + " owes ₹" + netAmount.toPlainString());
-            } else {
-                // Fund refunds → money goes OUT of treasury
-                walletReq.setEntryType(WalletEntryType.OUT);
-                walletReq.setAmount(netAmount.abs());
-                walletReq.setDescription("Settlement refund — member " + memberId + " receives ₹" + netAmount.abs().toPlainString());
-            }
-            walletReq.setCategory("SETTLEMENT");
-            adminWalletService.addEntry(walletReq, adminId);
-        }
-
-        log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}",
-                memberId, adminId, totalOwed, totalRefunded, netAmount);
+        log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, paymentStatus={}",
+                memberId, adminId, totalOwed, totalRefunded, netAmount, initialPaymentStatus);
 
         return toSettlementResponse(saved);
     }
@@ -649,6 +646,11 @@ public class SettlementService {
     // ─────────────────────────────────────────────────────────────────────────
 
     private SettlementResponse toSettlementResponse(Settlement s) {
+        BigDecimal absNet = s.getNetAmount().abs();
+        BigDecimal collected = s.getCollectedAmount() != null ? s.getCollectedAmount() : BigDecimal.ZERO;
+        BigDecimal disbursed = s.getDisbursedAmount() != null ? s.getDisbursedAmount() : BigDecimal.ZERO;
+        BigDecimal remaining = absNet.subtract(collected.max(disbursed)).max(BigDecimal.ZERO);
+
         return SettlementResponse.builder()
                 .id(s.getId())
                 .memberId(s.getMemberId())
@@ -659,6 +661,12 @@ public class SettlementService {
                 .netAmount(s.getNetAmount())
                 .notes(s.getNotes())
                 .createdAt(s.getCreatedAt())
+                .adjustmentAmount(s.getAdjustmentAmount())
+                .adjustmentReason(s.getAdjustmentReason())
+                .paymentStatus(s.getPaymentStatus())
+                .collectedAmount(collected)
+                .disbursedAmount(disbursed)
+                .remainingAmount(remaining)
                 .chitItems(s.getChitItems().stream()
                         .map(item -> SettlementResponse.ChitItemDetail.builder()
                                 .id(item.getId())

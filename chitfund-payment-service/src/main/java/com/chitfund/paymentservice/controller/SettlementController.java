@@ -1,11 +1,15 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
+import com.chitfund.paymentservice.dto.request.RecordSettlementTransactionRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
 import com.chitfund.paymentservice.dto.response.SettlementPreviewResponse;
 import com.chitfund.paymentservice.dto.response.SettlementResponse;
+import com.chitfund.paymentservice.dto.response.SettlementTransactionResponse;
 import com.chitfund.paymentservice.service.SettlementService;
+import com.chitfund.paymentservice.service.SettlementTransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -35,6 +39,7 @@ import java.util.UUID;
 public class SettlementController {
 
     private final SettlementService settlementService;
+    private final SettlementTransactionService settlementTransactionService;
 
     /**
      * Computes the settlement preview for a member across their chits.
@@ -73,5 +78,54 @@ public class SettlementController {
     public ResponseEntity<ApiResponse<List<SettlementResponse>>> getMemberSettlements(
             @PathVariable UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId)));
+    }
+
+    /**
+     * Records a single payment transaction against a confirmed settlement.
+     *
+     * Idempotent: re-submitting the same idempotencyKey returns the existing
+     * transaction rather than creating a duplicate.
+     *
+     * WHY ADMIN/MANAGER only?
+     * Payment recording affects the treasury wallet and settlement status — these
+     * are financial operations that workers and members must not perform.
+     */
+    @PostMapping("/{settlementId}/transactions")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<SettlementTransactionResponse>> recordTransaction(
+            @PathVariable UUID settlementId,
+            @Valid @RequestBody RecordSettlementTransactionRequest request,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        SettlementTransactionResponse response =
+                settlementTransactionService.recordTransaction(settlementId, request, adminId);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(response, "Transaction recorded"));
+    }
+
+    /**
+     * Returns all payment transactions for a settlement, ordered oldest-first.
+     * Used to render the payment timeline on the settlement detail screen.
+     */
+    @GetMapping("/{settlementId}/transactions")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<List<SettlementTransactionResponse>>> getTransactions(
+            @PathVariable UUID settlementId) {
+        return ResponseEntity.ok(
+                ApiResponse.success(settlementTransactionService.getTransactions(settlementId)));
+    }
+
+    /**
+     * Returns all settlements that still have outstanding payment obligations —
+     * i.e., money has not yet been fully collected from or disbursed to the member.
+     *
+     * Excludes FULLY_COLLECTED, FULLY_DISBURSED, BALANCED.
+     * Used by the "Pending Payments" dashboard tab.
+     */
+    @GetMapping("/pending-payments")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<List<Settlement>>> getPendingPayments() {
+        return ResponseEntity.ok(
+                ApiResponse.success(settlementTransactionService.getPendingSettlements()));
     }
 }

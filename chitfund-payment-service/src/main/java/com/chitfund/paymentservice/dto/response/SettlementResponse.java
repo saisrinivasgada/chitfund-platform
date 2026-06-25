@@ -2,6 +2,7 @@ package com.chitfund.paymentservice.dto.response;
 
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
+import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -29,6 +30,20 @@ public class SettlementResponse {
 
     private String notes;
     private LocalDateTime createdAt;
+
+    // Adjustment applied before confirmation
+    private BigDecimal adjustmentAmount;
+    private String adjustmentReason;
+
+    // Payment tracking fields
+    private SettlementPaymentStatus paymentStatus;
+    private BigDecimal collectedAmount;
+    private BigDecimal disbursedAmount;
+    /**
+     * How much is still outstanding.
+     * = abs(netAmount) - max(collectedAmount, disbursedAmount)
+     */
+    private BigDecimal remainingAmount;
 
     private List<ChitItemDetail> chitItems;
 

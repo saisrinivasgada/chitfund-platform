@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.domain;
 
+import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -61,6 +62,37 @@ public class Settlement {
 
     @Column(columnDefinition = "text")
     private String notes;
+
+    // Optional manual adjustment applied by admin before confirming.
+    // Positive = extra charge to member; negative = discount/waiver.
+    @Column(name = "adjustment_amount", nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal adjustmentAmount = BigDecimal.ZERO;
+
+    @Column(name = "adjustment_reason", columnDefinition = "text")
+    private String adjustmentReason;
+
+    // ── Payment tracking fields ─────────────────────────────────────────────
+
+    /**
+     * Tracks whether the net obligation has been fully settled via payment transactions.
+     * Starts as BALANCED (netAmount==0) or PENDING on confirm().
+     * Updated by SettlementTransactionService as transactions are recorded.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", nullable = false, length = 25)
+    @Builder.Default
+    private SettlementPaymentStatus paymentStatus = SettlementPaymentStatus.PENDING;
+
+    /** Running total of amounts collected from the member (COLLECTION direction). */
+    @Column(name = "collected_amount", nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal collectedAmount = BigDecimal.ZERO;
+
+    /** Running total of amounts disbursed to the member (DISBURSEMENT direction). */
+    @Column(name = "disbursed_amount", nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal disbursedAmount = BigDecimal.ZERO;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

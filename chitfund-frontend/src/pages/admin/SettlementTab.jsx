@@ -534,6 +534,8 @@ export default function SettlementTab({ initialMemberId = '' }) {
   const [modes, setModes] = useState({});               // chitId → 'FAIR' | 'ADMIN_WIN'
   const [expandedChits, setExpandedChits] = useState({}); // chitId → true/false
   const [notes, setNotes] = useState('');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(true);
   const [showCaseGuide, setShowCaseGuide] = useState(false);
@@ -616,6 +618,8 @@ export default function SettlementTab({ initialMemberId = '' }) {
     .reduce((s, i) => s + Math.abs(Number(i.displayNetAmount)), 0);
 
   const grandTotal = totalOwed - totalRefunded;
+  const parsedAdjustment = adjustmentAmount !== '' ? Number(adjustmentAmount) : 0;
+  const adjustedTotal = grandTotal + parsedAdjustment;
 
   // ── Confirm mutation ───────────────────────────────────────────────────
   const confirmMutation = useMutation({
@@ -628,6 +632,8 @@ export default function SettlementTab({ initialMemberId = '' }) {
         memberId: selectedMemberId,
         chitItems: chitItemsPayload,
         notes: notes || null,
+        adjustmentAmount: parsedAdjustment !== 0 ? parsedAdjustment : null,
+        adjustmentReason: parsedAdjustment !== 0 ? (adjustmentReason || null) : null,
       });
     },
     onSuccess: () => {
@@ -641,6 +647,8 @@ export default function SettlementTab({ initialMemberId = '' }) {
       setToggledChits({});
       setModes({});
       setNotes('');
+      setAdjustmentAmount('');
+      setAdjustmentReason('');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Settlement failed'),
   });
@@ -706,6 +714,9 @@ export default function SettlementTab({ initialMemberId = '' }) {
                 setToggledChits({});
                 setModes({});
                 setExpandedChits({});
+                setAdjustmentAmount('');
+                setAdjustmentReason('');
+                setNotes('');
               }}
             >
               <option value="">— Choose a member —</option>
@@ -1003,6 +1014,52 @@ export default function SettlementTab({ initialMemberId = '' }) {
                 )}
               </div>
 
+              {/* Adjustment */}
+              <div className="mb-4 p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50">
+                <p className="text-xs font-semibold text-amber-700 mb-3 uppercase tracking-wide">
+                  Manual Adjustment (optional)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Adjustment Amount" hint="Use negative to discount (e.g. −500)">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={adjustmentAmount}
+                      onChange={(e) => setAdjustmentAmount(e.target.value)}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                    />
+                  </FormField>
+                  <FormField label="Reason for Adjustment">
+                    <input
+                      type="text"
+                      value={adjustmentReason}
+                      onChange={(e) => setAdjustmentReason(e.target.value)}
+                      placeholder="e.g. Late fee, Goodwill waiver…"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                    />
+                  </FormField>
+                </div>
+                {parsedAdjustment !== 0 && (
+                  <div className="mt-3 flex items-center justify-between rounded-lg bg-white border border-amber-200 px-4 py-2">
+                    <span className="text-xs text-gray-600">
+                      Base: <span className="font-semibold">{hidden ? '••••••' : `₹${Math.abs(grandTotal).toLocaleString('en-IN')}`}</span>
+                      <span className="mx-1 text-amber-600">
+                        {parsedAdjustment > 0 ? `+₹${parsedAdjustment.toLocaleString('en-IN')}` : `−₹${Math.abs(parsedAdjustment).toLocaleString('en-IN')}`}
+                      </span>
+                      adjustment
+                    </span>
+                    <span className={`font-bold text-sm ${adjustedTotal > 0 ? 'text-red-700' : adjustedTotal < 0 ? 'text-green-700' : 'text-gray-600'}`}>
+                      {hidden ? '••••••' : (
+                        adjustedTotal === 0 ? 'Balanced'
+                        : adjustedTotal > 0 ? `Member pays ₹${adjustedTotal.toLocaleString('en-IN')}`
+                        : `Fund refunds ₹${Math.abs(adjustedTotal).toLocaleString('en-IN')}`
+                      )}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {/* Notes */}
               <div className="mb-4">
                 <FormField label="Settlement Notes">
@@ -1112,16 +1169,28 @@ export default function SettlementTab({ initialMemberId = '' }) {
         >
           <div className="space-y-3 pb-2">
             <div className={`rounded-lg p-3 text-sm font-semibold ${
-              grandTotal > 0 ? 'bg-red-50 text-red-700'
-              : grandTotal < 0 ? 'bg-green-50 text-green-700'
+              adjustedTotal > 0 ? 'bg-red-50 text-red-700'
+              : adjustedTotal < 0 ? 'bg-green-50 text-green-700'
               : 'bg-gray-50 text-gray-600'
             }`}>
-              {grandTotal === 0
+              {adjustedTotal === 0
                 ? 'Accounts balance out — no payment needed.'
-                : grandTotal > 0
-                ? `Member pays ₹${grandTotal.toLocaleString('en-IN')}`
-                : `Fund refunds ₹${Math.abs(grandTotal).toLocaleString('en-IN')}`}
+                : adjustedTotal > 0
+                ? `Member pays ₹${adjustedTotal.toLocaleString('en-IN')}`
+                : `Fund refunds ₹${Math.abs(adjustedTotal).toLocaleString('en-IN')}`}
             </div>
+            {parsedAdjustment !== 0 && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Base settlement</span>
+                  <span className="font-medium">{grandTotal > 0 ? `+₹${grandTotal.toLocaleString('en-IN')}` : grandTotal < 0 ? `−₹${Math.abs(grandTotal).toLocaleString('en-IN')}` : '₹0'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Adjustment{adjustmentReason ? ` — ${adjustmentReason}` : ''}</span>
+                  <span className="font-medium">{parsedAdjustment > 0 ? `+₹${parsedAdjustment.toLocaleString('en-IN')}` : `−₹${Math.abs(parsedAdjustment).toLocaleString('en-IN')}`}</span>
+                </div>
+              </div>
+            )}
             <div className="text-xs text-gray-500 space-y-1">
               {includedItems.map((i) => (
                 <div key={i.chitId} className="flex justify-between">

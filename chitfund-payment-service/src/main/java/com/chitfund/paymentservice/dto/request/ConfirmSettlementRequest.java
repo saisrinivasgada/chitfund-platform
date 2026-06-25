@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +20,13 @@ public class ConfirmSettlementRequest {
 
     // Admin notes / reason for settlement
     private String notes;
+
+    // Optional manual adjustment applied on top of the calculated net amount.
+    // Positive = extra charge to member; negative = discount/waiver.
+    private BigDecimal adjustmentAmount;
+
+    // Required when adjustmentAmount is non-zero to document the reason.
+    private String adjustmentReason;
 
     @Data
     public static class ChitItemRequest {
