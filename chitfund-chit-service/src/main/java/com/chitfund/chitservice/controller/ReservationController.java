@@ -1,5 +1,6 @@
 package com.chitfund.chitservice.controller;
 
+import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
@@ -36,6 +37,7 @@ public class ReservationController {
     private final ChitService chitService;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
+    private final AuditClient auditClient;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
@@ -86,8 +88,11 @@ public class ReservationController {
                 .createdBy(adminId)
                 .build();
 
+        MonthReservation saved = reservationRepository.save(slot);
+        auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
+                "SLOT_CREATED", adminId.toString(), "ADMIN", null, saved);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(chitMapper.toReservationResponse(reservationRepository.save(slot)), "Slot added"));
+                .body(ApiResponse.success(chitMapper.toReservationResponse(saved), "Slot added"));
     }
 
     @PutMapping("/{reservationId}")
@@ -101,6 +106,11 @@ public class ReservationController {
         MonthReservation r = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
 
+        MonthReservation before = MonthReservation.builder()
+                .memberId(r.getMemberId()).reservationMonth(r.getReservationMonth())
+                .payoutAmount(r.getPayoutAmount()).postPayoutContribution(r.getPostPayoutContribution())
+                .status(r.getStatus()).build();
+
         r.setMemberId(request.getMemberId());
         r.setReservationMonth(request.getReservationMonth().withDayOfMonth(1));
         r.setPayoutAmount(request.getPayoutAmount());
@@ -109,8 +119,11 @@ public class ReservationController {
                 ? ReservationStatus.RESERVED : ReservationStatus.UNALLOCATED);
         r.setUpdatedBy(adminId);
 
+        MonthReservation saved = reservationRepository.save(r);
+        auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
+                "SLOT_UPDATED", adminId.toString(), "ADMIN", before, saved);
         return ResponseEntity.ok(ApiResponse.success(
-                chitMapper.toReservationResponse(reservationRepository.save(r)), "Slot updated"));
+                chitMapper.toReservationResponse(saved), "Slot updated"));
     }
 
     @PatchMapping("/{reservationId}/process")
@@ -128,8 +141,11 @@ public class ReservationController {
         }
         r.setStatus(ReservationStatus.PROCESSED);
         r.setUpdatedBy(adminId);
+        MonthReservation saved = reservationRepository.save(r);
+        auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
+                "SLOT_PROCESSED", adminId.toString(), "ADMIN", null, saved);
         return ResponseEntity.ok(ApiResponse.success(
-                chitMapper.toReservationResponse(reservationRepository.save(r)), "Slot marked as processed"));
+                chitMapper.toReservationResponse(saved), "Slot marked as processed"));
     }
 
     @DeleteMapping("/{reservationId}")
@@ -142,12 +158,18 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         MonthReservation r = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+        MonthReservation beforeVoid = MonthReservation.builder()
+                .memberId(r.getMemberId()).status(r.getStatus())
+                .reservationMonth(r.getReservationMonth()).payoutAmount(r.getPayoutAmount()).build();
+
         r.setStatus(ReservationStatus.VOIDED);
         r.setVoidReason(reason);
         r.setVoidedAt(LocalDateTime.now());
         r.setVoidedBy(adminId);
         r.setUpdatedBy(adminId);
-        reservationRepository.save(r);
+        MonthReservation saved = reservationRepository.save(r);
+        auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
+                "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoid, saved);
         return ResponseEntity.ok(ApiResponse.success(null, "Reservation voided"));
     }
 
@@ -207,14 +229,25 @@ public class ReservationController {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Only RESERVED slots can be swapped");
         }
 
-        UUID tempMember = a.getMemberId();
-        a.setMemberId(b.getMemberId());
-        b.setMemberId(tempMember);
+        UUID memberA = a.getMemberId();
+        UUID memberB = b.getMemberId();
+
+        a.setMemberId(memberB);
+        b.setMemberId(memberA);
         a.setUpdatedBy(adminId);
         b.setUpdatedBy(adminId);
 
         reservationRepository.save(a);
         reservationRepository.save(b);
+
+        auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
+                "SLOT_SWAPPED", adminId.toString(), "ADMIN",
+                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
+                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", b.getId().toString()));
+        auditClient.log("RESERVATION_SLOT", b.getId().toString(), chitId.toString(),
+                "SLOT_SWAPPED", adminId.toString(), "ADMIN",
+                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", a.getId().toString()),
+                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()));
 
         return ResponseEntity.ok(ApiResponse.success(null, "Slots swapped"));
     }

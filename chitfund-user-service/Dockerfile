@@ -17,7 +17,7 @@ COPY chitfund-api-gateway/pom.xml chitfund-api-gateway/
 RUN mvn -pl chitfund-common,chitfund-user-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
 COPY chitfund-common/src chitfund-common/src
-COPY chitfund-user-service/src chitfund-user-service/src
+COPY chitfund-user-service/src chitfund-user-service/srci think the v
 
 RUN mvn -pl chitfund-common,chitfund-user-service -am package -DskipTests -q --no-transfer-progress
 
