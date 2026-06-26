@@ -74,12 +74,12 @@ public class CashRequestService {
     }
 
     /**
-     * Admin/Manager: all active requests (PENDING + ASSIGNED) for the dashboard.
+     * Admin/Manager: all active requests (PENDING + ASSIGNED + PICKED_UP) for the dashboard.
      */
     public List<CashRequestResponse> getActiveRequests() {
         return requestRepository
                 .findByStatusInOrderByRequestedAtAsc(
-                        List.of(CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED))
+                        List.of(CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP))
                 .stream().map(this::toResponse).toList();
     }
 
@@ -160,11 +160,12 @@ public class CashRequestService {
     }
 
     /**
-     * Worker: all requests assigned to them (ASSIGNED status — not yet collected).
+     * Worker: all requests assigned to them that are not yet collected (ASSIGNED + PICKED_UP).
      */
     public List<CashRequestResponse> getMyAssignedRequests(UUID workerId) {
         return requestRepository
-                .findByAssignedWorkerIdAndStatusOrderByAssignedAtAsc(workerId, CashRequestStatus.ASSIGNED)
+                .findByAssignedWorkerIdAndStatusInOrderByAssignedAtAsc(
+                        workerId, List.of(CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP))
                 .stream().map(this::toResponse).toList();
     }
 
@@ -197,27 +198,64 @@ public class CashRequestService {
     }
 
     /**
-     * Worker: collects cash for a specific request.
-     * Delegates to PaymentService.collectCash() and links the resulting batch to the request.
-     * The request must be ASSIGNED to this worker.
+     * Worker: marks that they have physically picked up the cash from the member.
+     * ASSIGNED → PICKED_UP. This is the proof step: if the worker doesn't click this,
+     * the member's portal still shows "Assigned" — so neither side can dispute.
      */
     @Transactional
-    public PaymentBatchResponse collectForRequest(UUID requestId, UUID workerId) {
+    public CashRequestResponse markPickedUp(UUID requestId, UUID workerId) {
         CashPaymentRequest req = findOrThrow(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Request is not in ASSIGNED state");
+                    "Request is not in ASSIGNED state — current status: " + req.getStatus());
         }
         if (!req.getAssignedWorkerId().equals(workerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "This request is not assigned to you");
         }
 
+        req.setStatus(CashRequestStatus.PICKED_UP);
+        req.setPickedUpAt(LocalDateTime.now());
+        req.setPickedUpBy(workerId);
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        // Notify member: their cash was physically picked up — they see proof of pickup
+        notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                "Cash Picked Up",
+                "A worker has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
+                "CASH_REQUEST", requestId, "/member");
+        // Notify admin/manager: ready to collect from worker
+        notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
+                "Cash Picked Up — Ready to Collect",
+                "A worker has picked up cash from a member. Please confirm receipt to credit the member's account.",
+                "CASH_REQUEST", requestId, "/payments");
+        notificationService.notifyRole("MANAGER", NotificationType.CASH_COLLECTED,
+                "Cash Picked Up — Ready to Collect",
+                "A worker has picked up cash from a member. Please confirm receipt to credit the member's account.",
+                "CASH_REQUEST", requestId, "/payments");
+
+        return toResponse(saved);
+    }
+
+    /**
+     * Admin/Manager: confirms they received the cash from the worker.
+     * PICKED_UP → COLLECTED. Creates the payment batch to credit the member's account.
+     * Previously this was a worker action; now it's an admin confirmation step.
+     */
+    @Transactional
+    public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId) {
+        CashPaymentRequest req = findOrThrow(requestId);
+
+        if (req.getStatus() != CashRequestStatus.PICKED_UP) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Request must be in PICKED_UP state before admin can confirm collection — current status: " + req.getStatus());
+        }
+
         // PaymentService.collectCash() requires a non-null amount
         if (req.getRequestedAmount() == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "No amount specified on this request — member must enter an amount or admin must set one");
+                    "No amount specified on this request — amount must be set before confirming");
         }
 
         CollectCashRequest collectReq = new CollectCashRequest();
@@ -226,31 +264,97 @@ public class CashRequestService {
         collectReq.setAmount(req.getRequestedAmount());
         collectReq.setNotes("Collected via request #" + requestId);
 
-        PaymentBatchResponse batch = paymentService.collectCash(collectReq, workerId, false);
+        // Admin already physically holds the cash — complete immediately (no remittance step needed)
+        PaymentBatchResponse batch = paymentService.collectCash(collectReq, req.getAssignedWorkerId(), true);
 
         req.setStatus(CashRequestStatus.COLLECTED);
         req.setCollectedBatchId(batch.getId());
         requestRepository.save(req);
 
-        // Notify member: their cash was picked up
+        // Notify member: payment officially confirmed and credited
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_COLLECTED,
-                "Cash Collected",
-                "Your cash payment has been collected by the worker. It will be remitted to us shortly.",
+                "Payment Confirmed",
+                "Admin has confirmed receipt of your cash payment. Your account has been credited.",
                 "CASH_REQUEST", requestId, "/member");
-        notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
-                "Cash Collected by Worker",
-                "A worker has collected cash from a member. Awaiting remittance.",
-                "CASH_REQUEST", requestId, "/payments");
-        notificationService.notifyRole("MANAGER", NotificationType.CASH_COLLECTED,
-                "Cash Collected by Worker",
-                "A worker has collected cash from a member. Awaiting remittance.",
-                "CASH_REQUEST", requestId, "/payments");
+        // Notify the worker: their collection is complete
+        if (req.getAssignedWorkerId() != null) {
+            notificationService.notifyUser(req.getAssignedWorkerId(), NotificationType.CASH_COLLECTED,
+                    "Collection Confirmed",
+                    "Admin confirmed your cash handover. Task complete.",
+                    "CASH_REQUEST", requestId, "/tasks");
+        }
 
         return batch;
     }
 
     /**
-     * Admin/Manager: cancel a PENDING or ASSIGNED request.
+     * Worker: reschedule a ASSIGNED request to a future date.
+     * Status stays ASSIGNED — only the scheduledFor date changes.
+     * Admin is notified so they know the worker deferred.
+     */
+    @Transactional
+    public CashRequestResponse rescheduleRequest(UUID requestId, UUID workerId, LocalDateTime scheduledFor) {
+        CashPaymentRequest req = findOrThrow(requestId);
+
+        if (req.getStatus() != CashRequestStatus.ASSIGNED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Only ASSIGNED requests can be rescheduled — current status: " + req.getStatus());
+        }
+        if (!req.getAssignedWorkerId().equals(workerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
+        }
+
+        req.setScheduledFor(scheduledFor);
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        // Notify admin/manager so they see the deferral
+        notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_ASSIGNED,
+                "Pickup Rescheduled",
+                "A worker rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
+                "CASH_REQUEST", requestId, "/payments");
+        notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
+                "Pickup Rescheduled",
+                "A worker rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
+                "CASH_REQUEST", requestId, "/payments");
+
+        return toResponse(saved);
+    }
+
+    /**
+     * Worker: cancel their own ASSIGNED request (e.g., member not reachable).
+     * Only allowed while status is ASSIGNED (before physical pickup).
+     */
+    @Transactional
+    public CashRequestResponse cancelByWorker(UUID requestId, UUID workerId, String reason) {
+        CashPaymentRequest req = findOrThrow(requestId);
+
+        if (req.getStatus() != CashRequestStatus.ASSIGNED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Only ASSIGNED requests can be cancelled by worker — current status: " + req.getStatus());
+        }
+        if (!req.getAssignedWorkerId().equals(workerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
+        }
+
+        req.setStatus(CashRequestStatus.CANCELLED);
+        if (reason != null) req.setAdminNotes("Cancelled by worker: " + reason);
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        // Notify admin/manager so they can reassign if needed
+        notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_SUBMITTED,
+                "Pickup Cancelled by Worker",
+                "A worker cancelled a cash pickup task. The request may need to be reassigned.",
+                "CASH_REQUEST", requestId, "/payments");
+        notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_SUBMITTED,
+                "Pickup Cancelled by Worker",
+                "A worker cancelled a cash pickup task. The request may need to be reassigned.",
+                "CASH_REQUEST", requestId, "/payments");
+
+        return toResponse(saved);
+    }
+
+    /**
+     * Admin/Manager: cancel a PENDING, ASSIGNED, or PICKED_UP request.
      */
     @Transactional
     public CashRequestResponse cancelRequest(UUID requestId, String reason) {
@@ -279,6 +383,9 @@ public class CashRequestService {
                 .assignedWorkerId(r.getAssignedWorkerId())
                 .assignedAt(r.getAssignedAt())
                 .assignedBy(r.getAssignedBy())
+                .pickedUpAt(r.getPickedUpAt())
+                .pickedUpBy(r.getPickedUpBy())
+                .scheduledFor(r.getScheduledFor())
                 .notes(r.getNotes())
                 .adminNotes(r.getAdminNotes())
                 .collectedBatchId(r.getCollectedBatchId())

@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -118,17 +119,63 @@ public class CashRequestController {
     }
 
     /**
-     * Worker: collect cash for a specific assigned request.
-     * This delegates to PaymentService.collectCash() and creates a AWAITING_REMITTANCE batch.
-     * Admin still needs to call /payments/{batchId}/remit after receiving the cash.
+     * Worker: reschedule an ASSIGNED request to a future date (e.g. "tomorrow", "next week").
+     * Status stays ASSIGNED; scheduledFor date is updated and admin is notified.
      */
-    @PostMapping("/{requestId}/collect")
+    @PatchMapping("/{requestId}/reschedule")
     @PreAuthorize("hasRole('ROLE_WORKER')")
-    public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectForRequest(
+    public ResponseEntity<ApiResponse<CashRequestResponse>> rescheduleRequest(
+            @PathVariable UUID requestId,
+            @RequestParam String scheduledFor,
+            Authentication auth) {
+        UUID workerId = (UUID) auth.getPrincipal();
+        LocalDateTime date = LocalDateTime.parse(scheduledFor);
+        CashRequestResponse response = cashRequestService.rescheduleRequest(requestId, workerId, date);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Worker: cancel their own ASSIGNED request (e.g. member not available).
+     * Only before physical pickup (ASSIGNED status only).
+     */
+    @PatchMapping("/{requestId}/cancel/worker")
+    @PreAuthorize("hasRole('ROLE_WORKER')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> cancelByWorker(
+            @PathVariable UUID requestId,
+            @RequestParam(required = false) String reason,
+            Authentication auth) {
+        UUID workerId = (UUID) auth.getPrincipal();
+        CashRequestResponse response = cashRequestService.cancelByWorker(requestId, workerId, reason);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Worker: marks that they have physically collected the cash from the member.
+     * Transitions ASSIGNED → PICKED_UP. This creates a proof-of-pickup record.
+     * Admin must then confirm receipt to credit the member's account.
+     */
+    @PatchMapping("/{requestId}/pickup")
+    @PreAuthorize("hasRole('ROLE_WORKER')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> markPickedUp(
             @PathVariable UUID requestId,
             Authentication auth) {
         UUID workerId = (UUID) auth.getPrincipal();
-        PaymentBatchResponse response = cashRequestService.collectForRequest(requestId, workerId);
+        CashRequestResponse response = cashRequestService.markPickedUp(requestId, workerId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Admin/Manager: confirms receipt of cash from the worker.
+     * Transitions PICKED_UP → COLLECTED and credits the member's account.
+     * The worker must have already marked the request as PICKED_UP first.
+     */
+    @PostMapping("/{requestId}/collect")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectForRequest(
+            @PathVariable UUID requestId,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        PaymentBatchResponse response = cashRequestService.collectForRequest(requestId, adminId);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 

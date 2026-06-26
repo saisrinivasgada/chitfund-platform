@@ -13,8 +13,8 @@ public interface CashPaymentRequestRepository extends JpaRepository<CashPaymentR
 
     List<CashPaymentRequest> findByStatusInOrderByRequestedAtAsc(List<CashRequestStatus> statuses);
 
-    // Worker view: all requests assigned to them (ASSIGNED status only — COLLECTED are done)
-    List<CashPaymentRequest> findByAssignedWorkerIdAndStatusOrderByAssignedAtAsc(UUID workerId, CashRequestStatus status);
+    // Worker view: active tasks — ASSIGNED (not yet picked up) + PICKED_UP (picked up, awaiting admin confirm)
+    List<CashPaymentRequest> findByAssignedWorkerIdAndStatusInOrderByAssignedAtAsc(UUID workerId, List<CashRequestStatus> statuses);
 
     // Member view: their own requests
     List<CashPaymentRequest> findByMemberIdOrderByRequestedAtDesc(UUID memberId);

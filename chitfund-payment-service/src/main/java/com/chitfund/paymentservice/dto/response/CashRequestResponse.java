@@ -22,6 +22,11 @@ public class CashRequestResponse {
     private LocalDateTime assignedAt;
     private UUID assignedBy;
 
+    private LocalDateTime pickedUpAt;
+    private UUID pickedUpBy;
+
+    private LocalDateTime scheduledFor;
+
     private String notes;
     private String adminNotes;
 

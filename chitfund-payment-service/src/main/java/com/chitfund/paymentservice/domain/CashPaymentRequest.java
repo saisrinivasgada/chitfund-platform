@@ -38,13 +38,20 @@ public class CashPaymentRequest {
     private LocalDateTime assignedAt;
     private UUID assignedBy;
 
+    // Set when worker marks they've physically picked up the cash from the member
+    private LocalDateTime pickedUpAt;
+    private UUID pickedUpBy;
+
+    // Worker-set: deferred date when they plan to collect (set via reschedule)
+    private LocalDateTime scheduledFor;
+
     @Column(columnDefinition = "text")
     private String notes;
 
     @Column(columnDefinition = "text")
     private String adminNotes;
 
-    // Set after the worker calls /payments/collect — links back to the batch
+    // Set after admin confirms receipt — links back to the batch
     private UUID collectedBatchId;
 
     @Column(nullable = false)
