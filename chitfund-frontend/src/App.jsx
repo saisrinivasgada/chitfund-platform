@@ -26,6 +26,7 @@ import SettlementPage from './pages/admin/SettlementPage';
 import AdminParticipationPage from './pages/admin/AdminParticipationPage';
 import WorkerTasksPage from './pages/worker/WorkerTasksPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
+import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
       {/* Member portal — ROLE_MEMBER only */}
       <Route element={<MemberPortalLayout />}>
         <Route path="/member" element={<MemberPortalPage />} />
+        <Route path="/member/chits/:chitId" element={<MemberChitDetailPage />} />
       </Route>
 
       {/* Admin/Worker routes */}

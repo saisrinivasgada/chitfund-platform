@@ -3,519 +3,646 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
-  getMyMemberProfile,
-  getChitsForMember,
-  getMemberTotalBalance,
-  getMemberBalance,
-  getPaymentHistory,
-  getPayoutsForMember,
-  getMe,
-  createCashRequest,
-  getMyCashRequests,
+  getMyMemberProfile, getChitsForMember, getMemberTotalBalance,
+  getMemberBalance, getPaymentHistory, getPayoutsForMember,
+  getMe, createCashRequest, getMyCashRequests,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
-import Badge, { statusBadge } from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import FormField, { Input, Select } from '../../components/ui/FormField';
 import EditProfileModal from '../../components/profile/EditProfileModal';
 import ProfileChangeHistory from '../../components/profile/ProfileChangeHistory';
 import {
-  BookOpen, AlertTriangle, Trophy, CreditCard, CheckCircle, Pencil,
-  Banknote, Clock, UserCheck, ExternalLink, ChevronDown, ChevronUp,
-  TrendingUp, IndianRupee, Phone,
+  BookOpen, AlertTriangle, Trophy, CheckCircle, Pencil, Banknote,
+  Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
+  IndianRupee, TrendingUp, Phone, ArrowRight, Layers,
 } from 'lucide-react';
 
-// ─── Stat card ────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, icon: Icon, accent, sub }) {
-  return (
-    <div
-      className="rounded-2xl p-4 flex flex-col gap-2"
-      style={{ backgroundColor: accent ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)' }}
-    >
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.7)' }}>{label}</p>
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
-          <Icon size={13} className="text-white" />
-        </div>
-      </div>
-      <p className={`text-xl font-bold text-white leading-tight ${accent ? 'text-red-200' : ''}`}>{value}</p>
-      {sub && <p className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>{sub}</p>}
-    </div>
-  );
-}
+const NAV = [
+  { id: 'chits',    label: 'My Chits',  icon: Layers },
+  { id: 'payouts',  label: 'Payouts',   icon: Trophy },
+  { id: 'requests', label: 'Requests',  icon: Banknote },
+];
 
-// ─── Per-chit payment accordion ───────────────────────────────────────────────
-
-const MONTH_STATUS = {
-  SETTLED:        { bg: '#16A34A', ring: 'bg-green-50 border-green-100', text: 'text-green-700 bg-green-100' },
-  PARTIALLY_PAID: { bg: '#D97706', ring: 'bg-amber-50 border-amber-100', text: 'text-amber-700 bg-amber-100' },
-  OUTSTANDING:    { bg: '#DC2626', ring: 'bg-red-50 border-red-100',    text: 'text-red-700 bg-red-100' },
-  WAIVED:         { bg: '#94A3B8', ring: 'bg-gray-50 border-gray-100',  text: 'text-gray-500 bg-gray-100' },
+const CHIT_STATUS = {
+  ACTIVE:    { label: 'Active',    dot: '#16A34A', badge: 'bg-green-100 text-green-700' },
+  COMPLETED: { label: 'Completed', dot: '#6B7280', badge: 'bg-gray-100 text-gray-600' },
+  PAUSED:    { label: 'Paused',    dot: '#D97706', badge: 'bg-amber-100 text-amber-700' },
+  PENDING:   { label: 'Pending',   dot: '#2563EB', badge: 'bg-blue-100 text-blue-700' },
+  DRAFT:     { label: 'Draft',     dot: '#9CA3AF', badge: 'bg-gray-100 text-gray-500' },
 };
 
-function ChitAccordion({ memberId, chit }) {
-  const [open, setOpen] = useState(false);
+const PAYOUT_STATUS = {
+  PENDING:             { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
+  PARTIALLY_DISBURSED: { label: 'Partial',   cls: 'bg-blue-100 text-blue-700' },
+  DISBURSED:           { label: 'Disbursed', cls: 'bg-green-100 text-green-700' },
+  CANCELLED:           { label: 'Cancelled', cls: 'bg-gray-100 text-gray-500' },
+  VOIDED:              { label: 'Voided',    cls: 'bg-red-100 text-red-600' },
+};
+
+const REQUEST_STATUS = {
+  PENDING:   { label: 'Awaiting Worker',  cls: 'bg-amber-100 text-amber-700',   icon: Clock },
+  ASSIGNED:  { label: 'Worker Assigned',  cls: 'bg-blue-100 text-blue-700',     icon: UserCheck },
+  PICKED_UP: { label: 'Picked Up',        cls: 'bg-green-100 text-green-700',   icon: PackageCheck },
+  COLLECTED: { label: 'Handed to Admin',  cls: 'bg-gray-100 text-gray-600',     icon: Banknote },
+  CANCELLED: { label: 'Cancelled',        cls: 'bg-red-100 text-red-500',       icon: AlertTriangle },
+};
+
+// ─── Chit card ────────────────────────────────────────────────────────────────
+
+function ChitCard({ memberId, chit }) {
   const navigate = useNavigate();
 
-  const { data: balance = 0 } = useQuery({
+  const { data: balance } = useQuery({
     queryKey: ['memberPortalBalance', memberId, chit.id],
     queryFn: () => getMemberBalance({ memberId, chitId: chit.id }),
     staleTime: 60_000,
   });
 
-  const { data: history = [], isLoading } = useQuery({
+  const { data: history = [] } = useQuery({
     queryKey: ['memberPortalHistory', memberId, chit.id],
     queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
-    enabled: open,
+    staleTime: 60_000,
   });
 
-  const outstanding = Number(balance ?? 0);
-  const settledCount = history.filter((r) => r.status === 'SETTLED' || r.status === 'WAIVED').length;
-  const totalCount = history.length;
-  const overdueCount = history.filter((r) => r.overdue).length;
+  const outstanding  = Number(balance?.totalOutstanding ?? 0);
+  const settled      = history.filter(r => ['SETTLED','WAIVED','PAYOUT_DEDUCTED','SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const total        = history.length;
+  const overdue      = history.filter(r => r.overdue).length;
+  const pct          = total > 0 ? Math.round((settled / total) * 100) : 0;
+  const cs           = CHIT_STATUS[chit.status] ?? CHIT_STATUS.ACTIVE;
+  const isAlert      = outstanding > 0;
 
   return (
-    <div
-      className="rounded-2xl overflow-hidden bg-white shadow-sm transition-shadow hover:shadow-md"
-      style={{ border: outstanding > 0 ? '1px solid #FECACA' : '1px solid #E5E7EB' }}
+    <button
+      type="button"
+      onClick={() => navigate(`/member/chits/${chit.id}`)}
+      aria-label={`View ${chit.name}`}
+      className="w-full text-left bg-white rounded-2xl border transition-all duration-200 cursor-pointer group overflow-hidden focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
+      style={{ borderColor: isAlert ? '#FECACA' : '#E5E7EB' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = isAlert ? '#FCA5A5' : '#CBD5E1'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = isAlert ? '#FECACA' : '#E5E7EB'}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left cursor-pointer"
-      >
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
-            style={{ backgroundColor: outstanding > 0 ? '#DC2626' : '#1E3A5F' }}
-          >
-            <BookOpen size={16} className="text-white" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-900 truncate">{chit.name}</p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <span className="text-xs text-gray-400">
-                ₹{Number(chit.monthlyContribution ?? 0).toLocaleString('en-IN')}/mo
+      {/* Accent top bar */}
+      <div
+        className="h-1 w-full"
+        style={{ backgroundColor: isAlert ? '#DC2626' : cs.dot }}
+      />
+
+      <div className="p-4">
+        {/* Row 1: name + status + arrow */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-gray-900 group-hover:text-[#1E3A5F] transition-colors truncate">
+                {chit.name}
+              </p>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${cs.badge}`}>
+                {cs.label}
               </span>
-              <Badge variant={statusBadge(chit.status)}>{chit.status}</Badge>
-              {overdueCount > 0 && (
+            </div>
+            <div className="flex items-center gap-3 mt-0.5">
+              <span className="text-xs text-gray-400">
+                ₹{Number(chit.installmentAmount ?? chit.monthlyContribution ?? 0).toLocaleString('en-IN')}/mo
+              </span>
+              {chit.durationMonths && (
+                <span className="text-xs text-gray-400">{chit.durationMonths} months</span>
+              )}
+              {overdue > 0 && (
                 <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
-                  <AlertTriangle size={10} /> {overdueCount} overdue
+                  <AlertTriangle size={10} />{overdue} overdue
                 </span>
               )}
             </div>
           </div>
+          <ChevronRight size={16} className="text-gray-300 group-hover:text-[#1E3A5F] transition-colors flex-shrink-0 mt-0.5" />
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-          {totalCount > 0 && (
-            <div className="hidden sm:block text-right">
-              <p className="text-xs text-gray-400">{settledCount}/{totalCount} paid</p>
-              <div className="w-20 bg-gray-100 rounded-full h-1.5 mt-1">
-                <div
-                  className="h-1.5 rounded-full"
-                  style={{
-                    width: `${totalCount > 0 ? (settledCount / totalCount) * 100 : 0}%`,
-                    backgroundColor: outstanding > 0 ? '#DC2626' : '#16A34A',
-                  }}
-                />
-              </div>
+        {/* Row 2: progress */}
+        {total > 0 && (
+          <div className="mb-3">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-xs text-gray-400">{settled}/{total} months settled</span>
+              <span className="text-xs font-semibold" style={{ color: isAlert ? '#DC2626' : '#16A34A' }}>
+                {pct}%
+              </span>
             </div>
-          )}
-          {outstanding > 0 ? (
-            <span className="text-sm font-bold text-red-600">₹{outstanding.toLocaleString('en-IN')}</span>
-          ) : (
-            <span className="text-sm text-green-600 font-semibold flex items-center gap-1">
-              <CheckCircle size={13} /> Clear
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); navigate(`/chits/${chit.id}?tab=Draws`); }}
-            className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
-            title="View chit"
-          >
-            <ExternalLink size={14} />
-          </button>
-          <div className="text-gray-300">
-            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            <div className="w-full bg-gray-100 rounded-full h-1.5">
+              <div
+                className="h-1.5 rounded-full transition-all"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: isAlert ? '#DC2626' : '#16A34A',
+                }}
+              />
+            </div>
           </div>
-        </div>
-      </button>
+        )}
 
-      {open && (
-        <div className="border-t border-gray-100 px-5 pb-5 pt-4 bg-gray-50/50">
-          {totalCount > 0 && (
-            <p className="text-xs text-gray-400 mb-3 font-medium">
-              {settledCount} of {totalCount} months settled
-            </p>
-          )}
-          {isLoading ? (
-            <div className="py-6 flex justify-center"><PageSpinner /></div>
-          ) : history.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">No payment records yet.</p>
+        {/* Row 3: amount pill */}
+        <div className="flex items-center justify-between">
+          {isAlert ? (
+            <div className="inline-flex items-center gap-1.5 bg-red-50 border border-red-100 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+              ₹{outstanding.toLocaleString('en-IN')} outstanding
+            </div>
           ) : (
-            <div className="space-y-2">
-              {history.map((r) => {
-                const s = MONTH_STATUS[r.status] ?? MONTH_STATUS.OUTSTANDING;
-                const pct = r.amountDue > 0 ? Math.round((r.amountPaid / r.amountDue) * 100) : 0;
-                return (
-                  <div
-                    key={r.id}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${s.ring}`}
-                  >
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                      style={{ backgroundColor: s.bg }}
-                    >
-                      {r.monthNumber}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium text-gray-800">Month {r.monthNumber}</span>
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.text}`}>
-                          {r.status.replace('_', ' ')}
-                        </span>
-                        {r.overdue && (
-                          <span className="inline-flex items-center gap-1 text-xs text-red-600">
-                            <AlertTriangle size={9} /> Overdue
-                          </span>
-                        )}
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-1">
-                        <div
-                          className="h-1 rounded-full transition-all"
-                          style={{ width: `${pct}%`, backgroundColor: s.bg }}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-gray-900">₹{Number(r.amountPaid).toLocaleString('en-IN')}</p>
-                      <p className="text-xs text-gray-400">of ₹{Number(r.amountDue).toLocaleString('en-IN')}</p>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="inline-flex items-center gap-1.5 bg-green-50 border border-green-100 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+              <CheckCircle size={11} />
+              All clear
             </div>
           )}
+          <span className="text-xs text-gray-400">
+            ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} total
+          </span>
         </div>
+      </div>
+    </button>
+  );
+}
+
+// ─── Chits tab ────────────────────────────────────────────────────────────────
+
+function ChitsTab({ memberId, chits, chitsLoading }) {
+  if (chitsLoading) return <div className="py-10 flex justify-center"><PageSpinner /></div>;
+
+  if (chits.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: '#EEF2F8' }}>
+          <BookOpen size={28} style={{ color: '#1E3A5F' }} />
+        </div>
+        <p className="text-gray-700 font-semibold text-base">No chits yet</p>
+        <p className="text-sm text-gray-400 mt-1.5 max-w-xs">
+          The admin will enroll you in a chit fund. Check back soon.
+        </p>
+      </div>
+    );
+  }
+
+  const active    = chits.filter(c => c.status === 'ACTIVE');
+  const other     = chits.filter(c => c.status !== 'ACTIVE' && c.status !== 'COMPLETED');
+  const completed = chits.filter(c => c.status === 'COMPLETED');
+
+  return (
+    <div className="space-y-6">
+      {active.length > 0 && (
+        <section>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 px-1">
+            Active · {active.length}
+          </p>
+          <div className="space-y-3">
+            {active.map(c => <ChitCard key={c.id} memberId={memberId} chit={c} />)}
+          </div>
+        </section>
+      )}
+      {other.length > 0 && (
+        <section>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 px-1">
+            Other · {other.length}
+          </p>
+          <div className="space-y-3">
+            {other.map(c => <ChitCard key={c.id} memberId={memberId} chit={c} />)}
+          </div>
+        </section>
+      )}
+      {completed.length > 0 && (
+        <section>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 px-1">
+            Completed · {completed.length}
+          </p>
+          <div className="space-y-3">
+            {completed.map(c => <ChitCard key={c.id} memberId={memberId} chit={c} />)}
+          </div>
+        </section>
       )}
     </div>
   );
 }
 
-// ─── Payouts section ─────────────────────────────────────────────────────────
+// ─── Payouts tab ──────────────────────────────────────────────────────────────
 
-const PAYOUT_STYLE = {
-  PENDING:             { label: 'Pending',    cls: 'bg-amber-100 text-amber-700' },
-  PARTIALLY_DISBURSED: { label: 'Partial',    cls: 'bg-blue-100 text-blue-700' },
-  DISBURSED:           { label: 'Disbursed',  cls: 'bg-green-100 text-green-700' },
-  CANCELLED:           { label: 'Cancelled',  cls: 'bg-gray-100 text-gray-500' },
-};
-
-function MyPayoutsSection({ memberId, chits }) {
+function PayoutsTab({ memberId, chits }) {
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['memberPortalPayouts', memberId],
     queryFn: () => getPayoutsForMember(memberId),
     enabled: !!memberId,
+    staleTime: 60_000,
   });
 
-  const chitNameById = Object.fromEntries(chits.map((c) => [c.id, c.name]));
+  const chitNameById = Object.fromEntries(chits.map(c => [c.id, c.name]));
 
-  if (isLoading || payouts.length === 0) return null;
+  if (isLoading) return <div className="py-10 flex justify-center"><PageSpinner /></div>;
+
+  if (payouts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: '#FEF3C7' }}>
+          <Trophy size={28} style={{ color: '#D4A017' }} />
+        </div>
+        <p className="text-gray-700 font-semibold text-base">No won draws yet</p>
+        <p className="text-sm text-gray-400 mt-1.5 max-w-xs">
+          When you win a draw, your payout details will appear here.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2.5 mb-4">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#FEF3C7' }}>
-          <Trophy size={16} style={{ color: '#D4A017' }} />
-        </div>
-        <h3 className="font-semibold text-gray-900">Won Draws & Payouts</h3>
-        <span className="ml-auto text-xs text-gray-400">{payouts.length} total</span>
-      </div>
-      <div className="space-y-2">
-        {payouts.map((p) => {
-          const s = PAYOUT_STYLE[p.status] ?? PAYOUT_STYLE.PENDING;
-          return (
-            <div
-              key={p.id}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{ backgroundColor: '#FFFBEB', border: '1px solid #FDE68A' }}
-            >
-              <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                style={{ backgroundColor: '#D4A017' }}
-              >
-                D{p.monthNumber}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-gray-900">
-                    {chitNameById[p.chitId] ?? 'Chit'} — Draw {p.monthNumber}
-                  </span>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${s.cls}`}>
-                    {s.label}
-                  </span>
+    <div className="space-y-3">
+      {payouts.map(p => {
+        const ps = PAYOUT_STATUS[p.status] ?? PAYOUT_STATUS.PENDING;
+        return (
+          <div
+            key={p.id}
+            className="bg-white rounded-2xl border border-amber-100 overflow-hidden"
+          >
+            {/* Gold accent bar */}
+            <div className="h-1 w-full" style={{ backgroundColor: '#D4A017' }} />
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                    style={{ backgroundColor: '#D4A017' }}
+                  >
+                    D{p.monthNumber}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {chitNameById[p.chitId] ?? 'Chit'} — Draw {p.monthNumber}
+                    </p>
+                    {p.disbursedAt && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Paid {new Date(p.disbursedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                  <span className="text-xs text-gray-500">
-                    Won ₹{Number(p.winningAmount ?? 0).toLocaleString('en-IN')}
-                  </span>
-                  {p.netPayoutAmount && (
-                    <span className="text-xs font-semibold text-green-700">
-                      Net ₹{Number(p.netPayoutAmount).toLocaleString('en-IN')}
-                    </span>
-                  )}
-                  {p.disbursedAt && (
-                    <span className="text-xs text-gray-400">
-                      Paid {new Date(p.disbursedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </span>
-                  )}
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${ps.cls}`}>
+                  {ps.label}
+                </span>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-gray-50 grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-xs text-gray-400">Won</p>
+                  <p className="text-sm font-bold text-gray-800 mt-0.5">
+                    ₹{Number(p.winningAmount ?? 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Discount</p>
+                  <p className="text-sm font-semibold text-gray-600 mt-0.5">
+                    ₹{Number(p.discountAmount ?? 0).toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Net Payout</p>
+                  <p className="text-sm font-bold mt-0.5" style={{ color: '#16A34A' }}>
+                    ₹{Number(p.netPayoutAmount ?? 0).toLocaleString('en-IN')}
+                  </p>
                 </div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ─── Cash pickup request modal ────────────────────────────────────────────────
+// ─── Cash trail modal ─────────────────────────────────────────────────────────
 
-function CashPickupModal({ memberId, chits, onClose }) {
-  const qc = useQueryClient();
-  const [chitId, setChitId] = useState(chits[0]?.id ?? '');
-  const [amount, setAmount] = useState('');
-  const [notes, setNotes] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+function fmtDt(d) {
+  if (!d) return null;
+  return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+    + ' · ' + new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
 
-  const mutation = useMutation({
-    mutationFn: createCashRequest,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['myCashRequests'] });
-      setSubmitted(true);
-    },
-  });
+function CashTrailModal({ request, onClose }) {
+  const steps = [
+    { icon: Clock,       label: 'Request Sent',         sub: 'Admin will assign a worker',                       time: request.requestedAt },
+    { icon: UserCheck,   label: 'Worker Assigned',       sub: 'A worker is on their way',                        time: request.assignedAt },
+    { icon: PackageCheck,label: 'Picked Up',             sub: 'Worker collected your cash',                      time: request.pickedUpAt },
+    { icon: Banknote,    label: 'Handed to Admin',       sub: 'Payment is being credited to your account',       time: request.status === 'COLLECTED' ? (request.updatedAt ?? null) : null },
+  ];
 
-  if (submitted) {
-    return (
-      <Modal title="Request Submitted" onClose={onClose} size="sm">
-        <div className="space-y-4 text-center py-2">
-          <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto">
-            <CheckCircle size={28} className="text-green-600" />
-          </div>
-          <p className="text-sm text-gray-600 leading-relaxed">
-            Your cash pickup request has been sent. An admin will assign a worker to collect from you soon.
-          </p>
-          <Button variant="primary" size="md" className="w-full" onClick={onClose}>Done</Button>
-        </div>
-      </Modal>
-    );
-  }
-
-  const activeChits = chits.filter((c) => c.status === 'ACTIVE');
+  const stepIndex = { PENDING: 0, ASSIGNED: 1, PICKED_UP: 2, COLLECTED: 3, CANCELLED: -1 };
+  const current = stepIndex[request.status] ?? 0;
 
   return (
-    <Modal title="Request Cash Pickup" onClose={onClose} size="md">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate({
-            chitId,
-            requestedAmount: amount ? parseFloat(amount) : undefined,
-            notes: notes || undefined,
-          });
-        }}
-        className="space-y-5"
-      >
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Request a worker to visit you and collect your payment. The admin will assign someone and notify you.
+    <Modal title="Cash Pickup Status" onClose={onClose} size="sm">
+      <div className="mb-4 p-3 rounded-xl" style={{ backgroundColor: '#F8FAFF', border: '1px solid #E8EEFF' }}>
+        <p className="text-base font-bold text-gray-900">
+          ₹{Number(request.requestedAmount).toLocaleString('en-IN')}
         </p>
+        {request.notes && <p className="text-xs text-gray-400 mt-0.5 italic">"{request.notes}"</p>}
+      </div>
 
-        <FormField label="Chit Fund" required>
-          <Select value={chitId} onChange={(e) => setChitId(e.target.value)} required>
-            {activeChits.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </Select>
-        </FormField>
-
-        <FormField label="Amount to Pay (₹)" required>
-          <Input
-            type="number"
-            min="1"
-            step="1"
-            placeholder="e.g. 5000"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-          />
-        </FormField>
-
-        <FormField label="Note for Worker (optional)">
-          <Input
-            placeholder="e.g. Available after 6 PM"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </FormField>
-
-        {mutation.isError && (
-          <p className="text-sm text-red-600">{mutation.error?.response?.data?.message ?? 'Submission failed'}</p>
-        )}
-
-        <div className="flex justify-end gap-3 pt-1">
-          <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" size="md" loading={mutation.isPending}>
-            Submit Request
-          </Button>
+      {request.status === 'CANCELLED' ? (
+        <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-100">
+          <p className="text-sm font-semibold text-red-700">Request Cancelled</p>
+          {request.adminNotes && <p className="text-xs text-gray-500 mt-1">{request.adminNotes}</p>}
         </div>
-      </form>
+      ) : (
+        <div>
+          {steps.map((s, i) => {
+            const Icon  = s.icon;
+            const done  = i <= current;
+            const isLast = i === steps.length - 1;
+            return (
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center flex-shrink-0">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{
+                      backgroundColor: done ? '#EEF2F8' : '#F9FAFB',
+                      border: `2px solid ${done ? '#1E3A5F' : '#E5E7EB'}`,
+                    }}
+                  >
+                    <Icon size={14} style={{ color: done ? '#1E3A5F' : '#9CA3AF' }} />
+                  </div>
+                  {!isLast && (
+                    <div
+                      className="w-0.5 my-1 flex-1"
+                      style={{ backgroundColor: done ? '#1E3A5F' : '#E5E7EB', minHeight: '20px' }}
+                    />
+                  )}
+                </div>
+                <div className="pb-4 flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${done ? 'text-gray-900' : 'text-gray-400'}`}>{s.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{s.sub}</p>
+                  {s.time && <p className="text-xs text-gray-400 mt-1 font-medium">{fmtDt(s.time)}</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Modal>
   );
 }
 
-// ─── Active cash requests ──────────────────────────────────────────────────────
+// ─── Requests tab ─────────────────────────────────────────────────────────────
 
-function MyCashRequestsSection() {
+function RequestsTab({ memberId, chits, onNewRequest }) {
+  const [trail, setTrail] = useState(null);
+
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['myCashRequests'],
     queryFn: getMyCashRequests,
     staleTime: 30_000,
   });
 
-  const active = requests.filter((r) => r.status === 'PENDING' || r.status === 'ASSIGNED');
-  if (isLoading || active.length === 0) return null;
+  if (isLoading) return <div className="py-10 flex justify-center"><PageSpinner /></div>;
+
+  const active    = requests.filter(r => ['PENDING','ASSIGNED','PICKED_UP'].includes(r.status));
+  const past      = requests.filter(r => !['PENDING','ASSIGNED','PICKED_UP'].includes(r.status));
+
+  const activeChits = chits.filter(c => c.status === 'ACTIVE');
 
   return (
-    <div className="bg-white rounded-2xl border border-amber-200 shadow-sm p-5">
-      <div className="flex items-center gap-2.5 mb-4">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100">
-          <Clock size={16} className="text-amber-600" />
-        </div>
-        <h3 className="font-semibold text-gray-900">Active Cash Pickup Requests</h3>
-      </div>
-      <div className="space-y-2">
-        {active.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-50/60 border border-amber-100">
-            <div className="flex items-center gap-3">
-              {r.status === 'ASSIGNED'
-                ? <UserCheck size={16} className="text-blue-600 flex-shrink-0" />
-                : <Clock size={16} className="text-amber-500 flex-shrink-0" />}
-              <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
-                </p>
-                {r.notes && <p className="text-xs text-gray-400 mt-0.5">{r.notes}</p>}
-              </div>
+    <div className="space-y-6">
+      {/* New request CTA */}
+      {activeChits.length > 0 && (
+        <button
+          type="button"
+          onClick={onNewRequest}
+          className="w-full flex items-center justify-between px-5 py-4 rounded-2xl border border-dashed border-[#1E3A5F]/30 hover:border-[#1E3A5F] hover:bg-[#F5F8FF] transition-all duration-200 cursor-pointer group"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: '#EEF2F8' }}
+            >
+              <Banknote size={18} style={{ color: '#1E3A5F' }} />
             </div>
-            <div className="text-right flex-shrink-0">
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                r.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
-              }`}>
-                {r.status === 'ASSIGNED' ? 'Assigned' : 'Pending'}
-              </span>
-              {r.status === 'ASSIGNED' && (
-                <p className="text-xs text-gray-400 mt-1">Worker on the way</p>
-              )}
+            <div className="text-left">
+              <p className="text-sm font-semibold text-gray-800 group-hover:text-[#1E3A5F]">Request Cash Pickup</p>
+              <p className="text-xs text-gray-400 mt-0.5">A worker will come to collect from you</p>
             </div>
           </div>
-        ))}
-      </div>
+          <ArrowRight size={16} className="text-gray-300 group-hover:text-[#1E3A5F] transition-colors" />
+        </button>
+      )}
+
+      {/* Active requests */}
+      {active.length > 0 && (
+        <section>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 px-1">
+            Active · {active.length}
+          </p>
+          <div className="space-y-3">
+            {active.map(r => {
+              const meta = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.PENDING;
+              const Icon = meta.icon;
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setTrail(r)}
+                  className="w-full text-left bg-white rounded-2xl border border-amber-200 hover:border-amber-300 transition-colors cursor-pointer overflow-hidden"
+                >
+                  <div className="h-1 w-full bg-amber-400" />
+                  <div className="flex items-center justify-between gap-3 px-4 py-3.5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#FFFBEB' }}>
+                        <Icon size={16} style={{ color: '#D97706' }} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">
+                          ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                        </p>
+                        {r.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{r.notes}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${meta.cls}`}>{meta.label}</span>
+                      <ChevronRight size={14} className="text-gray-300" />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Past requests */}
+      {past.length > 0 && (
+        <section>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 px-1">
+            History · {past.length}
+          </p>
+          <div className="space-y-2">
+            {past.slice(0, 10).map(r => {
+              const meta = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.COLLECTED;
+              return (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between gap-3 bg-white rounded-xl border border-gray-100 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">
+                      ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                    </p>
+                    {r.requestedAt && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {new Date(r.requestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
+                  </div>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${meta.cls}`}>
+                    {meta.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {active.length === 0 && past.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3" style={{ backgroundColor: '#EEF2F8' }}>
+            <Clock size={24} style={{ color: '#1E3A5F' }} />
+          </div>
+          <p className="text-gray-600 font-semibold">No requests yet</p>
+          <p className="text-xs text-gray-400 mt-1">Use the button above to request a cash pickup.</p>
+        </div>
+      )}
+
+      {trail && <CashTrailModal request={trail} onClose={() => setTrail(null)} />}
     </div>
   );
 }
 
-// ─── Shared content ──────────────────────────────────────────────────────────
+// ─── Cash pickup modal ────────────────────────────────────────────────────────
+
+function CashPickupModal({ memberId, chits, onClose }) {
+  const qc = useQueryClient();
+  const activeChits = chits.filter(c => c.status === 'ACTIVE');
+  const [chitId, setChitId] = useState(activeChits[0]?.id ?? '');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [done, setDone] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: createCashRequest,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['myCashRequests'] }); setDone(true); },
+  });
+
+  if (done) {
+    return (
+      <Modal title="Request Sent" onClose={onClose} size="sm">
+        <div className="text-center py-4 space-y-4">
+          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto">
+            <CheckCircle size={32} className="text-green-600" />
+          </div>
+          <div>
+            <p className="text-gray-800 font-semibold">Request submitted!</p>
+            <p className="text-sm text-gray-500 mt-1">An admin will assign a worker to collect from you soon.</p>
+          </div>
+          <Button className="w-full" onClick={onClose}>Done</Button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Request Cash Pickup" onClose={onClose} size="md">
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          mutation.mutate({ chitId, requestedAmount: amount ? parseFloat(amount) : undefined, notes: notes || undefined });
+        }}
+        className="space-y-5"
+      >
+        <p className="text-sm text-gray-500 leading-relaxed">
+          A worker will visit you to collect your payment. You'll be notified once assigned.
+        </p>
+
+        <FormField label="Chit Fund" required>
+          <Select value={chitId} onChange={e => setChitId(e.target.value)} required>
+            {activeChits.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+        </FormField>
+
+        <FormField label="Amount (₹)" required>
+          <Input
+            type="number" min="1" step="1" placeholder="e.g. 5000"
+            value={amount} onChange={e => setAmount(e.target.value)} required
+          />
+        </FormField>
+
+        <FormField label="Note for worker (optional)">
+          <Input placeholder="e.g. Available after 6 PM" value={notes} onChange={e => setNotes(e.target.value)} />
+        </FormField>
+
+        {mutation.isError && (
+          <p className="text-sm text-red-600">{mutation.error?.response?.data?.message ?? 'Submission failed'}</p>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button type="submit" loading={mutation.isPending} className="flex-1">Submit Request</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Exported shared content (used by AdminMemberViewPage) ────────────────────
 
 export function MemberPortalContent({ memberId }) {
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['portalChits', memberId],
     queryFn: () => getChitsForMember(memberId),
     enabled: !!memberId,
-  });
-
-  const { data: totalOutstanding = 0 } = useQuery({
-    queryKey: ['portalTotalBalance', memberId],
-    queryFn: () => getMemberTotalBalance(memberId),
-    enabled: !!memberId,
     staleTime: 60_000,
   });
 
-  const outstanding = Number(totalOutstanding);
-  const activeChits = chits.filter((c) => c.status === 'ACTIVE');
-  const completedChits = chits.filter((c) => c.status === 'COMPLETED');
-  const otherChits = chits.filter((c) => c.status !== 'ACTIVE' && c.status !== 'COMPLETED');
+  const [tab, setTab] = useState('chits');
 
   return (
-    <div className="space-y-6">
-      {/* Active chits */}
-      {!chitsLoading && activeChits.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
-            Active Chits
-          </h3>
-          <div className="space-y-3">
-            {activeChits.map((c) => (
-              <ChitAccordion key={c.id} memberId={memberId} chit={c} />
-            ))}
-          </div>
-        </section>
-      )}
+    <div className="space-y-4">
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        {NAV.map(n => (
+          <button
+            key={n.id}
+            type="button"
+            onClick={() => setTab(n.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg transition-all duration-200 cursor-pointer ${
+              tab === n.id
+                ? 'bg-white text-[#1E3A5F] shadow-sm'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <n.icon size={13} />
+            {n.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Other chits */}
-      {!chitsLoading && otherChits.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
-            Other Chits
-          </h3>
-          <div className="space-y-3">
-            {otherChits.map((c) => (
-              <ChitAccordion key={c.id} memberId={memberId} chit={c} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Completed chits */}
-      {!chitsLoading && completedChits.length > 0 && (
-        <section>
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
-            Completed Chits
-          </h3>
-          <div className="space-y-3">
-            {completedChits.map((c) => (
-              <ChitAccordion key={c.id} memberId={memberId} chit={c} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Empty state */}
-      {!chitsLoading && chits.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-          <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-            <BookOpen size={24} className="text-gray-400" />
-          </div>
-          <p className="text-gray-600 font-semibold">Not enrolled in any chit fund yet.</p>
-          <p className="text-sm text-gray-400 mt-1.5">The admin will add you to a chit fund soon.</p>
-        </div>
-      )}
-
-      {/* Won payouts */}
-      {!chitsLoading && <MyPayoutsSection memberId={memberId} chits={chits} />}
+      {/* Tab content */}
+      {tab === 'chits' && <ChitsTab memberId={memberId} chits={chits} chitsLoading={chitsLoading} />}
+      {tab === 'payouts' && <PayoutsTab memberId={memberId} chits={chits} />}
+      {tab === 'requests' && <RequestsTab memberId={memberId} chits={chits} onNewRequest={() => {}} />}
     </div>
   );
 }
 
-// ─── Main page ───────────────────────────────────────────────────────────────
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MemberPortalPage() {
   const { user: authUser } = useAuth();
-  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [tab, setTab] = useState('chits');
+  const [showEdit, setShowEdit] = useState(false);
   const [showCashRequest, setShowCashRequest] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
 
@@ -530,7 +657,7 @@ export default function MemberPortalPage() {
     queryFn: getMe,
   });
 
-  const { data: myChits = [] } = useQuery({
+  const { data: myChits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['portalChits', member?.id],
     queryFn: () => getChitsForMember(member.id),
     enabled: !!member?.id,
@@ -544,123 +671,185 @@ export default function MemberPortalPage() {
     staleTime: 60_000,
   });
 
-  const activeChitsForRequest = myChits.filter((c) => c.status === 'ACTIVE');
-  const outstanding = Number(totalOutstanding);
-
   if (memberLoading) return <PageSpinner />;
 
   if (!member) {
     return (
-      <div className="text-center py-24">
-        <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-          <BookOpen size={24} className="text-gray-400" />
+      <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+          style={{ backgroundColor: '#EEF2F8' }}
+        >
+          <BookOpen size={28} style={{ color: '#1E3A5F' }} />
         </div>
-        <p className="text-gray-600 font-semibold">No member profile linked to your account.</p>
-        <p className="text-sm text-gray-400 mt-1.5">Contact your chit fund admin to link your account.</p>
+        <p className="text-gray-800 font-semibold text-base">No profile linked</p>
+        <p className="text-sm text-gray-400 mt-1.5 max-w-xs leading-relaxed">
+          Contact your chit fund admin to link your account to a member profile.
+        </p>
       </div>
     );
   }
 
+  const outstanding  = Number(totalOutstanding);
+  const activeCount  = myChits.filter(c => c.status === 'ACTIVE').length;
+  const completedCount = myChits.filter(c => c.status === 'COMPLETED').length;
+  const activeChitsForRequest = myChits.filter(c => c.status === 'ACTIVE');
   const initials = (member.fullName ?? 'M').slice(0, 2).toUpperCase();
-  const activeCount = myChits.filter((c) => c.status === 'ACTIVE').length;
-  const completedCount = myChits.filter((c) => c.status === 'COMPLETED').length;
 
   return (
-    <div className="space-y-6">
-      {/* ── Hero profile card ─────────────────────────────────────────────── */}
-      <div
-        className="rounded-2xl overflow-hidden shadow-lg"
-        style={{ backgroundColor: '#1E3A5F' }}
-      >
-        {/* Decorative gradient blob */}
+    <div className="space-y-5 pb-8">
+      {/* ── Hero card ──────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl overflow-hidden shadow-lg relative" style={{ backgroundColor: '#1E3A5F' }}>
+        {/* Decorative glow */}
         <div
-          className="absolute pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle at 90% 10%, rgba(212,160,23,0.18) 0%, transparent 60%)',
-            inset: 0,
-          }}
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(circle at 85% 15%, rgba(212,160,23,0.2) 0%, transparent 55%)' }}
         />
 
-        <div className="relative p-6 pb-0">
-          {/* Top row: avatar + actions */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
+        <div className="relative p-5 pb-0">
+          {/* Top row */}
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <div className="flex items-center gap-3.5">
+              {/* Avatar */}
               <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-md flex-shrink-0"
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-md flex-shrink-0"
                 style={{ backgroundColor: '#D4A017' }}
               >
                 {initials}
               </div>
               <div>
                 <h2
-                  className="text-xl font-bold text-white leading-tight"
+                  className="text-lg font-bold text-white leading-tight"
                   style={{ fontFamily: 'Merriweather, serif' }}
                 >
                   {member.fullName}
                 </h2>
-                {userAccount?.username && (
-                  <p className="text-sm mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                    @{userAccount.username}
-                  </p>
-                )}
-                {member.phone && (
-                  <p className="flex items-center gap-1.5 text-xs mt-1" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                    <Phone size={11} />
-                    {member.phone}
-                  </p>
-                )}
+                <div className="flex items-center gap-2 mt-0.5">
+                  {userAccount?.username && (
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                      @{userAccount.username}
+                    </p>
+                  )}
+                  {member.phone && (
+                    <p className="flex items-center gap-1 text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                      <Phone size={10} />{member.phone}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
+            {/* Actions */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
+                type="button"
                 onClick={() => setShowCashRequest(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white transition-colors cursor-pointer"
+                aria-label="Request cash pickup"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white transition-opacity cursor-pointer hover:opacity-90"
                 style={{ backgroundColor: '#D4A017' }}
-                title="Request cash pickup"
               >
                 <Banknote size={14} />
                 <span className="hidden sm:inline">Pay Cash</span>
               </button>
               <button
-                onClick={() => setShowEditProfile(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer"
-                style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)' }}
+                type="button"
+                onClick={() => setShowEdit(true)}
+                aria-label="Edit profile"
+                className="p-2 rounded-xl text-xs font-medium transition-colors cursor-pointer"
+                style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)' }}
               >
-                <Pencil size={13} />
-                <span className="hidden sm:inline">Edit</span>
+                <Pencil size={14} />
               </button>
             </div>
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3 mt-6 pb-6">
-            <StatCard
-              label="Outstanding"
-              value={outstanding > 0 ? `₹${outstanding.toLocaleString('en-IN')}` : '₹0'}
-              icon={outstanding > 0 ? AlertTriangle : CheckCircle}
-              sub={outstanding > 0 ? 'Due now' : 'All clear'}
-            />
-            <StatCard
-              label="Active Chits"
-              value={activeCount}
-              icon={TrendingUp}
-              sub={activeCount === 1 ? '1 running' : `${activeCount} running`}
-            />
-            <StatCard
-              label="Completed"
-              value={completedCount}
-              icon={CheckCircle}
-              sub={completedCount === 0 ? 'None yet' : 'Finished'}
-            />
+          <div className="grid grid-cols-3 gap-2.5 pb-5">
+            {/* Outstanding */}
+            <div
+              className="rounded-xl px-3 py-3 flex flex-col gap-1"
+              style={{
+                backgroundColor: outstanding > 0 ? 'rgba(220,38,38,0.2)' : 'rgba(22,163,74,0.15)',
+                border: `1px solid ${outstanding > 0 ? 'rgba(220,38,38,0.3)' : 'rgba(22,163,74,0.25)'}`,
+              }}
+            >
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>Outstanding</p>
+              <p className={`text-base font-bold leading-tight ${outstanding > 0 ? 'text-red-300' : 'text-green-300'}`}>
+                {outstanding > 0 ? `₹${outstanding.toLocaleString('en-IN')}` : '₹0'}
+              </p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                {outstanding > 0 ? 'Due now' : 'All clear'}
+              </p>
+            </div>
+
+            {/* Active chits */}
+            <div
+              className="rounded-xl px-3 py-3 flex flex-col gap-1"
+              style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}
+            >
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>Active</p>
+              <p className="text-base font-bold text-white leading-tight">{activeCount}</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                {activeCount === 1 ? 'chit running' : 'chits running'}
+              </p>
+            </div>
+
+            {/* Completed */}
+            <div
+              className="rounded-xl px-3 py-3 flex flex-col gap-1"
+              style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}
+            >
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>Completed</p>
+              <p className="text-base font-bold text-white leading-tight">{completedCount}</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                {completedCount === 0 ? 'none yet' : 'finished'}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Modals ────────────────────────────────────────────────────────── */}
-      {showEditProfile && (
+      {/* ── Tab navigation ─────────────────────────────────────────────────── */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        {NAV.map(n => (
+          <button
+            key={n.id}
+            type="button"
+            onClick={() => setTab(n.id)}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg transition-all duration-200 cursor-pointer ${
+              tab === n.id
+                ? 'bg-white text-[#1E3A5F] shadow-sm'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <n.icon size={13} />
+            {n.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tab content ────────────────────────────────────────────────────── */}
+      {tab === 'chits' && (
+        <ChitsTab memberId={member.id} chits={myChits} chitsLoading={chitsLoading} />
+      )}
+      {tab === 'payouts' && (
+        <PayoutsTab memberId={member.id} chits={myChits} />
+      )}
+      {tab === 'requests' && (
+        <RequestsTab
+          memberId={member.id}
+          chits={myChits}
+          onNewRequest={() => setShowCashRequest(true)}
+        />
+      )}
+
+      {/* Profile change history sits outside tabs — always visible */}
+      <ProfileChangeHistory key={historyVersion} userId={userAccount?.id} />
+
+      {/* ── Modals ─────────────────────────────────────────────────────────── */}
+      {showEdit && (
         <EditProfileModal
-          onClose={() => { setShowEditProfile(false); setHistoryVersion((v) => v + 1); }}
+          onClose={() => { setShowEdit(false); setHistoryVersion(v => v + 1); }}
           role="MEMBER"
           currentUser={{ username: userAccount?.username, email: userAccount?.email }}
           currentMember={{ fullName: member.fullName, phone: member.phone, email: member.email, address: member.address, city: member.city }}
@@ -680,15 +869,10 @@ export default function MemberPortalPage() {
         <Modal title="No Active Chits" onClose={() => setShowCashRequest(false)} size="sm">
           <p className="text-sm text-gray-600">You don't have any active chit funds to make a cash payment for.</p>
           <div className="flex justify-end mt-4">
-            <Button variant="muted" size="md" onClick={() => setShowCashRequest(false)}>Close</Button>
+            <Button variant="secondary" onClick={() => setShowCashRequest(false)}>Close</Button>
           </div>
         </Modal>
       )}
-
-      {/* ── Content ───────────────────────────────────────────────────────── */}
-      <MyCashRequestsSection />
-      <ProfileChangeHistory key={historyVersion} userId={userAccount?.id} />
-      <MemberPortalContent memberId={member.id} />
     </div>
   );
 }
