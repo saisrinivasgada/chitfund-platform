@@ -39,7 +39,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
       */}
       <div
         className={[
-          'relative bg-white w-full flex flex-col',
+          'relative bg-white w-full flex flex-col overflow-hidden',
           // Mobile: full-width sheet from bottom
           'rounded-t-2xl max-h-[92vh]',
           // Tablet+: centred card
@@ -71,8 +71,8 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
 
         {/* Body */}
         <div
-          className="px-5 sm:px-6 py-5 overflow-y-auto flex-1"
-          style={{ maxHeight: 'calc(92vh - 120px)', WebkitOverflowScrolling: 'touch' }}
+          className="px-5 sm:px-6 py-5 overflow-y-auto flex-1 min-h-0"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {children}
         </div>

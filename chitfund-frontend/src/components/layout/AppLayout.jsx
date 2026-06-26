@@ -136,15 +136,6 @@ export default function AppLayout() {
           </main>
         </div>
 
-        {/* ── Fixed hide/show amounts button — desktop only ─────────────── */}
-        <button
-          type="button"
-          onClick={toggleHidden}
-          title={hidden ? 'Show amounts' : 'Hide amounts'}
-          className="hidden lg:flex fixed top-4 right-4 z-50 items-center justify-center p-2 rounded-lg bg-white border border-gray-200 shadow-sm text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer"
-        >
-          {hidden ? <Eye size={18} /> : <EyeOff size={18} />}
-        </button>
 
         <Toast toasts={toasts} onDismiss={dismiss} />
       </div>

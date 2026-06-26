@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { getMe, mobileLookup, loginByMobile } from '../../services/api';
 import NotificationBell from '../notifications/NotificationBell';
@@ -183,7 +184,7 @@ function QuickNotes({ role }) {
   const total = allNotes.length;
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div ref={wrapRef} className="relative flex-1 flex flex-col">
 
       {/* ── Bubble popup ──────────────────────────────────────────────── */}
       {open && (
@@ -364,20 +365,20 @@ function QuickNotes({ role }) {
         </div>
       )}
 
-      {/* ── Trigger icon ─────────────────────────────────────────────── */}
+      {/* ── Trigger button ───────────────────────────────────────────── */}
       <button
         onClick={() => setOpen((v) => !v)}
         title="Quick notes"
-        className={`relative flex items-center justify-center w-8 h-8 rounded-lg transition-all cursor-pointer ${
+        className={`relative w-full h-[60px] flex flex-col items-center justify-center gap-1 rounded-xl border transition-colors cursor-pointer ${
           open
-            ? 'bg-amber-100 text-amber-600 shadow-inner'
-            : 'text-gray-400 hover:bg-amber-50 hover:text-amber-500'
+            ? 'bg-amber-50 border-amber-300 text-amber-700'
+            : 'bg-white border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-600'
         }`}
       >
-        <StickyNote size={17} />
-        {/* Dot when there is content (own or shared-from-other) and bubble is closed */}
+        <StickyNote size={16} />
+        <span className="text-[10px] font-medium">Notes</span>
         {hasDot && !open && (
-          <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-400 border-2 border-white" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 border-2 border-white" />
         )}
       </button>
     </div>
@@ -465,6 +466,7 @@ function SidebarSwitchModal({ phone, altRole, altLabel, onClose }) {
 export default function Sidebar({ open = false, onClose }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const role = user?.role ?? 'ADMIN';
   const initials = (user?.name ?? user?.username ?? 'U').slice(0, 2).toUpperCase();
   const [showSwitch, setShowSwitch] = useState(false);
@@ -581,13 +583,6 @@ export default function Sidebar({ open = false, onClose }) {
         ))}
       </nav>
 
-      {/* Quick Notes — ADMIN and MANAGER only */}
-      {(role === 'ADMIN' || role === 'MANAGER') && (
-        <div className="px-3 pb-1 flex-shrink-0">
-          <QuickNotes role={role} />
-        </div>
-      )}
-
       {/* User + Logout */}
       <div className="px-3 py-4 border-t border-gray-100 flex-shrink-0">
         <button
@@ -622,13 +617,27 @@ export default function Sidebar({ open = false, onClose }) {
           </button>
         )}
 
-        <button
-          onClick={logout}
-          className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
-        >
-          <LogOut size={18} />
-          Sign out
-        </button>
+        <div className="flex gap-2 mt-1">
+          <button
+            onClick={toggleHidden}
+            title={hidden ? 'Show amounts' : 'Hide amounts'}
+            className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-colors cursor-pointer"
+          >
+            {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
+            <span className="text-[10px] font-medium">{hidden ? 'Show' : 'Hide'}</span>
+          </button>
+          {(role === 'ADMIN' || role === 'MANAGER') && (
+            <QuickNotes role={role} />
+          )}
+          <button
+            onClick={logout}
+            title="Sign out"
+            className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors cursor-pointer"
+          >
+            <LogOut size={16} />
+            <span className="text-[10px] font-medium">Sign out</span>
+          </button>
+        </div>
       </div>
 
       {showSwitch && memberAccount && altPhone && (

@@ -34,18 +34,21 @@ err()  { echo -e "${RED}[deploy]${NC} $1"; }
 mkdir -p "$LOG_DIR"
 
 # ── Service registry ───────────────────────────────────────────────────────
-# shortname → "dir:port"
-declare -A SVC_META=(
-  ["user"]="chitfund-user-service:8081"
-  ["chit"]="chitfund-chit-service:8082"
-  ["member"]="chitfund-member-service:8083"
-  ["payment"]="chitfund-payment-service:8084"
-  ["payout"]="chitfund-payout-service:8085"
-  ["notification"]="chitfund-notification-service:8086"
-  ["reporting"]="chitfund-reporting-service:8087"
-  ["audit"]="chitfund-audit-service:8088"
-  ["gateway"]="chitfund-api-gateway:8080"
-)
+# Returns "dir:port" for a given short name (bash 3.2-compatible, no declare -A)
+get_meta() {
+  case "$1" in
+    user)         echo "chitfund-user-service:8081" ;;
+    chit)         echo "chitfund-chit-service:8082" ;;
+    member)       echo "chitfund-member-service:8083" ;;
+    payment)      echo "chitfund-payment-service:8084" ;;
+    payout)       echo "chitfund-payout-service:8085" ;;
+    notification) echo "chitfund-notification-service:8086" ;;
+    reporting)    echo "chitfund-reporting-service:8087" ;;
+    audit)        echo "chitfund-audit-service:8088" ;;
+    gateway)      echo "chitfund-api-gateway:8080" ;;
+    *)            echo "" ;;
+  esac
+}
 
 # Deploy order — gateway always last
 ALL_ORDER=(user chit member payment payout notification reporting audit gateway)
@@ -99,9 +102,10 @@ wait_healthy() {
 
 deploy_service() {
   local short=$1
-  local meta=${SVC_META[$short]}
+  local meta
+  meta=$(get_meta "$short")
   if [ -z "$meta" ]; then
-    err "Unknown service: '$short'. Valid names: ${!SVC_META[*]}"
+    err "Unknown service: '$short'. Valid names: user chit member payment payout notification reporting audit gateway"
     return 1
   fi
 
@@ -166,7 +170,7 @@ else
   # Args provided — validate, then respect the required order
   TARGETS=()
   for arg in "$@"; do
-    if [ -z "${SVC_META[$arg]}" ]; then
+    if [ -z "$(get_meta "$arg")" ]; then
       err "Unknown service: '$arg'"
       err "Valid names: user chit member payment payout notification reporting audit gateway"
       exit 1
@@ -209,3 +213,16 @@ echo ""
 echo "  Gateway  → http://localhost:8080"
 echo "  Logs     → $LOG_DIR/"
 echo ""
+
+# ── Post-deploy smoke test ─────────────────────────────────────────────────
+if [ -f "$BASE/verify-chitfund.sh" ] && [ -n "${CHITFUND_ADMIN_USER:-}" ] && [ -n "${CHITFUND_ADMIN_PASS:-}" ]; then
+  echo ""
+  log "Running post-deploy smoke test..."
+  if ! bash "$BASE/verify-chitfund.sh" "$CHITFUND_ADMIN_USER" "$CHITFUND_ADMIN_PASS"; then
+    err "SMOKE TEST FAILED — deployment may be broken. Check above for details."
+    exit 1
+  fi
+else
+  warn "Skipping smoke test — set CHITFUND_ADMIN_USER and CHITFUND_ADMIN_PASS env vars to enable."
+  warn "  Example: CHITFUND_ADMIN_USER=saisrinivas CHITFUND_ADMIN_PASS=YourPass ./redeploy-chitfund.sh"
+fi

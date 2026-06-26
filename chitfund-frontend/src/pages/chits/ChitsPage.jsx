@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getChits, createChit, getMembers, getLatestDrawNumbers, getMe, getDeletedChits } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -771,6 +771,7 @@ function monthsElapsed(startDateStr) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ChitsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
@@ -778,6 +779,13 @@ export default function ChitsPage() {
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState('board');
   const [showDeleted, setShowDeleted] = useState(false);
+
+  useEffect(() => {
+    if (location.state?.openAdd && isAdmin) {
+      setShowModal(true);
+      window.history.replaceState({}, '');
+    }
+  }, [location.state, isAdmin]);
 
   const { data: chits = [], isLoading } = useQuery({
     queryKey: ['chits'],

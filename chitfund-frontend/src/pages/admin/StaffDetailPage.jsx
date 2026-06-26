@@ -32,6 +32,10 @@ import {
   Trash2,
   Banknote,
   RefreshCw,
+  Clock,
+  UserCheck,
+  PackageCheck,
+  ChevronRight,
 } from 'lucide-react';
 
 const ROLE_BADGE = {
@@ -42,10 +46,11 @@ const ROLE_BADGE = {
 };
 
 const STATUS_BADGE = {
-  PENDING:   { label: 'Pending',   variant: 'warning' },
-  ASSIGNED:  { label: 'Assigned',  variant: 'info' },
-  COLLECTED: { label: 'Collected', variant: 'success' },
-  CANCELLED: { label: 'Cancelled', variant: 'danger' },
+  PENDING:   { label: 'Pending',    variant: 'warning' },
+  ASSIGNED:  { label: 'Assigned',   variant: 'info' },
+  PICKED_UP: { label: 'Picked Up',  variant: 'success' },
+  COLLECTED: { label: 'Collected',  variant: 'success' },
+  CANCELLED: { label: 'Cancelled',  variant: 'danger' },
 };
 
 function fmt(n) {
@@ -56,6 +61,138 @@ function fmt(n) {
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function fmtDateTime(d) {
+  if (!d) return null;
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function CashPickupTrailModal({ request, workerName, onClose }) {
+  const steps = [
+    {
+      icon: Clock,
+      color: '#1E3A5F',
+      bg: '#EEF2F8',
+      label: 'Pickup Initiated',
+      sub: 'Admin created cash pickup request',
+      time: request.requestedAt,
+      done: true,
+    },
+    {
+      icon: UserCheck,
+      color: '#D97706',
+      bg: '#FEF3C7',
+      label: 'Assigned to Worker',
+      sub: workerName ? `Assigned to ${workerName}` : 'Assigned to worker',
+      time: request.assignedAt,
+      done: !!request.assignedAt,
+    },
+    {
+      icon: PackageCheck,
+      color: '#16A34A',
+      bg: '#F0FDF4',
+      label: 'Picked Up from Member',
+      sub: request.pickedUpAt
+        ? `${workerName ?? 'Worker'} confirmed physical pickup`
+        : 'Worker has not yet marked as picked up',
+      time: request.pickedUpAt,
+      done: !!request.pickedUpAt,
+    },
+    {
+      icon: Banknote,
+      color: '#1E3A5F',
+      bg: '#EEF2F8',
+      label: 'Handed to Admin & Confirmed',
+      sub: request.status === 'COLLECTED'
+        ? 'Admin confirmed receipt — member account credited'
+        : request.status === 'CANCELLED'
+        ? 'Request was cancelled'
+        : 'Awaiting admin to confirm receipt',
+      time: request.status === 'COLLECTED' || request.status === 'CANCELLED' ? request.updatedAt : null,
+      done: request.status === 'COLLECTED',
+      cancelled: request.status === 'CANCELLED',
+    },
+  ];
+
+  return (
+    <Modal title="Cash Pickup Audit Trail" onClose={onClose} size="sm">
+      <div className="pb-2">
+        {/* Summary header */}
+        <div className="flex items-center gap-3 mb-5 px-1">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <MemberCell memberId={request.memberId} />
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                request.status === 'COLLECTED' ? 'bg-green-100 text-green-700' :
+                request.status === 'PICKED_UP' ? 'bg-green-100 text-green-700' :
+                request.status === 'CANCELLED' ? 'bg-gray-100 text-gray-500' :
+                'bg-blue-100 text-blue-700'
+              }`}>
+                {STATUS_BADGE[request.status]?.label ?? request.status}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              <ChitCell chitId={request.chitId} /> · ₹{fmt(request.requestedAmount)}
+            </p>
+          </div>
+        </div>
+
+        {/* Timeline */}
+        <div className="space-y-0">
+          {steps.map((step, i) => {
+            const Icon = step.icon;
+            const isLast = i === steps.length - 1;
+            return (
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center flex-shrink-0">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{
+                      backgroundColor: step.done ? step.bg : step.cancelled ? '#FEE2E2' : '#F3F4F6',
+                      border: `2px solid ${step.done ? step.color : step.cancelled ? '#EF4444' : '#D1D5DB'}`,
+                    }}
+                  >
+                    <Icon size={14} style={{ color: step.done ? step.color : step.cancelled ? '#DC2626' : '#9CA3AF' }} />
+                  </div>
+                  {!isLast && (
+                    <div
+                      className="w-0.5 flex-1 my-1"
+                      style={{ backgroundColor: step.done ? step.color : '#E5E7EB', minHeight: '20px' }}
+                    />
+                  )}
+                </div>
+                <div className="pb-4 min-w-0 flex-1">
+                  <p className={`text-sm font-semibold ${step.done || step.cancelled ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {step.label}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{step.sub}</p>
+                  {step.time && (
+                    <p className="text-xs text-gray-400 mt-1 font-medium">{fmtDateTime(step.time)}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {request.notes && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
+            <p className="text-xs text-gray-500 font-medium mb-0.5">Member Note</p>
+            <p className="text-sm text-gray-700 italic">"{request.notes}"</p>
+          </div>
+        )}
+        {request.adminNotes && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+            <p className="text-xs text-amber-700 font-medium mb-0.5">Admin Note</p>
+            <p className="text-sm text-gray-700 italic">"{request.adminNotes}"</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
 // Fetches member name for a given memberId — cached by React Query
@@ -192,6 +329,7 @@ export default function StaffDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showChangeRole, setShowChangeRole] = useState(false);
   const [tempCreds, setTempCreds] = useState(null); // { username, tempPassword }
+  const [trailRequest, setTrailRequest] = useState(null);
 
   const { data: staff, isLoading } = useQuery({
     queryKey: ['staff-detail', id],
@@ -205,7 +343,7 @@ export default function StaffDetailPage() {
     queryKey: ['worker-requests', id],
     queryFn: () => getWorkerRequests(id),
     staleTime: 30_000,
-    enabled: staff?.role === 'WORKER',
+    enabled: isCollector,
   });
 
   const { data: collectionBatches = [], isLoading: batchesLoading } = useQuery({
@@ -248,8 +386,8 @@ export default function StaffDetailPage() {
   const isDeleted = !!staff.deletedAt;
   const roleCfg = ROLE_BADGE[staff.role] ?? { label: staff.role, variant: 'default' };
 
-  const currentAssignments = requests.filter(r => r.status === 'ASSIGNED');
-  const history = requests.filter(r => r.status !== 'ASSIGNED');
+  const currentAssignments = requests.filter(r => r.status === 'ASSIGNED' || r.status === 'PICKED_UP');
+  const requestHistory = requests.filter(r => r.status === 'COLLECTED' || r.status === 'CANCELLED');
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
@@ -358,12 +496,12 @@ export default function StaffDetailPage() {
         )}
       </div>
 
-      {/* Worker: current assignments from CashRequests */}
-      {staff.role === 'WORKER' && (
+      {/* Worker + Manager: active cash pickup assignments */}
+      {isCollector && (
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <ClipboardList size={16} style={{ color: '#1E3A5F' }} />
-            <h2 className="text-base font-bold" style={{ color: '#1E3A5F' }}>Current Assignments</h2>
+            <h2 className="text-base font-bold" style={{ color: '#1E3A5F' }}>Pending Pickups</h2>
             {currentAssignments.length > 0 && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: '#1E3A5F' }}>
                 {currentAssignments.length}
@@ -373,27 +511,89 @@ export default function StaffDetailPage() {
           {requestsLoading ? (
             <div className="h-20 rounded-2xl border border-gray-200 bg-gray-50 animate-pulse" />
           ) : currentAssignments.length === 0 ? (
-            <EmptyState icon={ClipboardList} title="No active assignments" message="No cash collection tasks currently assigned." />
+            <EmptyState icon={ClipboardList} title="No pending pickups" message="No cash collection tasks currently assigned." />
           ) : (
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <Table columns={['Member', 'Chit Fund', 'Amount', 'Assigned On', 'Notes']}>
-                {currentAssignments.map((r) => (
+              <Table columns={['Member', 'Chit Fund', 'Amount', 'Assigned On', 'Status', '']}>
+                {currentAssignments.map((r) => {
+                  const cfg = STATUS_BADGE[r.status] ?? { label: r.status, variant: 'default' };
+                  return (
+                    <Tr key={r.id}>
+                      <Td><MemberCell memberId={r.memberId} /></Td>
+                      <Td><ChitCell chitId={r.chitId} /></Td>
+                      <Td>
+                        <span className="flex items-center gap-0.5 font-semibold text-gray-900">
+                          <IndianRupee size={13} />
+                          {r.requestedAmount != null ? fmt(r.requestedAmount) : 'All outstanding'}
+                        </span>
+                      </Td>
+                      <Td><span className="text-sm text-gray-500">{fmtDate(r.assignedAt)}</span></Td>
+                      <Td>
+                        <div className="flex flex-col gap-0.5">
+                          <Badge variant={cfg.variant}>{cfg.label}</Badge>
+                          {r.status === 'PICKED_UP' && r.pickedUpAt && (
+                            <span className="text-xs text-gray-400">at {fmtDate(r.pickedUpAt)}</span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td>
+                        <button
+                          onClick={() => setTrailRequest(r)}
+                          className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer"
+                          title="View full details"
+                        >
+                          <ChevronRight size={15} />
+                        </button>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </Table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Worker + Manager: completed / cancelled cash request history */}
+      {isCollector && requestHistory.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <History size={16} style={{ color: '#1E3A5F' }} />
+            <h2 className="text-base font-bold" style={{ color: '#1E3A5F' }}>Cash Pickup History</h2>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: '#1E3A5F' }}>
+              {requestHistory.length}
+            </span>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <Table columns={['Member', 'Chit Fund', 'Amount', 'Date', 'Status', '']}>
+              {requestHistory.map((r) => {
+                const cfg = STATUS_BADGE[r.status] ?? { label: r.status, variant: 'default' };
+                return (
                   <Tr key={r.id}>
                     <Td><MemberCell memberId={r.memberId} /></Td>
                     <Td><ChitCell chitId={r.chitId} /></Td>
                     <Td>
                       <span className="flex items-center gap-0.5 font-semibold text-gray-900">
                         <IndianRupee size={13} />
-                        {r.requestedAmount != null ? fmt(r.requestedAmount) : 'All outstanding'}
+                        {r.requestedAmount != null ? fmt(r.requestedAmount) : '—'}
                       </span>
                     </Td>
-                    <Td><span className="text-sm text-gray-500">{fmtDate(r.assignedAt)}</span></Td>
-                    <Td><span className="text-sm text-gray-500">{r.notes ?? '—'}</span></Td>
+                    <Td><span className="text-sm text-gray-500">{fmtDate(r.updatedAt)}</span></Td>
+                    <Td><Badge variant={cfg.variant}>{cfg.label}</Badge></Td>
+                    <Td>
+                      <button
+                        onClick={() => setTrailRequest(r)}
+                        className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer"
+                        title="View full details"
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    </Td>
                   </Tr>
-                ))}
-              </Table>
-            </div>
-          )}
+                );
+              })}
+            </Table>
+          </div>
         </section>
       )}
 
@@ -446,6 +646,15 @@ export default function StaffDetailPage() {
             </div>
           )}
         </section>
+      )}
+
+      {/* Cash pickup trail */}
+      {trailRequest && (
+        <CashPickupTrailModal
+          request={trailRequest}
+          workerName={staff.fullName ?? staff.username}
+          onClose={() => setTrailRequest(null)}
+        />
       )}
 
       {/* Confirm reset */}

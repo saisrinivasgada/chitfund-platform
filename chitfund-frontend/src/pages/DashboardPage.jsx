@@ -63,7 +63,7 @@ function StatCard({ icon: Icon, label, value, color, sub, hidden }) {
 }
 
 // ── Remittance card — shows amount + collector breakdown ─────────────────────
-function RemittanceCard({ batches, staffMap, hidden }) {
+function RemittanceCard({ batches, staffMap, hidden, onClick }) {
   const total = batches.length;
   const totalAmt = batches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
   const uniqueIds = [...new Set(batches.map((b) => String(b.collectedBy)))];
@@ -75,7 +75,11 @@ function RemittanceCard({ batches, staffMap, hidden }) {
   if (managers > 0) parts.push(`${managers} manager${managers !== 1 ? 's' : ''}`);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
+    <button
+      type="button"
+      onClick={hidden ? undefined : onClick}
+      className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4 w-full text-left cursor-pointer hover:border-amber-300 hover:shadow-md transition-all"
+    >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ backgroundColor: '#D9770618' }}
@@ -97,9 +101,12 @@ function RemittanceCard({ batches, staffMap, hidden }) {
           {hidden && total > 0 && (
             <span className="text-xs text-gray-400">{HIDDEN_PLACEHOLDER}</span>
           )}
+          {!hidden && total > 0 && (
+            <span className="text-xs text-amber-600 font-medium ml-auto">View →</span>
+          )}
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -132,46 +139,46 @@ export default function DashboardPage() {
 
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['chits'],
-    queryFn: getChits,
+    queryFn: () => getChits(),
     staleTime: 5 * 60_000,
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members'],
-    queryFn: getMembers,
+    queryFn: () => getMembers(),
     staleTime: 5 * 60_000,
   });
 
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
-    queryFn: getPendingPayouts,
+    queryFn: () => getPendingPayouts(),
     staleTime: 2 * 60_000,
   });
 
   const { data: walletBalance } = useQuery({
     queryKey: ['wallet-balance'],
-    queryFn: getWalletBalance,
+    queryFn: () => getWalletBalance(),
     enabled: isAdmin,
     staleTime: 2 * 60_000,
   });
 
   const { data: cashRequests = [] } = useQuery({
     queryKey: ['cashRequests', 'active'],
-    queryFn: getActiveCashRequests,
+    queryFn: () => getActiveCashRequests(),
     enabled: isAdmin,
     staleTime: 60_000,
   });
 
   const { data: remittanceBatches = [] } = useQuery({
     queryKey: ['remittance', 'pending'],
-    queryFn: getPendingRemittance,
+    queryFn: () => getPendingRemittance(),
     enabled: isAdmin,
     staleTime: 60_000,
   });
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
-    queryFn: listStaff,
+    queryFn: () => listStaff(),
     enabled: isAdmin,
     staleTime: 5 * 60_000,
   });
@@ -203,10 +210,10 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={() => navigate('/chits')} size="md">
+          <Button onClick={() => navigate('/chits', { state: { openAdd: true } })} size="md" className="min-w-36">
             <Plus size={15} /> New Chit
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/members')} size="md">
+          <Button variant="secondary" onClick={() => navigate('/members', { state: { openAdd: true } })} size="md">
             <UserPlus size={15} /> Add Member
           </Button>
         </div>
@@ -279,6 +286,7 @@ export default function DashboardPage() {
               batches={remittanceBatches}
               staffMap={staffMap}
               hidden={hidden}
+              onClick={() => navigate('/payments/remittance')}
             />
           </div>
         </div>

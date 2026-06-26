@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Trash2, Info, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Trash2, Info, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import Button from './Button';
 import FormField, { Input } from './FormField';
 
@@ -22,6 +22,12 @@ const VARIANT_CONFIG = {
     iconColor: '#1E3A5F',
     confirmVariant: 'primary',
   },
+  success: {
+    icon: CheckCircle2,
+    iconBg: '#F0FDF4',
+    iconColor: '#16A34A',
+    confirmVariant: 'success',
+  },
 };
 
 // Shared bottom-sheet / centred-dialog shell
@@ -35,7 +41,7 @@ function DialogShell({ onClose, children }) {
         aria-hidden="true"
       />
       {/* Mobile: bottom sheet | Tablet+: centred card */}
-      <div className="relative bg-white w-full rounded-t-2xl sm:rounded-2xl sm:shadow-2xl sm:max-w-md">
+      <div className="relative bg-white w-full rounded-t-2xl sm:rounded-2xl sm:shadow-2xl sm:max-w-md overflow-hidden">
         {/* Drag pill — mobile only */}
         <div className="sm:hidden flex justify-center pt-3 pb-0">
           <div className="w-10 h-1 rounded-full bg-gray-300" />

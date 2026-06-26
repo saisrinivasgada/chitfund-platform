@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMembers, createMember, getMemberBalanceBulk, getDeletedMembers } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -149,7 +149,7 @@ function AddMemberModal({ onClose }) {
           >
             <option value="">— No referral —</option>
             {[...activeMembers]
-              .sort((a, b) => a.fullName.localeCompare(b.fullName))
+              .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''))
               .map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.fullName} · {formatPhone(m.phoneCountryCode ?? '+91', m.phone)}
@@ -173,6 +173,7 @@ function AddMemberModal({ onClose }) {
 
 export default function MembersPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const isAdmin = currentUser?.role === 'ADMIN';
@@ -180,6 +181,13 @@ export default function MembersPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
+
+  useEffect(() => {
+    if (location.state?.openAdd && canAddMembers) {
+      setShowModal(true);
+      window.history.replaceState({}, '');
+    }
+  }, [location.state, canAddMembers]);
 
   const { data: members = [], isLoading } = useQuery({
     queryKey: ['members'],
