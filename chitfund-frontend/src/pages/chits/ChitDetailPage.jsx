@@ -7,9 +7,9 @@ import {
   getMembers,
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw, shiftReservations,
   getWinners, recordWinner, deleteWinnerForDraw,
-  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, markSlotProcessed, swapSlots,
+  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, markSlotProcessed, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
-  getDrawPayments, recordPayment, collectPayment, remitPayment, getPaymentHistory,
+  getDrawPayments, recordPayment, collectPayment, adminCreateCashRequest, getPaymentHistory,
   getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
@@ -29,7 +29,7 @@ import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, Wallet,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, Wallet, RotateCcw, X, History,
 } from 'lucide-react';
 
 function ToggleSwitch({ on, onToggle, disabled = false }) {
@@ -50,15 +50,15 @@ function ToggleSwitch({ on, onToggle, disabled = false }) {
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 function Tabs({ tabs, active, onChange }) {
   return (
-    <div className="flex border-b border-gray-200 gap-1 overflow-x-auto">
+    <div className="flex gap-2 overflow-x-auto pb-1">
       {tabs.map((t) => (
         <button
           key={t}
           onClick={() => onChange(t)}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px whitespace-nowrap ${
+          className={`px-5 py-2 text-sm font-semibold rounded-lg border-2 transition-colors cursor-pointer whitespace-nowrap ${
             active === t
-              ? 'border-[#1E3A5F] text-[#1E3A5F]'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white'
+              : 'bg-white border-gray-200 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
           }`}
         >
           {t}
@@ -289,13 +289,17 @@ function MembersTab({ chitId, chit }) {
   });
   const uniqueMembers = Object.values(spotMap);
 
+  const totalSpots2    = enrollments.length;
+  const maxSpots       = chit?.totalMembers ?? Infinity;
+  const spotsAreFull   = totalSpots2 >= maxSpots;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">
           {enrollments.length} spots filled · {(chit?.totalMembers ?? 0) - enrollments.length} remaining
         </p>
-        {canEdit && (
+        {canEdit && !spotsAreFull && (
           <Button onClick={() => setShowEnroll(true)} size="sm">
             <UserPlus size={14} /> Add Spot
           </Button>
@@ -306,8 +310,8 @@ function MembersTab({ chitId, chit }) {
         {isLoading ? <PageSpinner /> : uniqueMembers.length === 0 ? (
           <EmptyState icon={Users} title="No members enrolled"
             message="Enroll members to this chit fund."
-            action={canEdit ? 'Add Spot' : undefined}
-            onAction={canEdit ? () => setShowEnroll(true) : undefined} />
+            action={canEdit && !spotsAreFull ? 'Add Spot' : undefined}
+            onAction={canEdit && !spotsAreFull ? () => setShowEnroll(true) : undefined} />
         ) : (
           <Table columns={['Member', 'Spots Held', 'Enrolled On', 'Actions']}>
             {uniqueMembers.map((e) => {
@@ -483,6 +487,14 @@ function computeDefaultDueDate(startDateStr, cycleNum) {
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+// "Rajesh Kumar Sharma" → "Rajesh S."  keeps options compact in narrow dropdowns
+function shortName(full) {
+  if (!full) return '';
+  const parts = full.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  return parts[0] + ' ' + parts[parts.length - 1][0] + '.';
+}
+
 function formatMonthLabel(dateStr, fallbackMonth) {
   if (!dateStr) return fallbackMonth != null ? `Month ${fallbackMonth}` : '—';
   const parts = dateStr.substring(0, 7).split('-');
@@ -626,6 +638,124 @@ function VoidSlotModal({ slot, memberName, onConfirm, onClose, loading }) {
   );
 }
 
+// ─── Slot History Modal ───────────────────────────────────────────────────────
+const ACTION_LABELS = {
+  SLOT_CREATED:   { label: 'Created',   color: 'bg-green-100 text-green-700' },
+  SLOT_UPDATED:   { label: 'Updated',   color: 'bg-blue-100 text-blue-700' },
+  SLOT_VOIDED:    { label: 'Voided',    color: 'bg-red-100 text-red-600' },
+  SLOT_PROCESSED: { label: 'Processed', color: 'bg-purple-100 text-purple-700' },
+  SLOT_SWAPPED:   { label: 'Swapped',   color: 'bg-amber-100 text-amber-700' },
+};
+
+function parseState(raw) {
+  if (!raw) return null;
+  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
+}
+
+function SlotHistoryModal({ slot, memberMap, onClose }) {
+  const monthLabel = formatMonthLabel(slot.reservationMonth, slot.monthNumber);
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['slotHistory', slot.id],
+    queryFn: () => getSlotHistory(slot.id),
+    staleTime: 30_000,
+  });
+
+  function renderState(raw) {
+    const s = parseState(raw);
+    if (!s) return null;
+    const memberId = s.memberId ?? s.chit?.members;
+    const memberName = memberId ? (memberMap[String(memberId)]?.fullName ?? memberMap[String(memberId)]?.name ?? `#${String(memberId).slice(0,8)}`) : null;
+    const payout = s.payoutAmount ? `₹${Number(s.payoutAmount).toLocaleString()}` : null;
+    const status = s.status;
+    return (
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
+        {memberName && <span><span className="text-gray-400">Member:</span> {memberName}</span>}
+        {payout     && <span><span className="text-gray-400">Payout:</span> {payout}</span>}
+        {status     && <span><span className="text-gray-400">Status:</span> {status}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <Modal title="" onClose={onClose} size="md">
+      {/* Header */}
+      <div className="px-6 pt-2 pb-4 border-b border-gray-100">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
+            <History size={15} className="text-[#1E3A5F]" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Slot History</p>
+            <p className="text-xs text-gray-400">{monthLabel}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div className="px-6 py-4 max-h-[420px] overflow-y-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10 text-gray-400 text-sm gap-2">
+            <Clock size={15} className="animate-spin" /> Loading history…
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-gray-400">
+            <History size={28} strokeWidth={1.5} />
+            <p className="text-sm">No history recorded yet</p>
+            <p className="text-xs text-gray-300">Changes will appear here after the next edit</p>
+          </div>
+        ) : (
+          <ol className="relative border-l border-gray-100 ml-2 space-y-5">
+            {[...logs].reverse().map((entry) => {
+              const cfg = ACTION_LABELS[entry.action] ?? { label: entry.action, color: 'bg-gray-100 text-gray-500' };
+              const before = renderState(entry.beforeState);
+              const after  = renderState(entry.afterState);
+              return (
+                <li key={entry.id} className="pl-5">
+                  {/* dot */}
+                  <span className="absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white bg-[#1E3A5F]" />
+
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${cfg.color}`}>
+                      {cfg.label}
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      {entry.createdAt ? new Date(entry.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </span>
+                    {entry.actorRole && (
+                      <span className="text-[10px] text-gray-300 font-medium uppercase tracking-wide">{entry.actorRole}</span>
+                    )}
+                  </div>
+
+                  {(before || after) && (
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 space-y-1.5 text-xs">
+                      {before && (
+                        <div className="flex gap-2 items-start">
+                          <span className="text-gray-300 font-semibold w-12 flex-shrink-0">Before</span>
+                          <div>{before}</div>
+                        </div>
+                      )}
+                      {after && (
+                        <div className="flex gap-2 items-start">
+                          <span className="text-[#1E3A5F] font-semibold w-12 flex-shrink-0">After</span>
+                          <div>{after}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+
+      <div className="px-6 pb-5 pt-2">
+        <Button variant="muted" onClick={onClose} className="w-full">Close</Button>
+      </div>
+    </Modal>
+  );
+}
+
 function SwapSlotsModal({ chitId, slots, memberMap, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -743,6 +873,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
   const [deletingSlot, setDeletingSlot] = useState(null);  // voided slot being permanently deleted
   const [fillingSlot, setFillingSlot] = useState(null);    // voided slot being filled with a new slot at same position
+  const [historySlot, setHistorySlot] = useState(null);    // slot whose audit history is being viewed
 
   // Local edits keyed by slot.id — only set when a user modifies a row
   const [edits, setEdits] = useState({});
@@ -988,7 +1119,7 @@ function ReservationScheduleTab({ chitId, chit }) {
                             {memberObj && <MemberInfoPopover member={memberObj} />}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
                             {(() => {
                               const adminHeld = chit?.adminHeldSpotsCount ?? 0;
                               const allocatedAdminSlots = adminOption
@@ -1000,19 +1131,27 @@ function ReservationScheduleTab({ chitId, chit }) {
                                 <Select
                                   value={edit.memberId}
                                   onChange={(e) => updateEdit(slot, 'memberId', e.target.value)}
-                                  className="min-w-44"
+                                  className="w-40"
                                 >
                                   <option value="">Unallocated</option>
                                   {adminOption && canAddAdmin && (
-                                    <option key={adminOption.id} value={adminOption.id}>{adminOption.fullName}</option>
+                                    <option key={adminOption.id} value={adminOption.id} title={adminOption.fullName}>
+                                      {shortName(adminOption.fullName)}
+                                    </option>
                                   )}
                                   {activeMembers.map((m) => (
-                                    <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
+                                    <option key={m.id} value={m.id} title={m.fullName ?? m.name}>
+                                      {shortName(m.fullName ?? m.name)}
+                                    </option>
                                   ))}
                                 </Select>
                               );
                             })()}
-                            {edit.memberId && <MemberInfoPopover member={memberMap[edit.memberId]} />}
+                            {edit.memberId && (
+                              <span className="flex-shrink-0">
+                                <MemberInfoPopover member={memberMap[edit.memberId]} />
+                              </span>
+                            )}
                           </div>
                         )}
                       </td>
@@ -1055,40 +1194,51 @@ function ReservationScheduleTab({ chitId, chit }) {
 
                       {/* ── Actions ── */}
                       <td className="px-5 py-3">
-                        {canEdit ? (isVoided ? (
-                          <div className="flex gap-2 items-center flex-wrap">
-                            <Button variant="secondary" size="sm"
-                              loading={unvoidMutation.isPending}
-                              onClick={() => unvoidMutation.mutate(slot)}>
-                              <CheckCircle size={13} /> Restore
-                            </Button>
-                            <Button size="sm"
-                              onClick={() => setFillingSlot(slot)}
-                              title="Add a new slot at this same position">
-                              <Plus size={13} /> Fill Slot
-                            </Button>
-                            <Button variant="danger" size="sm"
-                              onClick={() => setDeletingSlot(slot)}>
-                              <Trash2 size={13} /> Delete
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2 items-center">
-                            {dirty && (
-                              <Button size="sm"
-                                loading={saveMutation.isPending}
-                                onClick={() => saveMutation.mutate({ slot, edit })}>
-                                <CheckCircle size={13} /> Save
+                        <div className="flex gap-2 items-center flex-wrap">
+                          {canEdit ? (isVoided ? (
+                            <>
+                              <Button variant="secondary" size="sm"
+                                loading={unvoidMutation.isPending}
+                                onClick={() => unvoidMutation.mutate(slot)}>
+                                <CheckCircle size={13} /> Restore
                               </Button>
-                            )}
-                            <Button variant="danger" size="sm"
-                              onClick={() => setVoidingSlot(slot)}>
-                              <XCircle size={13} /> Void
-                            </Button>
-                          </div>
-                        )) : (
-                          <span className="text-xs text-gray-400 italic">—</span>
-                        )}
+                              <Button size="sm"
+                                onClick={() => setFillingSlot(slot)}
+                                title="Add a new slot at this same position">
+                                <Plus size={13} /> Fill Slot
+                              </Button>
+                              <Button variant="danger" size="sm"
+                                onClick={() => setDeletingSlot(slot)}>
+                                <Trash2 size={13} /> Delete
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {dirty && (
+                                <Button size="sm"
+                                  loading={saveMutation.isPending}
+                                  onClick={() => saveMutation.mutate({ slot, edit })}>
+                                  <CheckCircle size={13} /> Save
+                                </Button>
+                              )}
+                              <Button variant="danger" size="sm"
+                                onClick={() => setVoidingSlot(slot)}>
+                                <XCircle size={13} /> Void
+                              </Button>
+                            </>
+                          )) : (
+                            <span className="text-xs text-gray-400 italic">—</span>
+                          )}
+                          {/* History icon — always visible */}
+                          <button
+                            type="button"
+                            title="View slot history"
+                            onClick={() => setHistorySlot(slot)}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer flex-shrink-0"
+                          >
+                            <History size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1138,6 +1288,14 @@ function ReservationScheduleTab({ chitId, chit }) {
           loading={hardDeleteMutation.isPending}
           onConfirm={() => hardDeleteMutation.mutate(deletingSlot)}
           onClose={() => setDeletingSlot(null)}
+        />
+      )}
+
+      {historySlot && (
+        <SlotHistoryModal
+          slot={historySlot}
+          memberMap={memberMap}
+          onClose={() => setHistorySlot(null)}
         />
       )}
     </div>
@@ -1374,213 +1532,303 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
   const totalCollection = preview?.members.reduce((s, m) => s + m.amountDue, 0) ?? 0;
 
+  const winnerName = primaryWinnerSlot ? (memberMap[primaryWinnerSlot.memberId]?.fullName ?? 'Unknown') : null;
+
+  const totalMembers   = enrollments.length > 0 ? [...new Set(enrollments.map((e) => e.memberId ?? e.id))].length : (chit?.totalMembers ?? 0);
+  const processedCount = [...new Set(enrollments.map((e) => e.memberId ?? e.id))].length > 0
+    ? reservations.filter((r) => r.status === 'PROCESSED').length : 0;
+
   return (
-    <Modal title={step === 1 ? `Open Draw ${nextCycleNum}` : `Draw ${nextCycleNum} Preview`} onClose={onClose} size="lg">
-      {step === 1 ? (
-        <form onSubmit={(e) => { e.preventDefault(); computePreview(); }} className="space-y-5">
-          {/* Due date */}
-          <FormField label="Due Date" required>
-            <DateInput value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)} required />
-          </FormField>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-6">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-          {/* Draw info bar */}
-          <div className="flex items-center gap-4 text-sm bg-gray-50 rounded-lg px-4 py-3">
-            <span className="text-gray-500">Draw <strong className="text-gray-800">#{nextCycleNum}</strong></span>
-            <span className="text-gray-300">·</span>
-            {primaryWinnerSlot ? (
-              <span className="text-gray-500">
-                Winner: <strong className="text-gray-800">
-                  {memberMap[primaryWinnerSlot.memberId]?.fullName ?? 'Unknown'}
-                </strong>
-                {cyclePayoutAmount && (
-                  <span className="ml-1 text-amber-700 font-medium">· ₹{cyclePayoutAmount.toLocaleString()} payout</span>
-                )}
-              </span>
-            ) : (
-              <span className="text-gray-400 italic">No winner scheduled — VOIDED draw</span>
-            )}
-          </div>
+      {/* Dialog */}
+      <div className="relative w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[90vh]">
 
-          {/* Additional early payout toggle */}
-          <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={addExtra}
-                onChange={(e) => { setAddExtra(e.target.checked); setExtraMemberId(''); setExtraSlotId(''); }}
-                className="w-4 h-4 rounded border-gray-300 text-[#1E3A5F]" />
-              <div>
-                <p className="text-sm font-medium text-gray-800">Pay out an additional member this draw</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Both receive ₹{cyclePayoutAmount?.toLocaleString() ?? '—'} (this draw's payout). Both slots settle immediately.
-                </p>
-              </div>
-            </label>
-
-            {addExtra && (
-              <div className="grid grid-cols-2 gap-4 pt-2">
-                <FormField label="Member">
-                  <Select value={extraMemberId}
-                    onChange={(e) => { setExtraMemberId(e.target.value); setExtraSlotId(''); }}>
-                    <option value="">Select member…</option>
-                    {[...extraCandidates].sort((a, b) => {
-                      const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
-                      const nameB = memberMap[b.memberId ?? b.id]?.fullName ?? '';
-                      return nameA.localeCompare(nameB);
-                    }).map((e) => {
-                      const mid = e.memberId ?? e.id;
-                      return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
-                    })}
-                  </Select>
-                </FormField>
-
-                <FormField label="Their slot to settle">
-                  <SlotPickerDropdown
-                    slots={extraMemberSlots}
-                    value={extraSlotId}
-                    onChange={setExtraSlotId}
-                    disabled={!extraMemberId}
-                    placeholder="Select slot…"
-                  />
-                </FormField>
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-            <Button type="submit"
-              disabled={enrollments.length === 0 || (addExtra && (!extraMemberId || !extraSlotId))}
-              className="flex-1">
-              Preview →
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <div className="space-y-4">
-          {/* Header row */}
-          <div className="flex items-center gap-3 text-sm text-gray-600 flex-wrap">
-            <span>Cycle <strong>#{preview.cycleNum}</strong></span>
-            <span className="text-gray-300">·</span>
-            <span>Due <strong>{new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong></span>
-            {addExtra && (
-              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Double payout</span>
-            )}
-          </div>
-
-          {/* Payout band */}
-          {cyclePayoutAmount && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm flex items-center gap-3 flex-wrap">
-              <span className="font-medium text-amber-800">Cycle payout: ₹{cyclePayoutAmount.toLocaleString()}</span>
-              {addExtra && <span className="text-amber-600">disbursed to both winners</span>}
-            </div>
-          )}
-
-          {/* Member table */}
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="overflow-y-auto max-h-96">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">This Draw</th>
-                    <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Net Payout</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {preview.members.map((m) => (
-                    <tr
-                      key={m.memberId}
-                      className={m.isPrimary ? 'bg-amber-50' : m.isExtra ? 'bg-blue-50/50' : 'hover:bg-gray-50'}
-                    >
-                      {/* ── Member cell ── */}
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          {/* Name + winner badges */}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-semibold text-gray-900">{m.memberName}</span>
-                            {m.isPrimary && (
-                              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">🏆 Winner</span>
-                            )}
-                            {m.isExtra && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Early payout</span>
-                            )}
-                          </div>
-                          {/* Phone */}
-                          {m.phone && (
-                            <span className="text-xs text-gray-400 flex items-center gap-1">
-                              <Phone size={10} />{m.phone}
-                            </span>
-                          )}
-                          {/* Previous balance tag */}
-                          {m.previousBalance > 0 && (
-                            <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full w-fit">
-                              ₹{m.previousBalance.toLocaleString()} outstanding
-                            </span>
-                          )}
-                          {m.previousBalance < 0 && (
-                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full w-fit">
-                              ₹{Math.abs(m.previousBalance).toLocaleString()} credit
-                            </span>
-                          )}
-                          {/* Slot breakdown */}
-                          <span className="text-xs text-gray-400 mt-0.5">
-                            {[
-                              m.processedCount > 0 ? `${m.processedCount} settled` : null,
-                              m.reservedCount  > 0 ? `${m.reservedCount} pending`  : null,
-                            ].filter(Boolean).join(' · ') || 'no slots'}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* ── This cycle installment ── */}
-                      <td className="px-3 py-3 text-right align-top">
-                        <span className="font-semibold text-gray-900">₹{m.amountDue.toLocaleString()}</span>
-                      </td>
-
-                      {/* ── Net payout (winners only) ── */}
-                      <td className="px-3 py-3 text-right align-top">
-                        {m.isWinner && m.netPayout !== null ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="font-bold text-green-700">₹{m.netPayout.toLocaleString()}</span>
-                            <span className="text-xs text-gray-400">after deduction</span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-gray-50 border-t border-gray-200 sticky bottom-0">
-                  <tr>
-                    <td className="px-3 py-2.5 text-xs font-semibold text-gray-700">
-                      Total collection · {preview.members.length} members
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-gray-900">
-                      ₹{totalCollection.toLocaleString()}
-                    </td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          {slotsToProcess.length > 0 && (
-            <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-              {slotsToProcess.length === 1 ? '1 slot' : `${slotsToProcess.length} slots`} will be marked as settled on confirm.
+        {/* ── Left panel — navy context sidebar ── */}
+        <div
+          className="flex-shrink-0 sm:w-52 px-6 py-6 flex flex-col gap-5 overflow-y-auto"
+          style={{ background: 'linear-gradient(160deg, #1E3A5F 0%, #243F6A 60%, #2C5282 100%)' }}
+        >
+          {/* Draw number */}
+          <div>
+            <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-1">Opening</p>
+            <p className="text-3xl font-black text-white leading-none" style={{ fontFamily: 'Merriweather, serif' }}>
+              Draw #{nextCycleNum}
             </p>
-          )}
+            <p className="text-xs text-white/50 mt-1">{chit?.name}</p>
+          </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button type="button" variant="secondary" onClick={() => setStep(1)} className="flex-1">← Back</Button>
-            <Button onClick={() => mutation.mutate()} loading={mutation.isPending} className="flex-1">
-              Open Draw {nextCycleNum}
-            </Button>
+          {/* Divider */}
+          <div className="h-px bg-white/10" />
+
+          {/* Winner block */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <Trophy size={12} style={{ color: '#D4A017' }} />
+              <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest">Winner</p>
+            </div>
+            {winnerName ? (
+              <>
+                <p className="text-sm font-bold text-white leading-snug">{winnerName}</p>
+                {cyclePayoutAmount && (
+                  <p className="text-base font-black mt-1" style={{ color: '#D4A017' }}>
+                    ₹{cyclePayoutAmount.toLocaleString()}
+                  </p>
+                )}
+                {addExtra && extraMemberId && (
+                  <div className="mt-2 rounded-lg px-3 py-2" style={{ background: 'rgba(212,160,23,0.15)' }}>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-0.5">Also paying</p>
+                    <p className="text-xs font-semibold text-white/80">{memberMap[extraMemberId]?.fullName ?? '—'}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-white/40 italic">No winner scheduled</p>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-white/10" />
+
+          {/* Chit progress */}
+          <div className="mt-auto">
+            <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Progress</p>
+            <div className="flex items-end gap-1.5">
+              <span className="text-2xl font-black text-white">{nextCycleNum - 1}</span>
+              <span className="text-sm text-white/40 mb-0.5">/ {chit?.totalMembers ?? '?'}</span>
+            </div>
+            <p className="text-[11px] text-white/40 mt-0.5">draws done</p>
+            {/* Progress bar */}
+            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: chit?.totalMembers ? `${Math.min(100, ((nextCycleNum - 1) / chit.totalMembers) * 100)}%` : '0%',
+                  background: 'linear-gradient(90deg, #D4A017, #F59E0B)',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Step dots */}
+          <div className="flex items-center gap-2 pt-1">
+            {[1, 2].map((s) => (
+              <div key={s} className={`h-1.5 rounded-full transition-all ${step === s ? 'w-5 bg-white' : 'w-1.5 bg-white/25'}`} />
+            ))}
+            <span className="text-[10px] text-white/30 ml-1">{step === 1 ? 'Configure' : 'Preview'}</span>
           </div>
         </div>
-      )}
-    </Modal>
+
+        {/* ── Right panel — white form / preview ── */}
+        <div className="flex-1 bg-white flex flex-col min-h-0">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+            <div>
+              <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
+                {step === 1 ? 'Configure Draw' : 'Preview & Confirm'}
+              </h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {step === 1 ? 'Set the due date for this cycle' : `${preview?.members.length ?? 0} members · ₹${totalCollection.toLocaleString()} total`}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer flex-shrink-0"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Scrollable body */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+
+            {step === 1 ? (
+              <form id="open-draw-form" onSubmit={(e) => { e.preventDefault(); computePreview(); }} className="space-y-5">
+
+                {/* Due date */}
+                <FormField label="Payment Due Date" required>
+                  <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} required />
+                </FormField>
+
+                {/* Double payout */}
+                {cyclePayoutAmount && extraCandidates.length > 0 && (
+                  <div className={`rounded-xl border transition-colors ${addExtra ? 'border-[#1E3A5F]/30 bg-[#F0F4FA]' : 'border-gray-200 bg-gray-50'}`}>
+                    <button
+                      type="button"
+                      onClick={() => { setAddExtra((v) => !v); setExtraMemberId(''); setExtraSlotId(''); }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 cursor-pointer text-left"
+                    >
+                      <ToggleSwitch on={addExtra} onToggle={() => {}} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">Pay an additional member</p>
+                        <p className="text-xs text-gray-400 mt-0.5 leading-snug">
+                          Both receive ₹{cyclePayoutAmount.toLocaleString()}. Both slots settle immediately.
+                        </p>
+                      </div>
+                    </button>
+
+                    {addExtra && (
+                      <div className="px-4 pb-4 grid grid-cols-2 gap-3 border-t border-[#1E3A5F]/10 pt-3">
+                        <FormField label="Member">
+                          <Select value={extraMemberId}
+                            onChange={(e) => { setExtraMemberId(e.target.value); setExtraSlotId(''); }}>
+                            <option value="">Select member…</option>
+                            {[...extraCandidates].sort((a, b) => {
+                              const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
+                              const nameB = memberMap[b.memberId ?? b.id]?.fullName ?? '';
+                              return nameA.localeCompare(nameB);
+                            }).map((e) => {
+                              const mid = e.memberId ?? e.id;
+                              return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
+                            })}
+                          </Select>
+                        </FormField>
+                        <FormField label="Slot to settle">
+                          <SlotPickerDropdown slots={extraMemberSlots} value={extraSlotId}
+                            onChange={setExtraSlotId} disabled={!extraMemberId} placeholder="Select slot…" />
+                        </FormField>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Due date note */}
+                <div className="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-xl px-4 py-3">
+                  <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+                  <span>Members will be notified to submit payment by the due date. Winner receives payout upon cycle close.</span>
+                </div>
+
+              </form>
+            ) : (
+              <div className="space-y-4">
+
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Due Date', value: new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) },
+                    { label: 'Members', value: preview.members.length },
+                    { label: 'Total', value: `₹${totalCollection.toLocaleString()}` },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 text-center">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{label}</p>
+                      <p className="text-sm font-bold text-gray-900 mt-0.5">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Member table */}
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="overflow-y-auto max-h-64">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">This Draw</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Net Payout</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {preview.members.map((m) => (
+                          <tr key={m.memberId}
+                            className={`transition-colors ${m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'bg-white hover:bg-gray-50/60'}`}>
+                            <td className={`py-2.5 pl-4 pr-3 ${(m.isPrimary || m.isExtra) ? 'border-l-2' : ''}`}
+                              style={(m.isPrimary || m.isExtra) ? { borderLeftColor: m.isPrimary ? '#D97706' : '#1E3A5F' } : {}}>
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-semibold text-gray-900 text-sm">{m.memberName}</span>
+                                  {m.isPrimary && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
+                                      <Trophy size={8} /> Winner
+                                    </span>
+                                  )}
+                                  {m.isExtra && (
+                                    <span className="text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">Extra</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {m.phone && <span className="text-xs text-gray-400 flex items-center gap-1"><Phone size={9} />{m.phone}</span>}
+                                  {m.previousBalance > 0 && (
+                                    <span className="text-[10px] bg-red-50 text-red-500 border border-red-100 px-1.5 py-0.5 rounded-md">
+                                      +₹{m.previousBalance.toLocaleString()} owed
+                                    </span>
+                                  )}
+                                  {m.previousBalance < 0 && (
+                                    <span className="text-[10px] bg-green-50 text-green-600 border border-green-100 px-1.5 py-0.5 rounded-md">
+                                      ₹{Math.abs(m.previousBalance).toLocaleString()} credit
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-middle">
+                              <span className="text-sm font-semibold text-gray-800">₹{m.amountDue.toLocaleString()}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right align-middle">
+                              {m.isWinner && m.netPayout !== null ? (
+                                <div className="flex flex-col items-end">
+                                  <span className="text-sm font-bold text-green-700">₹{m.netPayout.toLocaleString()}</span>
+                                  <span className="text-[9px] text-gray-400">after deduction</span>
+                                </div>
+                              ) : <span className="text-gray-300 text-sm">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="sticky bottom-0 bg-gray-50 border-t border-gray-200">
+                        <tr>
+                          <td className="px-4 py-2.5 text-xs font-semibold text-gray-500">{preview.members.length} members</td>
+                          <td className="px-4 py-2.5 text-right text-sm font-bold text-gray-900">₹{totalCollection.toLocaleString()}</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                {slotsToProcess.length > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl px-4 py-2.5">
+                    <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
+                    {slotsToProcess.length === 1 ? '1 reservation slot' : `${slotsToProcess.length} reservation slots`} will be marked settled.
+                  </div>
+                )}
+
+              </div>
+            )}
+          </div>
+
+          {/* Footer buttons */}
+          <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+            {step === 1 ? (
+              <>
+                <Button type="button" variant="muted" onClick={onClose} className="flex-1">Cancel</Button>
+                <Button
+                  type="submit"
+                  form="open-draw-form"
+                  disabled={enrollments.length === 0 || (addExtra && (!extraMemberId || !extraSlotId))}
+                  className="flex-1">
+                  Preview →
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button type="button" variant="muted" onClick={() => setStep(1)} className="flex-1">← Back</Button>
+                <Button onClick={() => mutation.mutate()} loading={mutation.isPending} className="flex-1">
+                  Open Draw #{nextCycleNum}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1662,25 +1910,27 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
 }
 
 const STATUS_ROW = {
-  SETTLED:          { bg: 'bg-green-50',  dot: 'bg-green-500',  text: 'Settled'         },
-  PARTIALLY_PAID:   { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'         },
-  OUTSTANDING:      { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding'     },
-  WAIVED:           { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'          },
-  PAYOUT_DEDUCTED:  { bg: 'bg-purple-50', dot: 'bg-purple-400', text: 'Paid at Payout'  },
+  SETTLED:             { bg: 'bg-green-50',  dot: 'bg-green-500',  text: 'Settled'          },
+  PARTIALLY_PAID:      { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'          },
+  OUTSTANDING:         { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding'      },
+  WAIVED:              { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'           },
+  PAYOUT_DEDUCTED:     { bg: 'bg-purple-50', dot: 'bg-purple-400', text: 'Paid at Payout'   },
+  SETTLEMENT_CLEARED:  { bg: 'bg-teal-50',   dot: 'bg-teal-500',   text: 'In Settlement'    },
 };
 
 function PaymentStatusBadge({ status, overdue }) {
   const style = STATUS_ROW[status] ?? STATUS_ROW.OUTSTANDING;
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full
-      ${status === 'SETTLED'          ? 'bg-green-100 text-green-700'
-      : status === 'PARTIALLY_PAID'   ? 'bg-amber-100 text-amber-700'
-      : status === 'WAIVED'           ? 'bg-gray-100 text-gray-500'
-      : status === 'PAYOUT_DEDUCTED'  ? 'bg-purple-100 text-purple-700'
+      ${status === 'SETTLED'             ? 'bg-green-100 text-green-700'
+      : status === 'PARTIALLY_PAID'      ? 'bg-amber-100 text-amber-700'
+      : status === 'WAIVED'              ? 'bg-gray-100 text-gray-500'
+      : status === 'PAYOUT_DEDUCTED'     ? 'bg-purple-100 text-purple-700'
+      : status === 'SETTLEMENT_CLEARED'  ? 'bg-teal-100 text-teal-700'
       : 'bg-red-100 text-red-600'}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.text}
-      {overdue && <span className="text-red-500">!</span>}
+      {overdue && status !== 'SETTLEMENT_CLEARED' && <span className="text-red-500">!</span>}
     </span>
   );
 }
@@ -1759,7 +2009,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                       <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Due</th>
                       <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Paid</th>
                       <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Balance</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                      <th className="pl-8 pr-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
                       <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
@@ -1778,7 +2028,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                               ? <span className="text-red-600">₹{Number(r.balance).toLocaleString()}</span>
                               : <span className="text-green-600">✓</span>}
                           </td>
-                          <td className="px-3 py-2.5"><PaymentStatusBadge status={r.status} overdue={r.overdue} /></td>
+                          <td className="pl-8 pr-3 py-2.5"><PaymentStatusBadge status={r.status} overdue={r.overdue} /></td>
                           <td className="px-3 py-2.5 text-right">
                             {canCollect && (
                               <Button size="sm" onClick={() => { onCollect(r, member); onClose(); }}>
@@ -1804,30 +2054,56 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
             : (
               <div className="space-y-3">
                 {batches.map((b) => {
-                  const isVoiding = voidingId === b.id;
-                  const isVoided  = b.status === 'VOIDED';
-                  const date      = b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+                  const isVoiding  = voidingId === b.id;
+                  const isVoided   = b.status === 'VOIDED';
+                  const date       = b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+                  // Cross-chit: this batch was recorded for a DIFFERENT chit but spilled into this one
+                  const isCarryIn  = b.chitId !== chitId;
+
+                  // Allocations for THIS chit only (carry-in batches have mixed allocations)
+                  const thisChitAllocs  = (b.allocations ?? []).filter(a => a.chitId === chitId);
+                  // Allocations that went to OTHER chits (carry-out from a batch recorded here)
+                  const otherChitAllocs = (b.allocations ?? []).filter(a => a.chitId !== chitId);
 
                   return (
-                    <div key={b.id} className={`border rounded-lg p-4 space-y-2 ${isVoided ? 'border-gray-200 bg-gray-50' : 'border-gray-200 bg-white'}`}>
+                    <div
+                      key={b.id}
+                      className={`border rounded-lg p-4 space-y-2 ${
+                        isVoided   ? 'border-gray-200 bg-gray-50' :
+                        isCarryIn  ? 'border-teal-200 bg-teal-50/40' :
+                                     'border-gray-200 bg-white'
+                      }`}
+                    >
+                      {/* Carry-in banner */}
+                      {isCarryIn && (
+                        <div className="flex items-center gap-1.5 text-xs text-teal-700 font-medium mb-1">
+                          <span>↩</span>
+                          <span>Carry forward — excess from another chit applied here</span>
+                        </div>
+                      )}
+
                       {/* Header row */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className={`text-base font-semibold ${isVoided ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                              ₹{Number(b.totalAmount).toLocaleString()}
+                              {isCarryIn
+                                ? `₹${Number(thisChitAllocs.reduce((s, a) => s + Number(a.allocatedAmount), 0)).toLocaleString()} applied`
+                                : `₹${Number(b.totalAmount).toLocaleString()}`}
                             </span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${BATCH_STATUS_STYLE[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
                               {b.status === 'AWAITING_REMITTANCE' ? 'Pending Remittance' : b.status === 'VOIDED' ? 'Voided' : 'Settled'}
                             </span>
-                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                              {BATCH_MODE_LABEL[b.paymentMode] ?? b.paymentMode}
-                            </span>
+                            {!isCarryIn && (
+                              <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                                {BATCH_MODE_LABEL[b.paymentMode] ?? b.paymentMode}
+                              </span>
+                            )}
                           </div>
                           <span className="text-xs text-gray-400">{date}</span>
                         </div>
 
-                        {!isVoided && (
+                        {!isVoided && !isCarryIn && (
                           <button
                             onClick={() => { setVoidingId(isVoiding ? null : b.id); setVoidReason(''); }}
                             className="text-xs text-red-500 hover:text-red-700 hover:underline whitespace-nowrap"
@@ -1837,12 +2113,24 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                         )}
                       </div>
 
-                      {/* Allocations */}
-                      {b.allocations?.length > 0 && (
+                      {/* Allocations for this chit */}
+                      {(isCarryIn ? thisChitAllocs : b.allocations)?.length > 0 && (
                         <div className="pl-1 space-y-0.5">
-                          {b.allocations.map((a, i) => (
-                            <p key={i} className="text-xs text-gray-500">
-                              → Draw {a.monthNumber}: ₹{Number(a.allocatedAmount).toLocaleString()}
+                          {(isCarryIn ? thisChitAllocs : b.allocations).map((a, i) => (
+                            <p key={i} className={`text-xs ${isCarryIn ? 'text-teal-700 font-medium' : 'text-gray-500'}`}>
+                              {isCarryIn ? '↩' : '→'} Draw {a.monthNumber}: ₹{Number(a.allocatedAmount).toLocaleString()}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Carry-out: allocations that spilled from this batch into other chits */}
+                      {!isCarryIn && otherChitAllocs.length > 0 && (
+                        <div className="pl-1 space-y-0.5 border-t border-amber-100 pt-1.5 mt-1">
+                          <p className="text-xs text-amber-600 font-medium mb-0.5">Excess carried forward to other chit(s):</p>
+                          {otherChitAllocs.map((a, i) => (
+                            <p key={i} className="text-xs text-amber-700">
+                              ↪ Draw {a.monthNumber} (other chit): ₹{Number(a.allocatedAmount).toLocaleString()}
                             </p>
                           ))}
                         </div>
@@ -1916,7 +2204,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Due</th>
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Paid</th>
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Balance</th>
-            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Status</th>
+            <th className="pl-8 pr-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Status</th>
             <th className="px-3 py-2.5 sticky top-0 bg-gray-50 z-10" />
           </tr>
         </thead>
@@ -1948,7 +2236,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
                     ? <span className="text-red-600">₹{Number(p.balance).toLocaleString()}</span>
                     : <span className="text-green-600">✓</span>}
                 </td>
-                <td className="px-3 py-3">
+                <td className="pl-8 pr-3 py-3">
                   <PaymentStatusBadge status={p.status} overdue={p.overdue} />
                 </td>
                 <td className="px-3 py-3">
@@ -1996,19 +2284,18 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const toast = useToastContext();
   const balance = Number(paymentRecord?.balance ?? 0);
 
-  const [tab, setTab] = useState('direct');           // 'direct' | 'worker'
-  const [amount, setAmount] = useState(String(balance));
-  // Workers can only collect cash physically — no UPI/Bank options
+  const [amount, setAmount]         = useState(String(balance));
   const [paymentMode, setPaymentMode] = useState(isWorker ? 'CASH' : 'UPI');
-  const [notes, setNotes] = useState('');
-  const [workerId, setWorkerId] = useState('');
+  const [collectedBy, setCollectedBy] = useState('SELF'); // 'SELF' or a staff UUID
+  const [notes, setNotes]           = useState('');
 
-  const { data: staff = [] } = useQuery({
-    queryKey: ['staff'],
-    queryFn: listStaff,
-    staleTime: 60_000,
-  });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
   const collectors = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
+
+  const isCash       = paymentMode === 'CASH';
+  const viaTeam      = isCash && collectedBy !== 'SELF';
+  const amtNum       = Number(amount || 0);
+  const isOverpay    = amtNum > balance && balance > 0;
 
   function invalidate() {
     qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
@@ -2016,36 +2303,30 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
     qc.invalidateQueries({ queryKey: ['paymentHistory', chitId, member?.id] });
   }
 
-  // Direct: UPI/Bank/Cheque settle immediately; Cash-in-hand = collect + auto-remit
-  const directMutation = useMutation({
+  const mutation = useMutation({
     mutationFn: async () => {
-      const amt = Number(amount);
-      if (paymentMode === 'CASH') {
-        const batch = await collectPayment({ chitId, memberId: paymentRecord.memberId, amount: amt, notes: notes || undefined });
-        await remitPayment(batch.id);
+      if (viaTeam) {
+        // Create a cash pickup request — assigns the worker to go collect from the member.
+        // The payment is NOT recorded yet; it appears in Cash Requests until the worker collects.
+        return adminCreateCashRequest({
+          memberId: paymentRecord.memberId,
+          workerId: collectedBy,
+          chitId,
+          requestedAmount: amtNum,
+          notes: notes || null,
+        });
       } else {
-        await recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amt, paymentMode, notes: notes || undefined });
+        // Admin direct (CASH self or UPI/Bank/Cheque) → settled immediately
+        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined });
       }
     },
-    onSuccess: () => { invalidate(); toast.success('Payment recorded and settled'); onClose(); },
+    onSuccess: () => {
+      invalidate();
+      toast.success(viaTeam ? 'Cash pickup assigned — visible in Cash Requests' : 'Payment recorded and settled');
+      onClose();
+    },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
   });
-
-  // Worker: cash handed to worker — creates AWAITING_REMITTANCE, admin remits later
-  const workerMutation = useMutation({
-    mutationFn: () => collectPayment({
-      chitId,
-      memberId: paymentRecord.memberId,
-      amount: Number(amount),
-      notes: notes || undefined,
-      ...(workerId ? { overrideCollectedBy: workerId } : {}),
-    }),
-    onSuccess: () => { invalidate(); toast.success('Marked as collected by worker — remit when cash is received'); onClose(); },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record collection'),
-  });
-
-  const isPending = directMutation.isPending || workerMutation.isPending;
-  const amtNum = Number(amount || 0);
 
   return (
     <Modal title="Collect Payment" onClose={onClose} size="sm">
@@ -2062,86 +2343,62 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           </div>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
-          {[
-            { key: 'direct', label: 'Settle Now',   desc: 'UPI / Bank / Cash in hand' },
-            { key: 'worker', label: 'Via Worker',    desc: 'Worker holds cash, remit later' },
-          ].map(({ key, label, desc }) => (
-            <button key={key} type="button"
-              onClick={() => setTab(key)}
-              className={`flex-1 px-3 py-2.5 text-left transition-colors ${
-                tab === key ? 'bg-[#1E3A5F] text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}>
-              <p className="font-medium text-sm">{label}</p>
-              <p className={`text-xs mt-0.5 ${tab === key ? 'text-blue-200' : 'text-gray-400'}`}>{desc}</p>
-            </button>
-          ))}
-        </div>
-
         {/* Amount */}
         <FormField label="Amount (₹)" required>
           <Input type="number" min="0.01" step="0.01"
             value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          {isOverpay && (
+            <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              ⚠ ₹{amtNum.toLocaleString()} exceeds outstanding by <strong>₹{(amtNum - balance).toLocaleString()}</strong> — excess is not stored as credit.
+            </p>
+          )}
         </FormField>
 
-        {/* Payment mode — only for direct tab; workers can only accept cash */}
-        {tab === 'direct' && (
+        {/* Payment mode */}
+        {!isWorker && (
           <FormField label="Payment Mode" required>
-            <Select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
-              disabled={isWorker}>
-              {isWorker ? (
-                <option value="CASH">Cash (in hand — settles immediately)</option>
-              ) : (
-                <>
-                  <option value="UPI">UPI</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                  <option value="CHEQUE">Cheque</option>
-                  <option value="CASH">Cash (in hand — settles immediately)</option>
-                </>
-              )}
+            <Select value={paymentMode} onChange={(e) => { setPaymentMode(e.target.value); setCollectedBy('SELF'); }}>
+              <option value="UPI">UPI</option>
+              <option value="BANK_TRANSFER">Bank Transfer</option>
+              <option value="CHEQUE">Cheque</option>
+              <option value="CASH">Cash</option>
             </Select>
           </FormField>
         )}
 
-        {/* Worker selector — only for worker tab */}
-        {tab === 'worker' && (
-          <FormField label="Collected By">
-            <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
-              <option value="">— Select worker / manager —</option>
+        {/* Cash: who has it? */}
+        {isCash && (
+          <FormField label="Collected by" required>
+            <Select value={collectedBy} onChange={(e) => setCollectedBy(e.target.value)}>
+              <option value="SELF">Self — I have the cash</option>
               {collectors.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.role === 'WORKER' ? 'Worker' : 'Manager'}: {s.fullName ?? s.username}
                 </option>
               ))}
             </Select>
+            {viaTeam && (
+              <p className="mt-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                A pickup request will be created and assigned to this person. Track it in <em>Cash Requests</em>.
+              </p>
+            )}
           </FormField>
         )}
 
         {/* Notes */}
-        <FormField label={tab === 'direct' ? 'Reference / Notes' : 'Notes'}>
-          <Input
-            placeholder={tab === 'direct' ? 'UPI ref, cheque no., remarks…' : 'Remarks…'}
-            value={notes} onChange={(e) => setNotes(e.target.value)}
-          />
+        <FormField label="Reference / Notes">
+          <Input placeholder="UPI ref, cheque no., remarks…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormField>
 
-        {/* Worker tab info */}
-        {tab === 'worker' && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700">
-            Payment will stay <strong>pending remittance</strong> until you confirm the worker handed over the cash. Go to <em>Pending Remittances</em> to finalize.
-          </div>
-        )}
-
-        <div className="flex gap-3 pt-4">
+        <div className="flex gap-3 pt-1">
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button
             disabled={!amtNum || amtNum <= 0}
-            loading={isPending}
-            onClick={() => tab === 'direct' ? directMutation.mutate() : workerMutation.mutate()}
+            loading={mutation.isPending}
+            onClick={() => mutation.mutate()}
             className="flex-1"
           >
-            {tab === 'direct' ? `Settle ₹${amtNum.toLocaleString()}` : `Mark Collected ₹${amtNum.toLocaleString()}`}
+            {viaTeam ? `Assign Pickup ₹${amtNum.toLocaleString()}` : `Settle ₹${amtNum.toLocaleString()}`}
           </Button>
         </div>
       </div>
@@ -3340,6 +3597,161 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   );
 }
 
+// ─── Status-change dialog (per-status themed) ────────────────────────────────
+const STATUS_CHANGE_CFG = {
+  ACTIVE: {
+    grad: ['#1A7A48', '#145B38'],
+    Icon: Play,
+    label: 'Activate Chit',
+    buttonVariant: 'success',
+  },
+  COMPLETED: {
+    grad: ['#1E3A5F', '#2C5282'],
+    Icon: CheckCircle,
+    label: 'Mark as Completed',
+    buttonVariant: 'primary',
+  },
+  DRAFT: {
+    grad: ['#9A6010', '#7A4C0B'],
+    Icon: RotateCcw,
+    label: 'Revert to Draft',
+    buttonVariant: 'warning',
+  },
+};
+
+function StatusChangeDialog({
+  chit, fromStatus, toStatus,
+  pendingStartDate, setPendingStartDate,
+  unallocatedCount,
+  loading, onConfirm, onClose,
+}) {
+  const cfg = STATUS_CHANGE_CFG[toStatus];
+  if (!cfg) return null;
+  const { Icon, grad, label, buttonVariant } = cfg;
+
+  const needsStartDate = toStatus === 'ACTIVE' && fromStatus === 'DRAFT';
+  const hasWarning     = toStatus === 'ACTIVE' && unallocatedCount > 0;
+  const confirmDisabled = needsStartDate && !pendingStartDate;
+
+  const descriptions = {
+    ACTIVE: hasWarning
+      ? `${unallocatedCount} slot${unallocatedCount > 1 ? 's are' : ' is'} still UNALLOCATED — no member or payout assigned. Those months will have no winner. Fill them in first, or activate anyway.`
+      : `Members will be enrolled and payment cycles will begin from the start date.`,
+    COMPLETED: `This closes all active draws and marks the fund as finished. Existing payment records are preserved.`,
+    DRAFT: `All current enrollments will be cleared so you can freely edit the schedule. Re-activating will re-sync enrollments.`,
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-6">
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div className="relative bg-white w-full rounded-t-3xl sm:rounded-2xl sm:shadow-2xl sm:max-w-sm overflow-hidden max-h-[90vh] flex flex-col">
+
+        {/* Drag pill — mobile only */}
+        <div className="sm:hidden flex justify-center pt-3 absolute top-0 left-0 right-0 z-10">
+          <div className="w-10 h-1 rounded-full bg-white/40" />
+        </div>
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center rounded-xl text-white/60 hover:text-white hover:bg-white/20 transition-colors cursor-pointer"
+        >
+          <X size={16} />
+        </button>
+
+        {/* Hero banner */}
+        <div
+          className="pt-10 pb-8 flex flex-col items-center gap-3 text-center"
+          style={{ background: `linear-gradient(150deg, ${grad[0]} 0%, ${grad[1]} 100%)` }}
+        >
+          {/* Icon ring */}
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(255,255,255,0.18)', boxShadow: '0 0 0 8px rgba(255,255,255,0.08)' }}
+          >
+            <Icon size={28} className="text-white" />
+          </div>
+
+          {/* Heading */}
+          <div>
+            <p className="text-xl font-bold text-white tracking-tight" style={{ fontFamily: 'Merriweather, serif' }}>
+              {label}
+            </p>
+          </div>
+
+          {/* Status transition — plain text */}
+          <div className="flex items-center justify-center gap-2.5 mt-1">
+            <span className="text-sm font-medium text-white/60">{fromStatus}</span>
+            <ArrowRight size={14} className="text-white/40 flex-shrink-0" />
+            <span className="text-sm font-bold text-white">{toStatus}</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-7 pt-6 pb-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+          {/* Chit identity */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Chit Fund</p>
+            <p className="text-base font-semibold text-gray-900 mt-0.5 truncate">{chit.name}</p>
+          </div>
+
+          {/* Description */}
+          <p className="text-sm text-gray-500 leading-relaxed">{descriptions[toStatus]}</p>
+
+          {/* Unallocated slots warning */}
+          {hasWarning && (
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 leading-relaxed">
+                <span className="font-semibold">{unallocatedCount} slot{unallocatedCount > 1 ? 's' : ''}</span> still unallocated — those months will have no winner.
+              </p>
+            </div>
+          )}
+
+          {/* Start date field */}
+          {needsStartDate && (
+            <FormField label="Actual Start Date" required>
+              <DateInput
+                value={pendingStartDate || chit.startDate || ''}
+                onChange={(e) => setPendingStartDate(e.target.value)}
+                required
+              />
+              <p className="text-xs text-gray-400 mt-1.5">
+                {chit.startDate
+                  ? `Anticipated: ${new Date(chit.startDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}. Change if the actual start differs.`
+                  : 'Schedule months will count from this date.'}
+              </p>
+            </FormField>
+          )}
+        </div>
+
+        {/* Actions — full-width equal buttons */}
+        <div className="px-7 pb-7 pt-1 flex gap-3">
+          <Button variant="muted" onClick={onClose} disabled={loading} size="md" className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            variant={buttonVariant}
+            onClick={onConfirm}
+            loading={loading}
+            disabled={confirmDisabled}
+            size="md"
+            className="flex-1"
+          >
+            {label}
+          </Button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 // ─── Header actions ───────────────────────────────────────────────────────────
 function HeaderActions({ chitId, chit }) {
   const qc = useQueryClient();
@@ -3430,25 +3842,7 @@ function HeaderActions({ chitId, chit }) {
   });
   const unallocatedCount = reservations.filter((r) => r.status === 'UNALLOCATED').length;
 
-  // Destructive statuses require type-to-confirm; others use ConfirmDialog
   const isDestructiveStatus = (s) => s === 'CANCELLED';
-
-  const statusModalTitle = pendingStatus === 'DRAFT'
-    ? 'Revert to Draft'
-    : pendingStatus === 'ACTIVE' && unallocatedCount > 0
-      ? 'Incomplete Schedule — Activate Anyway?'
-      : pendingStatus
-        ? (isDestructiveStatus(pendingStatus) ? 'Cancel Chit' : `Set Status to ${pendingStatus}`)
-        : '';
-  const statusModalDesc = pendingStatus === 'DRAFT'
-    ? `"${chit.name}" will go back to DRAFT. All current enrollments will be cleared so you can freely edit the schedule. Re-activating will re-sync enrollments from the updated schedule.`
-    : pendingStatus === 'ACTIVE' && unallocatedCount > 0
-      ? `${unallocatedCount} slot${unallocatedCount > 1 ? 's are' : ' is'} still UNALLOCATED — no member or payout assigned. Those months will have no winner when they come due. Go back and fill them in, or activate anyway if that's intentional.`
-      : pendingStatus
-        ? (isDestructiveStatus(pendingStatus)
-            ? `This will permanently cancel "${chit.name}". This action cannot be undone.`
-            : `Change "${chit.name}" status to ${pendingStatus}?`)
-        : '';
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -3483,7 +3877,7 @@ function HeaderActions({ chitId, chit }) {
                   <button key={s}
                     onClick={() => { setShowStatusMenu(false); setPendingStatus(s); if (s === 'ACTIVE' && chit.startDate) setPendingStartDate(chit.startDate); }}
                     className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 font-medium ${
-                      isDestructiveStatus(s) ? 'text-red-600' : s === 'COMPLETED' ? 'text-green-700' : s === 'DRAFT' ? 'text-amber-700' : 'text-gray-700'
+                      isDestructiveStatus(s) ? 'text-red-600' : s === 'ACTIVE' || s === 'COMPLETED' ? 'text-green-700' : s === 'DRAFT' ? 'text-amber-700' : 'text-gray-700'
                     }`}>
                     {s === 'DRAFT' ? 'Revert to Draft' : `Set to ${s}`}
                   </button>
@@ -3518,39 +3912,26 @@ function HeaderActions({ chitId, chit }) {
       {pendingStatus && (
         isDestructiveStatus(pendingStatus) ? (
           <DestructiveDialog
-            title={statusModalTitle}
-            description={statusModalDesc}
-            confirmWord="DELETE"
-            actionLabel={`Set to ${pendingStatus}`}
+            title="Cancel Chit Fund"
+            description={`This will permanently cancel "${chit.name}". This action cannot be undone.`}
+            confirmWord="CANCEL"
+            actionLabel="Cancel Chit"
             loading={statusMutation.isPending}
             onConfirm={() => statusMutation.mutate({ status: pendingStatus, startDate: pendingStartDate })}
             onClose={() => setPendingStatus(null)}
           />
         ) : (
-          <ConfirmDialog
-            title={statusModalTitle}
-            description={statusModalDesc}
-            actionLabel={`Set to ${pendingStatus}`}
+          <StatusChangeDialog
+            chit={chit}
+            fromStatus={status}
+            toStatus={pendingStatus}
+            pendingStartDate={pendingStartDate}
+            setPendingStartDate={setPendingStartDate}
+            unallocatedCount={unallocatedCount}
             loading={statusMutation.isPending}
             onConfirm={() => statusMutation.mutate({ status: pendingStatus, startDate: pendingStartDate })}
             onClose={() => { setPendingStatus(null); setPendingStartDate(''); }}
-            confirmDisabled={pendingStatus === 'ACTIVE' && status === 'DRAFT' && !pendingStartDate}
-          >
-            {pendingStatus === 'ACTIVE' && status === 'DRAFT' && (
-              <FormField label="Actual Start Date" required>
-                <DateInput
-                  value={pendingStartDate || chit.startDate || ''}
-                  onChange={(e) => setPendingStartDate(e.target.value)}
-                  required
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  {chit.startDate
-                    ? `Anticipated: ${new Date(chit.startDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}. Change if the actual start differs — schedule months will shift accordingly.`
-                    : 'Schedule months will count from this date.'}
-                </p>
-              </FormField>
-            )}
-          </ConfirmDialog>
+          />
         )
       )}
 

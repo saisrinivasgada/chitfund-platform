@@ -49,4 +49,6 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
             @Param("chitId") UUID chitId);
 
     List<Payout> findAllByOrderByCreatedAtDesc();
+
+    long countByChitIdAndStatus(UUID chitId, PayoutStatus status);
 }

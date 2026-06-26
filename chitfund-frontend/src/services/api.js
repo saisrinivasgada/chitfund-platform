@@ -272,6 +272,11 @@ export const shiftReservations = async ({ chitId, fromMonth }) => {
   return res.data.data;
 };
 
+export const getSlotHistory = async (slotId) => {
+  const res = await api.get(`/audit/logs/RESERVATION_SLOT/${slotId}`);
+  return res.data.data ?? [];
+};
+
 // Legacy (kept for backward compat with ChitDetailPage reservation tab)
 export const createReservation = async ({ chitId, memberId, monthNumber }) => {
   const res = await api.post(`/chits/${chitId}/reservations`, { memberId, monthNumber });
@@ -385,6 +390,11 @@ export const getMemberBalanceBulk = async (memberIds) => {
   return res.data.data ?? {};
 };
 
+export const getMemberCredit = async (memberId) => {
+  const res = await api.get(`/payments/credits/${memberId}`);
+  return res.data.data ?? { memberId, balance: 0, recentTransactions: [] };
+};
+
 export const getPendingRemittance = async () => {
   const res = await api.get('/payments/pending-remittance');
   return res.data.data ?? [];
@@ -455,6 +465,24 @@ export const getMyRequestHistory = async () => {
 export const getMyCashRequests = async () => {
   const res = await api.get('/payments/requests/my-requests');
   return res.data.data ?? [];
+};
+
+export const markPickedUp = async (requestId) => {
+  const res = await api.patch(`/payments/requests/${requestId}/pickup`);
+  return res.data.data;
+};
+
+export const rescheduleRequest = async ({ requestId, scheduledFor }) => {
+  const res = await api.patch(`/payments/requests/${requestId}/reschedule`, null, {
+    params: { scheduledFor },
+  });
+  return res.data.data;
+};
+
+export const workerCancelRequest = async ({ requestId, reason }) => {
+  const params = reason ? { reason } : {};
+  const res = await api.patch(`/payments/requests/${requestId}/cancel/worker`, null, { params });
+  return res.data.data;
 };
 
 export const collectForRequest = async (requestId) => {

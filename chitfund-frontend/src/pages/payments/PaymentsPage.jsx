@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { useNavigate, NavLink, Outlet } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getChits, getMembers, getChitsForMember,
+  getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit,
   collectPayment, recordPayment, getAllPaymentBatches,
   getActiveCashRequests, assignWorkerToRequest, cancelCashRequest, listStaff,
-  getPendingRemittance, remitPayment,
-  adminCreateCashRequest,
+  getPendingRemittance, remitPayment, voidPaymentBatch,
+  adminCreateCashRequest, collectForRequest,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -18,7 +18,7 @@ import FormField, { Input, Select, Textarea } from '../../components/ui/FormFiel
 import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus } from 'lucide-react';
+import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle } from 'lucide-react';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
 const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
@@ -68,9 +68,136 @@ function TabBar({ tabs }) {
 const REQ_STATUS_STYLE = {
   PENDING:   'bg-amber-100 text-amber-700',
   ASSIGNED:  'bg-blue-100 text-blue-700',
-  COLLECTED: 'bg-green-100 text-green-700',
+  PICKED_UP: 'bg-green-100 text-green-700',
+  COLLECTED: 'bg-[#EEF2F8] text-[#1E3A5F]',
   CANCELLED: 'bg-gray-100 text-gray-500',
 };
+
+function fmtCRDateTime(d) {
+  if (!d) return null;
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+    + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
+  const steps = [
+    {
+      key: 'requested',
+      icon: Clock,
+      color: '#1E3A5F',
+      bg: '#EEF2F8',
+      label: 'Pickup Initiated',
+      sub: `By member`,
+      time: request.requestedAt,
+      done: true,
+    },
+    {
+      key: 'assigned',
+      icon: UserCheck,
+      color: '#D97706',
+      bg: '#FEF3C7',
+      label: 'Assigned to Worker',
+      sub: request.assignedWorkerId
+        ? `Assigned to ${staffMap[request.assignedWorkerId] ?? 'worker'}`
+        : 'Awaiting assignment',
+      time: request.assignedAt,
+      done: !!request.assignedAt,
+    },
+    {
+      key: 'picked_up',
+      icon: PackageCheck,
+      color: '#16A34A',
+      bg: '#F0FDF4',
+      label: 'Picked Up by Worker',
+      sub: request.pickedUpAt
+        ? `${staffMap[request.pickedUpBy] ?? staffMap[request.assignedWorkerId] ?? 'Worker'} confirmed pickup from member`
+        : 'Not yet picked up',
+      time: request.pickedUpAt,
+      done: !!request.pickedUpAt,
+    },
+    {
+      key: 'collected',
+      icon: Banknote,
+      color: '#1E3A5F',
+      bg: '#EEF2F8',
+      label: 'Handed to Admin & Confirmed',
+      sub: request.status === 'COLLECTED'
+        ? 'Admin confirmed receipt — member account credited'
+        : 'Awaiting admin confirmation',
+      time: request.status === 'COLLECTED' ? request.updatedAt : null,
+      done: request.status === 'COLLECTED',
+    },
+  ];
+
+  return (
+    <Modal title="Cash Pickup Audit Trail" onClose={onClose} size="sm">
+      <div className="space-y-1 pb-2">
+        <div className="mb-4 px-1 flex items-center gap-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">
+              {memberMap[request.memberId] ?? request.memberId?.slice(0, 8)}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              ₹{Number(request.requestedAmount).toLocaleString('en-IN')}
+              {request.assignedWorkerId && ` · Worker: ${staffMap[request.assignedWorkerId] ?? '—'}`}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-0">
+          {steps.map((step, i) => {
+            const Icon = step.icon;
+            const isLast = i === steps.length - 1;
+            return (
+              <div key={step.key} className="flex gap-3">
+                <div className="flex flex-col items-center flex-shrink-0">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{
+                      backgroundColor: step.done ? step.bg : '#F3F4F6',
+                      border: `2px solid ${step.done ? step.color : '#D1D5DB'}`,
+                    }}
+                  >
+                    <Icon size={14} style={{ color: step.done ? step.color : '#9CA3AF' }} />
+                  </div>
+                  {!isLast && (
+                    <div
+                      className="w-0.5 flex-1 my-1"
+                      style={{ backgroundColor: step.done ? step.color : '#E5E7EB', minHeight: '20px' }}
+                    />
+                  )}
+                </div>
+                <div className="pb-4 min-w-0 flex-1">
+                  <p className={`text-sm font-semibold ${step.done ? 'text-gray-900' : 'text-gray-400'}`}>
+                    {step.label}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{step.sub}</p>
+                  {step.time && (
+                    <p className="text-xs text-gray-400 mt-1 font-medium">{fmtCRDateTime(step.time)}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {request.notes && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
+            <p className="text-xs text-gray-500 font-medium mb-0.5">Member Note</p>
+            <p className="text-sm text-gray-700 italic">"{request.notes}"</p>
+          </div>
+        )}
+        {request.adminNotes && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+            <p className="text-xs text-amber-700 font-medium mb-0.5">Admin Note</p>
+            <p className="text-sm text-gray-700 italic">"{request.adminNotes}"</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 function AssignWorkerModal({ request, onClose }) {
   const qc = useQueryClient();
@@ -246,6 +373,8 @@ export function CashRequestsTab() {
   const toast = useToastContext();
   const [assignTarget, setAssignTarget] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
+  const [collectTarget, setCollectTarget] = useState(null);
+  const [trailTarget, setTrailTarget] = useState(null);
   const [showSetupModal, setShowSetupModal] = useState(false);
 
   const { data: requests = [], isLoading } = useQuery({
@@ -269,7 +398,19 @@ export function CashRequestsTab() {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Cancel failed'),
   });
 
+  const collectMutation = useMutation({
+    mutationFn: (id) => collectForRequest(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cashRequests'] });
+      toast.success('Cash confirmed — member account has been credited');
+      setCollectTarget(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Collection failed'),
+  });
+
   if (isLoading) return <PageSpinner />;
+
+  const STATUS_LABEL = { PENDING: 'Pending', ASSIGNED: 'Assigned', PICKED_UP: 'Picked Up', COLLECTED: 'Collected', CANCELLED: 'Cancelled' };
 
   return (
     <div className="space-y-4">
@@ -303,10 +444,10 @@ export function CashRequestsTab() {
                   : <span className="text-xs text-gray-400 italic">Not assigned</span>}
               </Td>
               <Td><span className="font-semibold text-gray-900">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span></Td>
-              <Td><span className="text-sm text-gray-500 max-w-[200px] truncate block">{r.notes ?? '—'}</span></Td>
+              <Td><span className="text-sm text-gray-500 max-w-[160px] truncate block">{r.notes ?? '—'}</span></Td>
               <Td>
-                <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${REQ_STATUS_STYLE[r.status]}`}>
-                  {r.status}
+                <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${REQ_STATUS_STYLE[r.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {STATUS_LABEL[r.status] ?? r.status}
                 </span>
               </Td>
               <Td>
@@ -321,12 +462,21 @@ export function CashRequestsTab() {
                       <UserCheck size={13} className="mr-1" /> Assign
                     </Button>
                   )}
-                  {(r.status === 'PENDING' || r.status === 'ASSIGNED') && (
+                  {r.status === 'PICKED_UP' && (
+                    <Button variant="success" size="sm" onClick={() => setCollectTarget(r)}>
+                      <CheckCircle size={13} className="mr-1" /> Collect
+                    </Button>
+                  )}
+                  {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP') && (
                     <Button variant="muted" size="sm" onClick={() => setCancelTarget(r)}>Cancel</Button>
                   )}
-                  {r.status === 'ASSIGNED' && (
-                    <span className="text-xs text-blue-600 font-medium">Worker assigned</span>
-                  )}
+                  <button
+                    onClick={() => setTrailTarget(r)}
+                    className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer"
+                    title="View audit trail"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
                 </div>
               </Td>
             </Tr>
@@ -336,6 +486,14 @@ export function CashRequestsTab() {
 
       {assignTarget && <AssignWorkerModal request={assignTarget} onClose={() => setAssignTarget(null)} />}
       {showSetupModal && <SetupCashPickupModal onClose={() => setShowSetupModal(false)} />}
+      {trailTarget && (
+        <AdminCashTrailModal
+          request={trailTarget}
+          memberMap={memberMap}
+          staffMap={staffMap}
+          onClose={() => setTrailTarget(null)}
+        />
+      )}
 
       {cancelTarget && (
         <ConfirmDialog
@@ -346,6 +504,18 @@ export function CashRequestsTab() {
           loading={cancelMutation.isPending}
           onConfirm={() => cancelMutation.mutate(cancelTarget.id)}
           onClose={() => setCancelTarget(null)}
+        />
+      )}
+
+      {collectTarget && (
+        <ConfirmDialog
+          variant="success"
+          title="Confirm Cash Receipt"
+          description={`Confirm you received ₹${Number(collectTarget.requestedAmount).toLocaleString('en-IN')} from worker ${staffMap[collectTarget.assignedWorkerId] ?? ''}? This will credit the member's account.`}
+          actionLabel="Yes, Received"
+          loading={collectMutation.isPending}
+          onConfirm={() => collectMutation.mutate(collectTarget.id)}
+          onClose={() => setCollectTarget(null)}
         />
       )}
     </div>
@@ -419,6 +589,8 @@ export function RecordPaymentTab() {
       toast.success(msg);
       qc.invalidateQueries({ queryKey: ['pending-remittance'] });
       qc.invalidateQueries({ queryKey: ['payment-batches-all'] });
+      qc.invalidateQueries({ queryKey: ['memberCredit', memberId] });
+      qc.invalidateQueries({ queryKey: ['memberBalance', memberId] });
       if (!(paymentMode === 'CASH' && collectedBy !== 'SELF')) {
         // Direct payments (admin self or UPI/bank) immediately credit treasury
         qc.invalidateQueries({ queryKey: ['wallet-balance'] });
@@ -432,6 +604,27 @@ export function RecordPaymentTab() {
 
   const selectedChit = collectableChits.find((c) => c.id === chitId);
   const isCash = paymentMode === 'CASH';
+
+  const { data: chitBalance } = useQuery({
+    queryKey: ['memberBalance', memberId, chitId],
+    queryFn: () => getMemberBalance({ memberId, chitId }),
+    enabled: !!memberId && !!chitId,
+    staleTime: 30_000,
+  });
+
+  const { data: memberCredit } = useQuery({
+    queryKey: ['memberCredit', memberId],
+    queryFn: () => getMemberCredit(memberId),
+    enabled: !!memberId,
+    staleTime: 30_000,
+  });
+  const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
+
+  const outstanding = chitBalance ? Number(chitBalance.totalOutstanding ?? 0) : null;
+  const amtNum = Number(amount || 0);
+  // Effective amount after credit auto-applies
+  const effectiveAmount = amtNum + creditBalance;
+  const isOverpay = outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
 
   return (
     <div className="max-w-lg">
@@ -471,6 +664,18 @@ export function RecordPaymentTab() {
               <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
             ))}
           </Select>
+          {memberId && creditBalance > 0 && (
+            <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+              <span className="text-xs text-emerald-800 font-medium">
+                Credit balance: <strong>₹{creditBalance.toLocaleString('en-IN')}</strong>
+              </span>
+              <span className="text-xs text-emerald-600 ml-auto">Auto-applied to outstanding</span>
+            </div>
+          )}
+          {memberId && creditBalance === 0 && memberCredit && (
+            <p className="text-xs text-gray-400 mt-1">No credit balance</p>
+          )}
         </FormField>
 
         {/* Chit */}
@@ -490,13 +695,29 @@ export function RecordPaymentTab() {
         </FormField>
 
         {selectedChit && (
-          <div className="bg-gray-50 rounded-lg px-4 py-2.5 text-xs text-gray-500 flex items-center gap-3">
-            <ChitStatusDot status={selectedChit.status} />
-            <span className="font-medium text-gray-700">{selectedChit.name}</span>
-            {selectedChit.installmentAmount && (
-              <span>₹{Number(selectedChit.installmentAmount).toLocaleString('en-IN')} / draw</span>
+          <div className="bg-gray-50 rounded-lg px-4 py-2.5 text-xs text-gray-500 space-y-1.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <ChitStatusDot status={selectedChit.status} />
+              <span className="font-medium text-gray-700">{selectedChit.name}</span>
+              <Badge variant={statusBadge(selectedChit.status)}>{selectedChit.status}</Badge>
+              <span className="ml-auto font-semibold">
+                {outstanding === null ? (
+                  <span className="text-gray-300">loading…</span>
+                ) : outstanding === 0 ? (
+                  <span className="text-green-600">No outstanding</span>
+                ) : (
+                  <span className="text-red-600">₹{outstanding.toLocaleString('en-IN')} outstanding</span>
+                )}
+              </span>
+            </div>
+            {creditBalance > 0 && outstanding !== null && outstanding > 0 && (
+              <div className="flex items-center gap-2 text-emerald-700 font-medium border-t border-gray-200 pt-1.5">
+                <span>Credit ₹{creditBalance.toLocaleString('en-IN')} will auto-apply →</span>
+                <span className="text-red-600">
+                  Remaining to collect: <strong>₹{Math.max(0, outstanding - creditBalance).toLocaleString('en-IN')}</strong>
+                </span>
+              </div>
             )}
-            <Badge variant={statusBadge(selectedChit.status)}>{selectedChit.status}</Badge>
           </div>
         )}
 
@@ -510,6 +731,15 @@ export function RecordPaymentTab() {
             onChange={(e) => setAmount(e.target.value)}
             required
           />
+          {isOverpay && (
+            <div className="mt-1.5 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <span className="flex-shrink-0">ℹ</span>
+              <span>
+                Effective payment (₹{amtNum.toLocaleString('en-IN')}{creditBalance > 0 ? ` + ₹${creditBalance.toLocaleString('en-IN')} credit` : ''} = ₹{effectiveAmount.toLocaleString('en-IN')}) exceeds this chit's outstanding ₹{outstanding.toLocaleString('en-IN')}.
+                The excess <strong>₹{(effectiveAmount - outstanding).toLocaleString('en-IN')}</strong> will auto-apply to any other chit outstanding — if all clear, it becomes credit balance.
+              </span>
+            </div>
+          )}
         </FormField>
 
         {/* Collected By — only for CASH */}
@@ -567,6 +797,8 @@ export function PendingRemittanceTab() {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [confirmTarget, setConfirmTarget] = useState(null);
+  const [voidTarget, setVoidTarget] = useState(null);
+  const [collectPickupTarget, setCollectPickupTarget] = useState(null);
   const [sortField, setSortField] = useState('collectedAt');
   const [sortDir, setSortDir] = useState('desc');
   const [filterCollector, setFilterCollector] = useState('');
@@ -581,6 +813,14 @@ export function PendingRemittanceTab() {
     queryFn: getPendingRemittance,
     refetchInterval: 30_000,
   });
+
+  // PICKED_UP cash requests = worker has cash, admin hasn't collected yet
+  const { data: allActiveRequests = [] } = useQuery({
+    queryKey: ['cashRequests'],
+    queryFn: getActiveCashRequests,
+    refetchInterval: 30_000,
+  });
+  const pickedUpRequests = allActiveRequests.filter((r) => r.status === 'PICKED_UP');
 
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
@@ -616,6 +856,29 @@ export function PendingRemittanceTab() {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to remit'),
   });
 
+  const voidMutation = useMutation({
+    mutationFn: ({ batchId, reason }) => voidPaymentBatch({ batchId, reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-remittance'] });
+      qc.invalidateQueries({ queryKey: ['payment-batches-all'] });
+      toast.success('Remittance cancelled — no payment was recorded');
+      setVoidTarget(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to cancel'),
+  });
+
+  const collectPickupMutation = useMutation({
+    mutationFn: (requestId) => collectForRequest(requestId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cashRequests'] });
+      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      toast.success('Cash received — member account credited, treasury updated');
+      setCollectPickupTarget(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Collection failed'),
+  });
+
   // All workers + managers for the filter dropdown (not just those with pending batches)
   const collectorOptions = staff.filter((s) => s.role === 'WORKER' || s.role === 'MANAGER');
 
@@ -639,7 +902,7 @@ export function PendingRemittanceTab() {
     return 0;
   });
 
-  if (batches.length === 0 && !filterCollector) {
+  if (batches.length === 0 && pickedUpRequests.length === 0 && !filterCollector) {
     return (
       <>
         <div className="flex items-center gap-3 flex-wrap mb-4">
@@ -665,6 +928,49 @@ export function PendingRemittanceTab() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── PICKED_UP section: worker has cash, admin needs to collect ── */}
+      {pickedUpRequests.length > 0 && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <PackageCheck size={15} className="text-green-700" />
+            <p className="text-sm font-semibold text-green-800">
+              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from worker
+            </p>
+          </div>
+          {pickedUpRequests.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-3 border border-green-100">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-bold flex-shrink-0">
+                  {(memberMap[r.memberId] ?? '?')[0].toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {memberMap[r.memberId] ?? '—'}
+                  </p>
+                  <p className="text-xs text-gray-500 truncate">
+                    Worker: {staffMap[r.assignedWorkerId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                  </p>
+                  {r.pickedUpAt && (
+                    <p className="text-xs text-green-600 mt-0.5">
+                      Picked up {new Date(r.pickedUpAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="success"
+                size="sm"
+                className="flex-shrink-0"
+                onClick={() => setCollectPickupTarget(r)}
+              >
+                <CheckCircle size={13} className="mr-1" /> Collect
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs">
           <Select
@@ -681,7 +987,7 @@ export function PendingRemittanceTab() {
         </div>
         <p className="text-sm text-gray-500 ml-auto">
           {filteredBatches.length} batch{filteredBatches.length !== 1 ? 'es' : ''}
-          {filterCollector ? ` for ${staffMap[filterCollector] ?? 'selected collector'}` : ' awaiting collection'}
+          {filterCollector ? ` for ${staffMap[filterCollector] ?? 'selected collector'}` : ' awaiting remittance'}
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-amber-700">
           Total: ₹{totalPending.toLocaleString('en-IN')}
@@ -713,13 +1019,14 @@ export function PendingRemittanceTab() {
                 {b.collectedAt ? new Date(b.collectedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
               </Td>
               <Td>
-                <Button
-                  variant="success"
-                  size="sm"
-                  onClick={(e) => { e.stopPropagation(); setConfirmTarget(b); }}
-                >
-                  <CheckCircle size={13} /> Collected
-                </Button>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <Button variant="success" size="sm" onClick={() => setConfirmTarget(b)}>
+                    <CheckCircle size={13} /> Collected
+                  </Button>
+                  <Button variant="muted" size="sm" onClick={() => setVoidTarget(b)}>
+                    Cancel
+                  </Button>
+                </div>
               </Td>
             </Tr>
           ))}
@@ -735,6 +1042,30 @@ export function PendingRemittanceTab() {
           loading={remitMutation.isPending}
           onConfirm={() => remitMutation.mutate(confirmTarget.id)}
           onClose={() => setConfirmTarget(null)}
+        />
+      )}
+
+      {voidTarget && (
+        <ConfirmDialog
+          variant="warning"
+          title="Cancel Remittance"
+          description={`Cancel this ₹${Number(voidTarget.totalAmount).toLocaleString('en-IN')} remittance from ${staffMap[voidTarget.collectedBy] ?? 'collector'}? The member's payment record will be rolled back.`}
+          actionLabel="Cancel Remittance"
+          loading={voidMutation.isPending}
+          onConfirm={() => voidMutation.mutate({ batchId: voidTarget.id, reason: 'Cancelled from Pending Remittance' })}
+          onClose={() => setVoidTarget(null)}
+        />
+      )}
+
+      {collectPickupTarget && (
+        <ConfirmDialog
+          variant="success"
+          title="Confirm Cash Received from Worker"
+          description={`Confirm you received ₹${Number(collectPickupTarget.requestedAmount).toLocaleString('en-IN')} from ${staffMap[collectPickupTarget.assignedWorkerId] ?? 'worker'}? The member's account will be credited and treasury updated immediately.`}
+          actionLabel="Yes, Received"
+          loading={collectPickupMutation.isPending}
+          onConfirm={() => collectPickupMutation.mutate(collectPickupTarget.id)}
+          onClose={() => setCollectPickupTarget(null)}
         />
       )}
     </div>

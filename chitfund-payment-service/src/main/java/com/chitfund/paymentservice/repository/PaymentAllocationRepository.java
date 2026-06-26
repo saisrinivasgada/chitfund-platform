@@ -13,4 +13,12 @@ public interface PaymentAllocationRepository extends JpaRepository<PaymentAlloca
     List<PaymentAllocation> findByPaymentRecordId(UUID paymentRecordId);
 
     void deleteByPaymentRecordIdIn(List<UUID> paymentRecordIds);
+
+    // Find all distinct batchIds that have at least one allocation for this member+chit.
+    // This catches cross-chit spill: a Chit-1 batch that also allocated into Chit-2.
+    @org.springframework.data.jpa.repository.Query(
+        "SELECT DISTINCT a.batchId FROM PaymentAllocation a WHERE a.memberId = :memberId AND a.chitId = :chitId")
+    List<UUID> findBatchIdsWithAllocationsForChit(
+            @org.springframework.data.repository.query.Param("memberId") UUID memberId,
+            @org.springframework.data.repository.query.Param("chitId") UUID chitId);
 }

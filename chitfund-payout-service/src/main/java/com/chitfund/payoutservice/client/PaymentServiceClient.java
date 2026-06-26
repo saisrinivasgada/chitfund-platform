@@ -82,6 +82,56 @@ public class PaymentServiceClient {
     }
 
     /**
+     * Reverts all PAYOUT_DEDUCTED records linked to this payout back to OUTSTANDING.
+     * Called during void so the winner's withheld installment shows as owed again.
+     */
+    public void revertPayoutDeductions(UUID payoutId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+
+        try {
+            restTemplate.postForObject(
+                    paymentServiceUrl + "/payments/internal/revert-payout-deductions/" + payoutId,
+                    new HttpEntity<>(headers),
+                    Void.class
+            );
+            log.info("PAYOUT_DEDUCTED records reverted for payout {}", payoutId);
+        } catch (Exception e) {
+            log.error("Failed to revert PAYOUT_DEDUCTED for payout {} — records may be stale: {}", payoutId, e.getMessage());
+        }
+    }
+
+    /**
+     * Records a treasury IN entry when a voided payout had money already disbursed.
+     * Keeps treasury balance correct — the disbursed OUT is offset by this reversal IN.
+     */
+    public void recordPayoutVoidReversal(BigDecimal amount, DisbursementMode mode, UUID payoutId) {
+        String accountType = (mode == DisbursementMode.CASH) ? "CASH" : "BANK";
+        String description = "Payout voided · reversal of ₹" + amount + " via " + mode + " · payout " + payoutId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+        headers.set("Content-Type", "application/json");
+
+        Map<String, Object> body = Map.of(
+                "amount", amount,
+                "accountType", accountType,
+                "description", description
+        );
+
+        try {
+            restTemplate.postForObject(
+                    paymentServiceUrl + "/admin/wallet/internal/payout-void-reversal",
+                    new HttpEntity<>(body, headers),
+                    Void.class
+            );
+            log.info("Treasury reversal recorded — ₹{} IN ({}) for voided payout {}", amount, accountType, payoutId);
+        } catch (Exception e) {
+            log.error("Failed to record treasury reversal for voided payout {} — treasury may be out of sync: {}", payoutId, e.getMessage());
+        }
+    }
+
+    /**
      * Records a treasury OUT entry in the payment service when payout money leaves the admin's hands.
      * CASH disbursal → CASH account. UPI/BANK_TRANSFER/CHEQUE → BANK account.
      * Fire-and-forget: treasury mismatch is not worth failing the disbursement over.

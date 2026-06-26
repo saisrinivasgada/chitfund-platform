@@ -4,6 +4,7 @@ import com.chitfund.common.event.PayoutCreatedEvent;
 import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.payoutservice.client.ChitServiceClient;
 import com.chitfund.payoutservice.client.PaymentServiceClient;
 import com.chitfund.payoutservice.domain.Payout;
 import com.chitfund.payoutservice.domain.PayoutDisbursement;
@@ -40,6 +41,7 @@ public class PayoutService {
     private final PayoutDisbursementRepository disbursementRepository;
     private final PayoutEventPublisher eventPublisher;
     private final PaymentServiceClient paymentServiceClient;
+    private final ChitServiceClient chitServiceClient;
 
     /**
      * Admin registers a payout obligation after the winner is announced in chit-service.
@@ -188,6 +190,13 @@ public class PayoutService {
                     adminId.toString(),
                     Instant.now()
             ));
+
+            // If every draw in this chit now has a DISBURSED payout, auto-complete the chit.
+            // WHY check here and not in chit-service?
+            // Payout-service is the authority on disbursement status. Chit-service doesn't
+            // know which payouts exist — pulling that knowledge across a service boundary
+            // (chit → payout) would create a backwards dependency.
+            checkAndAutoCompleteChit(payout.getChitId());
         }
 
         return toResponse(payout);
@@ -200,12 +209,28 @@ public class PayoutService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Payout is already " + payout.getStatus(), HttpStatus.BAD_REQUEST);
         }
+
+        BigDecimal disbursedSoFar = payout.getDisbursedAmount() != null ? payout.getDisbursedAmount() : BigDecimal.ZERO;
+        DisbursementMode modeUsed = payout.getDisbursementMode();
+
         payout.setStatus(PayoutStatus.VOIDED);
         payout.setVoidedAt(LocalDateTime.now());
         payout.setVoidedBy(adminId);
         payout.setVoidReason(request.getReason());
         payoutRepository.save(payout);
-        log.info("Payout {} voided by {}. Reason: {}", payoutId, adminId, request.getReason());
+
+        // Revert winner's withheld installment(s) back to OUTSTANDING — they now owe that money again
+        paymentServiceClient.revertPayoutDeductions(payoutId);
+
+        // If money was already disbursed (full or partial), reverse the treasury OUT.
+        // WHY: the original disbursement debited the treasury. Voiding means the money
+        // comes back (or the record is corrected). This IN entry keeps the balance accurate.
+        if (disbursedSoFar.compareTo(BigDecimal.ZERO) > 0 && modeUsed != null) {
+            paymentServiceClient.recordPayoutVoidReversal(disbursedSoFar, modeUsed, payoutId);
+        }
+
+        log.info("Payout {} voided by {}. Reason: {}. Disbursed ₹{} reversed.",
+                payoutId, adminId, request.getReason(), disbursedSoFar);
         return toResponse(payout);
     }
 
@@ -287,6 +312,22 @@ public class PayoutService {
         LocalDateTime end   = start.plusDays(1);
         return payoutRepository.findTodaysPayouts(start, end)
                 .stream().map(this::toResponse).toList();
+    }
+
+    private void checkAndAutoCompleteChit(UUID chitId) {
+        try {
+            int durationMonths = chitServiceClient.getChitDurationMonths(chitId);
+            if (durationMonths <= 0) return;
+            long disbursedCount = payoutRepository.countByChitIdAndStatus(chitId, PayoutStatus.DISBURSED);
+            if (disbursedCount >= durationMonths) {
+                log.info("All {} draws disbursed for chit {} — triggering auto-complete", durationMonths, chitId);
+                chitServiceClient.markChitCompleted(chitId);
+            } else {
+                log.debug("Chit {} has {}/{} draws disbursed — not yet complete", chitId, disbursedCount, durationMonths);
+            }
+        } catch (Exception e) {
+            log.error("Auto-complete check failed for chit {} — {}", chitId, e.getMessage());
+        }
     }
 
     private Payout findOrThrow(UUID id) {

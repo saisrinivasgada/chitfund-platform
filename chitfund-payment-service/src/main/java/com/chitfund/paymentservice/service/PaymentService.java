@@ -36,8 +36,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -52,6 +54,8 @@ public class PaymentService {
     private final MemberServiceClient memberServiceClient;
     private final AdminWalletService adminWalletService;
     private final NotificationService notificationService;
+    private final MemberCreditService memberCreditService;
+    private final ChitMonthDrawService chitMonthDrawService;
 
     /**
      * Step 1 of the cash flow: worker/manager records collection from a member.
@@ -86,7 +90,7 @@ public class PaymentService {
         batchRepository.save(batch);
 
         if (adminSelfCollect) {
-            List<PaymentAllocation> allocations = applyFifo(batch);
+            List<PaymentAllocation> allocations = applyFifo(batch, workerId);
             log.info("Admin {} collected ₹{} cash directly from member {} for chit {} — completed immediately",
                     workerId, request.getAmount(), request.getMemberId(), request.getChitId());
             creditWallet(batch, workerId);
@@ -134,7 +138,7 @@ public class PaymentService {
                 .build();
         batchRepository.save(batch);
 
-        List<PaymentAllocation> allocations = applyFifo(batch);
+        List<PaymentAllocation> allocations = applyFifo(batch, adminId);
 
         log.info("Admin {} recorded {} payment of ₹{} for member {} in chit {} — {} months updated",
                 adminId, request.getPaymentMode(), request.getAmount(),
@@ -177,7 +181,7 @@ public class PaymentService {
         batch.setRemittedBy(adminId);
         batchRepository.save(batch);
 
-        List<PaymentAllocation> allocations = applyFifo(batch);
+        List<PaymentAllocation> allocations = applyFifo(batch, adminId);
 
         log.info("Admin {} remitted cash batch {} (₹{}) for member {} — {} months updated",
                 adminId, batchId, batch.getTotalAmount(), batch.getMemberId(), allocations.size());
@@ -237,6 +241,24 @@ public class PaymentService {
         batch.setVoidedBy(adminId);
         batch.setVoidReason(request.getReason());
         batchRepository.save(batch);
+
+        // Re-open any draws that were auto-closed by this batch and are now unsettled again.
+        allocations.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        a -> a.getChitId().toString() + ":" + a.getMonthNumber()))
+                .forEach((key, allocs) -> {
+                    PaymentAllocation first = allocs.get(0);
+                    try {
+                        chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber());
+                    } catch (Exception e) {
+                        log.warn("Auto-reopen check failed for chit {} month {} — {}",
+                                first.getChitId(), first.getMonthNumber(), e.getMessage());
+                    }
+                });
+
+        // Reverse any credit movements this batch caused (auto-consumed credit or overpayment credit).
+        // This runs regardless of batch status — credit can be affected even before remittance.
+        memberCreditService.reverseCreditForVoidedBatch(batchId, batch.getMemberId(), adminId);
 
         // Reverse treasury credit only if the batch was already COMPLETED
         // (AWAITING_REMITTANCE batches were never credited, so nothing to reverse)
@@ -331,9 +353,27 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPaymentBatches(UUID memberId, UUID chitId) {
-        return batchRepository.findByMemberIdAndChitIdOrderByCreatedAtDesc(memberId, chitId).stream()
-                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
+        // Primary batches: recorded directly for this chit
+        List<PaymentBatch> primary = batchRepository.findByMemberIdAndChitIdOrderByCreatedAtDesc(memberId, chitId);
+        Set<UUID> seen = new HashSet<>();
+        primary.forEach(b -> seen.add(b.getId()));
+
+        // Cross-chit batches: recorded for another chit but have allocations that spilled into this one
+        List<UUID> allBatchIds = allocationRepository.findBatchIdsWithAllocationsForChit(memberId, chitId);
+        List<PaymentBatch> crossChit = allBatchIds.stream()
+                .filter(id -> !seen.contains(id))
+                .map(id -> batchRepository.findById(id).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .sorted(java.util.Comparator.comparing(PaymentBatch::getCreatedAt).reversed())
                 .toList();
+
+        List<PaymentBatchResponse> result = new ArrayList<>();
+        primary.forEach(b -> result.add(toBatchResponse(b, allocationRepository.findByBatchId(b.getId()))));
+        crossChit.forEach(b -> result.add(toBatchResponse(b, allocationRepository.findByBatchId(b.getId()))));
+
+        result.sort(java.util.Comparator.comparing(PaymentBatchResponse::getCreatedAt,
+                java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())));
+        return result;
     }
 
     @Transactional(readOnly = true)
@@ -360,36 +400,101 @@ public class PaymentService {
     }
 
     /**
-     * FIFO debt application.
-     * Oldest unpaid month is cleared first. If payment exceeds oldest balance,
-     * remainder spills to the next-oldest month — and so on until amount is exhausted.
+     * FIFO debt application with cross-chit spillover and global credit balance.
      *
-     * Example: member owes month 2 (₹1,000 remaining) and month 3 (₹5,000).
-     * Payment = ₹6,000 → month 2 SETTLED (₹1,000), month 3 SETTLED (₹5,000). Zero leftover.
+     * Step 1 — Auto-consume member's global credit balance first (oldest credit applied first).
+     *   Example: member has ₹500 credit → effective amount = ₹4,500 payment + ₹500 credit = ₹5,000.
      *
-     * Another example: payment = ₹4,000 → month 2 SETTLED (₹1,000), month 3 PARTIALLY_PAID (₹3,000 applied, ₹2,000 remaining).
+     * Step 2 — FIFO within the current chit (oldest month first).
+     *
+     * Step 3 — If amount remains after current chit is clear → spill into OTHER chits.
+     *   Records across other chits are ordered by dueDate so the genuinely oldest debt
+     *   clears first, regardless of which chit it belongs to.
+     *   WHY: member credit should only exist when they owe NOTHING anywhere.
+     *   A member who overpaid Chit 1 but still owes Chit 2 has no real "credit" —
+     *   the excess belongs to Chit 2. The allocation tracks the actual chit so void
+     *   can reverse it correctly.
+     *
+     * Step 4 — Only if all chits are clear → excess goes to credit balance.
      */
-    private List<PaymentAllocation> applyFifo(PaymentBatch batch) {
-        List<PaymentRecord> outstanding = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                        batch.getMemberId(),
-                        batch.getChitId(),
-                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+    private List<PaymentAllocation> applyFifo(PaymentBatch batch, UUID actorId) {
+        List<PaymentRecordStatus> pendingStatuses =
+                List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
 
-        BigDecimal remaining = batch.getTotalAmount();
+        // Step 1: Auto-consume credit up to what member owes across ALL chits
+        BigDecimal totalOwedAllChits = paymentRecordRepository
+                .findTotalOutstandingByMemberId(batch.getMemberId(), pendingStatuses);
+        BigDecimal creditAvailable = memberCreditService.getBalance(batch.getMemberId());
+        BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
+
+        if (creditToUse.compareTo(BigDecimal.ZERO) > 0) {
+            memberCreditService.consumeCredit(
+                    batch.getMemberId(), creditToUse, batch.getId(), batch.getChitId(), actorId,
+                    "Auto-applied to outstanding (credit consumed for payment batch " + batch.getId() + ")");
+        }
+
+        BigDecimal remaining = batch.getTotalAmount().add(creditToUse);
         List<PaymentAllocation> allocations = new ArrayList<>();
 
-        for (PaymentRecord record : outstanding) {
+        // Step 2: FIFO within the current chit
+        List<PaymentRecord> sameChit = paymentRecordRepository
+                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                        batch.getMemberId(), batch.getChitId(), pendingStatuses);
+
+        remaining = applyToRecords(sameChit, remaining, batch.getId(), allocations);
+
+        // Step 3: Spill into other chits (ordered by dueDate ascending — oldest debt first)
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            List<PaymentRecord> otherChits = paymentRecordRepository
+                    .findOutstandingAcrossOtherChits(batch.getMemberId(), batch.getChitId(), pendingStatuses);
+            if (!otherChits.isEmpty()) {
+                log.info("Batch {} — ₹{} spills across {} other-chit record(s) for member {}",
+                        batch.getId(), remaining, otherChits.size(), batch.getMemberId());
+                remaining = applyToRecords(otherChits, remaining, batch.getId(), allocations);
+            }
+        }
+
+        // Step 4: All chits fully cleared → any remaining is true credit
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            memberCreditService.addCredit(
+                    batch.getMemberId(), remaining, batch.getId(), batch.getChitId(), actorId,
+                    "Overpayment — no outstanding across any chit, ₹" + remaining + " added as credit");
+            log.info("Batch {} — ₹{} added to member {} credit (all chits clear)",
+                    batch.getId(), remaining, batch.getMemberId());
+        }
+
+        // Step 5: For every (chitId, monthNumber) that received a payment, check if the draw
+        // is now fully settled and auto-close it if so.
+        allocations.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        a -> a.getChitId().toString() + ":" + a.getMonthNumber()))
+                .forEach((key, allocs) -> {
+                    PaymentAllocation first = allocs.get(0);
+                    try {
+                        chitMonthDrawService.autoCloseIfAllSettled(first.getChitId(), first.getMonthNumber());
+                    } catch (Exception e) {
+                        log.warn("Auto-close check failed for chit {} month {} — {}",
+                                first.getChitId(), first.getMonthNumber(), e.getMessage());
+                    }
+                });
+
+        return allocations;
+    }
+
+    // Shared FIFO applicator — updates records in-place, appends to allocations list, returns remainder.
+    private BigDecimal applyToRecords(List<PaymentRecord> records, BigDecimal remaining,
+                                      UUID batchId, List<PaymentAllocation> allocations) {
+        for (PaymentRecord record : records) {
             if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
 
-            BigDecimal owed    = record.getAmountDue().subtract(record.getAmountPaid());
+            BigDecimal owed     = record.getAmountDue().subtract(record.getAmountPaid());
             BigDecimal applying = remaining.min(owed);
 
             PaymentAllocation alloc = PaymentAllocation.builder()
-                    .batchId(batch.getId())
+                    .batchId(batchId)
                     .paymentRecordId(record.getId())
-                    .chitId(batch.getChitId())
-                    .memberId(batch.getMemberId())
+                    .chitId(record.getChitId())       // actual chit of the record, may differ from batch
+                    .memberId(record.getMemberId())
                     .monthNumber(record.getMonthNumber())
                     .allocatedAmount(applying)
                     .build();
@@ -404,15 +509,12 @@ public class PaymentService {
 
             remaining = remaining.subtract(applying);
         }
+        return remaining;
+    }
 
-        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            // Overpayment — no more outstanding records to apply to.
-            // This is unusual (member paid more than total owed). Log it for admin awareness.
-            log.warn("Batch {} has ₹{} unallocated after FIFO — member {} has no more outstanding records in chit {}",
-                    batch.getId(), remaining, batch.getMemberId(), batch.getChitId());
-        }
-
-        return allocations;
+    @Transactional(readOnly = true)
+    public com.chitfund.paymentservice.dto.response.MemberCreditResponse getMemberCredit(UUID memberId) {
+        return memberCreditService.getCreditDetails(memberId);
     }
 
     @Transactional(readOnly = true)
@@ -600,6 +702,7 @@ public class PaymentService {
                                 .monthNumber(a.getMonthNumber())
                                 .allocatedAmount(a.getAllocatedAmount())
                                 .paymentRecordId(a.getPaymentRecordId())
+                                .chitId(a.getChitId())
                                 .build())
                         .toList())
                 .build();

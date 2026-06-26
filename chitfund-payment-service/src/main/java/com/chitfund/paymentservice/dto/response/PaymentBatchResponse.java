@@ -42,5 +42,8 @@ public class PaymentBatchResponse {
         private int monthNumber;
         private BigDecimal allocatedAmount;
         private UUID paymentRecordId;
+        // The chit this allocation actually went to — may differ from batch.chitId
+        // when cross-chit spillover applied the excess to another chit's outstanding.
+        private UUID chitId;
     }
 }

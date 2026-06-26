@@ -3,6 +3,8 @@ package com.chitfund.chitservice.controller;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
+import com.chitfund.chitservice.domain.enums.ChitStatus;
+import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitEnrollmentResponse;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
@@ -10,6 +12,7 @@ import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
+import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +49,7 @@ public class InternalSettlementController {
     private final ChitRepository chitRepository;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
+    private final ChitService chitService;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -124,5 +128,31 @@ public class InternalSettlementController {
 
         log.debug("Internal: returning {} reservations for member {} in chit {}", responses.size(), memberId, chitId);
         return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+    /**
+     * Called by payout-service after the last draw's disbursement is confirmed.
+     * Marks the chit COMPLETED and notifies all members.
+     * Safe to call if chit is already COMPLETED — ChitService guard handles it gracefully.
+     */
+    @PostMapping("/chits/{chitId}/complete")
+    public ResponseEntity<?> completeChit(
+            @PathVariable UUID chitId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            UpdateChitStatusRequest req = new UpdateChitStatusRequest();
+            req.setStatus(ChitStatus.COMPLETED);
+            chitService.updateStatus(chitId, req);
+            log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
+            return ResponseEntity.ok(ApiResponse.success("Chit completed"));
+        } catch (Exception e) {
+            log.warn("Internal: could not auto-complete chit {} — {}", chitId, e.getMessage());
+            return ResponseEntity.ok(ApiResponse.success("Skipped — " + e.getMessage()));
+        }
     }
 }

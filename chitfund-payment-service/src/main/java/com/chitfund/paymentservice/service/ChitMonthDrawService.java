@@ -195,6 +195,68 @@ public class ChitMonthDrawService {
     }
 
     /**
+     * Auto-closes a draw when every member's payment record is SETTLED or WAIVED.
+     * Called after every FIFO application — no admin input needed.
+     *
+     * WHY auto-close?
+     * A draw's purpose is to collect installments. Once every member has paid,
+     * the draw is naturally over — admin doesn't need to click anything.
+     * Leaving it OPEN would show it as active in the dashboard forever.
+     */
+    @Transactional
+    public void autoCloseIfAllSettled(UUID chitId, int monthNumber) {
+        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber).orElse(null);
+        if (draw == null || draw.getStatus() != DrawStatus.OPEN) return;
+
+        List<PaymentRecord> records = paymentRecordRepository
+                .findByChitIdAndMonthNumber(chitId, monthNumber);
+
+        boolean allDone = records.stream().allMatch(r ->
+                r.getStatus() == PaymentRecordStatus.SETTLED
+                || r.getStatus() == PaymentRecordStatus.WAIVED
+                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED);
+
+        if (allDone && !records.isEmpty()) {
+            draw.setStatus(DrawStatus.CLOSED);
+            draw.setClosedAt(LocalDateTime.now());
+            draw.setClosedBy(UUID.fromString("00000000-0000-0000-0000-000000000001")); // system auto-close
+            drawRepository.save(draw);
+            log.info("Auto-closed draw (chit {} month {}) — all {} members settled",
+                    chitId, monthNumber, records.size());
+        }
+    }
+
+    /**
+     * Re-opens a CLOSED draw when a voided payment leaves records unsettled.
+     * Counterpart to autoCloseIfAllSettled — called after every void.
+     *
+     * WHY: If a payment auto-closed a draw and that payment is later voided,
+     * the draw must go back to OPEN so the dashboard shows it as active again.
+     */
+    @Transactional
+    public void autoReopenIfNotFullySettled(UUID chitId, int monthNumber) {
+        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber).orElse(null);
+        if (draw == null || draw.getStatus() != DrawStatus.CLOSED) return;
+
+        List<PaymentRecord> records = paymentRecordRepository
+                .findByChitIdAndMonthNumber(chitId, monthNumber);
+
+        boolean allDone = records.stream().allMatch(r ->
+                r.getStatus() == PaymentRecordStatus.SETTLED
+                || r.getStatus() == PaymentRecordStatus.WAIVED
+                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED);
+
+        if (!allDone && !records.isEmpty()) {
+            draw.setStatus(DrawStatus.OPEN);
+            draw.setClosedAt(null);
+            draw.setClosedBy(null);
+            drawRepository.save(draw);
+            log.info("Auto-reopened draw (chit {} month {}) — void left records unsettled",
+                    chitId, monthNumber);
+        }
+    }
+
+    /**
      * Auto-closes all OPEN draws for a chit when the chit is completed.
      * Called internally from chit-service via X-Internal-Key endpoint.
      */

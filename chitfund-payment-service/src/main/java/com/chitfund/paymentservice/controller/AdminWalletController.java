@@ -84,4 +84,26 @@ public class AdminWalletController {
         walletService.addEntry(req, UUID.fromString("00000000-0000-0000-0000-000000000001"));
         return ResponseEntity.ok().build();
     }
+
+    /**
+     * Internal endpoint — called by payout-service when a voided payout had money already disbursed.
+     * Records a treasury IN (category PAYOUT_VOID_REVERSAL) so the balance reflects the return.
+     */
+    @PostMapping("/internal/payout-void-reversal")
+    @PreAuthorize("true")
+    public ResponseEntity<Void> recordPayoutVoidReversal(
+            @RequestBody Map<String, Object> body,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        AdminWalletEntryRequest req = new AdminWalletEntryRequest();
+        req.setAccountType(AccountType.valueOf((String) body.get("accountType")));
+        req.setEntryType(WalletEntryType.IN);
+        req.setAmount(new BigDecimal(body.get("amount").toString()));
+        req.setCategory("PAYOUT_VOID_REVERSAL");
+        req.setDescription((String) body.getOrDefault("description", "Payout voided — disbursed amount reversed"));
+        walletService.addEntry(req, UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        return ResponseEntity.ok().build();
+    }
 }

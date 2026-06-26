@@ -124,6 +124,17 @@ public class PaymentController {
     }
 
     /**
+     * Member's global credit balance + last 20 credit transactions.
+     * Show this anywhere admin is collecting/recording a payment so they can see if credit applies.
+     */
+    @GetMapping("/credits/{memberId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_WORKER') or hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<com.chitfund.paymentservice.dto.response.MemberCreditResponse>> getMemberCredit(
+            @PathVariable UUID memberId) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberCredit(memberId)));
+    }
+
+    /**
      * Member's outstanding balance for a chit: total owed + breakdown by month (FIFO order).
      * Response: { totalOutstanding: ₹6000, months: [{month:2, balance:₹1000}, {month:3, balance:₹5000}] }
      */
@@ -280,6 +291,22 @@ public class PaymentController {
         UUID payoutId = UUID.fromString((String) body.get("payoutId"));
         java.math.BigDecimal amount = new java.math.BigDecimal(body.get("amount").toString());
         paymentService.markCrossChitDisbursementSettled(chitId, memberId, amount, payoutId);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Internal endpoint — called by payout-service when a payout is voided.
+     * Reverts all PAYOUT_DEDUCTED records linked to this payout back to OUTSTANDING
+     * so the draw still shows those members as owing their installment.
+     */
+    @PostMapping("/internal/revert-payout-deductions/{payoutId}")
+    public ResponseEntity<Void> revertPayoutDeductionsInternal(
+            @PathVariable UUID payoutId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        paymentService.revertPayoutDeductions(payoutId);
         return ResponseEntity.noContent().build();
     }
 }

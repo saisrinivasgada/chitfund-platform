@@ -31,6 +31,14 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
 
     void deleteByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
+    // Cross-chit FIFO: all outstanding records for a member across every chit EXCEPT the one being paid.
+    // Ordered by dueDate so the oldest debt across all chits clears first.
+    @Query("SELECT r FROM PaymentRecord r WHERE r.memberId = :memberId AND r.chitId <> :excludeChitId AND r.status IN :statuses ORDER BY r.dueDate ASC, r.monthNumber ASC")
+    List<PaymentRecord> findOutstandingAcrossOtherChits(
+            @Param("memberId") UUID memberId,
+            @Param("excludeChitId") UUID excludeChitId,
+            @Param("statuses") List<PaymentRecordStatus> statuses);
+
     // Total outstanding across all chits for a single member
     @Query("SELECT COALESCE(SUM(r.amountDue - r.amountPaid), 0) FROM PaymentRecord r WHERE r.memberId = :memberId AND r.status IN :statuses")
     BigDecimal findTotalOutstandingByMemberId(@Param("memberId") UUID memberId, @Param("statuses") List<PaymentRecordStatus> statuses);

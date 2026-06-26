@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
-  getPaymentHistory, getMemberTotalBalance, getMemberBalance, registerUser,
+  getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit, registerUser,
   linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember,
 } from '../../services/api';
@@ -850,6 +850,14 @@ export default function MemberDetailPage() {
     staleTime: 60_000,
   });
 
+  const { data: memberCredit } = useQuery({
+    queryKey: ['memberCredit', id],
+    queryFn: () => getMemberCredit(id),
+    enabled: !!id,
+    staleTime: 60_000,
+  });
+  const creditBalance = Number(memberCredit?.balance ?? 0);
+
   const { data: userAccount } = useQuery({
     queryKey: ['memberUserAccount', member?.userId],
     queryFn: () => getUserById(member.userId),
@@ -978,6 +986,12 @@ export default function MemberDetailPage() {
                     No outstanding dues
                   </span>
                 )
+              )}
+              {!isDeleted && creditBalance > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                  ₹{creditBalance.toLocaleString('en-IN')} credit
+                </span>
               )}
             </div>
           </div>

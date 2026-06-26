@@ -127,6 +127,15 @@ public class ChitService {
         boolean completing = request.getStatus() == ChitStatus.COMPLETED;
         boolean revertingToDraft = request.getStatus() == ChitStatus.DRAFT
                 && chit.getStatus() == ChitStatus.ACTIVE;
+
+        // Once any draw has been conducted, the chit cannot go back to DRAFT.
+        // Draws are permanent financial records — enrollment and payment history depend on them.
+        if (revertingToDraft && winnerRepository.countByChitId(id) > 0) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Cannot revert to DRAFT — this chit already has " + winnerRepository.countByChitId(id)
+                            + " draw(s) completed. Draws are permanent financial records.");
+        }
+
         chit.transitionTo(request.getStatus());
         chit.setUpdatedBy(request.getUpdatedBy());
         if (activatingFromDraft && request.getStartDate() != null) {
