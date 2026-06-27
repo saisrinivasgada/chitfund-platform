@@ -242,20 +242,25 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: |
           ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "cd ${{ env.APP_DIR }} && \
-             docker compose -f docker-compose.prod.yml build && \
-             docker compose -f docker-compose.prod.yml up -d --wait && \
-             docker compose -f docker-compose.prod.yml ps"
-
-      - name: Capture container logs on failure
-        if: failure()
-        run: |
-          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-            "echo '=== payment-service ===' && docker logs chitfund-payment-service --tail 80 2>&1 || true && \
-             echo '=== chit-service ===' && docker logs chitfund-chit-service --tail 30 2>&1 || true && \
-             echo '=== compose ps ===' && cd ${{ env.APP_DIR }} && docker compose -f docker-compose.prod.yml ps 2>&1 || true"
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          set -e
+          cd /app
+          echo "=== Building (no cache) ==="
+          docker compose -f docker-compose.prod.yml build --no-cache
+          echo "=== Starting services ==="
+          docker compose -f docker-compose.prod.yml up -d --wait || {
+            echo ""
+            echo "=== DEPLOY FAILED — container logs ==="
+            echo "--- payment-service ---"
+            docker logs chitfund-payment-service --tail 120 2>&1 || true
+            echo "--- chit-service ---"
+            docker logs chitfund-chit-service --tail 30 2>&1 || true
+            echo "--- compose ps ---"
+            docker compose -f docker-compose.prod.yml ps
+            exit 1
+          }
+          docker compose -f docker-compose.prod.yml ps
+          ENDSSH
 
       # ── Frontend deploy (only if frontend changed) ────────────────────────────
       - name: Setup Node.js
