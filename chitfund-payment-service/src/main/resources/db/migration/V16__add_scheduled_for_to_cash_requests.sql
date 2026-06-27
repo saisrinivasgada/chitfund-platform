@@ -1,6 +1,14 @@
--- WHY: Workers can defer a cash pickup when a member is unavailable.
--- Instead of cancelling and re-creating, they set a scheduledFor date
--- (Tomorrow / Next Week). Admin is notified; request stays ASSIGNED.
+-- WHY conditional: same idempotency guard as V15 — protects against partial runs.
 
-ALTER TABLE cash_payment_requests
-    ADD COLUMN scheduled_for DATETIME(6) NULL AFTER picked_up_by;
+SET @add_scheduled_for = (
+    SELECT IF(COUNT(*) = 0,
+        'ALTER TABLE cash_payment_requests ADD COLUMN scheduled_for DATETIME(6) NULL AFTER picked_up_by',
+        'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'cash_payment_requests'
+      AND COLUMN_NAME  = 'scheduled_for'
+);
+PREPARE stmt FROM @add_scheduled_for;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
