@@ -245,8 +245,17 @@ jobs:
             ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
             "cd ${{ env.APP_DIR }} && \
              docker compose -f docker-compose.prod.yml build && \
-             docker compose -f docker-compose.prod.yml up -d && \
+             docker compose -f docker-compose.prod.yml up -d --wait && \
              docker compose -f docker-compose.prod.yml ps"
+
+      - name: Capture container logs on failure
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "echo '=== payment-service ===' && docker logs chitfund-payment-service --tail 80 2>&1 || true && \
+             echo '=== chit-service ===' && docker logs chitfund-chit-service --tail 30 2>&1 || true && \
+             echo '=== compose ps ===' && cd ${{ env.APP_DIR }} && docker compose -f docker-compose.prod.yml ps 2>&1 || true"
 
       # ── Frontend deploy (only if frontend changed) ────────────────────────────
       - name: Setup Node.js
