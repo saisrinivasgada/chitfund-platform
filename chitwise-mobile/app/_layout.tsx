@@ -39,8 +39,11 @@ function redirectByRole(role: string, router: any) {
     router.replace('/(app)/(member)');
   } else if (role === 'WORKER') {
     router.replace('/(app)/(worker)');
-  } else {
+  } else if (role === 'ADMIN' || role === 'MANAGER') {
+    // MANAGER has same screens as ADMIN; backend @PreAuthorize handles permission differences
     router.replace('/(app)/(admin)');
+  } else {
+    router.replace('/(auth)/login');
   }
 }
 

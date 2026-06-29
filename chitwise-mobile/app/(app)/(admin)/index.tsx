@@ -49,9 +49,19 @@ export default function AdminDashboard() {
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <View>
-            <Text style={T.h1}>Dashboard</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={T.h1}>Dashboard</Text>
+              <View style={{
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+                backgroundColor: user?.role === 'MANAGER' ? '#F5F3FF' : C.navy50,
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: user?.role === 'MANAGER' ? '#7C3AED' : C.navy }}>
+                  {user?.role ?? 'ADMIN'}
+                </Text>
+              </View>
+            </View>
             <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-              Hello, {user?.fullName?.split(' ')[0] ?? 'Admin'} 👋
+              Hello, {user?.fullName?.split(' ')[0] ?? user?.role ?? 'Admin'} 👋
             </Text>
           </View>
           <TouchableOpacity

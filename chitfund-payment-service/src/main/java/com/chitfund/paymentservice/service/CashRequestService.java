@@ -112,7 +112,8 @@ public class CashRequestService {
 
         logAudit(saved.getId(), "CREATED", null, initialStatus, adminId, "ADMIN", "Created by admin");
         if (workerId != null) {
-            logAudit(saved.getId(), "ASSIGNED", CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED, adminId, "ADMIN", null);
+            // Worker was assigned at creation time — no PENDING phase ever existed
+            logAudit(saved.getId(), "ASSIGNED", null, CashRequestStatus.ASSIGNED, adminId, "ADMIN", "Assigned at creation");
         }
 
         if (workerId != null) {
