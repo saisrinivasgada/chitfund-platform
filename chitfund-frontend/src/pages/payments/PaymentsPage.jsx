@@ -6,7 +6,7 @@ import {
   collectPayment, recordPayment, getAllPaymentBatches,
   getActiveCashRequests, assignWorkerToRequest, cancelCashRequest, listStaff,
   getPendingRemittance, remitPayment, voidPaymentBatch,
-  adminCreateCashRequest, collectForRequest,
+  adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -18,7 +18,7 @@ import FormField, { Input, Select, Textarea } from '../../components/ui/FormFiel
 import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle } from 'lucide-react';
+import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
 const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
@@ -80,116 +80,118 @@ function fmtCRDateTime(d) {
     + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
+const AUDIT_ACTION_META = {
+  CREATED:       { icon: Clock,       color: '#1E3A5F', bg: '#EEF2F8',  label: 'Request Created' },
+  ASSIGNED:      { icon: UserCheck,   color: '#D97706', bg: '#FEF3C7',  label: 'Worker Assigned' },
+  PICKED_UP:     { icon: PackageCheck,color: '#16A34A', bg: '#F0FDF4',  label: 'Picked Up by Worker' },
+  PICKUP_VOIDED: { icon: RotateCcw,   color: '#DC2626', bg: '#FEF2F2',  label: 'Pickup Voided by Admin' },
+  COLLECTED:     { icon: Banknote,    color: '#1E3A5F', bg: '#EEF2F8',  label: 'Admin Confirmed Collection' },
+  CANCELLED:     { icon: XCircle,     color: '#6B7280', bg: '#F3F4F6',  label: 'Cancelled' },
+  RESCHEDULED:   { icon: Clock,       color: '#7C3AED', bg: '#F5F3FF',  label: 'Rescheduled' },
+};
+
 function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
-  const steps = [
-    {
-      key: 'requested',
-      icon: Clock,
-      color: '#1E3A5F',
-      bg: '#EEF2F8',
-      label: 'Pickup Initiated',
-      sub: `By member`,
-      time: request.requestedAt,
-      done: true,
-    },
-    {
-      key: 'assigned',
-      icon: UserCheck,
-      color: '#D97706',
-      bg: '#FEF3C7',
-      label: 'Assigned to Worker',
-      sub: request.assignedWorkerId
-        ? `Assigned to ${staffMap[request.assignedWorkerId] ?? 'worker'}`
-        : 'Awaiting assignment',
-      time: request.assignedAt,
-      done: !!request.assignedAt,
-    },
-    {
-      key: 'picked_up',
-      icon: PackageCheck,
-      color: '#16A34A',
-      bg: '#F0FDF4',
-      label: 'Picked Up by Worker',
-      sub: request.pickedUpAt
-        ? `${staffMap[request.pickedUpBy] ?? staffMap[request.assignedWorkerId] ?? 'Worker'} confirmed pickup from member`
-        : 'Not yet picked up',
-      time: request.pickedUpAt,
-      done: !!request.pickedUpAt,
-    },
-    {
-      key: 'collected',
-      icon: Banknote,
-      color: '#1E3A5F',
-      bg: '#EEF2F8',
-      label: 'Handed to Admin & Confirmed',
-      sub: request.status === 'COLLECTED'
-        ? 'Admin confirmed receipt — member account credited'
-        : 'Awaiting admin confirmation',
-      time: request.status === 'COLLECTED' ? request.updatedAt : null,
-      done: request.status === 'COLLECTED',
-    },
-  ];
+  const { data: auditLogs = [], isLoading } = useQuery({
+    queryKey: ['cashAudit', request.id],
+    queryFn: () => getCashRequestAuditLog(request.id),
+    staleTime: 10_000,
+  });
 
   return (
     <Modal title="Cash Pickup Audit Trail" onClose={onClose} size="sm">
-      <div className="space-y-1 pb-2">
-        <div className="mb-4 px-1 flex items-center gap-3">
+      <div className="space-y-4 pb-2">
+        {/* Header summary */}
+        <div className="flex items-center gap-3 px-1">
+          <div className="w-9 h-9 rounded-full bg-[#EEF2F8] flex items-center justify-center text-[#1E3A5F] font-bold text-sm flex-shrink-0">
+            {(memberMap[request.memberId] ?? '?')[0].toUpperCase()}
+          </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">
               {memberMap[request.memberId] ?? request.memberId?.slice(0, 8)}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               ₹{Number(request.requestedAmount).toLocaleString('en-IN')}
-              {request.assignedWorkerId && ` · Worker: ${staffMap[request.assignedWorkerId] ?? '—'}`}
+              {request.assignedWorkerId && ` · ${staffMap[request.assignedWorkerId] ?? 'Worker'}`}
+              {' · '}
+              <span className={`font-medium ${
+                request.status === 'PICKED_UP' ? 'text-green-600'
+                : request.status === 'COLLECTED' ? 'text-[#1E3A5F]'
+                : request.status === 'CANCELLED' ? 'text-gray-500'
+                : 'text-amber-600'}`}>
+                {request.status}
+              </span>
             </p>
           </div>
         </div>
 
-        <div className="space-y-0">
-          {steps.map((step, i) => {
-            const Icon = step.icon;
-            const isLast = i === steps.length - 1;
-            return (
-              <div key={step.key} className="flex gap-3">
-                <div className="flex flex-col items-center flex-shrink-0">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{
-                      backgroundColor: step.done ? step.bg : '#F3F4F6',
-                      border: `2px solid ${step.done ? step.color : '#D1D5DB'}`,
-                    }}
-                  >
-                    <Icon size={14} style={{ color: step.done ? step.color : '#9CA3AF' }} />
-                  </div>
-                  {!isLast && (
+        {/* Live audit timeline */}
+        {isLoading ? (
+          <div className="py-6 text-center text-sm text-gray-400">Loading audit log…</div>
+        ) : auditLogs.length === 0 ? (
+          <div className="py-4 text-center text-xs text-gray-400">No audit entries (pre-existing request)</div>
+        ) : (
+          <div className="space-y-0">
+            {auditLogs.map((entry, i) => {
+              const meta = AUDIT_ACTION_META[entry.action] ?? { icon: Clock, color: '#6B7280', bg: '#F3F4F6', label: entry.action };
+              const Icon = meta.icon;
+              const isLast = i === auditLogs.length - 1;
+              const isVoid = entry.action === 'PICKUP_VOIDED';
+              return (
+                <div key={entry.id} className="flex gap-3">
+                  <div className="flex flex-col items-center flex-shrink-0">
                     <div
-                      className="w-0.5 flex-1 my-1"
-                      style={{ backgroundColor: step.done ? step.color : '#E5E7EB', minHeight: '20px' }}
-                    />
-                  )}
+                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: meta.bg, border: `2px solid ${meta.color}` }}
+                    >
+                      <Icon size={14} style={{ color: meta.color }} />
+                    </div>
+                    {!isLast && (
+                      <div className="w-0.5 flex-1 my-1" style={{ backgroundColor: meta.color + '40', minHeight: '20px' }} />
+                    )}
+                  </div>
+                  <div className={`pb-4 min-w-0 flex-1 ${isVoid ? 'bg-red-50 rounded-xl px-3 py-2 -ml-1 mb-1' : ''}`}>
+                    <p className={`text-sm font-semibold ${isVoid ? 'text-red-700' : 'text-gray-900'}`}>
+                      {meta.label}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      {entry.performedByRole && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          entry.performedByRole === 'ADMIN' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
+                          : entry.performedByRole === 'WORKER' ? 'bg-amber-100 text-amber-700'
+                          : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {entry.performedByRole}
+                          {entry.performedBy && staffMap[entry.performedBy] ? ` · ${staffMap[entry.performedBy]}` : ''}
+                        </span>
+                      )}
+                      {entry.fromStatus && entry.fromStatus !== entry.toStatus && (
+                        <span className="text-xs text-gray-400">
+                          {entry.fromStatus} → {entry.toStatus}
+                        </span>
+                      )}
+                    </div>
+                    {entry.reason && (
+                      <p className={`text-xs mt-1 italic ${isVoid ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                        "{entry.reason}"
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1">{fmtCRDateTime(entry.performedAt)}</p>
+                  </div>
                 </div>
-                <div className="pb-4 min-w-0 flex-1">
-                  <p className={`text-sm font-semibold ${step.done ? 'text-gray-900' : 'text-gray-400'}`}>
-                    {step.label}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{step.sub}</p>
-                  {step.time && (
-                    <p className="text-xs text-gray-400 mt-1 font-medium">{fmtCRDateTime(step.time)}</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
+        {/* Notes */}
         {request.notes && (
-          <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
+          <div className="px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
             <p className="text-xs text-gray-500 font-medium mb-0.5">Member Note</p>
             <p className="text-sm text-gray-700 italic">"{request.notes}"</p>
           </div>
         )}
         {request.adminNotes && (
-          <div className="mt-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+          <div className="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
             <p className="text-xs text-amber-700 font-medium mb-0.5">Admin Note</p>
             <p className="text-sm text-gray-700 italic">"{request.adminNotes}"</p>
           </div>
@@ -368,12 +370,59 @@ function SetupCashPickupModal({ onClose }) {
   );
 }
 
+function VoidPickupModal({ request, memberMap, staffMap, loading, onConfirm, onClose }) {
+  const [reason, setReason] = useState('');
+  return (
+    <Modal title="Void Cash Pickup" onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertTriangle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">This will undo the worker's pickup mark</p>
+            <p className="text-xs text-red-600 mt-0.5">
+              The request goes back to <strong>Assigned</strong> — the same worker still owns it and
+              must physically re-visit the member and mark pickup again.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 text-sm space-y-1">
+          <p className="text-gray-500">Member: <span className="font-semibold text-gray-900">{memberMap[request.memberId] ?? '—'}</span></p>
+          <p className="text-gray-500">Worker: <span className="font-semibold text-gray-900">{staffMap[request.assignedWorkerId] ?? '—'}</span></p>
+          <p className="text-gray-500">Amount: <span className="font-semibold text-gray-900">₹{Number(request.requestedAmount).toLocaleString('en-IN')}</span></p>
+        </div>
+
+        <FormField label="Reason (required — logged in audit trail)" required>
+          <Input
+            placeholder="e.g. Worker marked wrong member by mistake"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </FormField>
+
+        <div className="flex justify-end gap-3">
+          <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="danger" size="md"
+            disabled={!reason.trim()}
+            loading={loading}
+            onClick={() => onConfirm(reason)}
+          >
+            <RotateCcw size={14} /> Void Pickup
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function CashRequestsTab() {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [assignTarget, setAssignTarget] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [collectTarget, setCollectTarget] = useState(null);
+  const [voidPickupTarget, setVoidPickupTarget] = useState(null);
   const [trailTarget, setTrailTarget] = useState(null);
   const [showSetupModal, setShowSetupModal] = useState(false);
 
@@ -406,6 +455,17 @@ export function CashRequestsTab() {
       setCollectTarget(null);
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Collection failed'),
+  });
+
+  const voidPickupMutation = useMutation({
+    mutationFn: ({ id, reason }) => voidCashPickup({ requestId: id, reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cashRequests'] });
+      qc.invalidateQueries({ queryKey: ['cashAudit'] });
+      toast.success('Pickup voided — request reverted to Assigned');
+      setVoidPickupTarget(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Void failed'),
   });
 
   if (isLoading) return <PageSpinner />;
@@ -463,9 +523,15 @@ export function CashRequestsTab() {
                     </Button>
                   )}
                   {r.status === 'PICKED_UP' && (
-                    <Button variant="success" size="sm" onClick={() => setCollectTarget(r)}>
-                      <CheckCircle size={13} className="mr-1" /> Collect
-                    </Button>
+                    <>
+                      <Button variant="success" size="sm" onClick={() => setCollectTarget(r)}>
+                        <CheckCircle size={13} className="mr-1" /> Collect
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => setVoidPickupTarget(r)}
+                        title="Void this pickup — worker marked wrong member">
+                        <RotateCcw size={13} className="mr-1" /> Void
+                      </Button>
+                    </>
                   )}
                   {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP') && (
                     <Button variant="muted" size="sm" onClick={() => setCancelTarget(r)}>Cancel</Button>
@@ -516,6 +582,17 @@ export function CashRequestsTab() {
           loading={collectMutation.isPending}
           onConfirm={() => collectMutation.mutate(collectTarget.id)}
           onClose={() => setCollectTarget(null)}
+        />
+      )}
+
+      {voidPickupTarget && (
+        <VoidPickupModal
+          request={voidPickupTarget}
+          memberMap={memberMap}
+          staffMap={staffMap}
+          loading={voidPickupMutation.isPending}
+          onConfirm={(reason) => voidPickupMutation.mutate({ id: voidPickupTarget.id, reason })}
+          onClose={() => setVoidPickupTarget(null)}
         />
       )}
     </div>

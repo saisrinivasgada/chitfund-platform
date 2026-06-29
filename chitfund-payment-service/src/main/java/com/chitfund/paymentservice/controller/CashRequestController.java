@@ -3,6 +3,7 @@ package com.chitfund.paymentservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.AssignWorkerRequest;
 import com.chitfund.paymentservice.dto.request.CreateCashRequestRequest;
+import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.service.CashRequestService;
@@ -198,5 +199,33 @@ public class CashRequestController {
             @RequestParam(required = false) String reason) {
         CashRequestResponse response = cashRequestService.cancelRequest(requestId, reason);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Admin/Manager: void a PICKED_UP — reverts to ASSIGNED.
+     * Use when worker accidentally marked pickup for the wrong member.
+     * Worker still owns the task; they need to physically re-collect and re-mark.
+     */
+    @PatchMapping("/{requestId}/void-pickup")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> voidPickup(
+            @PathVariable UUID requestId,
+            @RequestParam(required = false) String reason,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        CashRequestResponse response = cashRequestService.voidPickup(requestId, adminId, role, reason);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Admin/Manager: full audit trail for a specific cash request.
+     * Returns every status change — who did what, when, and why.
+     */
+    @GetMapping("/{requestId}/audit")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<List<CashRequestAuditLogResponse>>> getAuditLog(
+            @PathVariable UUID requestId) {
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getAuditLog(requestId)));
     }
 }

@@ -496,6 +496,17 @@ export const cancelCashRequest = async ({ requestId, reason }) => {
   return res.data.data;
 };
 
+export const voidCashPickup = async ({ requestId, reason }) => {
+  const params = reason ? { reason } : {};
+  const res = await api.patch(`/payments/requests/${requestId}/void-pickup`, null, { params });
+  return res.data.data;
+};
+
+export const getCashRequestAuditLog = async (requestId) => {
+  const res = await api.get(`/payments/requests/${requestId}/audit`);
+  return res.data.data;
+};
+
 export const adminCreateCashRequest = async ({ memberId, workerId, chitId, requestedAmount, notes }) => {
   const params = { memberId };
   if (workerId) params.workerId = workerId;
