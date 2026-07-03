@@ -137,6 +137,13 @@ public class AdminDrawController {
         return ResponseEntity.ok(ApiResponse.success(drawService.getTodaysDraws()));
     }
 
+    /** Recent draws (last 60 days) across all chits — used by mobile activity feed. */
+    @GetMapping("/recent")
+    public ResponseEntity<ApiResponse<List<DrawSummaryResponse>>> getRecentDraws(
+            @RequestParam(defaultValue = "60") int days) {
+        return ResponseEntity.ok(ApiResponse.success(drawService.getRecentDraws(days)));
+    }
+
     /**
      * Internal endpoint — called by chit-service when a chit is completed.
      * Auto-closes all OPEN draws so they don't pollute the admin dashboard.

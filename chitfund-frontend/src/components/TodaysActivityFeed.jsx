@@ -283,14 +283,14 @@ export default function TodaysActivityFeed() {
           )}
 
           {/* ── Draws ── */}
-          {draws.length > 0 && (
+          {draws.filter(d => d.skippedAt || (!d.closedAt && d.openedAt)).length > 0 && (
             <SectionCard
               icon={BookOpen}
               iconColor="text-[#1E3A5F]"
               iconBg="bg-blue-50"
               title="Draw Activity"
-              count={draws.length}
-              subtitle={`${draws.filter((d) => d.openedAt).length} opened · ${draws.filter((d) => d.closedAt).length} closed · ${draws.filter((d) => d.skippedAt).length} skipped`}
+              count={draws.filter(d => d.skippedAt || (!d.closedAt && d.openedAt)).length}
+              subtitle={`${draws.filter((d) => d.openedAt && !d.closedAt).length} opened · ${draws.filter((d) => d.skippedAt).length} skipped`}
             >
               {draws.map((d) => {
                 const chit = n(chitMap, d.chitId);
@@ -300,12 +300,7 @@ export default function TodaysActivityFeed() {
                     label="Skipped" detail={`${n(staffMap, d.skippedBy)} skipped ${cycle}`}
                     sub={d.skipReason} time={fmtTime(d.skippedAt)} />
                 );
-                if (d.closedAt) return (
-                  <EventRow key={`close-${d.id}`} icon={ArrowDownCircle} iconColor="text-gray-600" iconBg="bg-gray-50"
-                    label="Closed" detail={`${n(staffMap, d.closedBy)} closed ${cycle}`}
-                    sub={`${d.settledCount} settled · ${d.outstandingCount} outstanding`}
-                    time={fmtTime(d.closedAt)} />
-                );
+                if (d.closedAt) return null;
                 if (d.openedAt) return (
                   <EventRow key={`open-${d.id}`} icon={BookOpen} iconColor="text-[#1E3A5F]" iconBg="bg-blue-50"
                     label="Opened" detail={`${n(staffMap, d.openedBy)} opened ${cycle}`}

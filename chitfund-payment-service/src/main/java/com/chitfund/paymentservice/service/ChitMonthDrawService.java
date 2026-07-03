@@ -292,6 +292,15 @@ public class ChitMonthDrawService {
     }
 
     @Transactional(readOnly = true)
+    public List<DrawSummaryResponse> getRecentDraws(int days) {
+        LocalDateTime since = LocalDateTime.now().minusDays(days);
+        return drawRepository.findRecentDraws(since,
+                org.springframework.data.domain.PageRequest.of(0, 200)).stream()
+                .map(this::buildSummaryWithLiveStats)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getTodaysDraws() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);

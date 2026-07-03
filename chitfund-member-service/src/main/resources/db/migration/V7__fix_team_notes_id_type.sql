@@ -1,0 +1,3 @@
+ALTER TABLE team_notes
+    MODIFY COLUMN id        VARCHAR(36) NOT NULL,
+    MODIFY COLUMN author_id VARCHAR(36) NOT NULL;

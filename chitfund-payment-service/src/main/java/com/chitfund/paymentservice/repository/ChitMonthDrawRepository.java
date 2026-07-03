@@ -35,4 +35,11 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
            "(d.skippedAt >= :start AND d.skippedAt < :end) " +
            "ORDER BY COALESCE(d.openedAt, d.closedAt, d.skippedAt) DESC")
     List<ChitMonthDraw> findTodaysDraws(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // Recent draws (last N days) for activity feed
+    @Query("SELECT d FROM ChitMonthDraw d WHERE " +
+           "(d.openedAt >= :since OR d.closedAt >= :since OR d.skippedAt >= :since) " +
+           "ORDER BY COALESCE(d.openedAt, d.skippedAt, d.closedAt) DESC")
+    List<ChitMonthDraw> findRecentDraws(@Param("since") LocalDateTime since,
+                                        org.springframework.data.domain.Pageable pageable);
 }
