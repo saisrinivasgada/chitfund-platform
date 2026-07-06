@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -236,6 +237,7 @@ public class MemberListController {
 
     @PatchMapping("/{id}/link-user")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @Transactional
     public ResponseEntity<ApiResponse<MemberListItem>> linkUser(
             @PathVariable UUID id,
             @RequestBody LinkUserRequest req) {
@@ -245,14 +247,20 @@ public class MemberListController {
         // The mobile calls POST /auth/register first to create a temporary user carrying
         // the admin-chosen username/email. We apply those credentials to the member, then
         // delete the extra user — in user-service, a member IS already a user.
-        User appUser = userRepository.findById(req.getUserId())
-                .orElse(null);
+        // ORDER MATTERS: delete the appUser and flush first to release the unique username
+        // constraint, then update the member with that username.
+        User appUser = userRepository.findById(req.getUserId()).orElse(null);
 
         if (appUser != null && !appUser.getId().equals(member.getId())) {
-            if (appUser.getUsername() != null) member.setUsername(appUser.getUsername());
-            if (appUser.getEmail() != null)    member.setEmail(appUser.getEmail());
-            userRepository.save(member);
+            String newUsername = appUser.getUsername();
+            String newEmail    = appUser.getEmail();
+
             userRepository.delete(appUser);
+            userRepository.flush(); // release unique username constraint before re-assigning
+
+            if (newUsername != null) member.setUsername(newUsername);
+            if (newEmail != null)    member.setEmail(newEmail);
+            userRepository.save(member);
         }
 
         return ResponseEntity.ok(ApiResponse.success(toListItem(member), "App login created"));
