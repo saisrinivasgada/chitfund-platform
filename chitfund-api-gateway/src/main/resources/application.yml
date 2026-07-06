@@ -74,9 +74,10 @@ spring:
             - JwtAuthGatewayFilter
             - StripPrefix=1
 
-        # Notification endpoints — controller lives at /notifications/**
-        - id: payment-service-notifications
-          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+        # Notification endpoints — in-app notifications (mine, unread-count, mark-read)
+        # Routes to notification-service on port 8086 (was wrongly pointing to payment-service)
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/api/notifications/**
           filters:

@@ -13,7 +13,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    const isAuthEndpoint = err.config?.url?.includes('/auth/');
+    if (err.response?.status === 401 && !isAuthEndpoint) {
+      // Session expired mid-session — clear storage and redirect to login
+      // Skip this for auth endpoints (login/register) so errors are shown to the user
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -598,15 +601,26 @@ export const getPayoutsReport = async (chitId) => {
 
 // ─── Notifications (payment-service, strip /api) ───────────────────────────
 export const getNotifications = async () => {
-  const res = await api.get('/notifications');
-  return res.data.data ?? [];
+  const res = await api.get('/notifications/mine');
+  return res.data.data?.content ?? res.data.data ?? [];
 };
 
 export const getUnreadCount = async () => {
   const res = await api.get('/notifications/unread-count');
   const data = res.data.data;
-  // controller returns { count: N }
   return typeof data === 'object' ? (data?.count ?? 0) : (data ?? 0);
+};
+
+// Member profile change history from audit log
+export const getMemberAuditHistory = async (memberId) => {
+  try {
+    const res = await api.get('/audit/logs', {
+      params: { entityType: 'MEMBER', entityId: memberId, size: 30, sort: 'createdAt,desc' },
+    });
+    return res.data.data?.content ?? res.data.data ?? [];
+  } catch {
+    return [];
+  }
 };
 
 export const markNotificationRead = async (id) => {
@@ -663,6 +677,23 @@ export const addWalletTransaction = async (payload) => {
 export const transferWallet = async (payload) => {
   const res = await api.post('/admin/wallet/transfer', payload);
   return res.data.data;
+};
+
+// ── Team Notes ────────────────────────────────────────────────────────────────
+export const getTeamNotes = async () => {
+  const res = await api.get('/members/notes');
+  return res.data.data ?? [];
+};
+export const createTeamNote = async ({ text, visibility }) => {
+  const res = await api.post('/members/notes', { text, visibility });
+  return res.data.data;
+};
+export const updateTeamNote = async (id, { text, visibility }) => {
+  const res = await api.put(`/members/notes/${id}`, { text, visibility });
+  return res.data.data;
+};
+export const deleteTeamNote = async (id) => {
+  await api.delete(`/members/notes/${id}`);
 };
 
 export default api;

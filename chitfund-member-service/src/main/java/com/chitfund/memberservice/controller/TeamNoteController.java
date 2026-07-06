@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/notes")
+@RequestMapping("/members/notes")
 @RequiredArgsConstructor
 public class TeamNoteController {
 
