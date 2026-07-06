@@ -35,6 +35,7 @@ public class MemberListController {
     @Builder
     public static class MemberListItem {
         private UUID id;
+        private UUID userId;
         private String fullName;
         private String name;
         private String phone;
@@ -231,6 +232,32 @@ public class MemberListController {
         return ResponseEntity.ok(ApiResponse.success(null, "Member deleted"));
     }
 
+    // ── PATCH /members/{id}/link-user ─────────────────────────────────────────
+
+    @PatchMapping("/{id}/link-user")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<MemberListItem>> linkUser(
+            @PathVariable UUID id,
+            @RequestBody LinkUserRequest req) {
+
+        User member = memberOrThrow(id);
+
+        // The mobile calls POST /auth/register first to create a temporary user carrying
+        // the admin-chosen username/email. We apply those credentials to the member, then
+        // delete the extra user — in user-service, a member IS already a user.
+        User appUser = userRepository.findById(req.getUserId())
+                .orElse(null);
+
+        if (appUser != null && !appUser.getId().equals(member.getId())) {
+            if (appUser.getUsername() != null) member.setUsername(appUser.getUsername());
+            if (appUser.getEmail() != null)    member.setEmail(appUser.getEmail());
+            userRepository.save(member);
+            userRepository.delete(appUser);
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(toListItem(member), "App login created"));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private User memberOrThrow(UUID id) {
@@ -242,6 +269,7 @@ public class MemberListController {
     private MemberListItem toListItem(User u) {
         return MemberListItem.builder()
                 .id(u.getId())
+                .userId(u.getId())
                 .fullName(u.getFullName())
                 .name(u.getFullName())
                 .phone(u.getPhone())
@@ -295,5 +323,10 @@ public class MemberListController {
         private String panNumber;
         private String notes;
         private UUID referredById;
+    }
+
+    @Data
+    public static class LinkUserRequest {
+        private UUID userId;
     }
 }

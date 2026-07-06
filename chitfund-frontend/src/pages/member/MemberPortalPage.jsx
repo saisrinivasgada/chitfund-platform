@@ -644,6 +644,7 @@ export default function MemberPortalPage() {
   const [tab, setTab] = useState('chits');
   const [showEdit, setShowEdit] = useState(false);
   const [showCashRequest, setShowCashRequest] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
 
   const { data: member, isLoading: memberLoading } = useQuery({
@@ -753,6 +754,15 @@ export default function MemberPortalPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setShowHistory(true)}
+                aria-label="Profile change history"
+                className="p-2 rounded-xl text-xs font-medium transition-colors cursor-pointer"
+                style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)' }}
+              >
+                <Clock size={14} />
+              </button>
+              <button
+                type="button"
                 onClick={() => setShowEdit(true)}
                 aria-label="Edit profile"
                 className="p-2 rounded-xl text-xs font-medium transition-colors cursor-pointer"
@@ -843,8 +853,12 @@ export default function MemberPortalPage() {
         />
       )}
 
-      {/* Profile change history sits outside tabs — always visible */}
-      <ProfileChangeHistory key={historyVersion} userId={userAccount?.id} />
+      {/* Profile change history modal */}
+      {showHistory && (
+        <Modal title="Profile Change History" onClose={() => setShowHistory(false)} size="md">
+          <ProfileChangeHistory key={historyVersion} userId={userAccount?.id} inline />
+        </Modal>
+      )}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
       {showEdit && (

@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator,
-  TextInput, ScrollView, StyleSheet, Platform,
+  TextInput, ScrollView, StyleSheet, Platform, Modal as RNModal,
 } from 'react-native';
+import { BlurView, BlurTint } from 'expo-blur';
+import { useUIStore } from '../store/uiStore';
 
 // ── Colors ──────────────────────────────────────────────────────────────────
 export const C = {
@@ -16,6 +18,7 @@ export const C = {
   amber:      '#D97706',
   gray900:    '#111827',
   gray700:    '#374151',
+  gray600:    '#4B5563',
   gray500:    '#6B7280',
   gray400:    '#9CA3AF',
   gray300:    '#D1D5DB',
@@ -54,6 +57,67 @@ export function Card({ children, style }: { children: React.ReactNode; style?: o
     }, style]}>
       {children}
     </View>
+  );
+}
+
+// ── Glass Card — iOS frosted glass, Android opaque fallback ──────────────────
+export function GlassCard({ children, style, intensity = 80 }: {
+  children: React.ReactNode;
+  style?: any;
+  intensity?: number;
+}) {
+  if (Platform.OS !== 'ios') {
+    return (
+      <View style={[{
+        backgroundColor: 'rgba(255,255,255,0.96)',
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(0,0,0,0.07)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+      }, style]}>
+        <View style={{ padding: 16 }}>{children}</View>
+      </View>
+    );
+  }
+  // Outer View carries shadow (overflow:visible); BlurView clips to border radius
+  return (
+    <View style={[{
+      borderRadius: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+    }, style]}>
+      <BlurView intensity={intensity} tint="systemUltraThinMaterial" style={{
+        borderRadius: 20,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.6)',
+      }}>
+        <View style={{ padding: 16 }}>{children}</View>
+      </BlurView>
+    </View>
+  );
+}
+
+// ── Glass View — for non-card containers (tab bars, headers, sheets) ─────────
+export function GlassView({ children, style, intensity = 80, tint = 'systemChromeMaterial' }: {
+  children?: React.ReactNode;
+  style?: any;
+  intensity?: number;
+  tint?: BlurTint;
+}) {
+  if (Platform.OS !== 'ios') {
+    return <View style={[{ backgroundColor: 'rgba(255,255,255,0.94)' }, style]}>{children}</View>;
+  }
+  return (
+    <BlurView intensity={intensity} tint={tint} style={[{ overflow: 'hidden' }, style]}>
+      {children}
+    </BlurView>
   );
 }
 
@@ -122,15 +186,20 @@ export function Button({
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
 const BADGE_STYLES: Record<string, { bg: string; text: string }> = {
-  PENDING:   { bg: '#FEF3C7', text: '#D97706' },
-  ASSIGNED:  { bg: '#DBEAFE', text: '#2563EB' },
-  PICKED_UP: { bg: '#D1FAE5', text: '#059669' },
-  COLLECTED: { bg: C.navy50,  text: C.navy },
-  CANCELLED: { bg: C.gray100, text: C.gray500 },
-  ACTIVE:    { bg: '#D1FAE5', text: '#059669' },
-  PAUSED:    { bg: '#FEF3C7', text: '#D97706' },
-  COMPLETED: { bg: C.navy50,  text: C.navy },
-  DRAFT:     { bg: C.gray100, text: C.gray500 },
+  PENDING:              { bg: '#FEF3C7', text: '#D97706' },
+  ASSIGNED:             { bg: '#DBEAFE', text: '#2563EB' },
+  PICKED_UP:            { bg: '#D1FAE5', text: '#059669' },
+  COLLECTED:            { bg: C.navy50,  text: C.navy },
+  CANCELLED:            { bg: C.gray100, text: C.gray500 },
+  ACTIVE:               { bg: '#D1FAE5', text: '#059669' },
+  PAUSED:               { bg: '#FEF3C7', text: '#D97706' },
+  COMPLETED:            { bg: C.navy50,  text: C.navy },
+  DRAFT:                { bg: C.gray100, text: C.gray500 },
+  INACTIVE:             { bg: '#FEE2E2', text: '#DC2626' },
+  SUSPENDED:            { bg: '#FEE2E2', text: '#DC2626' },
+  DISBURSED:            { bg: '#D1FAE5', text: '#059669' },
+  PARTIALLY_DISBURSED:  { bg: '#DBEAFE', text: '#2563EB' },
+  VOIDED:               { bg: '#FEE2E2', text: '#DC2626' },
 };
 
 export function Badge({ status }: { status: string }) {
@@ -200,15 +269,23 @@ export function SectionHeader({ title, action }: { title: string; action?: React
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
-export function StatCard({ label, value, sub, accent }: {
-  label: string; value: string; sub?: string; accent?: string;
+export function StatCard({ label, value, sub, accent, onPress, glass = false }: {
+  label: string; value: string; sub?: string; accent?: string; onPress?: () => void; glass?: boolean;
 }) {
-  return (
-    <Card style={{ flex: 1 }}>
-      <Text style={{ fontSize: 11, fontWeight: '600', color: C.gray400, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Text>
+  const content = (
+    <>
+      <Text style={{ fontSize: 11, fontWeight: '600', color: glass ? 'rgba(100,120,150,0.9)' : C.gray400, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Text>
       <Text style={{ fontSize: 22, fontWeight: '700', color: accent ?? C.navy, marginTop: 4 }}>{value}</Text>
-      {sub && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{sub}</Text>}
-    </Card>
+      {sub && <Text style={{ fontSize: 12, color: glass ? 'rgba(80,100,120,0.8)' : C.gray500, marginTop: 2 }}>{sub}</Text>}
+    </>
+  );
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={onPress ? 0.75 : 1} style={{ flex: 1 }}>
+      {glass
+        ? <GlassCard style={{ flex: 1 }}>{content}</GlassCard>
+        : <Card>{content}</Card>
+      }
+    </TouchableOpacity>
   );
 }
 
@@ -224,13 +301,25 @@ export function EmptyState({ title, message }: { title: string; message?: string
 }
 
 // ── Amount ────────────────────────────────────────────────────────────────────
-export function Amount({ value, size = 'md', color }: { value: number | string; size?: 'sm' | 'md' | 'lg'; color?: string }) {
-  const fs = size === 'sm' ? 14 : size === 'lg' ? 22 : 17;
+export function Amount({ value, size = 'md', color }: { value: number | string; size?: 'sm' | 'md' | 'lg' | 'xl'; color?: string }) {
+  const hidden = useUIStore((s) => s.amountsHidden);
+  const fs = size === 'sm' ? 14 : size === 'lg' ? 22 : size === 'xl' ? 32 : 17;
   const num = Number(value);
   return (
     <Text style={{ fontSize: fs, fontWeight: '700', color: color ?? C.navy }}>
-      ₹{num.toLocaleString('en-IN')}
+      {hidden ? '₹ ••••' : `₹${num.toLocaleString('en-IN')}`}
     </Text>
+  );
+}
+
+// ── Eye Toggle ────────────────────────────────────────────────────────────────
+export function EyeToggle({ size = 22 }: { size?: number }) {
+  const { amountsHidden, toggleAmounts } = useUIStore();
+  return (
+    <TouchableOpacity onPress={toggleAmounts} activeOpacity={0.7}
+      style={{ padding: 6, borderRadius: 8, backgroundColor: amountsHidden ? C.navy50 : C.gray100 }}>
+      <Text style={{ fontSize: size, lineHeight: size + 2 }}>{amountsHidden ? '🙈' : '👁'}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -309,4 +398,151 @@ export function fmtDate(d?: string | null) {
 export function fmtDateTime(d?: string | null) {
   if (!d) return '—';
   return new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+// ── PhoneInput ────────────────────────────────────────────────────────────────
+export const COUNTRIES = [
+  { code: '+91',  iso: 'IN', name: 'India',         flag: '🇮🇳' },
+  { code: '+1',   iso: 'US', name: 'USA',           flag: '🇺🇸' },
+  { code: '+44',  iso: 'GB', name: 'UK',            flag: '🇬🇧' },
+  { code: '+1',   iso: 'CA', name: 'Canada',        flag: '🇨🇦' },
+  { code: '+61',  iso: 'AU', name: 'Australia',     flag: '🇦🇺' },
+  { code: '+64',  iso: 'NZ', name: 'New Zealand',   flag: '🇳🇿' },
+  { code: '+971', iso: 'AE', name: 'UAE',           flag: '🇦🇪' },
+  { code: '+966', iso: 'SA', name: 'Saudi Arabia',  flag: '🇸🇦' },
+  { code: '+974', iso: 'QA', name: 'Qatar',         flag: '🇶🇦' },
+  { code: '+965', iso: 'KW', name: 'Kuwait',        flag: '🇰🇼' },
+  { code: '+973', iso: 'BH', name: 'Bahrain',       flag: '🇧🇭' },
+  { code: '+968', iso: 'OM', name: 'Oman',          flag: '🇴🇲' },
+  { code: '+65',  iso: 'SG', name: 'Singapore',     flag: '🇸🇬' },
+  { code: '+60',  iso: 'MY', name: 'Malaysia',      flag: '🇲🇾' },
+  { code: '+49',  iso: 'DE', name: 'Germany',       flag: '🇩🇪' },
+  { code: '+33',  iso: 'FR', name: 'France',        flag: '🇫🇷' },
+  { code: '+31',  iso: 'NL', name: 'Netherlands',   flag: '🇳🇱' },
+  { code: '+81',  iso: 'JP', name: 'Japan',         flag: '🇯🇵' },
+  { code: '+86',  iso: 'CN', name: 'China',         flag: '🇨🇳' },
+  { code: '+27',  iso: 'ZA', name: 'South Africa',  flag: '🇿🇦' },
+];
+
+export function formatPhone(countryCode: string, phone: string) {
+  if (!phone) return '';
+  return `(${countryCode}) ${phone}`;
+}
+
+export function PhoneInput({
+  label = 'Phone',
+  required = false,
+  countryCode = '+91',
+  phone = '',
+  onCountryChange,
+  onPhoneChange,
+}: {
+  label?: string;
+  required?: boolean;
+  countryCode?: string;
+  phone?: string;
+  onCountryChange?: (code: string) => void;
+  onPhoneChange?: (phone: string) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const selected = COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[0];
+  const filtered = search
+    ? COUNTRIES.filter((c) =>
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        c.code.includes(search) ||
+        c.iso.toLowerCase().includes(search.toLowerCase())
+      )
+    : COUNTRIES;
+
+  function selectCountry(c: typeof COUNTRIES[0]) {
+    onCountryChange?.(c.code);
+    setPickerOpen(false);
+    setSearch('');
+  }
+
+  return (
+    <View>
+      {label ? (
+        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>
+          {label}{required ? ' *' : ''}
+        </Text>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {/* Country code selector */}
+        <TouchableOpacity
+          onPress={() => setPickerOpen(true)}
+          activeOpacity={0.7}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
+            paddingHorizontal: 10, paddingVertical: 12, backgroundColor: C.white,
+          }}>
+          <Text style={{ fontSize: 18, lineHeight: 22 }}>{selected.flag}</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{selected.code}</Text>
+          <Text style={{ fontSize: 11, color: C.gray400 }}>▾</Text>
+        </TouchableOpacity>
+
+        {/* Phone number */}
+        <TextInput
+          value={phone}
+          onChangeText={(t) => onPhoneChange?.(t.replace(/\D/g, '').slice(0, 15))}
+          placeholder="Phone number"
+          placeholderTextColor={C.gray400}
+          keyboardType="phone-pad"
+          style={{
+            flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
+            padding: 12, fontSize: 14, color: C.gray900,
+          }}
+        />
+      </View>
+
+      {/* Country picker modal */}
+      <RNModal visible={pickerOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setPickerOpen(false); setSearch(''); }}>
+        <View style={{ flex: 1, backgroundColor: C.white }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, paddingTop: Platform.OS === 'ios' ? 56 : 16 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Select Country</Text>
+            <TouchableOpacity onPress={() => { setPickerOpen(false); setSearch(''); }}>
+              <Text style={{ fontSize: 26, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Search */}
+          <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 ?? C.gray200 }}>
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search country, code…"
+              placeholderTextColor={C.gray400}
+              autoFocus
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900 }}
+            />
+          </View>
+          {/* List */}
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {filtered.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: C.gray400, padding: 24 }}>No countries found</Text>
+            ) : (
+              filtered.map((c) => (
+                <TouchableOpacity
+                  key={c.iso}
+                  onPress={() => selectCountry(c)}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 12,
+                    paddingVertical: 14, paddingHorizontal: 16,
+                    backgroundColor: c.code === countryCode && c.iso === selected.iso ? C.navy50 : C.white,
+                    borderBottomWidth: 1, borderBottomColor: C.gray100 ?? C.gray200,
+                  }}>
+                  <Text style={{ fontSize: 22 }}>{c.flag}</Text>
+                  <Text style={{ flex: 1, fontSize: 15, color: c.code === countryCode && c.iso === selected.iso ? C.navy : C.gray900 }}>{c.name}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray500 }}>{c.code}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </RNModal>
+    </View>
+  );
 }

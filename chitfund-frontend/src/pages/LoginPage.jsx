@@ -180,16 +180,19 @@ export default function LoginPage() {
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
-  // Already authenticated — redirect to the right home page
-  if (isAuthenticated) {
-    const dest = user?.role === 'MEMBER' ? '/member' : user?.role === 'WORKER' ? '/tasks' : '/';
-    return <Navigate to={dest} replace />;
-  }
+  // All hooks must run before any conditional return
   const [loginMode, setLoginMode] = useState('username'); // 'username' | 'mobile'
   const [form, setForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+
+  // Already authenticated — redirect to the right home page
+  if (isAuthenticated) {
+    if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;
+    const dest = user?.role === 'MEMBER' ? '/member' : user?.role === 'WORKER' ? '/tasks' : '/';
+    return <Navigate to={dest} replace />;
+  }
 
   function handleAuthSuccess(data) {
     const token = data?.accessToken ?? data?.token;

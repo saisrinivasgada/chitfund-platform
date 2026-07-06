@@ -5,7 +5,7 @@ import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit, registerUser,
   linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
-  softDeleteMember,
+  softDeleteMember, getMemberAuditHistory, getActiveCashRequests,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -20,7 +20,7 @@ import {
   ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
-  Layers, ExternalLink,
+  Layers, ExternalLink, ClipboardList,
 } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ function InfoRow({ label, value, children }) {
 const STATUS_OPTIONS = [
   { value: 'ACTIVE',      label: 'Active',      color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
   { value: 'INACTIVE',    label: 'Inactive',    color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' },
+  { value: 'SUSPENDED',   label: 'Suspended',   color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
   { value: 'BLACKLISTED', label: 'Blacklisted', color: '#DC2626', bg: '#FFF5F5', border: '#FECACA' },
 ];
 
@@ -164,7 +165,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, reminderPending, whatsappPending }) {
+function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, onHistory, reminderPending, whatsappPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -234,6 +235,12 @@ function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onRe
             <>
               <div className="border-t border-gray-100 my-1" />
               <MenuButton
+                icon={<History size={14} className="text-[#4F46E5]" />}
+                onClick={() => { onHistory(); setOpen(false); }}
+              >
+                Profile History
+              </MenuButton>
+              <MenuButton
                 icon={<HandCoins size={14} className="text-[#1E3A5F]" />}
                 onClick={() => { navigate(`/settlement?memberId=${member.id}`); setOpen(false); }}
               >
@@ -270,8 +277,8 @@ function MenuButton({ icon, children, onClick, disabled, danger }) {
   );
 }
 
-// ─── Edit member modal ────────────────────────────────────────────────────────
-function EditMemberModal({ member, onClose }) {
+// ─── Edit member — centered modal ────────────────────────────────────────────
+function EditMemberPanel({ member, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [form, setForm] = useState({
@@ -298,7 +305,7 @@ function EditMemberModal({ member, onClose }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['member', member.id] });
       qc.invalidateQueries({ queryKey: ['members'] });
-      toast.success('Member updated successfully');
+      toast.success('Member updated');
       onClose();
     },
     onError: (err) => {
@@ -311,77 +318,113 @@ function EditMemberModal({ member, onClose }) {
     },
   });
 
-  function set(key, val) {
-    setForm((f) => ({ ...f, [key]: val }));
-  }
+  function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
 
   return (
-    <Modal title="Edit Member" onClose={onClose} size="xl">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const payload = Object.fromEntries(
-            Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
-          );
-          mutation.mutate(payload);
-        }}
-        className="space-y-4"
-      >
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Personal Information</p>
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Full Name" required className="col-span-2">
-            <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} required />
-          </FormField>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-          <div className="col-span-2">
-            <PhoneInput
-              label="Phone"
-              countryCode={form.phoneCountryCode}
-              phone={form.phone}
-              onCountryChange={(code) => set('phoneCountryCode', code)}
-              onPhoneChange={(v) => set('phone', v)}
-            />
+      {/* Panel */}
+      <div className="relative z-10 flex flex-col bg-white w-full max-w-lg max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0"
+             style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)' }}>
+          <div>
+            <h2 className="text-base font-bold text-white">Edit Member</h2>
+            <p className="text-xs text-blue-200 mt-0.5">{member.fullName}</p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors cursor-pointer">
+            ✕
+          </button>
+        </div>
+
+        {/* Scrollable form */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const payload = Object.fromEntries(
+              Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
+            );
+            mutation.mutate(payload);
+          }}
+          className="flex-1 overflow-y-auto"
+        >
+          <div className="px-6 py-5 space-y-5">
+            {/* Section: Personal */}
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Personal Information</p>
+              <div className="space-y-3">
+                <FormField label="Full Name" required>
+                  <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} required autoFocus />
+                </FormField>
+                <PhoneInput
+                  label="Phone"
+                  countryCode={form.phoneCountryCode}
+                  phone={form.phone}
+                  onCountryChange={(code) => set('phoneCountryCode', code)}
+                  onPhoneChange={(v) => set('phone', v)}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Email">
+                    <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
+                  </FormField>
+                  <FormField label="City">
+                    <Input value={form.city} onChange={(e) => set('city', e.target.value)} />
+                  </FormField>
+                </div>
+                <FormField label="Address">
+                  <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+                </FormField>
+              </div>
+            </div>
+
+            {/* Section: Identity */}
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Identity</p>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Aadhaar Last 4">
+                  <Input maxLength={4} value={form.aadhaarLast4} onChange={(e) => set('aadhaarLast4', e.target.value)} placeholder="1234" />
+                </FormField>
+                <FormField label="PAN Number">
+                  <Input value={form.panNumber} onChange={(e) => set('panNumber', e.target.value.toUpperCase())} placeholder="ABCDE1234F" maxLength={10} />
+                </FormField>
+              </div>
+            </div>
+
+            {/* Section: Referral + Notes */}
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Other</p>
+              <div className="space-y-3">
+                <FormField label="Referred By">
+                  <Select value={form.referredById} onChange={(e) => set('referredById', e.target.value)}>
+                    <option value="">— No referral —</option>
+                    {[...activeMembers]
+                      .filter((m) => m.id !== member.id)
+                      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+                      .map((m) => (
+                        <option key={m.id} value={m.id}>{m.fullName} · {formatPhone(m.phoneCountryCode ?? '+91', m.phone)}</option>
+                      ))}
+                  </Select>
+                </FormField>
+                <FormField label="Notes">
+                  <Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={3} />
+                </FormField>
+              </div>
+            </div>
           </div>
 
-          <FormField label="Email">
-            <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-          </FormField>
-          <FormField label="City">
-            <Input value={form.city} onChange={(e) => set('city', e.target.value)} />
-          </FormField>
-          <FormField label="Address" className="col-span-2">
-            <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
-          </FormField>
-          <FormField label="Aadhaar Last 4">
-            <Input maxLength={4} value={form.aadhaarLast4} onChange={(e) => set('aadhaarLast4', e.target.value)} />
-          </FormField>
-          <FormField label="PAN Number">
-            <Input value={form.panNumber} onChange={(e) => set('panNumber', e.target.value.toUpperCase())} />
-          </FormField>
-        </div>
-
-        <FormField label="Notes">
-          <Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} />
-        </FormField>
-
-        <FormField label="Referred By">
-          <Select value={form.referredById} onChange={(e) => set('referredById', e.target.value)}>
-            <option value="">— No referral —</option>
-            {[...activeMembers]
-              .filter((m) => m.id !== member.id)
-              .sort((a, b) => a.fullName.localeCompare(b.fullName))
-              .map((m) => (
-                <option key={m.id} value={m.id}>{m.fullName} · {formatPhone(m.phoneCountryCode ?? '+91', m.phone)}</option>
-              ))}
-          </Select>
-        </FormField>
-
-        <div className="flex gap-3 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button type="submit" loading={mutation.isPending} className="flex-1">Save Changes</Button>
-        </div>
-      </form>
-    </Modal>
+          {/* Sticky footer */}
+          <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex gap-3">
+            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button type="submit" loading={mutation.isPending} disabled={!form.fullName.trim()} className="flex-1">
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -808,6 +851,103 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
   );
 }
 
+// ─── Profile change history (admin-only) ─────────────────────────────────────
+function ProfileHistorySection({ memberId, flat = false }) {
+  const [open, setOpen] = useState(false);
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['memberAuditHistory', memberId],
+    queryFn: () => getMemberAuditHistory(memberId),
+    enabled: (flat || open) && !!memberId,
+    staleTime: 60_000,
+  });
+
+  const ACTION_LABELS = {
+    'PROFILE_UPDATED': 'Profile Updated',
+    'STATUS_CHANGED':  'Status Changed',
+    'CREATED':         'Member Created',
+    'DELETED':         'Member Deleted',
+  };
+
+  const content = isLoading ? (
+    <p className="text-sm text-gray-400 text-center py-4">Loading history…</p>
+  ) : logs.length === 0 ? (
+    <p className="text-sm text-gray-400 text-center py-6">No profile changes recorded yet</p>
+  ) : (
+    <div className="space-y-3">
+      {logs.map((log, idx) => {
+        const actionLabel = ACTION_LABELS[log.action] ?? log.action?.replace(/_/g, ' ') ?? 'Change';
+        const isFirst = idx === 0;
+        return (
+          <div key={log.id ?? idx}
+            className={`flex gap-3 pb-3 ${idx < logs.length - 1 ? 'border-b border-gray-50' : ''}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${isFirst ? 'bg-[#EEF2FF]' : 'bg-gray-100'}`}>
+              <Edit2 size={12} className={isFirst ? 'text-[#4F46E5]' : 'text-gray-400'} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-semibold text-gray-900">{actionLabel}</span>
+                {log.actorRole && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-[#EFF6FF] text-blue-700 font-medium">{log.actorRole}</span>
+                )}
+              </div>
+              {(log.previousValue || log.newValue) && (
+                <p className="text-xs text-gray-500 mt-1 font-mono">
+                  {log.previousValue && log.newValue
+                    ? `${log.previousValue} → ${log.newValue}`
+                    : log.newValue ?? log.previousValue}
+                </p>
+              )}
+              {log.reason && <p className="text-xs text-gray-400 italic mt-1">"{log.reason}"</p>}
+              <p className="text-xs text-gray-400 mt-1">
+                {log.createdAt
+                  ? new Date(log.createdAt).toLocaleString('en-IN', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit', hour12: true,
+                    })
+                  : '—'}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  if (flat) {
+    return <div className="px-1 py-2">{content}</div>;
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Toggle header */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#EEF2FF] flex items-center justify-center flex-shrink-0">
+            <History size={16} className="text-[#4F46E5]" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Profile Change History</p>
+            <p className="text-xs text-gray-500">All edits to this member's profile by any admin</p>
+          </div>
+        </div>
+        <ChevronDown
+          size={16}
+          className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 px-5 py-4">
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Payment history section ──────────────────────────────────────────────────
 function PaymentHistorySection({ memberId }) {
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
@@ -938,6 +1078,10 @@ export default function MemberDetailPage() {
   const [showCreateLogin, setShowCreateLogin] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showProfileHistory, setShowProfileHistory] = useState(false);
+  const [showReferralEdit, setShowReferralEdit] = useState(false);
+  const [refSearch, setRefSearch] = useState('');
+  const [refId, setRefId] = useState('');
   const toast = useToastContext();
   const qc = useQueryClient();
 
@@ -996,6 +1140,35 @@ export default function MemberDetailPage() {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete member'),
   });
 
+  const changeRefMutation = useMutation({
+    mutationFn: ({ referredById }) => updateMember({ id, referredById: referredById ?? null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['member', id] });
+      toast.success('Referral updated');
+      setShowReferralEdit(false);
+      setRefSearch('');
+      setRefId('');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to update referral'),
+  });
+
+  const { data: allMembersForRef = [] } = useQuery({
+    queryKey: ['members-for-referral'],
+    queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
+    enabled: showReferralEdit,
+    staleTime: 120_000,
+  });
+
+  const { data: activeCashRequests = [] } = useQuery({
+    queryKey: ['active-cash-requests'],
+    queryFn: getActiveCashRequests,
+    enabled: !!id,
+    staleTime: 60_000,
+  });
+  const pendingMemberPickups = activeCashRequests.filter(
+    (r) => r.memberId === id && (r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PENDING'),
+  );
+
   if (isLoading) return <PageSpinner />;
   if (!member) return (
     <div className="text-center py-24">
@@ -1018,6 +1191,43 @@ export default function MemberDetailPage() {
       >
         <ArrowLeft size={16} className="text-gray-600" />
       </button>
+
+      {/* Pending cash pickup banner */}
+      {pendingMemberPickups.length > 0 && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <ClipboardList size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-800">
+              {pendingMemberPickups.length} pending cash pickup{pendingMemberPickups.length > 1 ? 's' : ''}
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {pendingMemberPickups.map((r) => {
+                const stLabel = r.status === 'PICKED_UP'
+                  ? 'Picked up — awaiting admin confirmation'
+                  : r.status === 'ASSIGNED'
+                  ? 'Assigned to worker — not yet picked up'
+                  : 'Pending assignment';
+                return (
+                  <div key={r.id} className="flex items-center gap-2 text-xs text-amber-700">
+                    <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                      r.status === 'PICKED_UP' ? 'bg-green-100 text-green-700' :
+                      r.status === 'ASSIGNED'  ? 'bg-blue-100 text-blue-700' :
+                      'bg-amber-100 text-amber-700'
+                    }`}>{stLabel}</span>
+                    {r.requestedAmount != null && (
+                      <span className="font-semibold">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>
+                    )}
+                    {r.chitName && <span className="text-amber-600">· {r.chitName}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <Link to="/payments" className="text-xs font-semibold text-amber-700 underline whitespace-nowrap hover:text-amber-900">
+            View Pickups →
+          </Link>
+        </div>
+      )}
 
       {/* Deleted banner */}
       {isDeleted && (
@@ -1114,6 +1324,7 @@ export default function MemberDetailPage() {
               onReminder={() => reminderMutation.mutate()}
               onWhatsApp={() => whatsappMutation.mutate()}
               onDelete={() => setShowDeleteConfirm(true)}
+              onHistory={() => setShowProfileHistory(true)}
               reminderPending={reminderMutation.isPending}
               whatsappPending={whatsappMutation.isPending}
             />
@@ -1137,17 +1348,89 @@ export default function MemberDetailPage() {
           <InfoRow label="Email" value={member.email} />
           <InfoRow label="Address" value={member.address} />
           <InfoRow label="City" value={member.city} />
+          <InfoRow label="Joined" value={member.createdAt ? new Date(member.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
           <InfoRow label="Aadhaar Last 4" value={member.aadhaarLast4 ? `xxxx-xxxx-${member.aadhaarLast4}` : null} />
           <InfoRow label="PAN Number" value={member.panNumber} />
-          <div className="flex flex-col sm:flex-row sm:items-center py-3 border-b border-gray-50 last:border-0 gap-1">
-            <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0">Referred By</span>
-            {member.referredById ? (
-              <Link to={`/members/${member.referredById}`} className="text-sm font-medium text-[#1E3A5F] hover:underline">
-                {member.referredByName}
-              </Link>
-            ) : (
-              <NA />
-            )}
+          <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 last:border-0 gap-1">
+            <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0 pt-0.5">Referred By</span>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                {member.referredById ? (
+                  <Link to={`/members/${member.referredById}`} className="text-sm font-medium text-[#1E3A5F] hover:underline">
+                    {member.referredByName}
+                  </Link>
+                ) : (
+                  <NA />
+                )}
+                {!isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowReferralEdit(v => !v); setRefSearch(''); setRefId(''); }}
+                    className="text-xs font-semibold text-[#1E3A5F] underline cursor-pointer hover:text-blue-700 ml-1"
+                  >
+                    {showReferralEdit ? 'Cancel' : (member.referredById ? 'Change' : 'Add')}
+                  </button>
+                )}
+              </div>
+
+              {showReferralEdit && (
+                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
+                  {refId ? (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-blue-200">
+                      <span className="text-sm font-medium text-[#1E3A5F] flex-1">{refSearch}</span>
+                      <button type="button" onClick={() => { setRefId(''); setRefSearch(''); }}
+                        className="text-gray-400 hover:text-gray-600 cursor-pointer text-lg leading-none">×</button>
+                    </div>
+                  ) : (
+                    <>
+                      <Input
+                        autoFocus
+                        value={refSearch}
+                        onChange={(e) => { setRefSearch(e.target.value); setRefId(''); }}
+                        placeholder="Search member by name…"
+                      />
+                      {refSearch && (
+                        <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white divide-y divide-gray-100 shadow-sm">
+                          {member.referredById && (
+                            <button type="button"
+                              className="w-full text-left px-3 py-2.5 text-xs italic text-gray-400 hover:bg-gray-50 cursor-pointer"
+                              onClick={() => { setRefId('NONE'); setRefSearch('— Remove referral —'); }}>
+                              — Remove referral —
+                            </button>
+                          )}
+                          {allMembersForRef
+                            .filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase()))
+                            .slice(0, 6)
+                            .map((m) => (
+                              <button key={m.id} type="button"
+                                className="w-full text-left px-3 py-2.5 hover:bg-blue-50 cursor-pointer"
+                                onClick={() => { setRefId(m.id); setRefSearch(m.fullName); }}>
+                                <span className="text-sm font-medium text-gray-800">{m.fullName}</span>
+                                {m.phone && <span className="text-xs text-gray-400 ml-2">{m.phone}</span>}
+                              </button>
+                            ))}
+                          {allMembersForRef.filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase())).length === 0 && (
+                            <p className="px-3 py-2.5 text-xs text-gray-400 italic">No members found</p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="flex gap-2 pt-0.5">
+                    <Button variant="secondary" size="sm"
+                      onClick={() => { setShowReferralEdit(false); setRefSearch(''); setRefId(''); }}>
+                      Cancel
+                    </Button>
+                    <Button size="sm"
+                      disabled={!refId || changeRefMutation.isPending}
+                      loading={changeRefMutation.isPending}
+                      onClick={() => changeRefMutation.mutate({ referredById: refId === 'NONE' ? null : refId })}>
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1173,10 +1456,15 @@ export default function MemberDetailPage() {
       {/* Payment History */}
       <PaymentHistorySection memberId={id} />
 
-      {/* Modals */}
-      {showEdit && <EditMemberModal member={member} onClose={() => setShowEdit(false)} />}
+      {/* Modals + Panels */}
+      {showEdit && <EditMemberPanel member={member} onClose={() => setShowEdit(false)} />}
       {showCreateLogin && <CreateLoginModal member={member} onClose={() => setShowCreateLogin(false)} />}
       {showReset && <ResetPasswordModal member={member} onClose={() => setShowReset(false)} />}
+      {showProfileHistory && (
+        <Modal title="Profile Change History" onClose={() => setShowProfileHistory(false)} size="md">
+          <ProfileHistorySection memberId={id} flat />
+        </Modal>
+      )}
       {showDeleteConfirm && (
         <ConfirmDialog
           variant="danger"

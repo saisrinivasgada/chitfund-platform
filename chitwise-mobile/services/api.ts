@@ -90,10 +90,14 @@ export const softDeleteMember = async (id: string) =>
 export const getMyMemberProfile = async () => unwrapObj(await api.get('/members/me'));
 export const linkMemberUser = async (memberId: string, userId: string) =>
   unwrapObj(await api.patch(`/members/${memberId}/link-user`, { userId }));
+export const registerUser = async (body: { username: string; email: string }) =>
+  (await api.post('/auth/register', { ...body, role: 'MEMBER' })).data?.data;
 export const getMemberTotalBalance = async (memberId: string) => {
   const res = await api.get('/payments/balance/total', { params: { memberId } });
   return res.data?.data ?? 0;
 };
+export const getMemberCredit = async (memberId: string) =>
+  (await api.get(`/payments/credits/${memberId}`)).data?.data ?? { balance: 0 };
 
 // ── Chits ──────────────────────────────────────────────────────────────────────
 export const getChits = async () => unwrapList(await api.get('/chits'));
