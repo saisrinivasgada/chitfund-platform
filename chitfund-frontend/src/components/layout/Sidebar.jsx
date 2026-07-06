@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { getMe, mobileLookup, loginByMobile } from '../../services/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getMe, mobileLookup, loginByMobile, getTeamNotes, createTeamNote, updateTeamNote, deleteTeamNote } from '../../services/api';
 import NotificationBell from '../notifications/NotificationBell';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
@@ -48,19 +48,15 @@ const ALL_NAV = [
   { to: '/team',       icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
 ];
 
-// ─── Quick Notes (ADMIN + MANAGER, cross-role sharing via localStorage) ───────
+// ─── Quick Notes (ADMIN + MANAGER — real DB via team-notes API) ───────────────
 function QuickNotes({ role }) {
-  const OWN_KEY   = `chitfund_notes_${role}`;
-  const OTHER_ROLE = role === 'ADMIN' ? 'MANAGER' : 'ADMIN';
-  const OTHER_KEY  = `chitfund_notes_${OTHER_ROLE}`;
-  const otherLabel = OTHER_ROLE === 'ADMIN' ? 'Admin' : 'Manager';
-
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [idx,  setIdx]  = useState(0);
-  const wrapRef  = useRef(null);
-  const popupRef = useRef(null);
+  const wrapRef   = useRef(null);
+  const popupRef  = useRef(null);
+  const saveTimer = useRef(null);
 
-  // Persist size across open/close so user's resize is remembered
   const [popupSize, setPopupSize] = useState({ width: 268, height: null });
 
   function startResize(e) {
@@ -70,9 +66,7 @@ function QuickNotes({ role }) {
     const startY = e.clientY;
     const startW = popupRef.current?.offsetWidth  ?? 268;
     const startH = popupRef.current?.offsetHeight ?? 280;
-
     function onMove(ev) {
-      // dx: positive = wider; dy: negative (drag up) = taller (popup grows upward)
       const newW = Math.max(220, startW + (ev.clientX - startX));
       const newH = Math.max(180, startH - (ev.clientY - startY));
       setPopupSize({ width: newW, height: newH });
@@ -85,45 +79,42 @@ function QuickNotes({ role }) {
     window.addEventListener('mouseup',   onUp);
   }
 
-  const [ownNotes, setOwnNotes] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(OWN_KEY)) ?? [];
-      return stored.length > 0
-        ? stored
-        : [{ id: String(Date.now()), text: '', shared: false, createdAt: Date.now() }];
-    } catch {
-      return [{ id: String(Date.now()), text: '', shared: false, createdAt: Date.now() }];
-    }
+  // Always-on fetch — powers the dot badge and instant open
+  const { data: notes = [] } = useQuery({
+    queryKey: ['team-notes'],
+    queryFn: getTeamNotes,
+    staleTime: 60_000,
   });
 
-  // Shared notes from the other role — re-read every time popup opens
-  const [sharedFromOther, setSharedFromOther] = useState([]);
+  const createMut = useMutation({
+    mutationFn: createTeamNote,
+    onSuccess: (created) => {
+      qc.setQueryData(['team-notes'], (old = []) => [created, ...old]);
+      setIdx(0);
+    },
+    onError: () => qc.invalidateQueries({ queryKey: ['team-notes'] }),
+  });
 
-  useEffect(() => {
-    if (!open) return;
-    try {
-      const all = JSON.parse(localStorage.getItem(OTHER_KEY)) ?? [];
-      setSharedFromOther(all.filter(n => n.shared && n.text.trim()));
-    } catch {
-      setSharedFromOther([]);
-    }
-    setIdx(0);
-  }, [open, OTHER_KEY]);
+  const updateMut = useMutation({
+    mutationFn: ({ id, payload }) => updateTeamNote(id, payload),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['team-notes'] }),
+  });
 
-  // Auto-save own notes to localStorage
-  useEffect(() => {
-    localStorage.setItem(OWN_KEY, JSON.stringify(ownNotes));
-  }, [ownNotes, OWN_KEY]);
+  const deleteMut = useMutation({
+    mutationFn: deleteTeamNote,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['team-notes'] });
+      setIdx(i => Math.max(0, i - 1));
+    },
+  });
 
-  // Auto-popup once per login session when there is saved content
+  // Auto-popup once per session when notes exist
   useEffect(() => {
-    const hasContent = ownNotes.some(n => n.text.trim());
-    if (hasContent && !sessionStorage.getItem('notes_shown')) {
+    if (notes.length > 0 && notes.some(n => n.text?.trim()) && !sessionStorage.getItem('notes_shown')) {
       setOpen(true);
       sessionStorage.setItem('notes_shown', '1');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [notes.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close when clicking outside
   useEffect(() => {
@@ -135,53 +126,52 @@ function QuickNotes({ role }) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  // ── Derived state ────────────────────────────────────────────────────────────
-  // Shared notes first, then own notes
-  const allNotes = [...sharedFromOther, ...ownNotes];
-  const safeIdx  = Math.min(idx, Math.max(0, allNotes.length - 1));
-  const currentNote    = allNotes[safeIdx];
-  const isViewingShared = safeIdx < sharedFromOther.length;
-  const ownIdx          = safeIdx - sharedFromOther.length;
+  // ── Derived state ──────────────────────────────────────────────────────────
+  const total       = notes.length;
+  const safeIdx     = Math.min(idx, Math.max(0, total - 1));
+  const currentNote = notes[safeIdx];
+  const isOwn       = currentNote?.own ?? true;
 
-  // ── Mutations ────────────────────────────────────────────────────────────────
-  function updateText(text) {
-    if (isViewingShared) return;
-    setOwnNotes(prev => prev.map((n, i) => i === ownIdx ? { ...n, text } : n));
+  // ── Actions ────────────────────────────────────────────────────────────────
+  function handleTextChange(text) {
+    if (!isOwn) return;
+    // Optimistic local update for instant typing response
+    qc.setQueryData(['team-notes'], (old = []) =>
+      old.map((n, i) => (i === safeIdx ? { ...n, text } : n))
+    );
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      if (currentNote?.id) {
+        updateMut.mutate({ id: currentNote.id, payload: { text, visibility: currentNote.visibility } });
+      }
+    }, 800);
   }
 
-  function toggleShare() {
-    if (isViewingShared) return;
-    setOwnNotes(prev => prev.map((n, i) => i === ownIdx ? { ...n, shared: !n.shared } : n));
+  function toggleVisibility() {
+    if (!currentNote?.id || !isOwn) return;
+    const next = currentNote.visibility === 'SHARED' ? 'PRIVATE' : 'SHARED';
+    qc.setQueryData(['team-notes'], (old = []) =>
+      old.map((n, i) => (i === safeIdx ? { ...n, visibility: next } : n))
+    );
+    updateMut.mutate({ id: currentNote.id, payload: { text: currentNote.text ?? '', visibility: next } });
   }
 
   function addNote() {
-    const newNote = { id: String(Date.now()), text: '', shared: false, createdAt: Date.now() };
-    setOwnNotes(prev => [...prev, newNote]);
-    // Jump to the new note (it'll be at the end of allNotes after state updates)
-    setIdx(sharedFromOther.length + ownNotes.length);
+    createMut.mutate({ text: '', visibility: 'PRIVATE' });
   }
 
   function deleteNote() {
-    if (isViewingShared) return;
-    if (ownNotes.length <= 1) {
-      // Only one note — just clear its text instead of removing it
-      setOwnNotes([{ id: String(Date.now()), text: '', shared: false }]);
-      setIdx(sharedFromOther.length);
+    if (!isOwn) return;
+    if (!currentNote?.id) return;
+    if (total <= 1) {
+      handleTextChange('');
       return;
     }
-    setOwnNotes(prev => prev.filter((_, i) => i !== ownIdx));
-    setIdx(Math.max(0, safeIdx - 1));
+    deleteMut.mutate(currentNote.id);
   }
 
-  // Dot: has own content OR other role has shared notes
-  const hasDot = ownNotes.some(n => n.text.trim()) || (() => {
-    try {
-      const all = JSON.parse(localStorage.getItem(OTHER_KEY)) ?? [];
-      return all.some(n => n.shared && n.text.trim());
-    } catch { return false; }
-  })();
-
-  const total = allNotes.length;
+  const hasDot = notes.some(n => n.text?.trim());
+  const isSaving = updateMut.isPending;
 
   return (
     <div ref={wrapRef} className="relative flex-1 flex flex-col">
@@ -204,12 +194,12 @@ function QuickNotes({ role }) {
               <div className="flex items-center gap-1.5 min-w-0">
                 <StickyNote size={12} className="text-amber-600 flex-shrink-0" />
                 <span className="text-xs font-bold text-amber-900">Notes</span>
-                {isViewingShared && (
+                {!isOwn && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold flex-shrink-0">
-                    From {otherLabel}
+                    From {currentNote?.authorName ?? currentNote?.authorRole ?? 'Team'}
                   </span>
                 )}
-                {!isViewingShared && currentNote?.shared && (
+                {isOwn && currentNote?.visibility === 'SHARED' && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900 font-semibold flex-shrink-0">
                     Shared
                   </span>
@@ -226,43 +216,53 @@ function QuickNotes({ role }) {
 
             {/* Date posted */}
             {(() => {
-              const ts = isViewingShared
-                ? currentNote?.createdAt
-                : ownNotes[ownIdx]?.createdAt;
+              const ts = currentNote?.createdAt;
               if (!ts) return null;
-              const label = new Date(Number(ts)).toLocaleString('en-IN', {
+              const label = new Date(ts).toLocaleString('en-IN', {
                 day: '2-digit', month: 'short', year: 'numeric',
                 hour: '2-digit', minute: '2-digit', hour12: true,
               });
               return (
                 <div className="px-3 pt-1.5 pb-0 flex items-center gap-1">
-                  <span className="text-[9px] text-amber-400">{isViewingShared ? `${otherLabel} · ` : ''}{label}</span>
+                  <span className="text-[9px] text-amber-400">
+                    {!isOwn ? `${currentNote?.authorName ?? 'Team'} · ` : ''}{label}
+                  </span>
                 </div>
               );
             })()}
 
+            {/* Empty state */}
+            {total === 0 && (
+              <div className="flex flex-col items-center justify-center py-6 gap-2 opacity-60">
+                <StickyNote size={22} className="text-amber-400" />
+                <span className="text-xs text-amber-600">No notes yet — tap + to add one</span>
+              </div>
+            )}
+
             {/* Textarea — flex-1 when popup has an explicit height so it fills the space */}
+            {total > 0 && (
             <textarea
               value={currentNote?.text ?? ''}
-              onChange={(e) => updateText(e.target.value)}
-              readOnly={isViewingShared}
+              onChange={(e) => handleTextChange(e.target.value)}
+              readOnly={!isOwn}
               placeholder={
-                isViewingShared
-                  ? `${otherLabel}'s note (read-only)`
+                !isOwn
+                  ? `${currentNote?.authorName ?? 'Team'}'s note (read-only)`
                   : 'Jot something down…'
               }
               rows={popupSize.height ? undefined : 5}
               className={`w-full px-3 py-2 text-sm resize-none focus:outline-none ${
                 popupSize.height ? 'flex-1 min-h-0' : ''
-              } ${isViewingShared ? 'text-gray-500 cursor-default select-text placeholder-amber-300' : 'text-gray-900 placeholder-amber-300'}`}
+              } ${!isOwn ? 'text-gray-500 cursor-default select-text placeholder-amber-300' : 'text-gray-900 placeholder-amber-300'}`}
               style={{
-                background: isViewingShared ? 'rgba(0,0,0,0.025)' : 'transparent',
+                background: !isOwn ? 'rgba(0,0,0,0.025)' : 'transparent',
                 fontFamily: "'Caveat', 'Patrick Hand', cursive, sans-serif",
                 fontSize: '14px',
                 lineHeight: '1.6',
               }}
-              autoFocus={!isViewingShared}
+              autoFocus={isOwn}
             />
+            )}
 
             {/* Navigation bar */}
             <div className="px-2 py-1 border-t border-amber-200/60 flex items-center gap-0.5">
@@ -293,25 +293,26 @@ function QuickNotes({ role }) {
 
               <div className="flex-1" />
 
-              {/* Auto-saved hint */}
-              {!isViewingShared && (currentNote?.text ?? '').length > 0 && (
-                <span className="text-[9px] text-amber-400 mr-1">saved</span>
+              {/* Save indicator */}
+              {isOwn && (currentNote?.text ?? '').length > 0 && (
+                <span className="text-[9px] text-amber-400 mr-1">{isSaving ? 'saving…' : 'saved'}</span>
               )}
 
               {/* Add new note */}
               <button
                 onClick={addNote}
+                disabled={createMut.isPending}
                 title="New note"
-                className="p-0.5 rounded text-amber-500 hover:text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer"
+                className="p-0.5 rounded text-amber-500 hover:text-amber-800 hover:bg-amber-100 transition-colors cursor-pointer disabled:opacity-40"
               >
                 <Plus size={13} />
               </button>
 
-              {/* Delete — own notes only (respective role) */}
-              {!isViewingShared && (
+              {/* Delete — only when there's a real note */}
+              {isOwn && currentNote?.id && (
                 <button
                   onClick={deleteNote}
-                  title={ownNotes.length <= 1 ? 'Clear note' : 'Delete this note'}
+                  title={total <= 1 ? 'Clear note' : 'Delete this note'}
                   className="flex items-center gap-0.5 px-1 py-0.5 rounded text-amber-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                 >
                   <Trash2 size={11} />
@@ -320,40 +321,44 @@ function QuickNotes({ role }) {
               )}
             </div>
 
-            {/* Share toggle — own notes only */}
-            {!isViewingShared && (
-              <div className="px-3 pb-2.5 pt-1.5 border-t border-amber-200/40 flex items-center justify-between">
-                <span className="text-[10px] text-amber-600">
-                  {currentNote?.shared ? `Shared with ${otherLabel}` : `Share with ${otherLabel}`}
-                </span>
-                {/* Pill toggle */}
+            {/* Visibility toggle + resize handle (always last row) */}
+            <div className="px-3 pb-2 pt-1.5 border-t border-amber-200/40 flex items-center gap-2">
+              {isOwn && currentNote?.id && (
                 <button
-                  onClick={toggleShare}
-                  title={currentNote?.shared ? 'Stop sharing' : `Share with ${otherLabel}`}
-                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
-                    currentNote?.shared ? 'bg-amber-400' : 'bg-amber-200'
-                  }`}
+                  onClick={toggleVisibility}
+                  title={currentNote?.visibility === 'SHARED' ? 'Make private' : 'Share with all admins & managers'}
+                  className="flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span
-                    className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
-                      currentNote?.shared ? 'translate-x-[17px]' : 'translate-x-0.5'
+                  <span className="text-[10px] text-amber-600">
+                    {currentNote?.visibility === 'SHARED' ? 'Shared with team' : 'Share with team'}
+                  </span>
+                  {/* Pill toggle */}
+                  <div
+                    className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${
+                      currentNote?.visibility === 'SHARED' ? 'bg-amber-400' : 'bg-amber-200'
                     }`}
-                  />
+                  >
+                    <span
+                      className={`absolute left-0 top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                        currentNote?.visibility === 'SHARED' ? 'translate-x-[18px]' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </div>
                 </button>
+              )}
+              <div className="flex-1" />
+              {/* Resize handle — inlined so it never overlaps other controls */}
+              <div
+                onMouseDown={startResize}
+                title="Drag to resize"
+                className="cursor-se-resize opacity-40 hover:opacity-80 transition-opacity select-none flex-shrink-0"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <line x1="2" y1="10" x2="10" y2="2" stroke="#b45309" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1="6"  y1="10" x2="10" y2="6"  stroke="#b45309" strokeWidth="1.5" strokeLinecap="round"/>
+                  <line x1="10" y1="10" x2="10" y2="10" stroke="#b45309" strokeWidth="2"   strokeLinecap="round"/>
+                </svg>
               </div>
-            )}
-
-            {/* Resize handle — bottom-right corner, drag right/up to grow */}
-            <div
-              onMouseDown={startResize}
-              title="Drag to resize"
-              className="absolute bottom-1 right-1 z-20 cursor-se-resize opacity-40 hover:opacity-80 transition-opacity select-none"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <line x1="2" y1="10" x2="10" y2="2" stroke="#b45309" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="6"  y1="10" x2="10" y2="6"  stroke="#b45309" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="10" y1="10" x2="10" y2="10" stroke="#b45309" strokeWidth="2"   strokeLinecap="round"/>
-              </svg>
             </div>
           </div>
 
@@ -630,7 +635,9 @@ export default function Sidebar({ open = false, onClose }) {
             <QuickNotes role={role} />
           )}
           <button
-            onClick={logout}
+            onClick={() => {
+              if (window.confirm('Are you sure you want to sign out?')) logout();
+            }}
             title="Sign out"
             className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors cursor-pointer"
           >
