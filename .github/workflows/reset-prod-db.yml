@@ -1,0 +1,51 @@
+name: Reset Production Database
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type RESET to confirm wiping all prod data'
+        required: true
+
+env:
+  EC2_USER: ec2-user
+
+jobs:
+  reset:
+    name: Wipe all prod tables
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'RESET'
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy-key.pem
+          chmod 600 ~/.ssh/deploy-key.pem
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Drop and recreate all schemas
+        run: |
+          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          set -e
+
+          DB_HOST=$(grep DB_HOST /app/.env | cut -d= -f2)
+          DB_PASS=$(grep DB_PASSWORD /app/.env | cut -d= -f2)
+
+          run_sql() {
+            docker run --rm mysql:8.0 mysql \
+              -h "$DB_HOST" -u chitfund -p"$DB_PASS" \
+              -e "$1"
+          }
+
+          echo "=== Dropping all schemas ==="
+          for DB in chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout; do
+            run_sql "DROP DATABASE IF EXISTS \`$DB\`; CREATE DATABASE \`$DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+            echo "  ✓ Reset $DB"
+          done
+
+          echo "=== Restarting services so Flyway re-runs migrations ==="
+          cd /app
+          docker compose -f docker-compose.prod.yml restart
+          echo "=== Done — services restarting, Flyway will seed fresh data ==="
+          ENDSSH

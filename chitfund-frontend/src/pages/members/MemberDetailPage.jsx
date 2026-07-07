@@ -1357,7 +1357,7 @@ export default function MemberDetailPage() {
               <div className="flex items-center gap-2">
                 {member.referredById ? (
                   <Link to={`/members/${member.referredById}`} className="text-sm font-medium text-[#1E3A5F] hover:underline">
-                    {member.referredByName}
+                    {member.referredByName || member.referredByFullName || `Member #${String(member.referredById).slice(0,8)}`}
                   </Link>
                 ) : (
                   <NA />
