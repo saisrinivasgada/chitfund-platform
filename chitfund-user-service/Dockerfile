@@ -9,6 +9,7 @@ WORKDIR /workspace
 COPY pom.xml ./
 COPY chitfund-common/pom.xml chitfund-common/
 COPY chitfund-user-service/pom.xml chitfund-user-service/
+COPY chitfund-member-service/pom.xml chitfund-member-service/
 COPY chitfund-chit-service/pom.xml chitfund-chit-service/
 COPY chitfund-payment-service/pom.xml chitfund-payment-service/
 COPY chitfund-payout-service/pom.xml chitfund-payout-service/

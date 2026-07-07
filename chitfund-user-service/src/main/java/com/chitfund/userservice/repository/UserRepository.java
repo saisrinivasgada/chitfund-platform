@@ -27,6 +27,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByEmail(String email);
 
+    // Check if any active non-MEMBER account holds this email (used when creating member logins)
+    boolean existsByEmailAndRoleNotAndDeletedAtIsNull(String email, com.chitfund.userservice.domain.enums.Role role);
+
     java.util.List<User> findByRoleIn(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 
     java.util.List<User> findByRoleInAndDeletedAtIsNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
@@ -39,4 +42,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // Used for duplicate-phone-in-category check: "does any active account with this phone
     // already belong to one of these roles?"
     boolean existsByPhoneAndRoleInAndDeletedAtIsNull(String phone, java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
+    // Recovery path for partial create-login: find an existing active MEMBER by email
+    // so we can reuse them instead of failing with EMAIL_TAKEN on retry.
+    Optional<User> findByEmailAndRoleAndDeletedAtIsNull(String email, com.chitfund.userservice.domain.enums.Role role);
 }

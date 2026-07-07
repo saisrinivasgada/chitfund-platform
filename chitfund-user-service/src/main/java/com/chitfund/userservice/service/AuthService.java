@@ -6,11 +6,13 @@ import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.ChangePasswordRequest;
+import com.chitfund.userservice.dto.request.CreateMemberLoginRequest;
 import com.chitfund.userservice.dto.request.LoginRequest;
 import com.chitfund.userservice.dto.request.MobileLoginRequest;
 import com.chitfund.userservice.dto.request.RefreshTokenRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
+import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
 import com.chitfund.userservice.dto.response.MobileLookupResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.mapper.UserMapper;
@@ -115,6 +117,54 @@ public class AuthService {
 
         userRepository.save(user);
         return buildAuthResponse(user, isTempPassword ? plainPassword : null);
+    }
+
+    // Admin creates a login for a member. Idempotent: if the email already exists as
+    // an active MEMBER account (from a previous partial attempt where register succeeded
+    // but link failed), we reuse that user and issue a fresh temp password instead of
+    // failing with EMAIL_TAKEN. This makes the create-login flow safe to retry.
+    public CreateMemberLoginResponse createMemberLogin(CreateMemberLoginRequest request) {
+        String email = (request.getEmail() != null && !request.getEmail().isBlank())
+                ? request.getEmail().trim() : null;
+
+        if (email != null) {
+            User existing = userRepository
+                    .findByEmailAndRoleAndDeletedAtIsNull(email, Role.MEMBER)
+                    .orElse(null);
+            if (existing != null) {
+                String tempPassword = generateTempPassword();
+                existing.setTempPasswordHash(passwordEncoder.encode(tempPassword));
+                existing.setMustChangePassword(true);
+                userRepository.save(existing);
+                return CreateMemberLoginResponse.builder()
+                        .userId(existing.getId())
+                        .tempPassword(tempPassword)
+                        .build();
+            }
+            if (userRepository.existsByEmailAndRoleNotAndDeletedAtIsNull(email, Role.MEMBER)) {
+                throw new BusinessException(ErrorCode.EMAIL_TAKEN,
+                        "This email is already used by a staff account");
+            }
+        }
+
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new BusinessException(ErrorCode.USERNAME_TAKEN);
+        }
+
+        String tempPassword = generateTempPassword();
+        User user = User.builder()
+                .username(request.getUsername())
+                .email(email)
+                .passwordHash(passwordEncoder.encode(tempPassword))
+                .role(Role.MEMBER)
+                .mustChangePassword(true)
+                .build();
+        userRepository.save(user);
+
+        return CreateMemberLoginResponse.builder()
+                .userId(user.getId())
+                .tempPassword(tempPassword)
+                .build();
     }
 
     public AuthResponse login(LoginRequest request) {
