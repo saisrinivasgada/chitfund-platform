@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import Badge, { statusBadge } from '../components/ui/Badge';
 import Button from '../components/ui/Button';
-import { PageSpinner } from '../components/ui/Spinner';
+import { DashboardSkeleton } from '../components/ui/Spinner';
 import WorkerHomePage from './worker/WorkerHomePage';
 import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
@@ -191,7 +191,7 @@ export default function DashboardPage() {
 
   const showCashSection = isAdmin;
 
-  if (chitsLoading || membersLoading) return <PageSpinner />;
+  if (chitsLoading || membersLoading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-8">

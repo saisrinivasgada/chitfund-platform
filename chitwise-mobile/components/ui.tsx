@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator,
   TextInput, ScrollView, StyleSheet, Platform, Modal as RNModal,
+  Animated, Easing,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView, BlurTint } from 'expo-blur';
 import { useUIStore } from '../store/uiStore';
 
@@ -351,12 +353,60 @@ export function Divider() {
   return <View style={{ height: 1, backgroundColor: C.gray200, marginVertical: 12 }} />;
 }
 
-// ── Loading Spinner ───────────────────────────────────────────────────────────
+// ── Loading Skeleton ──────────────────────────────────────────────────────────
 export function LoadingScreen() {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(pulse, { toValue: 0, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    ).start();
+  }, []);
+
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] });
+
+  const Bone = ({ w, h, br = 10, mt = 0 }: { w?: number | string; h: number; br?: number; mt?: number }) => (
+    <Animated.View style={{
+      width: w ?? '100%', height: h, borderRadius: br,
+      backgroundColor: C.gray200, opacity, marginTop: mt,
+    }} />
+  );
+
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.gray50 }}>
-      <ActivityIndicator size="large" color={C.navy} />
-    </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <View style={{ padding: 16, gap: 14 }}>
+        {/* Header row */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ gap: 8 }}>
+            <Bone w={130} h={22} />
+            <Bone w={170} h={14} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Bone w={36} h={36} br={8} />
+            <Bone w={36} h={36} br={8} />
+            <Bone w={36} h={36} br={18} />
+          </View>
+        </View>
+
+        {/* Hero card */}
+        <Bone h={90} br={20} />
+
+        {/* Stat cards — 3 rows of 2 */}
+        {[0, 1, 2].map(row => (
+          <View key={row} style={{ flexDirection: 'row', gap: 10 }}>
+            <Animated.View style={{ flex: 1, height: 72, borderRadius: 14, backgroundColor: C.gray200, opacity }} />
+            <Animated.View style={{ flex: 1, height: 72, borderRadius: 14, backgroundColor: C.gray200, opacity }} />
+          </View>
+        ))}
+
+        {/* List section */}
+        <Bone w={110} h={18} br={6} mt={4} />
+        {[0, 1, 2].map(i => <Bone key={i} h={60} br={14} />)}
+      </View>
+    </SafeAreaView>
   );
 }
 
