@@ -85,7 +85,7 @@ export default function ChangePasswordPage() {
                 <Input
                   type={showCurrent ? 'text' : 'password'}
                   value={form.currentPassword}
-                  onChange={(e) => setForm((f) => ({ ...f, currentPassword: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, currentPassword: e.target.value.replace(/\s/g, '') }))}
                   className="pr-10"
                   placeholder="Enter your current password"
                   required
@@ -109,7 +109,7 @@ export default function ChangePasswordPage() {
                 <Input
                   type={showNew ? 'text' : 'password'}
                   value={form.newPassword}
-                  onChange={(e) => setForm((f) => ({ ...f, newPassword: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, newPassword: e.target.value.replace(/\s/g, '') }))}
                   className="pr-10"
                   placeholder="Min 8 characters"
                   minLength={8}
@@ -144,7 +144,7 @@ export default function ChangePasswordPage() {
               <Input
                 type="password"
                 value={form.confirmPassword}
-                onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value.replace(/\s/g, '') }))}
                 className={
                   form.confirmPassword && form.confirmPassword !== form.newPassword
                     ? 'border-red-300 bg-red-50'

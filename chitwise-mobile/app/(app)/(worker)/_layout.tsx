@@ -1,10 +1,15 @@
 import { Tabs } from 'expo-router';
-import { Text, Platform } from 'react-native';
+import { Text, Platform, StyleSheet } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '📦', history: '📜' };
-  return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.4 }}>{icons[name] ?? '●'}</Text>;
+  const icons: Record<string, string> = { index: '◈', history: '≡' };
+  return (
+    <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
+      {icons[name] ?? '●'}
+    </Text>
+  );
 }
 
 export default function WorkerLayout() {
@@ -15,10 +20,16 @@ export default function WorkerLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
+        tabBarBackground: Platform.OS === 'ios'
+          ? () => <BlurView intensity={95} tint="systemChromeMaterial" style={StyleSheet.absoluteFill} />
+          : undefined,
         tabBarStyle: {
-          backgroundColor: C.white, borderTopColor: C.gray200,
+          backgroundColor: Platform.OS === 'ios' ? 'transparent' : C.white,
+          borderTopWidth: Platform.OS === 'ios' ? StyleSheet.hairlineWidth : 1,
+          borderTopColor: Platform.OS === 'ios' ? 'rgba(200,200,200,0.45)' : C.gray200,
           height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8, paddingTop: 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+          paddingTop: 8,
           elevation: 10,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },

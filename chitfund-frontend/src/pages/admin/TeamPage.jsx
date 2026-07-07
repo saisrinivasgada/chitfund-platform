@@ -75,10 +75,18 @@ function StyledInput({ icon: Icon, ...props }) {
 function CredentialRow({ label, value, mono }) {
   const [copied, setCopied] = useState(false);
   function copy() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(value).then(done).catch(() => fallbackCopy(value, done));
+    } else {
+      fallbackCopy(value, done);
+    }
+  }
+  function fallbackCopy(text, done) {
+    const el = document.createElement('textarea');
+    el.value = text; el.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(el); el.focus(); el.select();
+    document.execCommand('copy'); document.body.removeChild(el); done();
   }
   return (
     <div className="flex items-center justify-between px-4 py-3.5">

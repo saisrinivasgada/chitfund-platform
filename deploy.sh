@@ -5,7 +5,7 @@
 
 set -e
 
-EC2_IP="13.59.138.177"
+EC2_IP="3.21.196.51"
 EC2_USER="ec2-user"
 KEY="./chitfund-key.pem"
 REMOTE_DIR="/app"

@@ -54,10 +54,12 @@ export const loginByMobile = async ({ phone, phoneCountryCode, password, role })
 };
 
 // ─── Auth helpers ──────────────────────────────────────────────────────────
-// password intentionally omitted — backend auto-generates a temp password for member accounts
-export const registerUser = async ({ username, email }) => {
-  const res = await api.post('/auth/register', { username, email, role: 'MEMBER' });
-  return res.data.data; // { accessToken, user, tempPassword }
+// Admin-only, idempotent: if the email already exists as an unlinked MEMBER account
+// (partial failure from a previous attempt), it reuses that user with a fresh temp
+// password instead of failing with EMAIL_TAKEN.
+export const createMemberLogin = async ({ username, email }) => {
+  const res = await api.post('/users/create-member-login', { username, email });
+  return res.data.data; // { userId, tempPassword }
 };
 
 export const resetMemberPassword = async (userId) => {

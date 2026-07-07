@@ -175,11 +175,19 @@ public class MemberService {
 
     @Transactional
     public MemberResponse linkUserAccount(UUID memberId, LinkUserRequest request) {
+        Member member = findOrThrow(memberId);
+
+        // Idempotent: already linked to this exact user → return success
+        if (request.getUserId().equals(member.getUserId())) {
+            return toResponse(member);
+        }
+
+        // Reject if this userId is already linked to a DIFFERENT member
         if (memberRepository.existsByUserId(request.getUserId())) {
             throw new BusinessException(ErrorCode.MEMBER_USER_ALREADY_LINKED,
                     "This user account is already linked to another member");
         }
-        Member member = findOrThrow(memberId);
+
         member.setUserId(request.getUserId());
         memberRepository.save(member);
         log.info("Member {} linked to user account {}", memberId, request.getUserId());

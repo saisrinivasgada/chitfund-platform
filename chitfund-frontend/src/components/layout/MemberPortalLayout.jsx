@@ -179,7 +179,9 @@ export default function MemberPortalLayout() {
               </span>
             </div>
             <button
-              onClick={logout}
+              onClick={() => {
+                if (window.confirm('Are you sure you want to sign out?')) logout();
+              }}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
             >
               <LogOut size={15} />

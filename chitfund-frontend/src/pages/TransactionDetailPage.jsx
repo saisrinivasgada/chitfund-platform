@@ -46,10 +46,18 @@ function fmtDate(dt) {
 function CopyableId({ value }) {
   const [copied, setCopied] = useState(false);
   function copy() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(value).then(done).catch(() => fallbackCopy(value, done));
+    } else {
+      fallbackCopy(value, done);
+    }
+  }
+  function fallbackCopy(text, done) {
+    const el = document.createElement('textarea');
+    el.value = text; el.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(el); el.focus(); el.select();
+    document.execCommand('copy'); document.body.removeChild(el); done();
   }
   return (
     <button
@@ -201,6 +209,20 @@ export default function TransactionDetailPage() {
     ...staff.map((s) => [s.id, s.fullName ?? s.username]),
   ]);
 
+  // Resolve a UUID to a display name — falls back to "Admin" when the actor
+  // is an admin user (not present in staff or members list)
+  function resolveName(id) {
+    if (!id) return '—';
+    return nameMap[id] ?? 'Admin';
+  }
+
+  // Replace bare UUID patterns inside free-form text (e.g. notes written by the system)
+  const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+  function resolveText(text) {
+    if (!text) return text;
+    return text.replace(UUID_RE, (id) => nameMap[id] ?? id.slice(-6));
+  }
+
   const drawByMonth = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
 
   if (isLoading) {
@@ -262,7 +284,7 @@ export default function TransactionDetailPage() {
           <div>
             <p className="text-sm font-semibold text-amber-800">Awaiting Cash Collection</p>
             <p className="text-xs text-amber-600 mt-0.5">
-              Cash is with {nameMap[batch.collectedBy] ?? 'collector'}. Confirm receipt to settle the payment.
+              Cash is with {resolveName(batch.collectedBy)}. Confirm receipt to settle the payment.
             </p>
           </div>
           <Button variant="success" onClick={() => setShowRemitConfirm(true)} loading={remitMutation.isPending}>
@@ -322,16 +344,10 @@ export default function TransactionDetailPage() {
             Recorded {fmtDateTime(batch.createdAt)}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-3">
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
-            <div className={`w-2 h-2 rounded-full ${statusCfg.dot}`} />
-            {statusCfg.label}
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700">
-            <ModeIcon size={14} className="text-gray-500" />
-            {batch.paymentMode?.replace('_', ' ')}
-          </span>
-        </div>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700">
+          <ModeIcon size={14} className="text-gray-500" />
+          {batch.paymentMode?.replace('_', ' ')}
+        </span>
       </div>
 
       {/* Main grid */}
@@ -450,22 +466,14 @@ export default function TransactionDetailPage() {
 
       {/* Collection Info */}
       <Card title="Collection" icon={Receipt}>
-        <InfoRow
-          icon={User}
-          label="Collected By"
-          value={nameMap[batch.collectedBy] ?? batch.collectedBy ?? '—'}
-        />
+        <InfoRow icon={User} label="Collected By" value={resolveName(batch.collectedBy)} />
         <InfoRow icon={Clock} label="Collected At" value={fmtDateTime(batch.collectedAt)} />
       </Card>
 
       {/* Remittance Info (only if COMPLETED) */}
       {batch.status === 'COMPLETED' && batch.remittedBy && (
         <Card title="Remittance" icon={CheckCircle}>
-          <InfoRow
-            icon={User}
-            label="Remitted By"
-            value={nameMap[batch.remittedBy] ?? batch.remittedBy ?? '—'}
-          />
+          <InfoRow icon={User} label="Remitted By" value={resolveName(batch.remittedBy)} />
           <InfoRow icon={Clock} label="Remitted At" value={fmtDateTime(batch.remittedAt)} />
         </Card>
       )}
@@ -473,12 +481,7 @@ export default function TransactionDetailPage() {
       {/* Void Info (only if VOIDED) */}
       {batch.status === 'VOIDED' && (
         <Card title="Void Details" icon={XCircle} className="border-red-200">
-          <InfoRow
-            icon={User}
-            label="Voided By"
-            value={nameMap[batch.voidedBy] ?? batch.voidedBy ?? '—'}
-            valueClass="text-red-700"
-          />
+          <InfoRow icon={User} label="Voided By" value={resolveName(batch.voidedBy)} valueClass="text-red-700" />
           <InfoRow icon={Clock} label="Voided At" value={fmtDateTime(batch.voidedAt)} />
           {batch.voidReason && (
             <InfoRow icon={FileText} label="Void Reason" value={batch.voidReason} valueClass="text-red-700" />
@@ -490,7 +493,7 @@ export default function TransactionDetailPage() {
       {batch.notes && (
         <Card title="Notes" icon={FileText}>
           <div className="py-4">
-            <p className="text-sm text-gray-700 leading-relaxed">{batch.notes}</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{resolveText(batch.notes)}</p>
           </div>
         </Card>
       )}
@@ -500,7 +503,7 @@ export default function TransactionDetailPage() {
         <ConfirmDialog
           variant="primary"
           title="Confirm Cash Received"
-          description={`Confirm you received ${fmtAmt(batch.totalAmount)} from ${nameMap[batch.collectedBy] ?? 'the collector'}? This will settle the payment to the member's account.`}
+          description={`Confirm you received ${fmtAmt(batch.totalAmount)} from ${resolveName(batch.collectedBy)}? This will settle the payment to the member's account.`}
           actionLabel="Cash Collected"
           loading={remitMutation.isPending}
           onConfirm={() => remitMutation.mutate()}

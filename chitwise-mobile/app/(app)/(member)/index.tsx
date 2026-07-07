@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
-import { getMyChits, getMyRequests } from '../../../services/api';
-import { C, T, Card, Badge, Amount, StatCard, fmtDate, LoadingScreen, SectionHeader, Divider } from '../../../components/ui';
+import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance } from '../../../services/api';
+import { C, T, Badge, Amount, GlassCard, fmtDate, LoadingScreen, SectionHeader } from '../../../components/ui';
+import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 export default function MemberHomeScreen() {
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const router = useRouter();
 
   const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({
@@ -20,10 +21,24 @@ export default function MemberHomeScreen() {
     queryFn: getMyRequests,
   });
 
+  const { data: memberProfile } = useQuery({
+    queryKey: ['member-profile-me'],
+    queryFn: getMyMemberProfile,
+  });
+
+  const memberId = memberProfile?.id;
+
+  const { data: totalBalance } = useQuery({
+    queryKey: ['member-total-balance', memberId],
+    queryFn: () => getMemberTotalBalance(memberId!),
+    enabled: !!memberId,
+  });
+
   const isLoading = chitsLoading || reqLoading;
 
-  const activeChits  = (chits as any[]).filter((c) => c.status === 'ACTIVE');
-  const pendingReqs  = (requests as any[]).filter((r) => ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status));
+  const activeChits    = (chits as any[]).filter((c) => c.status === 'ACTIVE');
+  const completedChits = (chits as any[]).filter((c) => c.status === 'COMPLETED');
+  const pendingReqs    = (requests as any[]).filter((r) => ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status));
 
   function onRefresh() { refetchChits(); refetchReqs(); }
 
@@ -36,35 +51,61 @@ export default function MemberHomeScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero header */}
+        {/* Hero header — liquid glass on dark */}
         <View style={{
           backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 20,
-          shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12,
+          overflow: 'hidden',
+          shadowColor: C.navy, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 12,
         }}>
+          {/* Specular highlight */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(255,255,255,0.08)', borderTopLeftRadius: 20, borderTopRightRadius: 20 }} />
+          <View style={{ position: 'absolute', top: -24, left: -24, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.07)' }} />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <View>
-              <Text style={{ fontSize: 13, color: C.white + '88', fontWeight: '500' }}>Welcome back</Text>
+              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', fontWeight: '500' }}>Welcome back</Text>
               <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }}>
                 {user?.fullName?.split(' ')[0] ?? 'Member'}
               </Text>
             </View>
-            <View style={{
-              width: 44, height: 44, borderRadius: 22,
-              backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: C.white }}>
-                {(user?.fullName ?? user?.username ?? '?')[0].toUpperCase()}
-              </Text>
-            </View>
+            <ProfileAvatarButton size={44} />
           </View>
 
+          {/* Balance card */}
+          {totalBalance != null && (
+            <View style={{ backgroundColor: C.white + '1A', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>
+                {Number(totalBalance) < 0 ? 'CREDIT BALANCE' : 'OUTSTANDING BALANCE'}
+              </Text>
+              <Text style={{ fontSize: 26, fontWeight: '800',
+                color: Number(totalBalance) > 0 ? C.goldLight
+                  : Number(totalBalance) < 0 ? '#4ADE80'
+                  : C.white }}>
+                ₹{Math.abs(Number(totalBalance)).toLocaleString('en-IN')}
+              </Text>
+              {Number(totalBalance) > 0 && (
+                <Text style={{ fontSize: 11, color: C.goldLight + 'CC', marginTop: 2 }}>Amount you owe</Text>
+              )}
+              {Number(totalBalance) < 0 && (
+                <Text style={{ fontSize: 11, color: '#4ADE80', marginTop: 2 }}>
+                  Credit available — offsets your next installment
+                </Text>
+              )}
+              {Number(totalBalance) === 0 && (
+                <Text style={{ fontSize: 11, color: C.white + '88', marginTop: 2 }}>All paid up</Text>
+              )}
+            </View>
+          )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>ACTIVE CHITS</Text>
               <Text style={{ fontSize: 24, fontWeight: '800', color: C.white }}>{activeChits.length}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>PENDING PICKUPS</Text>
+              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>COMPLETED</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.white }}>{completedChits.length}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>PICKUPS</Text>
               <Text style={{ fontSize: 24, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }}>
                 {pendingReqs.length}
               </Text>
@@ -77,7 +118,7 @@ export default function MemberHomeScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title="Cash Pickup Status" />
             {pendingReqs.map((r: any) => (
-              <Card key={r.id} style={{ marginBottom: 10 }}>
+              <GlassCard key={r.id} style={{ marginBottom: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <Amount value={r.requestedAmount} size="sm" />
                   <Badge status={r.status} />
@@ -88,7 +129,7 @@ export default function MemberHomeScreen() {
                   {r.status === 'PICKED_UP' && 'Worker collected your cash — awaiting admin confirmation'}
                 </Text>
                 <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Requested {fmtDate(r.requestedAt)}</Text>
-              </Card>
+              </GlassCard>
             ))}
           </View>
         )}
@@ -109,7 +150,7 @@ export default function MemberHomeScreen() {
             </Text>
           ) : (
             activeChits.slice(0, 3).map((c: any) => (
-              <Card key={c.id} style={{ marginBottom: 10 }}>
+              <GlassCard key={c.id} style={{ marginBottom: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }} numberOfLines={1}>{c.name}</Text>
@@ -119,7 +160,7 @@ export default function MemberHomeScreen() {
                   </View>
                   <Amount value={c.installmentAmount ?? 0} size="sm" />
                 </View>
-              </Card>
+              </GlassCard>
             ))
           )}
         </View>

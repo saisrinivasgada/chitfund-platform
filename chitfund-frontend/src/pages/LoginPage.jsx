@@ -157,7 +157,7 @@ function MobileLoginForm({ onSuccess }) {
         <Input
           type="password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => setPassword(e.target.value.replace(/\s/g, ''))}
           placeholder="Enter your password"
           autoComplete="current-password"
           autoFocus
@@ -345,7 +345,7 @@ export default function LoginPage() {
                   id="password"
                   type="password"
                   value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value.replace(/\s/g, '') }))}
                   placeholder="Enter your password"
                   autoComplete="current-password"
                   required

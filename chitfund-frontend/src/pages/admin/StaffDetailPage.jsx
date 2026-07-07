@@ -388,6 +388,8 @@ export default function StaffDetailPage() {
 
   const currentAssignments = requests.filter(r => r.status === 'ASSIGNED' || r.status === 'PICKED_UP');
   const requestHistory = requests.filter(r => r.status === 'COLLECTED' || r.status === 'CANCELLED');
+  const pendingBatches = collectionBatches.filter(b => b.status === 'AWAITING_REMITTANCE');
+  const totalCashPending = pendingBatches.reduce((sum, b) => sum + Number(b.totalAmount ?? 0), 0);
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-8">
@@ -496,6 +498,33 @@ export default function StaffDetailPage() {
         )}
       </div>
 
+      {/* Worker + Manager: live status summary */}
+      {isCollector && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className={`rounded-2xl border p-5 ${currentAssignments.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+            <p className={`text-3xl font-extrabold ${currentAssignments.length > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
+              {currentAssignments.length}
+            </p>
+            <p className={`text-xs font-semibold mt-1 ${currentAssignments.length > 0 ? 'text-amber-700' : 'text-gray-400'}`}>Pending Pickups</p>
+            <p className="text-xs text-gray-400 mt-0.5">Assigned but not yet handed to admin</p>
+          </div>
+          <div className={`rounded-2xl border p-5 ${pendingBatches.length > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+            <p className={`text-3xl font-extrabold ${pendingBatches.length > 0 ? 'text-orange-600' : 'text-gray-300'}`}>
+              {pendingBatches.length}
+            </p>
+            <p className={`text-xs font-semibold mt-1 ${pendingBatches.length > 0 ? 'text-orange-700' : 'text-gray-400'}`}>Pending Remittance</p>
+            <p className="text-xs text-gray-400 mt-0.5">Collected but not yet remitted to admin</p>
+          </div>
+          <div className={`rounded-2xl border p-5 ${totalCashPending > 0 ? 'bg-[#EEF2F8] border-[#1E3A5F]/30' : 'bg-gray-50 border-gray-200'}`}>
+            <p className={`text-2xl font-extrabold truncate ${totalCashPending > 0 ? 'text-[#1E3A5F]' : 'text-gray-300'}`}>
+              ₹{fmt(totalCashPending) ?? '0'}
+            </p>
+            <p className={`text-xs font-semibold mt-1 ${totalCashPending > 0 ? 'text-[#1E3A5F]' : 'text-gray-400'}`}>Cash to Remit</p>
+            <p className="text-xs text-gray-400 mt-0.5">Total outstanding cash with this person</p>
+          </div>
+        </div>
+      )}
+
       {/* Worker + Manager: active cash pickup assignments */}
       {isCollector && (
         <section className="space-y-3">
@@ -508,6 +537,7 @@ export default function StaffDetailPage() {
               </span>
             )}
           </div>
+          <p className="text-xs text-gray-400 -mt-1">Tasks currently assigned to this person — cash not yet delivered to admin.</p>
           {requestsLoading ? (
             <div className="h-20 rounded-2xl border border-gray-200 bg-gray-50 animate-pulse" />
           ) : currentAssignments.length === 0 ? (
@@ -564,6 +594,10 @@ export default function StaffDetailPage() {
               {requestHistory.length}
             </span>
           </div>
+          <p className="text-xs text-gray-400 -mt-1">
+            Physical pickup requests completed or cancelled — tracks whether cash was actually collected from the member.
+            <span className="ml-1 font-medium text-gray-500">(Different from Collection History below ↓)</span>
+          </p>
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <Table columns={['Member', 'Chit Fund', 'Amount', 'Date', 'Status', '']}>
               {requestHistory.map((r) => {
@@ -609,6 +643,10 @@ export default function StaffDetailPage() {
               </span>
             )}
           </div>
+          <p className="text-xs text-gray-400 -mt-1">
+            Payment batches — financial records created after cash is confirmed received and credited to the member's account.
+            <span className="ml-1 font-medium text-gray-500">(These come after a successful pickup above ↑)</span>
+          </p>
           {batchesLoading ? (
             <div className="h-32 rounded-2xl border border-gray-200 bg-gray-50 animate-pulse" />
           ) : collectionBatches.length === 0 ? (

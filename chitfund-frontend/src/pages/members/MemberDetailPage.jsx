@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
-  getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit, registerUser,
+  getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit, createMemberLogin,
   linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests,
 } from '../../services/api';
@@ -432,9 +432,22 @@ function EditMemberPanel({ member, onClose }) {
 function TempPasswordDisplay({ tempPassword, label }) {
   const [copied, setCopied] = useState(false);
   function copy() {
-    navigator.clipboard.writeText(tempPassword);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(tempPassword).then(done).catch(() => fallbackCopy(tempPassword, done));
+    } else {
+      fallbackCopy(tempPassword, done);
+    }
+  }
+  function fallbackCopy(text, done) {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(el);
+    el.focus(); el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    done();
   }
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
@@ -466,13 +479,13 @@ function CreateLoginModal({ member, onClose }) {
     e.preventDefault();
     setStep('loading');
     try {
-      const authData = await registerUser({ username: form.username, email: form.email });
-      const newUserId = authData?.user?.id;
-      if (!newUserId) throw new Error('Registration did not return a user ID');
+      const loginData = await createMemberLogin({ username: form.username, email: form.email });
+      const newUserId = loginData?.userId;
+      if (!newUserId) throw new Error('Failed to create login — no user ID returned');
       await linkMemberUser({ memberId: member.id, userId: newUserId });
       qc.invalidateQueries({ queryKey: ['member', member.id] });
       qc.invalidateQueries({ queryKey: ['members'] });
-      setTempPassword(authData?.tempPassword ?? '');
+      setTempPassword(loginData?.tempPassword ?? '');
       setStep('done');
     } catch (err) {
       toast.error(err.response?.data?.message ?? err.message ?? 'Failed to create login');

@@ -416,10 +416,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Today's Activity Feed ────────────────────────────────────────── */}
-      <div>
-        <SectionHeader icon={Clock} color="#0891B2" title="Today's Activity" />
-        <TodaysActivityFeed />
-      </div>
+      <TodaysActivityFeed />
 
     </div>
   );

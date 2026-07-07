@@ -35,6 +35,7 @@ import java.util.List;
 public class InternalNotifyController {
 
     private final NotificationService notificationService;
+    private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
 
     @Value("${notification.internal-key}")
     private String internalKey;
@@ -54,6 +55,39 @@ public class InternalNotifyController {
         }
 
         return ResponseEntity.ok(ApiResponse.success(notificationService.send(request)));
+    }
+
+    /**
+     * In-app notification — push to a specific user's notification feed.
+     * Called by member-service, payment-service, etc. when they need to push
+     * rich in-app notifications with metadata.
+     *
+     * Body: { recipientId, title, message, type, metadata:{key:value,...} }
+     */
+    @PostMapping("/in-app")
+    public ResponseEntity<ApiResponse<Void>> inAppNotify(
+            @RequestHeader("X-Internal-Key") String key,
+            @RequestBody java.util.Map<String, Object> body) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+
+        try {
+            java.util.UUID recipientId = java.util.UUID.fromString((String) body.get("recipientId"));
+            String title    = (String) body.getOrDefault("title", "");
+            String message  = (String) body.getOrDefault("message", "");
+            String type     = (String) body.getOrDefault("type", "GENERAL");
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> meta =
+                (java.util.Map<String, String>) body.getOrDefault("metadata", java.util.Map.of());
+            inAppService.create(recipientId, title, message, type, meta);
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (Exception e) {
+            log.error("Failed to create in-app notification: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("GENERAL_400", "Bad request"));
+        }
     }
 
     /**

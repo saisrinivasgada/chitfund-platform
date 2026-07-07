@@ -39,6 +39,7 @@ import java.util.UUID;
 public class NotificationEventConsumer {
 
     private final NotificationService notificationService;
+    private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
     private final ObjectMapper objectMapper;
 
     @KafkaListener(topics = KafkaTopics.MONTH_OPENED, groupId = "notification-service")
@@ -48,6 +49,9 @@ public class NotificationEventConsumer {
             log.info("Sending PAYMENT_DUE notifications for chit {} month {} ({} members)",
                     event.chitId(), event.monthNumber(), event.memberIds().size());
 
+            String amtFormatted = "₹" + event.installmentAmount().toPlainString();
+            String chitLabel = event.chitName() != null ? event.chitName() : event.chitId();
+
             for (String memberId : event.memberIds()) {
                 NotifyRequest req = buildRequest(
                         UUID.fromString(memberId),
@@ -55,12 +59,22 @@ public class NotificationEventConsumer {
                         NotificationEventType.PAYMENT_DUE,
                         Map.of(
                                 "amount",      event.installmentAmount().toPlainString(),
-                                "chitName",    event.chitId(),   // chitName not in event; use ID as fallback
+                                "chitName",    chitLabel,
                                 "monthNumber", event.monthNumber().toString(),
                                 "dueDate",     event.dueDate().toString()
                         )
                 );
                 notificationService.send(req);
+
+                // In-app notification for member
+                inAppService.create(
+                    UUID.fromString(memberId),
+                    "Installment Due",
+                    amtFormatted + " due for month " + event.monthNumber() + " — " + chitLabel,
+                    "PAYMENT_DUE",
+                    Map.of("chitId", event.chitId(), "amount", event.installmentAmount().toPlainString(),
+                           "monthNumber", event.monthNumber().toString())
+                );
             }
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED event: {}", e.getMessage(), e);
@@ -74,10 +88,13 @@ public class NotificationEventConsumer {
             log.info("Sending MONTH_SKIPPED notifications for chit {} month {} ({} members)",
                     event.chitId(), event.monthNumber(), event.memberIds().size());
 
+            String chitLabel = event.chitName() != null ? event.chitName() : event.chitId();
+            String reason    = event.skipReason() != null ? event.skipReason() : "Not specified";
+
             Map<String, String> params = Map.of(
-                    "chitName",    event.chitId(),
+                    "chitName",    chitLabel,
                     "monthNumber", event.monthNumber().toString(),
-                    "reason",      event.skipReason() != null ? event.skipReason() : "Not specified"
+                    "reason",      reason
             );
 
             for (String memberId : event.memberIds()) {
@@ -85,6 +102,14 @@ public class NotificationEventConsumer {
                         UUID.fromString(memberId), null, null,
                         NotificationEventType.MONTH_SKIPPED, params);
                 notificationService.send(req);
+
+                inAppService.create(
+                    UUID.fromString(memberId),
+                    "Month Skipped",
+                    "Month " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason,
+                    "MONTH_SKIPPED",
+                    Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason)
+                );
             }
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED event: {}", e.getMessage(), e);
@@ -98,20 +123,31 @@ public class NotificationEventConsumer {
             log.info("Cash collected alert: ₹{} from member {} by worker {}",
                     event.amount(), event.memberId(), event.collectedByUserId());
 
-            // Alert goes to the worker who collected (they need confirmation), using their userId as recipientId.
-            // In production: admin group notification via a dedicated admin broadcast topic.
+            String amtFormatted = "₹" + event.amount().toPlainString();
+
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.collectedByUserId()),
                     null, null,
                     NotificationEventType.CASH_COLLECTED,
                     Map.of(
-                            "workerName", event.collectedByUserId(),
+                            "workerId",   event.collectedByUserId(),
                             "amount",     event.amount().toPlainString(),
-                            "memberName", event.memberId(),
-                            "chitName",   event.chitId()
+                            "memberId",   event.memberId(),
+                            "chitId",     event.chitId()
                     )
             );
             notificationService.send(req);
+
+            // In-app: notify worker (recipientId = collectedByUserId — a real userId)
+            inAppService.create(
+                UUID.fromString(event.collectedByUserId()),
+                "Cash Collected",
+                amtFormatted + " collected successfully",
+                "CASH_COLLECTED",
+                Map.of("memberId", event.memberId(), "chitId", event.chitId(),
+                       "amount", event.amount().toPlainString(),
+                       "workerId", event.collectedByUserId())
+            );
         } catch (Exception e) {
             log.error("Failed to process CASH_COLLECTED event: {}", e.getMessage(), e);
         }
@@ -124,6 +160,7 @@ public class NotificationEventConsumer {
             String remaining = event.totalOutstanding().compareTo(java.math.BigDecimal.ZERO) > 0
                     ? "Remaining balance: ₹" + event.totalOutstanding().toPlainString()
                     : "Account is fully settled for this chit.";
+            String amtFormatted = "₹" + event.amount().toPlainString();
 
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.memberId()),
@@ -131,12 +168,22 @@ public class NotificationEventConsumer {
                     NotificationEventType.PAYMENT_RECEIVED,
                     Map.of(
                             "amount",           event.amount().toPlainString(),
-                            "chitName",         event.chitId(),
+                            "chitId",           event.chitId(),
                             "monthNumber",      String.valueOf(event.monthsSettled()),
                             "remainingBalance", remaining
                     )
             );
             notificationService.send(req);
+
+            // In-app: notify member (recipientId = memberId — frontend resolves via member profile)
+            inAppService.create(
+                UUID.fromString(event.memberId()),
+                "Payment Received",
+                amtFormatted + " payment recorded. " + remaining,
+                "PAYMENT_RECEIVED",
+                Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
+                       "monthsSettled", String.valueOf(event.monthsSettled()))
+            );
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED event: {}", e.getMessage(), e);
         }
@@ -146,17 +193,28 @@ public class NotificationEventConsumer {
     public void onPayoutCreated(String payload) {
         try {
             PayoutCreatedEvent event = objectMapper.readValue(payload, PayoutCreatedEvent.class);
+            String amtFormatted = "₹" + event.netPayoutAmount().toPlainString();
+
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.memberId()),
                     null, null,
                     NotificationEventType.WINNER_SELECTED,
                     Map.of(
-                            "chitName",    event.chitId(),
+                            "chitId",      event.chitId(),
                             "monthNumber", event.monthNumber().toString(),
                             "amount",      event.netPayoutAmount().toPlainString()
                     )
             );
             notificationService.send(req);
+
+            inAppService.create(
+                UUID.fromString(event.memberId()),
+                "🏆 You Won!",
+                "Congratulations! Payout of " + amtFormatted + " approved for month " + event.monthNumber(),
+                "WINNER_SELECTED",
+                Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
+                       "monthNumber", event.monthNumber().toString())
+            );
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED event: {}", e.getMessage(), e);
         }
@@ -166,18 +224,30 @@ public class NotificationEventConsumer {
     public void onPayoutDisbursed(String payload) {
         try {
             PayoutDisbursedEvent event = objectMapper.readValue(payload, PayoutDisbursedEvent.class);
+            String amtFormatted = "₹" + event.netPayoutAmount().toPlainString();
+            String ref = event.referenceNumber() != null ? event.referenceNumber() : "N/A";
+
             NotifyRequest req = buildRequest(
                     UUID.fromString(event.memberId()),
                     null, null,
                     NotificationEventType.PAYOUT_DISBURSED,
                     Map.of(
                             "amount",    event.netPayoutAmount().toPlainString(),
-                            "chitName",  event.chitId(),
+                            "chitId",    event.chitId(),
                             "mode",      event.disbursementMode(),
-                            "reference", event.referenceNumber() != null ? event.referenceNumber() : "N/A"
+                            "reference", ref
                     )
             );
             notificationService.send(req);
+
+            inAppService.create(
+                UUID.fromString(event.memberId()),
+                "Payout Disbursed",
+                amtFormatted + " sent via " + event.disbursementMode() + " (Ref: " + ref + ")",
+                "PAYOUT_DISBURSED",
+                Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
+                       "mode", event.disbursementMode(), "reference", ref)
+            );
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
         }

@@ -6,9 +6,11 @@ import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.ChangePasswordRequest;
+import com.chitfund.userservice.dto.request.CreateMemberLoginRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
 import com.chitfund.userservice.dto.request.UpdateUserProfileRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
+import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.dto.response.UserResponse;
 import com.chitfund.userservice.service.AuthService;
@@ -113,6 +115,21 @@ public class UserController {
             Authentication auth) {
         User user = (User) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(userService.updateMyProfile(user.getId(), request)));
+    }
+
+    // ── Member login creation ─────────────────────────────────────────────────
+
+    /**
+     * Admin creates an app login for a member. Idempotent: if the email is already
+     * registered as a MEMBER account (partial failure from a previous attempt), the
+     * existing user is reused with a fresh temp password — no EMAIL_TAKEN error on retry.
+     */
+    @PostMapping("/create-member-login")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<CreateMemberLoginResponse>> createMemberLogin(
+            @Valid @RequestBody CreateMemberLoginRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(authService.createMemberLogin(request), "Member login created"));
     }
 
     // ── Staff management (ADMIN / MANAGER / WORKER accounts) ─────────────────

@@ -9,6 +9,7 @@ export interface AuthUser {
   fullName: string;
   role: UserRole;
   token: string;
+  mustChangePassword?: boolean;
 }
 
 interface AuthState {

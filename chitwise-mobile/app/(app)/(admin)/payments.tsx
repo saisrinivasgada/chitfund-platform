@@ -1,259 +1,2170 @@
-import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity } from 'react-native';
+import { useState, useEffect } from 'react';
+import {
+  View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList,
+} from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  getActiveCashRequests, collectForRequest, voidCashPickup,
-  cancelCashRequest, getCashRequestAuditLog,
+  getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
+  getCashRequestAuditLog, assignWorkerToRequest, listStaff, adminCreateCashRequest,
+  getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
+  getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
+  getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout,
+  getWalletBalance, getWalletTransactions, addWalletTransaction,
+  getSettlementPreview, confirmSettlement, getMemberSettlements,
+  getMemberTotalBalance,
 } from '../../../services/api';
-import { C, T, Card, Badge, Button, Amount, fmtDateTime, EmptyState, LoadingScreen, SectionHeader, Divider } from '../../../components/ui';
+import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
+import { toast } from '../../../components/Toast';
 
-const STATUS_ORDER = { PICKED_UP: 0, PENDING: 1, ASSIGNED: 2 };
+const TABS = ['Cash Requests', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury', 'Settlement'] as const;
+type Tab = typeof TABS[number];
 
-export default function AdminPaymentsScreen() {
+// ─────────────────────────────────────────────────────────────────────────────
+// Status config for cash pickups
+const CP_STATUS: Record<string, { color: string; bg: string; label: string }> = {
+  PENDING:   { color: C.red,    bg: '#FEF2F2', label: 'Pending' },
+  ASSIGNED:  { color: C.amber,  bg: '#FEF3C7', label: 'Assigned' },
+  PICKED_UP: { color: '#16A34A', bg: '#F0FDF4', label: 'Picked Up' },
+  COLLECTED: { color: C.navy,   bg: '#EEF2F8', label: 'Collected' },
+  CANCELLED: { color: C.gray400, bg: C.gray50,  label: 'Cancelled' },
+};
+
+// CASH REQUESTS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   const qc = useQueryClient();
-  const [voidTarget, setVoidTarget] = useState<any>(null);
+
+  // Status filter (set by clicking legend cards or from URL param)
+  const [statusFilter, setStatusFilter] = useState<string | null>(initialFilter ?? null);
+  useEffect(() => { setStatusFilter(initialFilter ?? null); }, [initialFilter]);
+
+  // Track / audit
   const [auditTarget, setAuditTarget] = useState<any>(null);
+
+  // Assign worker to existing PENDING request
+  const [assignTarget, setAssignTarget] = useState<any>(null);
+  const [assignWorkerId, setAssignWorkerId] = useState('');
+  const [assignNotes, setAssignNotes] = useState('');
+
+  // Void pickup
+  const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
 
+  // Setup new cash pickup (admin creates on behalf of member)
+  const [showSetup, setShowSetup] = useState(false);
+  const [setupMemberId, setSetupMemberId] = useState('');
+  const [setupMemberSearch, setSetupMemberSearch] = useState('');
+  const [setupChitId, setSetupChitId] = useState('');
+  const [setupAmount, setSetupAmount] = useState('');
+  const [setupWorkerId, setSetupWorkerId] = useState('');
+  const [setupNotes, setSetupNotes] = useState('');
+
   const { data: requests = [], isLoading, refetch } = useQuery({
-    queryKey: ['mobile-cash-requests'],
+    queryKey: ['m-cash-requests'],
     queryFn: getActiveCashRequests,
     refetchInterval: 30_000,
   });
-
+  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: allChits = [] } = useQuery({ queryKey: ['a-chits'], queryFn: getChits });
   const { data: auditLog = [], isLoading: auditLoading } = useQuery({
-    queryKey: ['mobile-cash-audit', auditTarget?.id],
+    queryKey: ['m-cash-audit', auditTarget?.id],
     queryFn: () => getCashRequestAuditLog(auditTarget.id),
     enabled: !!auditTarget,
   });
 
+  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const workers = (staff as any[]).filter((s: any) => ['WORKER', 'MANAGER'].includes(s.role));
+  const workerMap = Object.fromEntries((staff as any[]).map((w: any) => [w.id, w.fullName ?? w.username ?? '—']));
+
+  // Chits for the selected setup member
+  const memberChitsForSetup = (allChits as any[]).filter((c: any) =>
+    c.status === 'ACTIVE'
+  );
+
+  // Filtered member list for setup modal search
+  const filteredSetupMembers = (members as any[]).filter((m: any) =>
+    !setupMemberSearch || (m.fullName ?? '').toLowerCase().includes(setupMemberSearch.toLowerCase()) || (m.phone ?? '').includes(setupMemberSearch)
+  );
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const collectMut = useMutation({
     mutationFn: (id: string) => collectForRequest(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['mobile-cash-requests'] });
-      Alert.alert('Success', 'Cash collected — member account credited');
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
+      qc.invalidateQueries({ queryKey: ['worker-history'] });
+      toast.collected('Member account credited');
     },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Collection failed — request may already be collected or cancelled.'),
   });
 
   const voidMut = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => voidCashPickup(id, reason),
+    mutationFn: ({ id, reason }: any) => voidCashPickup(id, reason),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['mobile-cash-requests'] });
-      qc.invalidateQueries({ queryKey: ['mobile-cash-audit'] });
-      setVoidTarget(null);
-      setVoidReason('');
-      Alert.alert('Done', 'Pickup voided — reverted to Assigned');
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      setVoidTarget(null); setVoidReason('');
+      toast.voided('Pickup voided — reverted to Assigned');
     },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => Alert.alert('Cannot Void Pickup', e.response?.data?.message ?? 'Void failed — only PICKED_UP requests can be voided.'),
   });
 
   const cancelMut = useMutation({
     mutationFn: (id: string) => cancelCashRequest(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['mobile-cash-requests'] }),
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['m-cash-requests'] }),
+    onError: (e: any) => Alert.alert('Cannot Cancel', e.response?.data?.message ?? 'Cancellation failed — request may already be collected.'),
   });
 
+  const assignMut = useMutation({
+    mutationFn: ({ id, workerId, notes }: any) => assignWorkerToRequest(id, workerId, notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      setAssignTarget(null); setAssignWorkerId(''); setAssignNotes('');
+      toast.assigned('Worker assigned');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Assignment failed — please try again.'),
+  });
+
+  const setupMut = useMutation({
+    mutationFn: () => adminCreateCashRequest(
+      setupMemberId, setupChitId,
+      setupAmount ? Number(setupAmount) : 0,
+      setupWorkerId || undefined,
+      setupNotes || undefined,
+    ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      setShowSetup(false);
+      setSetupMemberId(''); setSetupMemberSearch(''); setSetupChitId('');
+      setSetupAmount(''); setSetupWorkerId(''); setSetupNotes('');
+      toast.created(setupWorkerId ? 'Pickup created & worker assigned' : 'Cash pickup created');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to create pickup — please try again.'),
+  });
+
+  const STATUS_ORDER: Record<string, number> = { PICKED_UP: 0, ASSIGNED: 1, PENDING: 2 };
   const sorted = [...(requests as any[])].sort((a, b) =>
-    (STATUS_ORDER[a.status as keyof typeof STATUS_ORDER] ?? 9) - (STATUS_ORDER[b.status as keyof typeof STATUS_ORDER] ?? 9)
+    (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9)
   );
+  const displayed = statusFilter ? sorted.filter((r: any) => r.status === statusFilter) : sorted;
 
   if (isLoading) return <LoadingScreen />;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <ScrollView
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-      >
-        <Text style={[T.h1, { marginBottom: 4 }]}>Cash Requests</Text>
-        <Text style={[T.sm, { marginBottom: 20 }]}>{sorted.length} active requests</Text>
+    <ScrollView
+      refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
+      contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+    >
+      {/* Header row */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <Text style={{ fontSize: 13, color: C.gray500 }}>
+          {sorted.length > 0 ? `${sorted.length} active pickup${sorted.length !== 1 ? 's' : ''}` : 'No active pickups'}
+        </Text>
+        <TouchableOpacity
+          onPress={() => setShowSetup(true)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.navy, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}
+        >
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ Setup Pickup</Text>
+        </TouchableOpacity>
+      </View>
 
-        {sorted.length === 0 ? (
-          <EmptyState title="No active requests" message="All cash pickups are done or no requests yet." />
-        ) : (
-          sorted.map((r: any) => (
-            <Card key={r.id} style={{ marginBottom: 12 }}>
-              {/* Header row */}
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                    Member {r.memberId?.slice(0, 8)}…
-                  </Text>
-                  <Amount value={r.requestedAmount} size="sm" />
-                </View>
-                <Badge status={r.status} />
-              </View>
+      {/* Status filter cards — tap to filter, tap again to clear */}
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
+        <TouchableOpacity
+          onPress={() => setStatusFilter(null)}
+          style={{ flex: 1, backgroundColor: !statusFilter ? C.navy50 : C.gray50, borderRadius: 10, padding: 8, alignItems: 'center',
+            borderWidth: 1.5, borderColor: !statusFilter ? C.navy : 'transparent' }}
+        >
+          <Text style={{ fontSize: 16, fontWeight: '800', color: !statusFilter ? C.navy : C.gray400 }}>{sorted.length}</Text>
+          <Text style={{ fontSize: 10, color: !statusFilter ? C.navy : C.gray400, marginTop: 1 }}>All</Text>
+        </TouchableOpacity>
+        {(['PENDING', 'ASSIGNED', 'PICKED_UP'] as const).map((s) => {
+          const cfg = CP_STATUS[s];
+          const count = sorted.filter((r: any) => r.status === s).length;
+          const active = statusFilter === s;
+          return (
+            <TouchableOpacity
+              key={s}
+              onPress={() => setStatusFilter(active ? null : s)}
+              style={{ flex: 1, backgroundColor: active ? cfg.bg : C.gray50, borderRadius: 10, padding: 8, alignItems: 'center',
+                borderWidth: 1.5, borderColor: active ? cfg.color : 'transparent' }}
+            >
+              <Text style={{ fontSize: 16, fontWeight: '800', color: active ? cfg.color : C.gray400 }}>{count}</Text>
+              <Text style={{ fontSize: 10, color: active ? cfg.color : C.gray400, marginTop: 1, textAlign: 'center' }}>{cfg.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
-              {/* Details */}
-              {r.assignedWorkerId && (
-                <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  Worker: {r.assignedWorkerId.slice(0, 8)}…
+      {displayed.length === 0 && (
+        <EmptyState
+          title={statusFilter ? `No ${CP_STATUS[statusFilter]?.label ?? statusFilter} pickups` : 'No active pickups'}
+          message="Create a pickup request above or wait for members to raise one from their portal."
+        />
+      )}
+
+      {displayed.map((r: any) => {
+        const cfg = CP_STATUS[r.status] ?? CP_STATUS.PENDING;
+        return (
+          <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: cfg.color }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
+                  {memberMap[r.memberId] ?? `…${r.memberId?.slice(-6)}`}
                 </Text>
-              )}
-              {r.pickedUpAt && (
-                <Text style={{ fontSize: 12, color: C.green, marginTop: 2 }}>
-                  Picked up: {fmtDateTime(r.pickedUpAt)}
-                </Text>
-              )}
-              {r.notes && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2, fontStyle: 'italic' }}>"{r.notes}"</Text>}
-
-              <Divider />
-
-              {/* Actions */}
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                {r.status === 'PICKED_UP' && (
-                  <>
-                    <Button
-                      label="Collect"
-                      variant="success"
-                      size="sm"
-                      onPress={() => Alert.alert(
-                        'Confirm Collection',
-                        `Confirm you received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from worker?`,
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Confirm', onPress: () => collectMut.mutate(r.id) },
-                        ]
-                      )}
-                      loading={collectMut.isPending}
-                    />
-                    <Button
-                      label="Void Pickup"
-                      variant="danger"
-                      size="sm"
-                      onPress={() => { setVoidTarget(r); setVoidReason(''); }}
-                    />
-                  </>
-                )}
-                {(r.status === 'PENDING' || r.status === 'ASSIGNED') && (
-                  <Button
-                    label="Cancel"
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => Alert.alert('Cancel Request', 'Cancel this cash pickup?', [
-                      { text: 'No', style: 'cancel' },
-                      { text: 'Cancel Request', style: 'destructive', onPress: () => cancelMut.mutate(r.id) },
-                    ])}
-                  />
-                )}
-                <Button
-                  label="Audit Log"
-                  variant="outline"
-                  size="sm"
-                  onPress={() => setAuditTarget(r)}
-                />
+                <Amount value={r.requestedAmount} size="md" />
               </View>
-            </Card>
-          ))
-        )}
-      </ScrollView>
-
-      {/* Void Pickup Modal */}
-      <Modal visible={!!voidTarget} animationType="slide" transparent presentationStyle="overFullScreen">
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 8 }}>Void Pickup</Text>
-            <View style={{ backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, color: C.red, fontWeight: '600' }}>
-                This will undo the worker's pickup mark.
-              </Text>
-              <Text style={{ fontSize: 12, color: '#991B1B', marginTop: 4 }}>
-                Request reverts to Assigned — same worker must re-collect and re-mark.
-              </Text>
+              <View style={{ backgroundColor: cfg.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: cfg.color }}>{cfg.label}</Text>
+              </View>
             </View>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>
-              Reason (required — saved in audit log)
-            </Text>
-            <TextInput
-              value={voidReason}
-              onChangeText={setVoidReason}
-              placeholder="e.g. Worker marked wrong member by mistake"
-              placeholderTextColor={C.gray400}
-              multiline
-              style={{
-                borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
-                padding: 12, fontSize: 14, color: C.gray900, minHeight: 80,
-                textAlignVertical: 'top', marginBottom: 16,
+
+            {/* Details */}
+            {r.assignedWorkerId && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>Worker</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.amber }}>
+                  {workerMap[r.assignedWorkerId] ?? '—'}
+                </Text>
+              </View>
+            )}
+            {r.scheduledFor && (
+              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>Scheduled</Text>
+                <Text style={{ fontSize: 12, color: C.gray700 }}>{fmtDate(r.scheduledFor)}</Text>
+              </View>
+            )}
+            {r.pickedUpAt && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+                <Text style={{ fontSize: 12, color: '#16A34A', fontWeight: '600' }}>
+                  Picked up {fmtDateTime(r.pickedUpAt)}
+                </Text>
+              </View>
+            )}
+            {r.notes && (
+              <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginBottom: 4 }}>"{r.notes}"</Text>
+            )}
+            {r.adminNotes && (
+              <Text style={{ fontSize: 12, color: C.navy, marginBottom: 4 }}>Admin: {r.adminNotes}</Text>
+            )}
+            <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Requested {fmtDate(r.requestedAt)}</Text>
+
+            {/* PICKED_UP → big "Received from worker" banner */}
+            {r.status === 'PICKED_UP' && (
+              <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#86EFAC' }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#16A34A', marginBottom: 2 }}>
+                  Worker has the cash
+                </Text>
+                <Text style={{ fontSize: 12, color: '#166534' }}>
+                  {workerMap[r.assignedWorkerId] ?? 'Worker'} marked this as picked up. Tap "Received" once they hand it to you.
+                </Text>
+              </View>
+            )}
+
+            {/* Action buttons */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {r.status === 'PENDING' && (
+                <Button label="Assign Worker" variant="primary" size="sm"
+                  onPress={() => { setAssignTarget(r); setAssignWorkerId(''); setAssignNotes(''); }} />
+              )}
+              {r.status === 'PICKED_UP' && (
+                <>
+                  <Button label="Received from Worker" variant="success" size="sm"
+                    loading={collectMut.isPending}
+                    onPress={() => Alert.alert(
+                      'Confirm Receipt',
+                      `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${workerMap[r.assignedWorkerId] ?? 'worker'}? This credits the member's account.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Yes, Received', onPress: () => collectMut.mutate(r.id) },
+                      ]
+                    )} />
+                  <Button label="Void Pickup" variant="danger" size="sm"
+                    onPress={() => { setVoidTarget(r); setVoidReason(''); }} />
+                </>
+              )}
+              {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP') && (
+                <Button label="Cancel" variant="ghost" size="sm"
+                  onPress={() => Alert.alert('Cancel Pickup', 'Cancel this cash pickup request?', [
+                    { text: 'No', style: 'cancel' },
+                    { text: 'Cancel Pickup', style: 'destructive', onPress: () => cancelMut.mutate(r.id) },
+                  ])} />
+              )}
+              <Button label="Audit Trail" variant="outline" size="sm" onPress={() => setAuditTarget(r)} />
+            </View>
+          </Card>
+        );
+      })}
+
+      {/* ── Setup Cash Pickup Modal ─────────────────────────────────────────── */}
+      <Modal visible={showSetup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowSetup(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.white }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Setup Cash Pickup</Text>
+            <TouchableOpacity onPress={() => setShowSetup(false)}>
+              <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+
+            {/* Step 1 — Select Member */}
+            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>1. Select Member *</Text>
+              <TextInput
+                value={setupMemberSearch}
+                onChangeText={(t) => { setSetupMemberSearch(t); if (!t) setSetupMemberId(''); }}
+                placeholder="Search by name or phone…"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, marginBottom: 8 }}
+              />
+              {setupMemberSearch.length > 0 && !setupMemberId && (
+                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                  {filteredSetupMembers.slice(0, 8).map((m: any) => (
+                    <TouchableOpacity key={m.id} onPress={() => { setSetupMemberId(m.id); setSetupMemberSearch(m.fullName); }}
+                      style={{ padding: 10, borderRadius: 8, backgroundColor: C.gray50, marginBottom: 4 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{m.fullName}</Text>
+                      {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
+                    </TouchableOpacity>
+                  ))}
+                  {filteredSetupMembers.length === 0 && (
+                    <Text style={{ fontSize: 13, color: C.gray400, padding: 8 }}>No members found</Text>
+                  )}
+                </ScrollView>
+              )}
+              {setupMemberId && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.navy50, borderRadius: 8, padding: 10 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.navy }} />
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy, flex: 1 }}>{setupMemberSearch}</Text>
+                  <TouchableOpacity onPress={() => { setSetupMemberId(''); setSetupMemberSearch(''); setSetupChitId(''); }}>
+                    <Text style={{ fontSize: 16, color: C.gray400 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Step 2 — Select Chit */}
+            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: setupMemberId ? C.gray200 : C.gray100 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: setupMemberId ? C.gray700 : C.gray400, marginBottom: 10 }}>2. Select Chit *</Text>
+              {!setupMemberId ? (
+                <Text style={{ fontSize: 12, color: C.gray400 }}>Select a member first</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                  {memberChitsForSetup.length === 0 ? (
+                    <Text style={{ fontSize: 13, color: C.gray400 }}>No active chits found</Text>
+                  ) : (
+                    memberChitsForSetup.map((c: any) => (
+                      <TouchableOpacity key={c.id} onPress={() => {
+                        setSetupChitId(c.id);
+                        setSetupAmount(c.installmentAmount ? String(c.installmentAmount) : '');
+                      }}
+                        style={{ padding: 10, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                          borderColor: setupChitId === c.id ? C.navy : 'transparent',
+                          backgroundColor: setupChitId === c.id ? C.navy50 : C.gray50 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: setupChitId === c.id ? C.navy : C.gray900 }}>{c.name}</Text>
+                        {c.installmentAmount && (
+                          <Text style={{ fontSize: 12, color: C.gray500 }}>₹{Number(c.installmentAmount).toLocaleString('en-IN')} / month</Text>
+                        )}
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </ScrollView>
+              )}
+            </View>
+
+            {/* Step 3 — Amount */}
+            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>3. Amount (₹) *</Text>
+              <TextInput
+                value={setupAmount}
+                onChangeText={setSetupAmount}
+                keyboardType="numeric"
+                placeholder="Enter amount"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, fontWeight: '700', color: C.gray900 }}
+              />
+            </View>
+
+            {/* Step 4 — Assign Worker (optional) */}
+            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Worker</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Optional — leave empty to assign later</Text>
+              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                {/* None option */}
+                <TouchableOpacity onPress={() => setSetupWorkerId('')}
+                  style={{ padding: 10, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                    borderColor: !setupWorkerId ? C.navy : 'transparent',
+                    backgroundColor: !setupWorkerId ? C.navy50 : C.gray50 }}>
+                  <Text style={{ fontSize: 13, fontWeight: !setupWorkerId ? '700' : '400', color: !setupWorkerId ? C.navy : C.gray500 }}>
+                    Assign later {!setupWorkerId ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+                {workers.map((w: any) => (
+                  <TouchableOpacity key={w.id} onPress={() => setSetupWorkerId(w.id)}
+                    style={{ padding: 10, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                      borderColor: setupWorkerId === w.id ? C.navy : 'transparent',
+                      backgroundColor: setupWorkerId === w.id ? C.navy50 : C.gray50 }}>
+                    <Text style={{ fontSize: 14, fontWeight: setupWorkerId === w.id ? '700' : '400', color: setupWorkerId === w.id ? C.navy : C.gray900 }}>
+                      {w.fullName ?? w.username} {setupWorkerId === w.id ? '✓' : ''}
+                    </Text>
+                    {w.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{w.phone}</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Step 5 — Notes */}
+            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>5. Notes (optional)</Text>
+              <TextInput
+                value={setupNotes}
+                onChangeText={setSetupNotes}
+                multiline
+                placeholder="Any special instructions for the worker…"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 72, textAlignVertical: 'top' }}
+              />
+            </View>
+
+            <Button
+              label={setupWorkerId ? 'Create Pickup & Assign Worker' : 'Create Pickup Request'}
+              variant="primary"
+              fullWidth
+              loading={setupMut.isPending}
+              disabled={!setupMemberId || !setupChitId || !setupAmount || Number(setupAmount) <= 0}
+              onPress={() => {
+                const existingActive = (requests as any[]).filter(
+                  (r: any) => r.memberId === setupMemberId && ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status)
+                );
+                if (existingActive.length > 0) {
+                  Alert.alert(
+                    'Active Request Exists',
+                    `This member already has ${existingActive.length} active cash pickup request${existingActive.length > 1 ? 's' : ''} (${existingActive.map((r: any) => r.status).join(', ')}). Do you still want to create another one?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Create Anyway', onPress: () => setupMut.mutate() },
+                    ]
+                  );
+                } else {
+                  setupMut.mutate();
+                }
               }}
             />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Void Pickup Modal ───────────────────────────────────────────────── */}
+      <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Pickup</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+              This reverts the request back to Assigned — the worker must physically re-collect and re-mark pickup.
+            </Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
+            <TextInput value={voidReason} onChangeText={setVoidReason} multiline
+              placeholder="e.g. Wrong member marked" placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, minHeight: 72, fontSize: 14, color: C.gray900, marginBottom: 16, textAlignVertical: 'top' }} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Button label="Cancel" variant="ghost" size="md" onPress={() => setVoidTarget(null)} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button
-                  label="Void Pickup"
-                  variant="danger"
-                  size="md"
-                  disabled={!voidReason.trim()}
-                  loading={voidMut.isPending}
-                  onPress={() => voidMut.mutate({ id: voidTarget.id, reason: voidReason })}
-                />
-              </View>
+              <View style={{ flex: 1 }}><Button label="Close" variant="ghost" onPress={() => setVoidTarget(null)} /></View>
+              <View style={{ flex: 1 }}><Button label="Void Pickup" variant="danger" disabled={!voidReason.trim()} loading={voidMut.isPending}
+                onPress={() => voidMut.mutate({ id: voidTarget.id, reason: voidReason })} /></View>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Audit Log Modal */}
-      <Modal visible={!!auditTarget} animationType="slide" transparent presentationStyle="overFullScreen">
+      {/* ── Assign Worker Modal ─────────────────────────────────────────────── */}
+      <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Audit Trail</Text>
+              <View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Worker</Text>
+                {assignTarget && (
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                    {memberMap[assignTarget.memberId]} · ₹{Number(assignTarget.requestedAmount).toLocaleString('en-IN')}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => setAssignTarget(null)}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {workers.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 24 }}>No workers in the team yet</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 220, marginBottom: 12 }}>
+                {workers.map((w: any) => (
+                  <TouchableOpacity key={w.id} onPress={() => setAssignWorkerId(w.id)}
+                    style={{ padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                      borderColor: assignWorkerId === w.id ? C.navy : 'transparent',
+                      backgroundColor: assignWorkerId === w.id ? C.navy50 : C.gray50 }}>
+                    <Text style={{ fontSize: 14, fontWeight: assignWorkerId === w.id ? '700' : '400', color: assignWorkerId === w.id ? C.navy : C.gray900 }}>
+                      {w.fullName ?? w.username} {assignWorkerId === w.id ? '✓' : ''}
+                    </Text>
+                    {w.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{w.phone}</Text>}
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>{w.role}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes for worker (optional)</Text>
+            <TextInput value={assignNotes} onChangeText={setAssignNotes} placeholder="e.g. Visit before 6 PM"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setAssignTarget(null)} /></View>
+              <View style={{ flex: 1 }}><Button label="Assign" variant="primary" disabled={!assignWorkerId} loading={assignMut.isPending}
+                onPress={() => assignMut.mutate({ id: assignTarget.id, workerId: assignWorkerId, notes: assignNotes })} /></View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Audit Trail Modal ────────────────────────────────────────────────── */}
+      <Modal visible={!!auditTarget} animationType="slide" transparent onRequestClose={() => setAuditTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Pickup Trail</Text>
               <TouchableOpacity onPress={() => setAuditTarget(null)}>
                 <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
+            {auditTarget && (
+              <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+                {memberMap[auditTarget.memberId]} · ₹{Number(auditTarget.requestedAmount).toLocaleString('en-IN')}
+              </Text>
+            )}
+            <ScrollView>
               {auditLoading ? (
                 <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>Loading…</Text>
               ) : (auditLog as any[]).length === 0 ? (
                 <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No audit entries yet</Text>
-              ) : (
-                (auditLog as any[]).map((entry: any, i: number) => (
-                  <View key={entry.id} style={{ flexDirection: 'row', marginBottom: 16 }}>
-                    <View style={{ alignItems: 'center', marginRight: 12 }}>
-                      <View style={{
-                        width: 10, height: 10, borderRadius: 5,
-                        backgroundColor: entry.action === 'PICKUP_VOIDED' ? C.red
-                          : entry.action === 'COLLECTED' ? C.navy
-                          : entry.action === 'PICKED_UP' ? C.green
-                          : C.amber,
-                        marginTop: 4,
-                      }} />
+              ) : (auditLog as any[]).map((entry: any, i: number) => {
+                const dotColor = entry.action === 'PICKUP_VOIDED' || entry.action === 'CANCELLED' ? C.red
+                  : entry.action === 'COLLECTED' ? C.navy
+                  : entry.action === 'PICKED_UP' ? '#16A34A'
+                  : C.amber;
+                return (
+                  <View key={entry.id ?? i} style={{ flexDirection: 'row', marginBottom: 14 }}>
+                    <View style={{ alignItems: 'center', marginRight: 12, width: 20 }}>
+                      <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: dotColor, marginTop: 2 }} />
                       {i < (auditLog as any[]).length - 1 && (
                         <View style={{ width: 2, flex: 1, backgroundColor: C.gray200, marginTop: 4 }} />
                       )}
                     </View>
-                    <View style={{ flex: 1, paddingBottom: 12 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                        {entry.action.replace(/_/g, ' ')}
+                    <View style={{ flex: 1, paddingBottom: 8 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>
+                        {entry.action?.replace(/_/g, ' ')}
                       </Text>
-                      {entry.performedByRole && (
+                      {(entry.fromStatus || entry.toStatus) && (
                         <Text style={{ fontSize: 12, color: C.gray500 }}>
-                          By {entry.performedByRole}
-                          {entry.fromStatus && ` · ${entry.fromStatus} → ${entry.toStatus}`}
+                          {entry.fromStatus} → {entry.toStatus}
                         </Text>
+                      )}
+                      {entry.performedByRole && (
+                        <Text style={{ fontSize: 12, color: C.gray400 }}>by {entry.performedByRole}</Text>
                       )}
                       {entry.reason && (
-                        <Text style={{ fontSize: 12, color: C.red, fontStyle: 'italic', marginTop: 2 }}>
-                          "{entry.reason}"
-                        </Text>
+                        <Text style={{ fontSize: 12, color: C.red, fontStyle: 'italic', marginTop: 2 }}>"{entry.reason}"</Text>
                       )}
-                      <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                        {fmtDateTime(entry.performedAt)}
-                      </Text>
+                      <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>{fmtDateTime(entry.performedAt)}</Text>
                     </View>
                   </View>
-                ))
-              )}
+                );
+              })}
             </ScrollView>
           </View>
         </View>
       </Modal>
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECORD PAYMENT TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function RecordPaymentTab() {
+  const qc = useQueryClient();
+  const [memberId, setMemberId] = useState('');
+  const [chitId, setChitId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [mode, setMode] = useState('CASH');
+  const [collectedBy, setCollectedBy] = useState('SELF');
+  const [notes, setNotes] = useState('');
+  const [voidBatchId, setVoidBatchId] = useState('');
+  const [voidReason, setVoidReason] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberInfoId, setMemberInfoId] = useState('');
+
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: memberChits = [] } = useQuery({
+    queryKey: ['m-member-chits-pay', memberId],
+    queryFn: () => getChitsForMember(memberId),
+    enabled: !!memberId,
+  });
+  const { data: balance } = useQuery({
+    queryKey: ['m-pay-balance', memberId, chitId],
+    queryFn: () => getMemberBalance(memberId, chitId),
+    enabled: !!memberId && !!chitId,
+  });
+  const { data: batches = [] } = useQuery({
+    queryKey: ['m-pay-batches', memberId, chitId],
+    queryFn: () => getPaymentBatches(memberId, chitId),
+    enabled: !!memberId && !!chitId,
+  });
+
+  const collectors = (staff as any[]).filter((s: any) => ['WORKER', 'MANAGER'].includes(s.role));
+  // Only show chits the member can still pay into
+  const payableChits = (memberChits as any[]).filter((c: any) =>
+    ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status)
+  );
+  const selectedChit = payableChits.find((c: any) => c.id === chitId);
+  const bal = (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
+  const isCash = mode === 'CASH';
+  const workerCollect = isCash && collectedBy !== 'SELF';
+  const amtNum = Number(amount) || 0;
+  const isOverpay = amtNum > 0 && bal != null && bal > 0 && amtNum > bal;
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+  const recordMut = useMutation({
+    mutationFn: () => workerCollect
+      ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy })
+      : recordPayment({ chitId, memberId, amount: amtNum, paymentMode: mode, notes: notes || undefined }),
+    onSuccess: () => {
+      const msg = workerCollect
+        ? 'Recorded — awaiting remittance from worker'
+        : 'Payment recorded — treasury credited';
+      toast.saved(msg);
+      setAmount(''); setNotes(''); setCollectedBy('SELF');
+      qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
+      qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
+      qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment — please try again.'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: () => voidPaymentBatch(voidBatchId, voidReason),
+    onSuccess: () => {
+      setVoidBatchId(''); setVoidReason('');
+      qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
+      qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
+      toast.voided('Payment voided — records reversed');
+    },
+    onError: (e: any) => Alert.alert('Cannot Void', e.response?.data?.message ?? 'Void failed — payment may be linked to a disbursed payout or already voided.'),
+  });
+
+  const remitMut = useMutation({
+    mutationFn: (batchId: string) => remitPayment(batchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      toast.collected('Payment remitted to treasury');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Remittance failed — please try again.'),
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const MODES = ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'];
+  const MODE_DESC: Record<string, string> = {
+    CASH:          'Physical cash — self or via worker',
+    UPI:           'UPI / PhonePe / GPay',
+    BANK_TRANSFER: 'NEFT / IMPS / RTGS',
+    CHEQUE:        'Cheque deposit',
+  };
+  const BATCH_COLOR: Record<string, string> = {
+    COLLECTED: C.green, REMITTED: C.navy, VOIDED: C.red,
+    PENDING: C.amber, AWAITING_REMITTANCE: C.amber,
+  };
+
+  const filteredMembers = (members as any[]).filter((m: any) => {
+    if (m.status === 'INACTIVE') return false;
+    const q = memberSearch.toLowerCase();
+    return !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
+  });
+
+  const submitLabel = workerCollect
+    ? 'Record Collection (via Worker)'
+    : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+
+      {/* ── Member picker ──────────────────────────────────────────────────── */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+        <Text style={{ ...T.label, marginBottom: 0, flex: 1 }}>Select Member</Text>
+        {memberId && (
+          <TouchableOpacity onPress={() => setMemberInfoId(memberId)}
+            style={{ backgroundColor: C.navy50, borderRadius: 8, padding: 6 }}>
+            <Text style={{ fontSize: 13, color: C.navy, fontWeight: '700' }}>ⓘ Info</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <TextInput value={memberSearch} onChangeText={setMemberSearch} placeholder="Search name or phone…"
+        placeholderTextColor={C.gray400}
+        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }} />
+      <ScrollView style={{ maxHeight: 160, marginBottom: 16, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
+        {filteredMembers.map((m: any) => (
+          <TouchableOpacity key={m.id}
+            onPress={() => { setMemberId(m.id); setChitId(''); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
+            style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+            <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
+              {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
+            </Text>
+            {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
+          </TouchableOpacity>
+        ))}
+        {filteredMembers.length === 0 && (
+          <Text style={{ padding: 16, color: C.gray400 }}>No members found</Text>
+        )}
+      </ScrollView>
+
+      {/* Member info sheet */}
+      <Modal visible={!!memberInfoId} animationType="slide" transparent onRequestClose={() => setMemberInfoId('')}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            {(() => {
+              const mi = (members as any[]).find((m: any) => m.id === memberInfoId);
+              if (!mi) return null;
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{mi.fullName}</Text>
+                    <TouchableOpacity onPress={() => setMemberInfoId('')}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+                  </View>
+                  {[{ label: 'Phone', value: mi.phone ?? '—' }, { label: 'City', value: mi.city ?? '—' }, { label: 'Address', value: mi.address ?? '—' }, { label: 'Status', value: mi.status }].map((row) => (
+                    <View key={row.label} style={{ flexDirection: 'row', marginBottom: 8 }}>
+                      <Text style={{ width: 70, fontSize: 13, color: C.gray500 }}>{row.label}</Text>
+                      <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500', flex: 1 }}>{row.value}</Text>
+                    </View>
+                  ))}
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Chit picker (ACTIVE / PAUSED / COMPLETED only) ─────────────────── */}
+      {memberId && (
+        <>
+          <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit Fund</Text>
+          {payableChits.length === 0 ? (
+            <Text style={{ color: C.gray400, marginBottom: 16 }}>No active chits for this member</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {payableChits.map((c: any) => (
+                  <TouchableOpacity key={c.id}
+                    onPress={() => { setChitId(c.id); setAmount(c.installmentAmount ? String(c.installmentAmount) : ''); }}
+                    style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: chitId === c.id ? C.navy : C.gray300, backgroundColor: chitId === c.id ? C.navy50 : C.white, minWidth: 110 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: chitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
+                    <Text style={{ fontSize: 10, color: C.gray400, marginTop: 1 }}>{c.status}</Text>
+                    {c.installmentAmount && (
+                      <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>₹{Number(c.installmentAmount).toLocaleString('en-IN')}/draw</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+        </>
+      )}
+
+      {/* ── Outstanding balance card ────────────────────────────────────────── */}
+      {memberId && chitId && (
+        <View style={{ borderRadius: 14, padding: 14, marginBottom: 16, backgroundColor: bal != null && bal > 0 ? '#FEF2F2' : bal != null && bal < 0 ? '#F0FDF4' : C.navy50 }}>
+          <Text style={{ fontSize: 11, color: C.gray500, fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 }}>Outstanding Balance</Text>
+          {bal != null ? (
+            <>
+              <Text style={{ fontSize: 28, fontWeight: '800', color: bal > 0 ? C.red : bal < 0 ? C.green : C.navy }}>
+                ₹{Math.abs(bal).toLocaleString('en-IN')}
+              </Text>
+              <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                {bal > 0 ? 'Member owes this amount' : bal < 0 ? 'Member has credit (overpaid)' : 'Fully paid up'}
+              </Text>
+            </>
+          ) : (
+            <Text style={{ fontSize: 13, color: C.gray400 }}>Fetching balance…</Text>
+          )}
+          {selectedChit?.installmentAmount && (
+            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 6 }}>
+              Installment: ₹{Number(selectedChit.installmentAmount).toLocaleString('en-IN')}/draw
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* ── Payment form ───────────────────────────────────────────────────── */}
+      {chitId && (
+        <>
+          {/* Amount */}
+          <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
+          <TextInput value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900, marginBottom: 8, fontWeight: '700' }} />
+
+          {/* Overpay warning */}
+          {isOverpay && (
+            <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#F59E0B' }}>
+              <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+                ₹{amtNum.toLocaleString('en-IN')} exceeds outstanding ₹{bal!.toLocaleString('en-IN')} — this will create a credit balance.
+              </Text>
+            </View>
+          )}
+
+          {/* Payment Mode — vertical radio list with descriptions */}
+          <Text style={{ ...T.label, marginBottom: 8, marginTop: 6 }}>Payment Mode</Text>
+          <View style={{ gap: 6, marginBottom: 16 }}>
+            {MODES.map((m) => (
+              <TouchableOpacity key={m}
+                onPress={() => { setMode(m); if (m !== 'CASH') setCollectedBy('SELF'); }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 2, borderColor: mode === m ? C.navy : C.gray300, backgroundColor: mode === m ? C.navy50 : C.white }}>
+                <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: mode === m ? C.navy : C.gray300, backgroundColor: mode === m ? C.navy : 'transparent', flexShrink: 0 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: mode === m ? C.navy : C.gray700 }}>{m.replace(/_/g, ' ')}</Text>
+                  <Text style={{ fontSize: 11, color: C.gray500 }}>{MODE_DESC[m]}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Collected By — CASH mode only ──────────────────────────────────── */}
+          {isCash && (
+            <>
+              <Text style={{ ...T.label, marginBottom: 8 }}>Collected By</Text>
+
+              {/* Self option */}
+              <TouchableOpacity onPress={() => setCollectedBy('SELF')}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, borderWidth: 2, borderColor: collectedBy === 'SELF' ? C.navy : C.gray300, backgroundColor: collectedBy === 'SELF' ? C.navy50 : C.white, marginBottom: 6 }}>
+                <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: collectedBy === 'SELF' ? C.navy : C.gray300, backgroundColor: collectedBy === 'SELF' ? C.navy : 'transparent', flexShrink: 0 }} />
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: collectedBy === 'SELF' ? C.navy : C.gray700 }}>Self (I collected it directly)</Text>
+                  <Text style={{ fontSize: 11, color: C.gray500 }}>Treasury credited immediately</Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Worker / Manager list */}
+              {collectors.length === 0 ? (
+                <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 14 }}>No workers in team yet</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 160, marginBottom: 6, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
+                  {collectors.map((w: any) => (
+                    <TouchableOpacity key={w.id} onPress={() => setCollectedBy(w.id)}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: C.gray100, backgroundColor: collectedBy === w.id ? '#FFFBEB' : 'transparent' }}>
+                      <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, flexShrink: 0, borderColor: collectedBy === w.id ? C.amber : C.gray300, backgroundColor: collectedBy === w.id ? C.amber : 'transparent' }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: collectedBy === w.id ? '700' : '400', color: collectedBy === w.id ? '#92400E' : C.gray900 }}>
+                          {w.fullName ?? w.username}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: C.gray400 }}>{w.role}{w.phone ? ` · ${w.phone}` : ''}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Worker warning banner */}
+              {workerCollect && (
+                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 14, borderWidth: 1, borderColor: '#F59E0B' }}>
+                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Cash stays with worker</Text>
+                  <Text style={{ fontSize: 11, color: '#92400E' }}>
+                    This will appear in Remittance until the worker hands the cash to you and you remit it.
+                  </Text>
+                </View>
+              )}
+              {!workerCollect && <View style={{ marginBottom: 14 }} />}
+            </>
+          )}
+
+          {/* Notes */}
+          <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
+          <TextInput value={notes} onChangeText={setNotes} multiline placeholder="Any notes…"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 16 }} />
+
+          {/* Submit */}
+          <Button
+            label={submitLabel}
+            variant={workerCollect ? 'primary' : 'success'}
+            fullWidth
+            disabled={!amount || amtNum <= 0}
+            loading={recordMut.isPending}
+            onPress={() => {
+              const workerName = workerCollect
+                ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'worker')
+                : null;
+              const confirmMsg = workerCollect
+                ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
+                : `Record ₹${amtNum.toLocaleString('en-IN')} via ${mode.replace(/_/g, ' ')} for ${selectedChit?.name}?`;
+              Alert.alert('Confirm Payment', confirmMsg, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Record', onPress: () => recordMut.mutate() },
+              ]);
+            }}
+          />
+        </>
+      )}
+
+      {/* ── Payment history ────────────────────────────────────────────────── */}
+      {memberId && chitId && (batches as any[]).length > 0 && (
+        <View style={{ marginTop: 24 }}>
+          <Text style={{ ...T.label, marginBottom: 10 }}>Payment History</Text>
+          {(batches as any[]).map((b: any) => {
+            const bColor = BATCH_COLOR[b.status] ?? C.gray400;
+            const isPendingRemit = b.status === 'AWAITING_REMITTANCE' || b.status === 'COLLECTED';
+            return (
+              <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: bColor }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
+                        ₹{Number(b.amount ?? b.totalAmount ?? 0).toLocaleString('en-IN')}
+                      </Text>
+                      <View style={{ backgroundColor: bColor + '22', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: bColor }}>
+                          {b.status === 'AWAITING_REMITTANCE' ? 'PENDING REMIT' : b.status}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+                      {b.paymentMode ?? 'CASH'} · {fmtDate(b.collectedAt ?? b.createdAt)}
+                    </Text>
+                    {b.collectedByName && (
+                      <Text style={{ fontSize: 11, color: C.amber, marginTop: 1 }}>via {b.collectedByName}</Text>
+                    )}
+                    {b.notes && <Text style={{ fontSize: 11, color: C.gray400, fontStyle: 'italic' }}>"{b.notes}"</Text>}
+                  </View>
+                </View>
+                {isPendingRemit && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                    <Button label="Remit to Treasury" variant="outline" size="sm"
+                      loading={remitMut.isPending}
+                      onPress={() => Alert.alert('Remit', 'Mark this payment as remitted to treasury?', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Remit', onPress: () => remitMut.mutate(b.id) },
+                      ])} />
+                    <Button label="Void" variant="danger" size="sm"
+                      onPress={() => { setVoidBatchId(b.id); setVoidReason(''); }} />
+                  </View>
+                )}
+              </Card>
+            );
+          })}
+        </View>
+      )}
+
+      {/* ── Void batch modal ───────────────────────────────────────────────── */}
+      <Modal visible={!!voidBatchId} animationType="slide" transparent>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 12 }}>Void Payment</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Reason *</Text>
+            <TextInput value={voidReason} onChangeText={setVoidReason} multiline
+              placeholder="e.g. Entered wrong amount, duplicate entry"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, minHeight: 72, fontSize: 14, color: C.gray900, marginBottom: 16, textAlignVertical: 'top' }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setVoidBatchId('')} /></View>
+              <View style={{ flex: 1 }}><Button label="Void" variant="danger" disabled={!voidReason.trim()} loading={voidMut.isPending} onPress={() => voidMut.mutate()} /></View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYOUTS TAB  (create + disburse + cancel + void + full list)
+// ─────────────────────────────────────────────────────────────────────────────
+const PAYOUT_STATUS_COLOR: Record<string, string> = {
+  PENDING: C.amber, PARTIALLY_DISBURSED: '#2563EB', DISBURSED: C.green,
+  CANCELLED: C.gray400, VOIDED: C.red,
+};
+
+function PayoutsTab() {
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<'PENDING' | 'ALL'>('PENDING');
+
+  // Create payout
+  const [showCreate, setShowCreate] = useState(false);
+  const [cpMemberId, setCpMemberId] = useState('');
+  const [cpChitId, setCpChitId] = useState('');
+  const [cpDrawNum, setCpDrawNum] = useState('');
+  const [cpAmount, setCpAmount] = useState('');
+  const [cpNotes, setCpNotes] = useState('');
+
+  // Disburse
+  const [disburseTarget, setDisburseTarget] = useState<any>(null);
+  const [disburseAmt, setDisburseAmt] = useState('');
+  const [disburseMode, setDisburseMode] = useState('CASH');
+  const [disburseNotes, setDisburseNotes] = useState('');
+
+  // Cancel / void
+  const [actionTarget, setActionTarget] = useState<any>(null);
+  const [actionType, setActionType] = useState<'cancel' | 'void'>('cancel');
+  const [actionReason, setActionReason] = useState('');
+
+  const { data: pending = [], isLoading: pendingLoading, refetch: refetchPending } = useQuery({
+    queryKey: ['m-payouts-pending'], queryFn: getPendingPayouts,
+  });
+  const { data: allPayouts = [], isLoading: allLoading, refetch: refetchAll } = useQuery({
+    queryKey: ['m-payouts-all'], queryFn: () => getAllPayouts(),
+    enabled: filter === 'ALL',
+  });
+
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: chits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
+  const { data: memberChitsForCreate = [] } = useQuery({
+    queryKey: ['m-chits-for-member-payout', cpMemberId],
+    queryFn: () => getChitsForMember(cpMemberId),
+    enabled: !!cpMemberId,
+  });
+
+  const memberMap = Object.fromEntries((members as any[]).map((m) => [m.id, m.fullName ?? '—']));
+  const chitMap = Object.fromEntries((chits as any[]).map((c) => [c.id, c.name ?? '—']));
+  const displayPayouts = filter === 'PENDING' ? (pending as any[]) : (allPayouts as any[]);
+  const isLoading = filter === 'PENDING' ? pendingLoading : allLoading;
+  function refetch() { refetchPending(); refetchAll(); }
+
+  const createMut = useMutation({
+    mutationFn: () => createPayout({
+      memberId: cpMemberId, chitId: cpChitId,
+      drawNumber: Number(cpDrawNum), payoutAmount: Number(cpAmount),
+      notes: cpNotes || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
+      setShowCreate(false);
+      setCpMemberId(''); setCpChitId(''); setCpDrawNum(''); setCpAmount(''); setCpNotes('');
+      toast.created('Payout created — disburse when ready');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to create payout — please try again.'),
+  });
+
+  const disburseMut = useMutation({
+    mutationFn: () => disbursePayout(disburseTarget.id, {
+      amount: Number(disburseAmt), paymentMode: disburseMode, notes: disburseNotes || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
+      setDisburseTarget(null); setDisburseAmt(''); setDisburseNotes('');
+      toast.saved('Payout disbursed successfully');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Disbursement failed — please try again.'),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => cancelPayout(actionTarget.id, actionReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
+      setActionTarget(null); setActionReason('');
+      toast.cancelled('Payout cancelled');
+    },
+    onError: (e: any) => Alert.alert('Cannot Cancel', e.response?.data?.message ?? 'Cancellation failed — payout may be in a state that cannot be cancelled.'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: () => voidPayout(actionTarget.id, actionReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
+      setActionTarget(null); setActionReason('');
+      toast.voided('Payout voided');
+    },
+    onError: (e: any) => Alert.alert('Cannot Void', e.response?.data?.message ?? 'Void failed — payout may already be disbursed or in a non-voidable state.'),
+  });
+
+  const MODES = ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'];
+
+  return (
+    <ScrollView
+      refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
+      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+    >
+      {/* Actions row */}
+      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+        <View style={{ flex: 1 }}>
+          <Button label="+ Create Payout" variant="primary" size="sm" onPress={() => setShowCreate(true)} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button label={filter === 'PENDING' ? 'Show All' : 'Show Pending'} variant="outline" size="sm"
+            onPress={() => setFilter(f => f === 'PENDING' ? 'ALL' : 'PENDING')} />
+        </View>
+      </View>
+
+      <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
+        {displayPayouts.length} {filter === 'PENDING' ? 'pending' : 'total'} payouts
+      </Text>
+
+      {displayPayouts.length === 0 && <EmptyState title="No payouts" message={filter === 'PENDING' ? 'No pending payouts.' : 'No payouts recorded yet.'} />}
+
+      {displayPayouts.map((p: any) => {
+        const pColor = PAYOUT_STATUS_COLOR[p.status] ?? C.gray300;
+        return (
+          <Card key={p.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: pColor }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                  {memberMap[p.memberId ?? p.winnerId] ?? 'Unknown'}
+                </Text>
+                <Text style={{ fontSize: 12, color: C.gray500 }}>
+                  {chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? p.monthNumber ?? '—'}
+                </Text>
+                {p.createdAt && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(p.createdAt)}</Text>}
+              </View>
+              <View style={{ backgroundColor: pColor + '20', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: pColor }}>{p.status}</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 20, marginBottom: 8 }}>
+              <View>
+                <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Net Payout</Text>
+                <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color={C.green} />
+              </View>
+              {(p.disbursedAmount ?? 0) > 0 && (
+                <View>
+                  <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Disbursed</Text>
+                  <Amount value={p.disbursedAmount} size="sm" color={C.navy} />
+                </View>
+              )}
+              {(p.remainingAmount ?? 0) > 0 && (
+                <View>
+                  <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Remaining</Text>
+                  <Amount value={p.remainingAmount} size="sm" color={C.amber} />
+                </View>
+              )}
+              {p.disbursementMode && (
+                <View>
+                  <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Mode</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>{p.disbursementMode}</Text>
+                </View>
+              )}
+            </View>
+            {p.notes && <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginBottom: 6 }}>"{p.notes}"</Text>}
+            <Divider />
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {(p.status === 'PENDING' || p.status === 'PARTIALLY_DISBURSED') && (
+                <Button label="Disburse" variant="success" size="sm" onPress={() => {
+                  setDisburseTarget(p);
+                  setDisburseAmt(String(p.remainingAmount ?? p.netPayoutAmount ?? p.winningAmount ?? ''));
+                  setDisburseMode('CASH');
+                  setDisburseNotes('');
+                }} />
+              )}
+              {p.status === 'PENDING' && (
+                <Button label="Cancel" variant="ghost" size="sm" onPress={() => {
+                  setActionTarget(p); setActionType('cancel'); setActionReason('');
+                }} />
+              )}
+              {/* Void only for PENDING — cannot void once any disbursement has gone out */}
+              {p.status === 'PENDING' && (
+                <Button label="Void" variant="danger" size="sm" onPress={() => {
+                  setActionTarget(p); setActionType('void'); setActionReason('');
+                }} />
+              )}
+            </View>
+          </Card>
+        );
+      })}
+
+      {/* ── Create Payout Modal ──────────────────────────────────────────────── */}
+      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>Create Payout</Text>
+            <TouchableOpacity onPress={() => setShowCreate(false)}>
+              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <Text style={{ ...T.label, marginBottom: 8 }}>Winner (Member) *</Text>
+            <ScrollView style={{ maxHeight: 160, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
+              {(members as any[]).filter((m: any) => m.status !== 'INACTIVE').map((m: any) => (
+                <TouchableOpacity key={m.id} onPress={() => { setCpMemberId(m.id); setCpChitId(''); }}
+                  style={{ padding: 12, backgroundColor: cpMemberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 14, fontWeight: cpMemberId === m.id ? '700' : '400', color: cpMemberId === m.id ? C.navy : C.gray900 }}>
+                    {m.fullName ?? m.name} {cpMemberId === m.id ? '✓' : ''}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {cpMemberId && (
+              <>
+                <Text style={{ ...T.label, marginBottom: 8 }}>Chit Fund *</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {(memberChitsForCreate as any[]).map((c: any) => (
+                      <TouchableOpacity key={c.id} onPress={() => setCpChitId(c.id)}
+                        style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: cpChitId === c.id ? C.navy : C.gray300, backgroundColor: cpChitId === c.id ? C.navy50 : C.white }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: cpChitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
+                        {c.totalAmount && <Amount value={c.totalAmount} size="sm" color={C.green} />}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ ...T.label, marginBottom: 6 }}>Draw # *</Text>
+                <TextInput value={cpDrawNum} onChangeText={setCpDrawNum} keyboardType="numeric" placeholder="e.g. 3"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
+              <View style={{ flex: 2 }}>
+                <Text style={{ ...T.label, marginBottom: 6 }}>Payout Amount (₹) *</Text>
+                <TextInput value={cpAmount} onChangeText={setCpAmount} keyboardType="numeric" placeholder="0"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900, fontWeight: '700' }} />
+              </View>
+            </View>
+
+            <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
+            <TextInput value={cpNotes} onChangeText={setCpNotes} multiline placeholder="Any notes…"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top' }} />
+          </ScrollView>
+          <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+            <Button label="Create Payout" variant="primary" fullWidth
+              disabled={!cpMemberId || !cpChitId || !cpDrawNum || !cpAmount || Number(cpAmount) <= 0}
+              loading={createMut.isPending}
+              onPress={() => Alert.alert('Create Payout', `Create a ₹${Number(cpAmount).toLocaleString('en-IN')} payout for draw #${cpDrawNum}?`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Create', onPress: () => createMut.mutate() },
+              ])} />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Disburse Modal ───────────────────────────────────────────────────── */}
+      <Modal visible={!!disburseTarget} animationType="slide" transparent onRequestClose={() => setDisburseTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.green, marginBottom: 4 }}>Disburse Payout</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+              Winner: {memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] ?? '—'}
+              {disburseTarget?.status === 'PARTIALLY_DISBURSED' && ' (partial — add another tranche)'}
+            </Text>
+            <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
+            <TextInput value={disburseAmt} onChangeText={setDisburseAmt} keyboardType="numeric"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900, fontWeight: '700', marginBottom: 14 }} />
+            <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+              {MODES.map((m) => (
+                <TouchableOpacity key={m} onPress={() => setDisburseMode(m)}
+                  style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 2, borderColor: disburseMode === m ? C.green : C.gray300, backgroundColor: disburseMode === m ? '#F0FDF4' : C.white }}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: disburseMode === m ? C.green : C.gray700 }}>{m.replace(/_/g, ' ')}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
+            <TextInput value={disburseNotes} onChangeText={setDisburseNotes} placeholder="e.g. Paid via NEFT"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setDisburseTarget(null)} /></View>
+              <View style={{ flex: 1 }}><Button label="Disburse" variant="success"
+                disabled={!disburseAmt || Number(disburseAmt) <= 0} loading={disburseMut.isPending}
+                onPress={() => Alert.alert('Confirm', `Disburse ₹${Number(disburseAmt).toLocaleString('en-IN')} via ${disburseMode}?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Disburse', onPress: () => disburseMut.mutate() },
+                ])} /></View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Cancel / Void Modal ──────────────────────────────────────────────── */}
+      <Modal visible={!!actionTarget} animationType="slide" transparent onRequestClose={() => setActionTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>
+              {actionType === 'cancel' ? 'Cancel Payout' : 'Void Payout'}
+            </Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+              {actionType === 'void' ? 'Voiding is irreversible. The payout will be marked VOIDED for audit purposes.' : 'Cancel this pending payout.'}
+            </Text>
+            <Text style={{ ...T.label, marginBottom: 6 }}>Reason *</Text>
+            <TextInput value={actionReason} onChangeText={setActionReason} multiline
+              placeholder={actionType === 'cancel' ? 'e.g. Member withdrew from chit' : 'e.g. Entered wrong amount'}
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, minHeight: 72, fontSize: 14, color: C.gray900, marginBottom: 16, textAlignVertical: 'top' }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Back" variant="ghost" onPress={() => setActionTarget(null)} /></View>
+              <View style={{ flex: 1 }}>
+                <Button label={actionType === 'cancel' ? 'Cancel Payout' : 'Void Payout'} variant="danger"
+                  disabled={!actionReason.trim()}
+                  loading={actionType === 'cancel' ? cancelMut.isPending : voidMut.isPending}
+                  onPress={() => actionType === 'cancel' ? cancelMut.mutate() : voidMut.mutate()} />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TREASURY TAB
+// ─────────────────────────────────────────────────────────────────────────────
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function resolveDesc(desc: string | null | undefined, memberMap: Record<string, string>, chitMap: Record<string, string>, staffMap: Record<string, string>): string {
+  if (!desc) return '—';
+  return desc.replace(UUID_RE, (uuid) => {
+    const k = uuid.toLowerCase();
+    return memberMap[k] ?? chitMap[k] ?? staffMap[k] ?? uuid.slice(0, 8) + '…';
+  });
+}
+
+function TreasuryTab() {
+  const qc = useQueryClient();
+  const [showAdd, setShowAdd] = useState(false);
+  const [txAmount, setTxAmount] = useState('');
+  const [txType, setTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [txAccountType, setTxAccountType] = useState<'CASH' | 'BANK'>('CASH');
+  const [txNotes, setTxNotes] = useState('');
+  const [selectedTx, setSelectedTx] = useState<any>(null);
+  const [txShowCount, setTxShowCount] = useState(20);
+
+  const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery({ queryKey: ['m-wallet'], queryFn: getWalletBalance });
+  const { data: txns = [], isLoading: txLoading, refetch: refetchTxns } = useQuery({ queryKey: ['m-wallet-txns'], queryFn: getWalletTransactions });
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 120_000 });
+  const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 120_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 120_000 });
+
+  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id.toLowerCase(), m.fullName ?? '—']));
+  const chitMap   = Object.fromEntries((allChits as any[]).map((c: any) => [c.id.toLowerCase(), c.name ?? '—']));
+  const staffMap  = Object.fromEntries((staff as any[]).map((s: any) => [s.id.toLowerCase(), s.fullName ?? s.username ?? '—']));
+
+  const addMut = useMutation({
+    mutationFn: () => addWalletTransaction({
+      amount: Number(txAmount),
+      entryType: txType === 'DEPOSIT' ? 'IN' : 'OUT',
+      accountType: txAccountType,
+      description: txNotes || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet-txns'] });
+      setShowAdd(false); setTxAmount(''); setTxNotes('');
+      toast.saved(`${txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded`);
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record transaction.'),
+  });
+
+  function onRefresh() { refetchWallet(); refetchTxns(); }
+  const isLoading = walletLoading || txLoading;
+
+  const w = wallet as any;
+  const cashBal = Number(w?.cashBalance ?? 0);
+  const bankBal = Number(w?.bankBalance ?? 0);
+  const totalBal = Number(w?.totalBalance ?? 0);
+
+  return (
+    <ScrollView
+      refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
+      contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+    >
+      {/* Balance Card */}
+      <View style={{ backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 16 }}>
+        <Text style={{ fontSize: 11, color: C.white + '80', fontWeight: '600', marginBottom: 8, letterSpacing: 1 }}>TREASURY BALANCE</Text>
+        <Text style={{ fontSize: 36, fontWeight: '800', color: C.gold, marginBottom: 8 }}>
+          ₹{totalBal.toLocaleString('en-IN')}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 20 }}>
+          <View>
+            <Text style={{ fontSize: 11, color: C.white + '60' }}>CASH</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>{cashBal < 0 ? '−' : ''}₹{Math.abs(cashBal).toLocaleString('en-IN')}</Text>
+          </View>
+          <View>
+            <Text style={{ fontSize: 11, color: C.white + '60' }}>BANK</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>{bankBal < 0 ? '−' : ''}₹{Math.abs(bankBal).toLocaleString('en-IN')}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+        <View style={{ flex: 1 }}>
+          <Button label="+ Deposit" variant="success" onPress={() => { setShowAdd(true); setTxType('DEPOSIT'); }} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Button label="− Withdrawal" variant="danger" onPress={() => { setShowAdd(true); setTxType('WITHDRAWAL'); }} />
+        </View>
+      </View>
+
+      <SectionHeader title={`Transactions (${Math.min(txShowCount, (txns as any[]).length)} of ${(txns as any[]).length})`} />
+      {(txns as any[]).length === 0 && <EmptyState title="No transactions" message="Add deposits or withdrawals above." />}
+      {(txns as any[]).slice(0, txShowCount).map((tx: any) => {
+        const isOut = tx.entryType === 'OUT' || (tx.entryType ?? '').includes('WITHDRAWAL');
+        return (
+          <TouchableOpacity key={tx.id} onPress={() => setSelectedTx(tx)} activeOpacity={0.75}>
+            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: isOut ? C.red : C.green }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: isOut ? C.red : C.green }}>
+                      {isOut ? 'OUT' : 'IN'}
+                    </Text>
+                    {tx.accountType && (
+                      <View style={{ backgroundColor: C.gray100, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray500 }}>{tx.accountType}</Text>
+                      </View>
+                    )}
+                    {tx.category && (
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>{tx.category}</Text>
+                    )}
+                  </View>
+                  {(tx.description ?? tx.notes) && (
+                    <Text style={{ fontSize: 12, color: C.gray600, marginTop: 3 }}>{resolveDesc(tx.description ?? tx.notes, memberMap, chitMap, staffMap)}</Text>
+                  )}
+                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDateTime(tx.createdAt ?? tx.timestamp)}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: isOut ? C.red : C.green }}>
+                    {isOut ? '−' : '+'}₹{Number(tx.amount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: C.gray400, marginTop: 2 }}>tap for detail →</Text>
+                </View>
+              </View>
+            </Card>
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* Add Transaction Modal */}
+      <Modal visible={showAdd} animationType="slide" transparent>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: txType === 'DEPOSIT' ? C.green : C.red, marginBottom: 16 }}>
+              {txType === 'DEPOSIT' ? '+ Add Deposit' : '− Record Withdrawal'}
+            </Text>
+
+            <Text style={{ ...T.label, marginBottom: 8 }}>Account</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              {(['CASH', 'BANK'] as const).map((a) => (
+                <TouchableOpacity key={a} onPress={() => setTxAccountType(a)}
+                  style={{ flex: 1, padding: 10, borderRadius: 8, borderWidth: 1.5, alignItems: 'center',
+                    borderColor: txAccountType === a ? C.navy : C.gray300,
+                    backgroundColor: txAccountType === a ? C.navy50 : C.white }}>
+                  <Text style={{ fontWeight: '700', fontSize: 14, color: txAccountType === a ? C.navy : C.gray500 }}>{a}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹)</Text>
+            <TextInput value={txAmount} onChangeText={setTxAmount} keyboardType="numeric" placeholder="0"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900, marginBottom: 16 }} />
+            <Text style={{ ...T.label, marginBottom: 6 }}>Description (optional)</Text>
+            <TextInput value={txNotes} onChangeText={setTxNotes} placeholder="e.g. Monthly collection" multiline
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 20 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setShowAdd(false)} /></View>
+              <View style={{ flex: 1 }}><Button label="Save" variant={txType === 'DEPOSIT' ? 'success' : 'danger'}
+                disabled={!txAmount || Number(txAmount) <= 0} loading={addMut.isPending}
+                onPress={() => addMut.mutate()} /></View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Transaction Detail Modal */}
+      <Modal visible={!!selectedTx} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedTx(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>Transaction Detail</Text>
+            <TouchableOpacity onPress={() => setSelectedTx(null)}
+              style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
+              <Text style={{ fontSize: 16 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {selectedTx && (
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {/* Amount banner */}
+              <View style={{
+                backgroundColor: (selectedTx.entryType === 'OUT') ? '#FEF2F2' : '#F0FDF4',
+                borderRadius: 16, padding: 20, marginBottom: 20, alignItems: 'center',
+              }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: selectedTx.entryType === 'OUT' ? C.red : C.green, marginBottom: 4 }}>
+                  {selectedTx.entryType === 'OUT' ? 'OUTGOING' : 'INCOMING'}
+                </Text>
+                <Text style={{ fontSize: 36, fontWeight: '800', color: selectedTx.entryType === 'OUT' ? C.red : C.green }}>
+                  {selectedTx.entryType === 'OUT' ? '−' : '+'}₹{Number(selectedTx.amount).toLocaleString('en-IN')}
+                </Text>
+              </View>
+
+              {/* Details */}
+              <Card style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 12, color: C.gray500, fontWeight: '600', marginBottom: 12 }}>TRANSACTION DETAILS</Text>
+                {[
+                  { label: 'Type', value: selectedTx.entryType === 'OUT' ? 'Withdrawal / Outgoing' : 'Deposit / Incoming' },
+                  { label: 'Account', value: selectedTx.accountType ?? '—' },
+                  { label: 'Category', value: selectedTx.category ?? '—' },
+                  { label: 'Description', value: resolveDesc(selectedTx.description ?? selectedTx.notes, memberMap, chitMap, staffMap) },
+                  { label: 'Date', value: fmtDateTime(selectedTx.createdAt) },
+                  { label: 'ID', value: String(selectedTx.id)?.slice(0, 8) + '…' },
+                  { label: 'Created By', value: selectedTx.createdBy ? (staffMap[String(selectedTx.createdBy).toLowerCase()] ?? memberMap[String(selectedTx.createdBy).toLowerCase()] ?? String(selectedTx.createdBy).slice(0, 8) + '…') : '—' },
+                ].map((row) => (
+                  <View key={row.label} style={{ flexDirection: 'row', marginBottom: 10, gap: 8 }}>
+                    <Text style={{ fontSize: 13, color: C.gray500, width: 90, flexShrink: 0 }}>{row.label}</Text>
+                    <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500', flex: 1 }}>{row.value}</Text>
+                  </View>
+                ))}
+              </Card>
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Treasury Load More */}
+      {(txns as any[]).length > txShowCount && (
+        <TouchableOpacity onPress={() => setTxShowCount(c => c + 20)}
+          style={{ margin: 16, marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({(txns as any[]).length - txShowCount} remaining)</Text>
+        </TouchableOpacity>
+      )}
+      {(txns as any[]).length > 20 && (txns as any[]).length <= txShowCount && (
+        <Text style={{ textAlign: 'center', color: C.gray400, margin: 16, fontSize: 12 }}>All {(txns as any[]).length} transactions shown</Text>
+      )}
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTLEMENT TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
+  const qc = useQueryClient();
+  const [memberId, setMemberId] = useState(initialMemberId ?? '');
+  const [preview, setPreview] = useState<any>(null);
+  const [notes, setNotes] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: history = [], isLoading: histLoading } = useQuery({
+    queryKey: ['m-settlement-history', memberId],
+    queryFn: () => getMemberSettlements(memberId),
+    enabled: !!memberId && showHistory,
+  });
+
+  const previewMut = useMutation({
+    mutationFn: () => getSettlementPreview(memberId),
+    onSuccess: (data) => { setPreview(data); setShowHistory(false); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Preview failed'),
+  });
+
+  const confirmMut = useMutation({
+    mutationFn: () => {
+      const chitItems = (preview?.chitSummaries ?? preview?.items ?? []).map((ci: any) => ({
+        chitId: ci.chitId, amountToSettle: ci.outstanding ?? ci.amountToSettle ?? 0,
+      }));
+      return confirmSettlement(memberId, chitItems, notes || undefined);
+    },
+    onSuccess: () => {
+      toast.saved('Settlement confirmed');
+      setPreview(null); setNotes('');
+      qc.invalidateQueries({ queryKey: ['m-members'] });
+      qc.invalidateQueries({ queryKey: ['m-settlement-history', memberId] });
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Settlement failed — please try again.'),
+  });
+
+  const selectedMember = (members as any[]).find((m: any) => m.id === memberId);
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <View style={{ backgroundColor: '#F5F3FF', borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+        <Text style={{ fontSize: 13, color: '#7C3AED', fontWeight: '700' }}>Settlement</Text>
+        <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
+          Clear all outstanding dues for a member across all enrolled chits. Irreversible — creates a full audit trail.
+        </Text>
+      </View>
+
+      <Text style={{ ...T.label, marginBottom: 8 }}>Select Member</Text>
+      <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
+        {(members as any[]).filter((m: any) => m.status !== 'INACTIVE').map((m: any) => (
+          <TouchableOpacity key={m.id} onPress={() => { setMemberId(m.id); setPreview(null); setShowHistory(false); }}
+            style={{ padding: 12, backgroundColor: memberId === m.id ? '#F5F3FF' : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+            <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? '#7C3AED' : C.gray900 }}>
+              {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
+            </Text>
+            {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {memberId && (
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+          <View style={{ flex: 2 }}>
+            <Button label="Preview Settlement" variant="outline" loading={previewMut.isPending}
+              onPress={() => previewMut.mutate()} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Button label={showHistory ? 'New' : 'History'} variant="ghost"
+              onPress={() => { setShowHistory(!showHistory); setPreview(null); }} />
+          </View>
+        </View>
+      )}
+
+      {/* Preview section */}
+      {preview && !showHistory && (
+        <View>
+          <Card style={{ marginBottom: 16, backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#DDD6FE' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 12 }}>
+              Settlement Preview — {selectedMember?.fullName}
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#DDD6FE' }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#4C1D95' }}>Total Outstanding</Text>
+              <Amount value={preview.totalOutstanding ?? 0} size="sm" color={C.red} />
+            </View>
+            {(preview.chitSummaries ?? preview.items ?? []).map((ci: any, i: number) => (
+              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, color: '#6D28D9', fontWeight: '600' }}>{ci.chitName ?? `Chit ${ci.chitId?.slice(0, 8)}`}</Text>
+                  {ci.paidInstallments != null && (
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>{ci.paidInstallments}/{ci.totalInstallments} draws paid</Text>
+                  )}
+                </View>
+                <Amount value={ci.outstanding ?? ci.amountToSettle ?? 0} size="sm" color={C.red} />
+              </View>
+            ))}
+          </Card>
+
+          <Text style={{ ...T.label, marginBottom: 6 }}>Settlement Notes (optional)</Text>
+          <TextInput value={notes} onChangeText={setNotes} multiline placeholder="e.g. Member is relocating, settled in full"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 16 }} />
+
+          <Button label={`Confirm — Clear ₹${Number(preview.totalOutstanding ?? 0).toLocaleString('en-IN')}`}
+            variant="primary" fullWidth loading={confirmMut.isPending}
+            onPress={() => Alert.alert(
+              'Confirm Settlement',
+              `Clear ₹${Number(preview.totalOutstanding ?? 0).toLocaleString('en-IN')} in dues for ${selectedMember?.fullName}? This cannot be undone.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Confirm', style: 'destructive', onPress: () => confirmMut.mutate() },
+              ]
+            )} />
+        </View>
+      )}
+
+      {/* History section */}
+      {showHistory && (
+        <View>
+          <Text style={{ ...T.label, marginBottom: 12 }}>
+            SETTLEMENT HISTORY — {selectedMember?.fullName?.toUpperCase()}
+          </Text>
+          {histLoading && <Text style={{ color: C.gray400, textAlign: 'center', padding: 20 }}>Loading…</Text>}
+          {!histLoading && (history as any[]).length === 0 && (
+            <EmptyState title="No settlements" message="No settlement records for this member." />
+          )}
+          {(history as any[]).map((s: any, i: number) => (
+            <Card key={s.id ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED' }}>Settlement #{i + 1}</Text>
+                <Amount value={s.totalAmount ?? s.settledAmount ?? 0} size="sm" color={C.green} />
+              </View>
+              <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDateTime(s.settledAt ?? s.createdAt)}</Text>
+              {s.notes && <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginTop: 4 }}>"{s.notes}"</Text>}
+              {(s.chitItems ?? s.items ?? []).map((ci: any, j: number) => (
+                <View key={j} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                  <Text style={{ fontSize: 12, color: C.gray600 }}>{ci.chitName ?? `Chit ${j + 1}`}</Text>
+                  <Amount value={ci.amountToSettle ?? ci.amount ?? 0} size="sm" />
+                </View>
+              ))}
+            </Card>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REMITTANCE TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function RemittanceTab() {
+  const qc = useQueryClient();
+  const [voidTarget, setVoidTarget] = useState<any>(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 60_000 });
+  const { data: pendingItems = [], isLoading, refetch } = useQuery({
+    queryKey: ['m-pending-remittance'],
+    queryFn: getPendingRemittance,
+    refetchInterval: 30_000,
+  });
+  // PICKED_UP cash requests: worker has cash, admin needs to physically collect
+  const { data: allRequests = [] } = useQuery({
+    queryKey: ['m-cash-requests'],
+    queryFn: getActiveCashRequests,
+    refetchInterval: 30_000,
+  });
+
+  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const staffMap = Object.fromEntries((staff as any[]).map((s: any) => [s.id, s.fullName ?? s.username ?? '—']));
+  const chitMap = Object.fromEntries((allChits as any[]).map((c: any) => [c.id, c.name ?? c.chitName ?? '—']));
+  const pickedUpRequests = (allRequests as any[]).filter((r: any) => r.status === 'PICKED_UP');
+
+  const remitMut = useMutation({
+    mutationFn: (batchId: string) => remitPayment(batchId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-pay-history'] });
+      toast.collected('Cash collected — member account credited');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Remittance failed — batch may already be remitted or voided.'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: ({ batchId, reason }: { batchId: string; reason: string }) => voidPaymentBatch(batchId, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      setVoidTarget(null); setVoidReason('');
+      toast.cancelled('Remittance cancelled — payment rolled back');
+    },
+    onError: (e: any) => Alert.alert('Cannot Cancel', e.response?.data?.message ?? 'Cancellation failed — batch may already be remitted or linked to a disbursed payout.'),
+  });
+
+  const collectPickupMut = useMutation({
+    mutationFn: (requestId: string) => collectForRequest(requestId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-pay-history'] });
+      qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      toast.collected('Cash received — account credited');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Collection failed — request may already be collected or cancelled.'),
+  });
+
+  if (isLoading) return <LoadingScreen />;
+
+  const total = (pendingItems as any[]).reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
+
+  function onRefresh() { refetch(); }
+
+  return (
+    <ScrollView
+      refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
+      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+    >
+      {/* ── PICKED_UP section: worker has physically collected, admin needs to take cash ── */}
+      {pickedUpRequests.length > 0 && (
+        <View style={{ backgroundColor: '#F0FDF4', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: '#86EFAC' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>
+              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from worker
+            </Text>
+          </View>
+          {pickedUpRequests.map((r: any) => (
+            <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#BBF7D0', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{memberMap[r.memberId] ?? '—'}</Text>
+                <Text style={{ fontSize: 12, color: C.gray500 }}>
+                  Worker: {staffMap[r.assignedWorkerId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                </Text>
+                {r.pickedUpAt && (
+                  <Text style={{ fontSize: 11, color: '#16A34A', marginTop: 2 }}>
+                    Picked up {fmtDateTime(r.pickedUpAt)}
+                  </Text>
+                )}
+              </View>
+              <Button
+                label="Collect"
+                variant="success"
+                size="sm"
+                loading={collectPickupMut.isPending}
+                onPress={() => Alert.alert(
+                  'Confirm Cash Received',
+                  `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${staffMap[r.assignedWorkerId] ?? 'worker'}?\n\nMember account will be credited and treasury updated.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Yes, Received', onPress: () => collectPickupMut.mutate(r.id) },
+                  ]
+                )}
+              />
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* ── Pending remittance batches ── */}
+      {(pendingItems as any[]).length === 0 && pickedUpRequests.length === 0 ? (
+        <EmptyState title="All clear" message="No payments pending remittance." />
+      ) : (pendingItems as any[]).length === 0 ? null : (
+        <>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <Text style={{ fontSize: 13, color: C.gray500 }}>
+              {(pendingItems as any[]).length} batch{(pendingItems as any[]).length !== 1 ? 'es' : ''} awaiting remittance
+            </Text>
+            <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+              <Amount value={total} size="sm" />
+            </View>
+          </View>
+
+          {(pendingItems as any[]).map((batch: any) => (
+            <Card key={batch.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                    {memberMap[batch.memberId] ?? '—'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                    {chitMap[batch.chitId] ?? batch.chitName ?? '—'}
+                  </Text>
+                  {batch.collectedBy && staffMap[batch.collectedBy] && (
+                    <Text style={{ fontSize: 12, color: C.amber, marginTop: 2, fontWeight: '600' }}>
+                      Collector: {staffMap[batch.collectedBy]}
+                    </Text>
+                  )}
+                </View>
+                <Amount value={batch.amount ?? batch.totalAmount ?? 0} size="md" />
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#FEF3C7', borderRadius: 6 }}>
+                  <Text style={{ fontSize: 11, color: C.amber, fontWeight: '600' }}>
+                    {batch.paymentMode ?? 'CASH'}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.createdAt)}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Button
+                  label="Collect"
+                  variant="success"
+                  size="sm"
+                  loading={remitMut.isPending}
+                  onPress={() => Alert.alert(
+                    'Confirm Cash Received',
+                    `Confirm you received ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} from ${staffMap[batch.collectedBy] ?? 'collector'}?\n\nPayment will be credited to member.`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Confirm Received', onPress: () => remitMut.mutate(batch.id) },
+                    ]
+                  )}
+                />
+                <Button
+                  label="Cancel"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => Alert.alert(
+                    'Cancel Remittance',
+                    `Cancel this ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} remittance? The member's payment record will be rolled back.`,
+                    [
+                      { text: 'Back', style: 'cancel' },
+                      { text: 'Cancel Remittance', style: 'destructive', onPress: () => voidMut.mutate({ batchId: batch.id, reason: 'Cancelled from Remittance' }) },
+                    ]
+                  )}
+                />
+              </View>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {/* Void reason modal (for when more context is needed) */}
+      <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 8 }}>Cancel Remittance</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
+            <TextInput value={voidReason} onChangeText={setVoidReason} multiline
+              placeholder="e.g. Entered wrong amount, duplicate entry"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, minHeight: 72, fontSize: 14, color: C.gray900, marginBottom: 16, textAlignVertical: 'top' }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Button label="Back" variant="ghost" onPress={() => setVoidTarget(null)} /></View>
+              <View style={{ flex: 1 }}><Button label="Cancel Remittance" variant="danger" disabled={!voidReason.trim()} loading={voidMut.isPending}
+                onPress={() => voidMut.mutate({ batchId: voidTarget.id, reason: voidReason })} /></View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HISTORY TAB  — all payment batches with member + chit filters
+// ─────────────────────────────────────────────────────────────────────────────
+const BATCH_STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  COMPLETED:           { bg: '#DCFCE7', color: '#16A34A', label: 'Completed' },
+  AWAITING_REMITTANCE: { bg: '#FEF3C7', color: C.amber,   label: 'Pending Remit' },
+  VOIDED:              { bg: C.gray100, color: C.gray400,  label: 'Voided' },
+};
+
+function drawLabel(allocations: any[]): string {
+  if (!allocations?.length) return '—';
+  const nums = allocations.map((a: any) => a.monthNumber).sort((a: number, b: number) => a - b);
+  return nums.length === 1 ? `Draw ${nums[0]}` : `Draws ${nums.join(', ')}`;
+}
+
+function HistoryTab() {
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberId, setMemberId] = useState('');
+  const [chitId, setChitId] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [histShowCount, setHistShowCount] = useState(20);
+
+  const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 60_000 });
+  const { data: allChits = [] } = useQuery({ queryKey: ['m-chits-hist'], queryFn: getChits, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 60_000 });
+
+  const payableChitsForMember = memberId
+    ? (allChits as any[]).filter((c: any) => c.status !== 'DRAFT')
+    : (allChits as any[]).filter((c: any) => c.status !== 'DRAFT');
+
+  const { data: batches = [], isLoading, isError, refetch } = useQuery({
+    queryKey: ['m-pay-history', memberId, chitId],
+    queryFn: () => getAllPaymentBatches({
+      ...(memberId ? { memberId } : {}),
+      ...(chitId ? { chitId } : {}),
+    }),
+    staleTime: 30_000,
+  });
+
+  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const chitMap = Object.fromEntries((allChits as any[]).map((c: any) => [c.id, c.name ?? '—']));
+  const staffMap = Object.fromEntries((staff as any[]).map((s: any) => [s.id, s.fullName ?? s.username ?? '—']));
+
+  const filteredMembers = (members as any[]).filter((m: any) => {
+    const q = memberSearch.toLowerCase();
+    return !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
+  });
+
+  const allDisplayedBatches = statusFilter
+    ? (batches as any[]).filter((b: any) => b.status === statusFilter)
+    : (batches as any[]);
+  const displayedBatches = allDisplayedBatches.slice(0, histShowCount);
+
+  const STATUS_PILLS = [
+    { key: '', label: 'All' },
+    { key: 'COMPLETED', label: 'Completed' },
+    { key: 'AWAITING_REMITTANCE', label: 'Pending' },
+    { key: 'VOIDED', label: 'Voided' },
+  ];
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+
+      {/* ── Member filter ── */}
+      <Text style={{ ...T.label, marginBottom: 6 }}>Filter by Member</Text>
+      <TextInput
+        value={memberSearch}
+        onChangeText={(t) => { setMemberSearch(t); if (!t) { setMemberId(''); setChitId(''); } }}
+        placeholder="Search member…"
+        placeholderTextColor={C.gray400}
+        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 6 }}
+      />
+      {memberSearch.length > 0 && !memberId && (
+        <ScrollView style={{ maxHeight: 140, borderWidth: 1.5, borderColor: C.gray200, borderRadius: 10, marginBottom: 10 }} nestedScrollEnabled>
+          {filteredMembers.slice(0, 8).map((m: any) => (
+            <TouchableOpacity key={m.id}
+              onPress={() => { setMemberId(m.id); setMemberSearch(m.fullName); setChitId(''); }}
+              style={{ padding: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+              <Text style={{ fontSize: 14, color: C.gray900 }}>{m.fullName}</Text>
+              {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
+            </TouchableOpacity>
+          ))}
+          {filteredMembers.length === 0 && (
+            <Text style={{ padding: 12, color: C.gray400 }}>No members found</Text>
+          )}
+        </ScrollView>
+      )}
+      {memberId && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.navy50, borderRadius: 8, padding: 8, marginBottom: 10 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.navy }} />
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy, flex: 1 }}>{memberSearch}</Text>
+          <TouchableOpacity onPress={() => { setMemberId(''); setMemberSearch(''); setChitId(''); }}>
+            <Text style={{ fontSize: 16, color: C.gray400 }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ── Chit filter (chips) ── */}
+      <Text style={{ ...T.label, marginBottom: 6 }}>Filter by Chit</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity onPress={() => setChitId('')}
+            style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5,
+              borderColor: !chitId ? C.navy : C.gray300, backgroundColor: !chitId ? C.navy50 : C.white }}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: !chitId ? C.navy : C.gray500 }}>All Chits</Text>
+          </TouchableOpacity>
+          {payableChitsForMember.map((c: any) => (
+            <TouchableOpacity key={c.id} onPress={() => setChitId(c.id)}
+              style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5,
+                borderColor: chitId === c.id ? C.navy : C.gray300, backgroundColor: chitId === c.id ? C.navy50 : C.white }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: chitId === c.id ? C.navy : C.gray500 }}>{c.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* ── Status filter pills ── */}
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+        {STATUS_PILLS.map((p) => (
+          <TouchableOpacity key={p.key} onPress={() => { setStatusFilter(p.key); setHistShowCount(20); }}
+            style={{ flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5, alignItems: 'center',
+              borderColor: statusFilter === p.key ? C.navy : C.gray200,
+              backgroundColor: statusFilter === p.key ? C.navy50 : C.white }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: statusFilter === p.key ? C.navy : C.gray400 }}>
+              {p.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ── Results ── */}
+      {isLoading ? (
+        <LoadingScreen />
+      ) : isError ? (
+        <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+          <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 12 }}>Failed to load history</Text>
+          <Button label="Retry" variant="outline" size="sm" onPress={() => refetch()} />
+        </View>
+      ) : displayedBatches.length === 0 ? (
+        <EmptyState title="No payments" message={memberId || chitId ? 'No payments match these filters.' : 'No payment history yet.'} />
+      ) : (
+        <>
+          <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>
+            {Math.min(histShowCount, allDisplayedBatches.length)} of {allDisplayedBatches.length} payment{allDisplayedBatches.length !== 1 ? 's' : ''}
+          </Text>
+          {displayedBatches.map((b: any) => {
+            const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
+            return (
+              <Card key={b.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: st.color }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                      {memberMap[b.memberId] ?? '—'}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: C.gray500 }}>
+                      {chitMap[b.chitId] ?? '—'}
+                      {b.allocations?.length ? '  ·  ' + drawLabel(b.allocations) : ''}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: C.green }}>
+                      ₹{Number(b.totalAmount ?? b.amount ?? 0).toLocaleString('en-IN')}
+                    </Text>
+                    <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: st.color }}>{st.label}</Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {/* Mode chip */}
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor:
+                    b.paymentMode === 'CASH' ? '#FEF3C7' : b.paymentMode === 'UPI' ? '#F3E8FF' : b.paymentMode === 'BANK_TRANSFER' ? '#DBEAFE' : C.gray100 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color:
+                      b.paymentMode === 'CASH' ? C.amber : b.paymentMode === 'UPI' ? '#7C3AED' : b.paymentMode === 'BANK_TRANSFER' ? '#2563EB' : C.gray600 }}>
+                      {(b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                  {/* Collector (CASH only) */}
+                  {b.paymentMode === 'CASH' && b.collectedBy && (
+                    <Text style={{ fontSize: 11, color: C.gray500 }}>
+                      via {staffMap[b.collectedBy] ?? b.collectedBy?.slice(0, 8)}
+                    </Text>
+                  )}
+                  {/* Date */}
+                  <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 'auto' }}>
+                    {fmtDateTime(b.collectedAt ?? b.createdAt)}
+                  </Text>
+                </View>
+              </Card>
+            );
+          })}
+          {allDisplayedBatches.length > histShowCount && (
+            <TouchableOpacity onPress={() => setHistShowCount(c => c + 20)}
+              style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({allDisplayedBatches.length - histShowCount} remaining)</Text>
+            </TouchableOpacity>
+          )}
+          {allDisplayedBatches.length > 20 && allDisplayedBatches.length <= histShowCount && (
+            <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>All {allDisplayedBatches.length} payments shown</Text>
+          )}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+export default function AdminPaymentsScreen() {
+  const params = useLocalSearchParams<{ tab?: string; filter?: string; memberId?: string }>();
+  const [activeTab, setActiveTab] = useState<Tab>('Cash Requests');
+
+  useEffect(() => {
+    const t = params.tab === 'settlement' ? 'Settlement' : params.tab as Tab;
+    if (t && TABS.includes(t)) setActiveTab(t);
+  }, [params.tab]);
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      {/* Header */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={T.h1}>Finance</Text>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <EyeToggle />
+          <ProfileAvatarButton size={34} />
+        </View>
+      </View>
+
+      {/* Tab bar */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
+        contentContainerStyle={{ paddingHorizontal: 16 }}>
+        {TABS.map((tab) => (
+          <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
+            style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: activeTab === tab ? C.navy : 'transparent', marginRight: 4 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: activeTab === tab ? C.navy : C.gray400 }}>
+              {tab}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Tab content */}
+      <View style={{ flex: 1 }}>
+        {activeTab === 'Cash Requests'  && <CashRequestsTab initialFilter={params.filter} />}
+        {activeTab === 'Record Payment' && <RecordPaymentTab />}
+        {activeTab === 'Remittance'     && <RemittanceTab />}
+        {activeTab === 'History'        && <HistoryTab />}
+        {activeTab === 'Payouts'        && <PayoutsTab />}
+        {activeTab === 'Treasury'       && <TreasuryTab />}
+        {activeTab === 'Settlement'     && <SettlementTab initialMemberId={params.memberId} />}
+      </View>
     </SafeAreaView>
   );
 }

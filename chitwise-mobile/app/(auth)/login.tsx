@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, SafeAreaView, KeyboardAvoidingView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, KeyboardAvoidingView, Platform, TouchableOpacity, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { login } from '../../services/api';
@@ -23,11 +24,12 @@ export default function LoginScreen() {
     try {
       const data = await login(username.trim(), password);
       setUser({
-        id:       data.userId,
-        username: data.username,
-        fullName: data.fullName,
-        role:     data.role as any,
-        token:    data.token,
+        id:                data.userId,
+        username:          data.username,
+        fullName:          data.fullName,
+        role:              data.role as any,
+        token:             data.token,
+        mustChangePassword: data.mustChangePassword,
       });
       // AuthGuard will redirect automatically
     } catch (err: any) {
@@ -80,7 +82,7 @@ export default function LoginScreen() {
             <Input
               label="Password"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(v) => setPassword(v.replace(/\s/g, ''))}
               placeholder="Enter your password"
               secureTextEntry
             />

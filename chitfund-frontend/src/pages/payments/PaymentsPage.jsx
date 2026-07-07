@@ -20,22 +20,22 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle } from 'lucide-react';
 
-const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
-const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Pending Remittance', 'History'];
+const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
+const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
 const WORKER_TABS  = ['Record Payment'];
 
 const TAB_ROUTES = {
-  'Record Payment':     'record',
-  'Cash Requests':      'cash-requests',
-  'Pending Remittance': 'remittance',
-  'History':            'history',
+  'Record Payment': 'record',
+  'Cash Requests':  'cash-requests',
+  'Remittance':     'remittance',
+  'History':        'history',
 };
 
 const TAB_ICONS = {
-  'Record Payment':     CreditCard,
-  'Cash Requests':      Banknote,
-  'Pending Remittance': Clock,
-  'History':            History,
+  'Record Payment': CreditCard,
+  'Cash Requests':  Banknote,
+  'Remittance':     Clock,
+  'History':        History,
 };
 
 function TabBar({ tabs }) {
@@ -832,7 +832,7 @@ export function RecordPaymentTab() {
             </Select>
             {collectedBy !== 'SELF' && (
               <p className="text-xs text-amber-600 mt-1.5">
-                Cash stays with collector — appears in Pending Remittance until collected from them.
+                Cash stays with collector — appears in Remittance until collected from them.
               </p>
             )}
           </FormField>
@@ -855,7 +855,7 @@ export function RecordPaymentTab() {
         >
           <CreditCard size={15} />
           {isCash && collectedBy !== 'SELF'
-            ? 'Record Collection (Pending Remittance)'
+            ? 'Record Collection (Remittance)'
             : `Record ${PAYMENT_MODES.find((m) => m.value === paymentMode)?.label} Payment`}
         </Button>
       </div>
@@ -863,7 +863,7 @@ export function RecordPaymentTab() {
   );
 }
 
-// ─── Pending Remittance Tab ─────────────────────────────────────────────────
+// ─── Remittance Tab ─────────────────────────────────────────────────
 function SortIcon({ field, sortField, sortDir }) {
   if (sortField !== field) return <span className="text-gray-300 ml-1 text-xs">↕</span>;
   return <span className="text-[#1E3A5F] ml-1 text-xs">{sortDir === 'asc' ? '↑' : '↓'}</span>;
@@ -1080,7 +1080,7 @@ export function PendingRemittanceTab() {
           'Action',
         ]}>
           {sortedBatches.map((b) => (
-            <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'Pending Remittance' } })}
+            <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'Remittance' } })}
               className="cursor-pointer hover:bg-blue-50/30 transition-colors">
               <Td>
                 <span className="text-sm font-medium text-gray-800">
@@ -1129,7 +1129,7 @@ export function PendingRemittanceTab() {
           description={`Cancel this ₹${Number(voidTarget.totalAmount).toLocaleString('en-IN')} remittance from ${staffMap[voidTarget.collectedBy] ?? 'collector'}? The member's payment record will be rolled back.`}
           actionLabel="Cancel Remittance"
           loading={voidMutation.isPending}
-          onConfirm={() => voidMutation.mutate({ batchId: voidTarget.id, reason: 'Cancelled from Pending Remittance' })}
+          onConfirm={() => voidMutation.mutate({ batchId: voidTarget.id, reason: 'Cancelled from Remittance' })}
           onClose={() => setVoidTarget(null)}
         />
       )}

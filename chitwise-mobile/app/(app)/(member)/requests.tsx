@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { View, Text, FlatList, RefreshControl, Alert, Modal, ScrollView, TouchableOpacity } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMyRequests, getMyChits, createCashRequest, getCashRequestAuditLog } from '../../../services/api';
+import { getMyRequests, getMyChits, createCashRequest, updateCashRequest, getCashRequestAuditLog } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, Input, EmptyState, LoadingScreen, Divider, fmtDateTime, fmtDate } from '../../../components/ui';
+import { toast } from '../../../components/Toast';
+import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const STATUS_STEPS = [
   { key: 'PENDING',   label: 'Submitted',        desc: 'Waiting for worker assignment' },
@@ -24,9 +26,9 @@ function RequestTimeline({ status }: { status: string }) {
   return (
     <View style={{ marginTop: 10 }}>
       {STATUS_STEPS.map((step, i) => {
-        const done    = i <= currentIdx;
-        const active  = i === currentIdx;
-        const isLast  = i === STATUS_STEPS.length - 1;
+        const done   = i <= currentIdx;
+        const active = i === currentIdx;
+        const isLast = i === STATUS_STEPS.length - 1;
         return (
           <View key={step.key} style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ alignItems: 'center' }}>
@@ -55,11 +57,20 @@ function RequestTimeline({ status }: { status: string }) {
 
 export default function MemberRequestsScreen() {
   const qc = useQueryClient();
+
+  // Create
   const [showCreate, setShowCreate] = useState(false);
-  const [auditTarget, setAuditTarget] = useState<any>(null);
   const [selectedChitId, setSelectedChitId] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Edit
+  const [editTarget, setEditTarget] = useState<any>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  // Audit log
+  const [auditTarget, setAuditTarget] = useState<any>(null);
 
   const { data: requests = [], isLoading: reqLoading, refetch } = useQuery({
     queryKey: ['member-requests'],
@@ -83,13 +94,42 @@ export default function MemberRequestsScreen() {
       qc.invalidateQueries({ queryKey: ['member-requests'] });
       setShowCreate(false);
       setSelectedChitId(''); setAmount(''); setNotes('');
-      Alert.alert('Submitted', 'Your cash pickup request has been submitted.');
+      toast.submitted('Cash pickup request submitted');
     },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed to submit request.'),
+  });
+
+  const editMut = useMutation({
+    mutationFn: () => updateCashRequest(editTarget.id, {
+      requestedAmount: Number(editAmount),
+      notes: editNotes || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['member-requests'] });
+      setEditTarget(null); setEditAmount(''); setEditNotes('');
+      toast.saved('Request updated');
+    },
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed to update request.'),
   });
 
   const activeChits = (chits as any[]).filter((c: any) => c.status === 'ACTIVE' || c.status === 'PAUSED');
+  const activeRequests = (requests as any[]).filter((r: any) => ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status));
   const isLoading = reqLoading || chitsLoading;
+
+  function onNewRequest() {
+    if (activeRequests.length > 0) {
+      Alert.alert(
+        'Active Request Exists',
+        `You already have ${activeRequests.length} active cash pickup request${activeRequests.length > 1 ? 's' : ''}. Do you want to create another one?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Create Anyway', onPress: () => setShowCreate(true) },
+        ]
+      );
+    } else {
+      setShowCreate(true);
+    }
+  }
 
   if (isLoading) return <LoadingScreen />;
 
@@ -104,7 +144,10 @@ export default function MemberRequestsScreen() {
           <View style={{ marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={T.h1}>Requests</Text>
-              <Button label="+ New" variant="primary" size="sm" onPress={() => setShowCreate(true)} />
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Button label="+ New" variant="primary" size="sm" onPress={onNewRequest} />
+                <ProfileAvatarButton size={34} />
+              </View>
             </View>
             <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>{(requests as any[]).length} requests</Text>
           </View>
@@ -112,23 +155,36 @@ export default function MemberRequestsScreen() {
         ListEmptyComponent={
           <EmptyState title="No requests yet" message="Request a cash pickup and a worker will collect from you." />
         }
-        renderItem={({ item: r }) => (
-          <Card style={{ marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Amount value={r.requestedAmount} size="sm" />
-              <Badge status={r.status} />
-            </View>
-            <Text style={{ fontSize: 12, color: C.gray400 }}>Requested {fmtDate(r.requestedAt)}</Text>
-            {r.notes && <Text style={{ fontSize: 12, color: C.gray600, fontStyle: 'italic', marginTop: 4 }}>"{r.notes}"</Text>}
+        renderItem={({ item: r }) => {
+          const canEdit = r.status === 'PENDING' || r.status === 'ASSIGNED';
+          return (
+            <Card style={{ marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Amount value={r.requestedAmount} size="sm" />
+                <Badge status={r.status} />
+              </View>
+              <Text style={{ fontSize: 12, color: C.gray400 }}>Requested {fmtDate(r.requestedAt)}</Text>
+              {r.notes && <Text style={{ fontSize: 12, color: C.gray600, fontStyle: 'italic', marginTop: 4 }}>"{r.notes}"</Text>}
 
-            <RequestTimeline status={r.status} />
+              <RequestTimeline status={r.status} />
 
-            <Divider />
-            <TouchableOpacity onPress={() => setAuditTarget(r)}>
-              <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', textAlign: 'center' }}>View Full Log →</Text>
-            </TouchableOpacity>
-          </Card>
-        )}
+              <Divider />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => setAuditTarget(r)}>
+                  <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', textAlign: 'center' }}>View Full Log →</Text>
+                </TouchableOpacity>
+                {canEdit && (
+                  <TouchableOpacity
+                    onPress={() => { setEditTarget(r); setEditAmount(String(r.requestedAmount)); setEditNotes(r.notes ?? ''); }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, borderWidth: 1.5, borderColor: C.navy }}
+                  >
+                    <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600' }}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </Card>
+          );
+        }}
       />
 
       {/* Create Request Modal */}
@@ -137,7 +193,6 @@ export default function MemberRequestsScreen() {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 20 }}>Request Cash Pickup</Text>
 
-            {/* Chit selector */}
             <Text style={T.label}>Select Chit Fund</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -187,6 +242,50 @@ export default function MemberRequestsScreen() {
         </View>
       </Modal>
 
+      {/* Edit Request Modal */}
+      <Modal visible={!!editTarget} animationType="slide" transparent presentationStyle="overFullScreen">
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Edit Cash Pickup</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
+              Editing is allowed before pickup. All changes are logged in audit.
+            </Text>
+
+            <Input
+              label="Amount (₹)"
+              value={editAmount}
+              onChangeText={setEditAmount}
+              keyboardType="numeric"
+              placeholder="Enter amount"
+            />
+            <View style={{ height: 12 }} />
+            <Input
+              label="Notes (optional)"
+              value={editNotes}
+              onChangeText={setEditNotes}
+              placeholder="Any instructions…"
+              multiline
+            />
+
+            <View style={{ height: 20 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Button label="Cancel" variant="ghost" onPress={() => { setEditTarget(null); setEditAmount(''); setEditNotes(''); }} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Save Changes"
+                  variant="primary"
+                  disabled={!editAmount || Number(editAmount) <= 0}
+                  loading={editMut.isPending}
+                  onPress={() => editMut.mutate()}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Audit Log Modal */}
       <Modal visible={!!auditTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
@@ -204,11 +303,12 @@ export default function MemberRequestsScreen() {
                 <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No entries yet</Text>
               ) : (
                 (auditLog as any[]).map((entry: any, i: number) => (
-                  <View key={entry.id} style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                  <View key={entry.id ?? i} style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
                     <View style={{ alignItems: 'center' }}>
                       <View style={{
                         width: 10, height: 10, borderRadius: 5,
-                        backgroundColor: entry.action === 'PICKUP_VOIDED' ? C.red : C.navy,
+                        backgroundColor: entry.action === 'PICKUP_VOIDED' || entry.action === 'CANCELLED' ? C.red
+                          : entry.action === 'EDITED' ? C.amber : C.navy,
                         marginTop: 4,
                       }} />
                       {i < (auditLog as any[]).length - 1 && (
@@ -221,6 +321,16 @@ export default function MemberRequestsScreen() {
                       </Text>
                       {entry.reason && (
                         <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic' }}>"{entry.reason}"</Text>
+                      )}
+                      {entry.previousValue && (
+                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                          Before: {entry.previousValue}
+                        </Text>
+                      )}
+                      {entry.newValue && (
+                        <Text style={{ fontSize: 11, color: C.navy, marginTop: 1 }}>
+                          After: {entry.newValue}
+                        </Text>
                       )}
                       <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDateTime(entry.performedAt)}</Text>
                     </View>
