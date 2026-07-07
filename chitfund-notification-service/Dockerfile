@@ -7,15 +7,21 @@ WORKDIR /workspace
 # Copy only pom files first so Maven dependency layer is cached separately.
 # Rebuilding source code does NOT re-download deps — Docker cache hit on this layer.
 COPY pom.xml ./
-COPY common/pom.xml common/
-COPY notification-service/pom.xml notification-service/
+COPY chitfund-common/pom.xml chitfund-common/
+COPY chitfund-notification-service/pom.xml chitfund-notification-service/
+COPY chitfund-member-service/pom.xml chitfund-member-service/
+COPY chitfund-user-service/pom.xml chitfund-user-service/
+COPY chitfund-chit-service/pom.xml chitfund-chit-service/
+COPY chitfund-payment-service/pom.xml chitfund-payment-service/
+COPY chitfund-payout-service/pom.xml chitfund-payout-service/
+COPY chitfund-api-gateway/pom.xml chitfund-api-gateway/
 
-RUN mvn -pl common,notification-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
+RUN mvn -pl chitfund-common,chitfund-notification-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
-COPY common/src common/src
-COPY notification-service/src notification-service/src
+COPY chitfund-common/src chitfund-common/src
+COPY chitfund-notification-service/src chitfund-notification-service/src
 
-RUN mvn -pl common,notification-service -am package -DskipTests -q --no-transfer-progress
+RUN mvn -pl chitfund-common,chitfund-notification-service -am package -DskipTests -q --no-transfer-progress
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 # WHY JRE not JDK? Runtime needs only the JRE (~85MB vs ~400MB for JDK).
@@ -28,7 +34,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-COPY --from=build /workspace/notification-service/target/notification-service-*.jar app.jar
+COPY --from=build /workspace/chitfund-notification-service/target/notification-service-*.jar app.jar
 
 EXPOSE 8086
 

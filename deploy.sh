@@ -17,7 +17,6 @@ rsync -az --progress \
   --exclude='node_modules' \
   --exclude='chitfund-frontend/node_modules' \
   --exclude='chitfund-audit-service' \
-  --exclude='chitfund-notification-service' \
   --exclude='chitfund-reporting-service' \
   --exclude='chitfund-member-service' \
   --exclude='restful-web-services' \

@@ -23,6 +23,7 @@
     <module>chitfund-payment-service</module>
     <module>chitfund-payout-service</module>
     <module>chitfund-api-gateway</module>
+    <module>chitfund-notification-service</module>
   </modules>
 
 </project>
