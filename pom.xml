@@ -18,6 +18,7 @@
   <modules>
     <module>chitfund-common</module>
     <module>chitfund-user-service</module>
+    <module>chitfund-member-service</module>
     <module>chitfund-chit-service</module>
     <module>chitfund-payment-service</module>
     <module>chitfund-payout-service</module>

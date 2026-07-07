@@ -30,11 +30,13 @@ services:
       <<: *common-env
       USER_SERVICE_URL: http://user-service:8081
       CHIT_SERVICE_URL: http://chit-service:8082
-      MEMBER_SERVICE_URL: http://user-service:8081
+      MEMBER_SERVICE_URL: http://member-service:8083
       PAYMENT_SERVICE_URL: http://payment-service:8084
       PAYOUT_SERVICE_URL: http://payout-service:8085
     depends_on:
       user-service:
+        condition: service_healthy
+      member-service:
         condition: service_healthy
       chit-service:
         condition: service_healthy
@@ -58,6 +60,27 @@ services:
       DB_NAME: chitfund_user
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Member Service ───────────────────────────────────────────────────────────
+  member-service:
+    build:
+      context: .
+      dockerfile: chitfund-member-service/Dockerfile
+    image: chitfund/member-service:latest
+    container_name: chitfund-member-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_member
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -98,7 +121,7 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_payment
-      MEMBER_SERVICE_URL: http://user-service:8081
+      MEMBER_SERVICE_URL: http://member-service:8083
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
