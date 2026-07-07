@@ -72,6 +72,34 @@ function StyledInput({ icon: Icon, ...props }) {
   );
 }
 
+function CopyBothButton({ username, password }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    const text = `Username: ${username}\nPassword: ${password}`;
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+  function fallbackCopy(text, done) {
+    const el = document.createElement('textarea');
+    el.value = text; el.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(el); el.focus(); el.select();
+    document.execCommand('copy'); document.body.removeChild(el); done();
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-gray-300 hover:border-[#1E3A5F] hover:bg-[#1E3A5F]/5 text-sm font-semibold text-gray-500 hover:text-[#1E3A5F] transition-all"
+    >
+      {copied ? <><Check size={15} className="text-green-500" /> Copied!</> : <><Copy size={15} /> Copy Username & Password</>}
+    </button>
+  );
+}
+
 function CredentialRow({ label, value, mono }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -155,6 +183,8 @@ function AddStaffModal({ onClose }) {
             <CredentialRow label="Username" value={form.username} />
             <CredentialRow label="Temp Password" value={tempPass} mono />
           </div>
+
+          <CopyBothButton username={form.username} password={tempPass} />
 
           <p className="text-xs text-center text-gray-400">
             The temporary password expires after first login.

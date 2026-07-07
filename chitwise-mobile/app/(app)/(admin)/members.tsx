@@ -533,17 +533,31 @@ export default function AdminMembersScreen() {
                       }}>
                         {tempPassword ? (
                           <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: C.amber, marginBottom: 12 }}>
-                            <Text style={{ fontSize: 11, fontWeight: '700', color: C.amber, letterSpacing: 0.5, marginBottom: 8 }}>CURRENT TEMP PASSWORD</Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                              <Text style={{ flex: 1, fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{tempPassword}</Text>
-                              <TouchableOpacity
-                                onPress={() => { Clipboard.setString(tempPassword); setPwdCopied(true); setTimeout(() => setPwdCopied(false), 2000); }}
-                                style={{ backgroundColor: pwdCopied ? C.green + '20' : C.amber + '20', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: pwdCopied ? C.green : C.amber }}>
-                                  {pwdCopied ? '✓ Copied' : 'Copy'}
-                                </Text>
-                              </TouchableOpacity>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: C.amber, letterSpacing: 0.5, marginBottom: 10 }}>NEW TEMP PASSWORD</Text>
+                            {memberUser?.username && (
+                              <View style={{ marginBottom: 6 }}>
+                                <Text style={{ fontSize: 11, color: '#92400E', marginBottom: 2 }}>USERNAME</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, letterSpacing: 1 }}>{memberUser.username}</Text>
+                              </View>
+                            )}
+                            <View style={{ marginBottom: 10 }}>
+                              <Text style={{ fontSize: 11, color: '#92400E', marginBottom: 2 }}>PASSWORD</Text>
+                              <Text style={{ fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{tempPassword}</Text>
                             </View>
+                            <TouchableOpacity
+                              onPress={() => {
+                                const text = memberUser?.username
+                                  ? `Username: ${memberUser.username}\nPassword: ${tempPassword}`
+                                  : tempPassword;
+                                Clipboard.setString(text);
+                                setPwdCopied(true);
+                                setTimeout(() => setPwdCopied(false), 2500);
+                              }}
+                              style={{ backgroundColor: pwdCopied ? C.green + '20' : C.amber + '20', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: pwdCopied ? C.green : C.amber }}>
+                                {pwdCopied ? '✓ Copied!' : (memberUser?.username ? 'Copy Username & Password' : 'Copy Password')}
+                              </Text>
+                            </TouchableOpacity>
                             <Text style={{ fontSize: 11, color: '#92400E', marginTop: 8 }}>Generated in this session. Share with the member.</Text>
                           </View>
                         ) : (
@@ -578,18 +592,23 @@ export default function AdminMembersScreen() {
                     </Text>
 
                     {clTempPassword ? (
-                      /* Done state — show password */
+                      /* Done state — show credentials */
                       <View style={{ backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: '#6EE7B7' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#065F46', letterSpacing: 0.5, marginBottom: 8 }}>LOGIN CREATED — TEMP PASSWORD</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                          <Text style={{ flex: 1, fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{clTempPassword}</Text>
-                          <TouchableOpacity
-                            onPress={() => { Clipboard.setString(clTempPassword); setClCopied(true); setTimeout(() => setClCopied(false), 2000); }}
-                            style={{ backgroundColor: clCopied ? C.green + '20' : '#D1FAE5', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }}>
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#059669' }}>{clCopied ? '✓ Copied' : 'Copy'}</Text>
-                          </TouchableOpacity>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#065F46', letterSpacing: 0.5, marginBottom: 10 }}>LOGIN CREATED</Text>
+                        <View style={{ marginBottom: 6 }}>
+                          <Text style={{ fontSize: 11, color: '#047857', marginBottom: 2 }}>USERNAME</Text>
+                          <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, letterSpacing: 1 }}>{clUsername}</Text>
                         </View>
-                        <Text style={{ fontSize: 11, color: '#047857', marginTop: 8 }}>Share this with the member. They'll be asked to change it on first login.</Text>
+                        <View style={{ marginBottom: 10 }}>
+                          <Text style={{ fontSize: 11, color: '#047857', marginBottom: 2 }}>TEMP PASSWORD</Text>
+                          <Text style={{ fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{clTempPassword}</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => { Clipboard.setString(`Username: ${clUsername}\nPassword: ${clTempPassword}`); setClCopied(true); setTimeout(() => setClCopied(false), 2500); }}
+                          style={{ backgroundColor: clCopied ? C.green + '20' : '#D1FAE5', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}>
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: clCopied ? C.green : '#059669' }}>{clCopied ? '✓ Copied!' : 'Copy Username & Password'}</Text>
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 11, color: '#047857', marginTop: 8 }}>Share these with the member. They'll be asked to change the password on first login.</Text>
                       </View>
                     ) : showCreateLogin ? (
                       /* Form */

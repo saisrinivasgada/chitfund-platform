@@ -429,14 +429,17 @@ function EditMemberPanel({ member, onClose }) {
 }
 
 // ─── Temp password display ────────────────────────────────────────────────────
-function TempPasswordDisplay({ tempPassword, label }) {
+function TempPasswordDisplay({ tempPassword, username, label }) {
   const [copied, setCopied] = useState(false);
+  const textToCopy = username
+    ? `Username: ${username}\nPassword: ${tempPassword}`
+    : tempPassword;
   function copy() {
-    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(tempPassword).then(done).catch(() => fallbackCopy(tempPassword, done));
+      navigator.clipboard.writeText(textToCopy).then(done).catch(() => fallbackCopy(textToCopy, done));
     } else {
-      fallbackCopy(tempPassword, done);
+      fallbackCopy(textToCopy, done);
     }
   }
   function fallbackCopy(text, done) {
@@ -451,18 +454,27 @@ function TempPasswordDisplay({ tempPassword, label }) {
   }
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">{label ?? 'Temporary Password'}</p>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 text-lg font-mono font-bold text-gray-900 tracking-widest select-all">{tempPassword}</code>
-        <button
-          type="button"
-          onClick={copy}
-          className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 transition-colors"
-        >
-          {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
-        </button>
+      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">{label ?? 'Login Credentials'}</p>
+      <div className="space-y-2 mb-3">
+        {username && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-amber-600 w-20 shrink-0">Username</span>
+            <code className="flex-1 text-sm font-mono font-bold text-gray-900">{username}</code>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          {username && <span className="text-xs text-amber-600 w-20 shrink-0">Password</span>}
+          <code className={`flex-1 font-mono font-bold text-gray-900 tracking-widest select-all ${username ? 'text-sm' : 'text-lg'}`}>{tempPassword}</code>
+        </div>
       </div>
-      <p className="text-xs text-amber-600 mt-2">Share this with the member. They must change it on first login.</p>
+      <button
+        type="button"
+        onClick={copy}
+        className="flex items-center justify-center gap-1.5 w-full text-xs px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 transition-colors font-semibold"
+      >
+        {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> {username ? 'Copy Username & Password' : 'Copy Password'}</>}
+      </button>
+      <p className="text-xs text-amber-600 mt-2">Share these with the member. They must change the password on first login.</p>
     </div>
   );
 }
@@ -498,7 +510,7 @@ function CreateLoginModal({ member, onClose }) {
       <Modal title="Login Created" onClose={onClose} size="sm">
         <div className="space-y-4">
           <p className="text-sm text-gray-600">App account created for <strong>{member.fullName}</strong>.</p>
-          {tempPassword && <TempPasswordDisplay tempPassword={tempPassword} />}
+          {tempPassword && <TempPasswordDisplay username={form.username} tempPassword={tempPassword} />}
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
       </Modal>
