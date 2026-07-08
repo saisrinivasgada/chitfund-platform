@@ -1413,6 +1413,30 @@ function PayoutsTab() {
               )}
             </View>
             {p.notes && <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginBottom: 6 }}>"{p.notes}"</Text>}
+            {(p.status === 'DISBURSED' || p.status === 'PARTIALLY_DISBURSED') && (p.disbursements?.length ?? 0) > 0 && (
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 6 }}>
+                  Disbursement{p.disbursements.length > 1 ? ` Transactions (${p.disbursements.length})` : ''}
+                </Text>
+                {p.disbursements.map((d: any, i: number) => (
+                  <View key={d.id} style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 4 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray800 }}>
+                        #{i + 1} · ₹{Number(d.amount).toLocaleString('en-IN')}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: C.gray500 }}>{d.mode?.replace('_', ' ')}</Text>
+                    </View>
+                    {d.referenceNumber && (
+                      <Text style={{ fontSize: 11, color: C.gray400, fontFamily: 'monospace', marginTop: 2 }}>{d.referenceNumber}</Text>
+                    )}
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                      {new Date(d.disbursedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    {d.notes && <Text style={{ fontSize: 11, color: C.gray400, fontStyle: 'italic', marginTop: 2 }}>{d.notes}</Text>}
+                  </View>
+                ))}
+              </View>
+            )}
             <Divider />
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               {(p.status === 'PENDING' || p.status === 'PARTIALLY_DISBURSED') && (
@@ -1825,7 +1849,11 @@ function TreasuryTab() {
   const [txAmount, setTxAmount] = useState('');
   const [txType, setTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
   const [txAccountType, setTxAccountType] = useState<'CASH' | 'BANK'>('CASH');
+  const [txCategory, setTxCategory] = useState('');
   const [txNotes, setTxNotes] = useState('');
+
+  const TX_CATEGORIES_IN  = ['Multiple Payments Collection', 'Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
+  const TX_CATEGORIES_OUT = ['Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
   const [selectedTx, setSelectedTx] = useState<any>(null);
   const [txShowCount, setTxShowCount] = useState(20);
 
@@ -1844,12 +1872,13 @@ function TreasuryTab() {
       amount: Number(txAmount),
       entryType: txType === 'DEPOSIT' ? 'IN' : 'OUT',
       accountType: txAccountType,
+      category: txCategory || undefined,
       description: txNotes || undefined,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-wallet'] });
       qc.invalidateQueries({ queryKey: ['m-wallet-txns'] });
-      setShowAdd(false); setTxAmount(''); setTxNotes('');
+      setShowAdd(false); setTxAmount(''); setTxCategory(''); setTxNotes('');
       toast.saved(`${txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded`);
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record transaction.'),
@@ -1888,10 +1917,10 @@ function TreasuryTab() {
 
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
         <View style={{ flex: 1 }}>
-          <Button label="+ Deposit" variant="success" onPress={() => { setShowAdd(true); setTxType('DEPOSIT'); }} />
+          <Button label="+ Deposit" variant="success" onPress={() => { setShowAdd(true); setTxType('DEPOSIT'); setTxCategory(''); }} />
         </View>
         <View style={{ flex: 1 }}>
-          <Button label="− Withdrawal" variant="danger" onPress={() => { setShowAdd(true); setTxType('WITHDRAWAL'); }} />
+          <Button label="− Withdrawal" variant="danger" onPress={() => { setShowAdd(true); setTxType('WITHDRAWAL'); setTxCategory(''); }} />
         </View>
       </View>
 
@@ -1950,6 +1979,21 @@ function TreasuryTab() {
                     borderColor: txAccountType === a ? C.navy : C.gray300,
                     backgroundColor: txAccountType === a ? C.navy50 : C.white }}>
                   <Text style={{ fontWeight: '700', fontSize: 14, color: txAccountType === a ? C.navy : C.gray500 }}>{a}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={{ ...T.label, marginBottom: 8 }}>Category</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+              {(txType === 'DEPOSIT' ? TX_CATEGORIES_IN : TX_CATEGORIES_OUT).map((cat) => (
+                <TouchableOpacity key={cat} onPress={() => setTxCategory(txCategory === cat ? '' : cat)}
+                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1.5,
+                    borderColor: txCategory === cat ? (txType === 'DEPOSIT' ? C.green : C.red) : C.gray300,
+                    backgroundColor: txCategory === cat ? (txType === 'DEPOSIT' ? '#F0FDF4' : '#FEF2F2') : C.white }}>
+                  <Text style={{ fontSize: 12, fontWeight: '600',
+                    color: txCategory === cat ? (txType === 'DEPOSIT' ? C.green : C.red) : C.gray500 }}>
+                    {cat}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>

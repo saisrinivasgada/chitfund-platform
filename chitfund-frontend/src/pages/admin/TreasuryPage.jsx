@@ -245,7 +245,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
   );
 }
 
-const CATEGORIES_IN = ['Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
+const CATEGORIES_IN = ['Member Payment', 'Multiple Payments Collection', 'Chit Payout Return', 'Investment', 'Other Income'];
 const CATEGORIES_OUT = ['Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
 
 // ─── Mini member contact card (hover popover) ─────────────────────────────

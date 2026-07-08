@@ -724,6 +724,40 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
           </div>
         </div>
 
+        {(payout.status === 'DISBURSED' || payout.status === 'PARTIALLY_DISBURSED') && payout.disbursements?.length > 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Disbursement{payout.disbursements.length > 1 ? ` transactions (${payout.disbursements.length})` : ''}
+              </p>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {payout.disbursements.map((d, i) => (
+                <div key={d.id} className="text-xs bg-white border border-gray-100 rounded-lg px-3 py-2 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-gray-700">
+                      #{i + 1} · ₹{Number(d.amount).toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-gray-500">{d.mode?.replace('_', ' ')}</span>
+                  </div>
+                  {d.referenceNumber && (
+                    <div className="text-gray-400 font-mono">{d.referenceNumber}</div>
+                  )}
+                  <div className="text-gray-400">
+                    {new Date(d.disbursedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  {d.notes && <div className="text-gray-400 italic">{d.notes}</div>}
+                </div>
+              ))}
+              {payout.status === 'PARTIALLY_DISBURSED' && (
+                <p className="text-xs text-blue-600 font-medium pt-1">
+                  ₹{Number(payout.disbursedAmount).toLocaleString('en-IN')} disbursed · ₹{Number(payout.remainingAmount).toLocaleString('en-IN')} remaining
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {payout.notes && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes</p>
