@@ -255,7 +255,7 @@ export default function AdminChitsScreen() {
   const { data: winners = [] } = useQuery({
     queryKey: ['a-winners', selected?.id],
     queryFn: () => getWinners(selected!.id),
-    enabled: !!selected?.id && detailTab === 'winners',
+    enabled: !!selected?.id && (detailTab === 'winners' || detailTab === 'draws'),
   });
   const { data: draws = [], refetch: refetchDraws } = useQuery({
     queryKey: ['a-draws', selected?.id],
@@ -1031,12 +1031,16 @@ export default function AdminChitsScreen() {
                   <EmptyState title="No draws yet" message="Open the first draw to start the chit cycle." />
                 ) : (
                   drawsList.map((d: any) => {
-                    const winnerName = d.winnerId ? (memberMap[d.winnerId] ?? d.winnerName ?? 'Selected member') : 'No winner set';
+                    const dNum = d.drawNumber ?? d.monthNumber;
+                    const cycleWinners = (winners as any[]).filter((w: any) => w.monthNumber === dNum);
+                    const isDoubleWinner = cycleWinners.length >= 2;
+                    const winnerName = cycleWinners.length > 0
+                      ? cycleWinners.map((w: any) => (memberMap as any)[w.memberId ?? w.winnerId] ?? 'Member').join(', ')
+                      : 'No winner set';
                     const dColor = DRAW_COLOR[d.status] ?? C.gray400;
                     const isExpanded = expandedDrawId === d.id;
 
                     // Legacy batch history for void actions
-                    const dNum = d.drawNumber ?? d.monthNumber;
                     const drawHistory = (chitBatches as any[]).filter((b: any) =>
                       (b.allocations ?? []).some((a: any) => a.monthNumber === dNum)
                     );
@@ -1053,6 +1057,11 @@ export default function AdminChitsScreen() {
                             <View style={{ backgroundColor: dColor + '22', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
                               <Text style={{ fontSize: 13, fontWeight: '800', color: dColor }}>Draw #{dNum}</Text>
                             </View>
+                            {isDoubleWinner && (
+                              <View style={{ backgroundColor: '#F3E8FF', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: '#C084FC' }}>
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#7E22CE' }}>×{cycleWinners.length} Double Payout</Text>
+                              </View>
+                            )}
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <View style={{ backgroundColor: dColor + '22', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>

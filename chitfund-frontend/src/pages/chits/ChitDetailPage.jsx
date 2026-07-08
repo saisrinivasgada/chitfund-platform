@@ -2862,6 +2862,11 @@ function DrawsTab({ chitId, chit }) {
                               <Clock size={10} /> No Payout Created
                             </span>
                           )}
+                          {cycleWinners.length >= 2 && (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-purple-800 bg-purple-100 border border-purple-200 px-2 py-0.5 rounded-full">
+                              ×{cycleWinners.length} Double Payout
+                            </span>
+                          )}
                           {cycleWinners.map((w) => {
                             const wMid = w.memberId ?? w.winnerId;
                             const wName = memberMap[wMid]?.fullName ?? `#${String(wMid).slice(0, 8)}`;
