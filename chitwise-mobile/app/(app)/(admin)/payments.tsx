@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList,
+  View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList, Switch,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -11,7 +11,7 @@ import {
   getCashRequestAuditLog, assignWorkerToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
   getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
-  getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout,
+  getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction,
   getSettlementPreview, confirmSettlement, getMemberSettlements,
   getMemberTotalBalance,
@@ -1107,25 +1107,27 @@ function PayoutsTab() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<'PENDING' | 'ALL'>('PENDING');
 
-  // Create payout
+  // ── Create Payout state ───────────────────────────────────────────────────
   const [showCreate, setShowCreate] = useState(false);
-  const [cpMemberId, setCpMemberId] = useState('');
   const [cpChitId, setCpChitId] = useState('');
-  const [cpDrawNum, setCpDrawNum] = useState('');
-  const [cpAmount, setCpAmount] = useState('');
+  const [cpWinnerKey, setCpWinnerKey] = useState('');
+  const [cpCollectCurrentMonth, setCpCollectCurrentMonth] = useState(false);
+  const [cpCrossChitCollect, setCpCrossChitCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
+  const [cpDiscount, setCpDiscount] = useState('0');
   const [cpNotes, setCpNotes] = useState('');
 
-  // Disburse
+  // ── Disburse state ────────────────────────────────────────────────────────
   const [disburseTarget, setDisburseTarget] = useState<any>(null);
   const [disburseAmt, setDisburseAmt] = useState('');
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseNotes, setDisburseNotes] = useState('');
 
-  // Cancel / void
+  // ── Cancel / Void state ───────────────────────────────────────────────────
   const [actionTarget, setActionTarget] = useState<any>(null);
   const [actionType, setActionType] = useState<'cancel' | 'void'>('cancel');
   const [actionReason, setActionReason] = useState('');
 
+  // ── Base queries ──────────────────────────────────────────────────────────
   const { data: pending = [], isLoading: pendingLoading, refetch: refetchPending } = useQuery({
     queryKey: ['m-payouts-pending'], queryFn: getPendingPayouts,
   });
@@ -1133,33 +1135,176 @@ function PayoutsTab() {
     queryKey: ['m-payouts-all'], queryFn: () => getAllPayouts(),
     enabled: filter === 'ALL',
   });
-
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: chits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
-  const { data: memberChitsForCreate = [] } = useQuery({
-    queryKey: ['m-chits-for-member-payout', cpMemberId],
-    queryFn: () => getChitsForMember(cpMemberId),
-    enabled: !!cpMemberId,
+
+  // ── Create payout: all payouts for paid-key filtering ─────────────────────
+  const { data: cpAllPayouts = [] } = useQuery({
+    queryKey: ['m-cp-all-payouts'], queryFn: () => getAllPayouts(),
+    enabled: showCreate,
+    staleTime: 30_000,
   });
 
-  const memberMap = Object.fromEntries((members as any[]).map((m) => [m.id, m.fullName ?? '—']));
-  const chitMap = Object.fromEntries((chits as any[]).map((c) => [c.id, c.name ?? '—']));
+  // ── Create payout: winners for selected chit ──────────────────────────────
+  const { data: cpWinners = [], isLoading: cpWinnersLoading } = useQuery({
+    queryKey: ['m-cp-winners', cpChitId],
+    queryFn: () => getWinners(cpChitId),
+    enabled: !!cpChitId,
+    staleTime: 60_000,
+  });
+
+  // ── Derived maps and list data ────────────────────────────────────────────
+  const memberMap = Object.fromEntries(
+    (members as any[]).flatMap((m: any) => {
+      const entries: [string, any][] = [[m.id, m]];
+      if (m.userId) entries.push([m.userId, m]);
+      return entries;
+    })
+  );
+  const chitMap = Object.fromEntries((chits as any[]).map((c: any) => [c.id, c.name ?? '—']));
   const displayPayouts = filter === 'PENDING' ? (pending as any[]) : (allPayouts as any[]);
   const isLoading = filter === 'PENDING' ? pendingLoading : allLoading;
   function refetch() { refetchPending(); refetchAll(); }
 
+  const activeChits = (chits as any[]).filter((c: any) => c.status === 'ACTIVE');
+
+  // Paid keys for selected chit (monthNumber:memberId)
+  const cpPaidKeys = new Set(
+    (cpAllPayouts as any[])
+      .filter((p: any) => String(p.chitId) === String(cpChitId) && p.status !== 'CANCELLED')
+      .map((p: any) => `${p.monthNumber ?? p.drawNumber}:${String(p.memberId)}`)
+  );
+
+  // Unpaid winners for the selected chit
+  const cpUnpaidWinners = (cpWinners as any[]).filter((w: any) => {
+    const mid = w.memberId ?? w.winnerId;
+    return !cpPaidKeys.has(`${w.monthNumber}:${mid}`);
+  });
+
+  // Parse selected winner key "monthNumber:memberId"
+  const [selMonth, selMid] = cpWinnerKey ? cpWinnerKey.split(':') : [];
+  const selectedWinner = cpUnpaidWinners.find((w: any) => {
+    const mid = String(w.memberId ?? w.winnerId);
+    return String(w.monthNumber) === selMonth && mid === selMid;
+  });
+  const selectedMemberId = selectedWinner
+    ? String(selectedWinner.memberId ?? selectedWinner.winnerId)
+    : null;
+  const selectedChit = (chits as any[]).find((c: any) => String(c.id) === String(cpChitId));
+  const installmentAmount = Number(selectedChit?.installmentAmount ?? 0);
+
+  // ── Create payout: member's other chits ───────────────────────────────────
+  const { data: cpMemberChits = [], isLoading: cpMemberChitsLoading } = useQuery({
+    queryKey: ['m-cp-member-chits', selectedMemberId],
+    queryFn: () => getChitsForMember(selectedMemberId!),
+    enabled: !!selectedMemberId,
+    staleTime: 60_000,
+  });
+
+  const cpOtherActiveChits = (cpMemberChits as any[]).filter(
+    (c: any) => String(c.id) !== String(cpChitId) && c.status === 'ACTIVE'
+  );
+  const cpOtherChitIdStr = cpOtherActiveChits.map((c: any) => c.id).join(',');
+
+  // ── Create payout: current chit balance for winning month ─────────────────
+  const { data: cpCurrentBalance, isLoading: cpCurrentBalanceLoading } = useQuery({
+    queryKey: ['m-cp-current-balance', selectedMemberId, cpChitId],
+    queryFn: () => getMemberBalance(selectedMemberId!, cpChitId),
+    enabled: !!selectedMemberId && !!cpChitId,
+    staleTime: 60_000,
+  });
+
+  // ── Create payout: cross-chit outstanding balances ────────────────────────
+  const { data: cpCrossBalances = {}, isLoading: cpCrossBalancesLoading } = useQuery({
+    queryKey: ['m-cp-cross-balances', selectedMemberId, cpOtherChitIdStr],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        cpOtherActiveChits.map((c: any) =>
+          getMemberBalance(selectedMemberId!, c.id)
+            .then((b: any) => [String(c.id), Number(b?.totalOutstanding ?? 0)])
+            .catch(() => [String(c.id), 0])
+        )
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: cpOtherActiveChits.length > 0 && !!selectedMemberId,
+    staleTime: 60_000,
+  });
+
+  // Actual remaining installment for the winning month
+  const winningMonthRemaining = (() => {
+    if (!selectedWinner || !(cpCurrentBalance as any)?.months) return installmentAmount;
+    const month = (cpCurrentBalance as any).months.find(
+      (m: any) => m.monthNumber === selectedWinner.monthNumber
+    );
+    return month ? Number(month.balance ?? 0) : 0;
+  })();
+
+  // Other chits with outstanding balance > 0
+  const cpOtherChitsWithBalance = cpOtherActiveChits.filter(
+    (c: any) => ((cpCrossBalances as any)[String(c.id)] ?? 0) > 0
+  );
+
+  // ── Calculations ──────────────────────────────────────────────────────────
+  const winningAmt = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
+  const discountNum = Number(cpDiscount) || 0;
+  const currentMonthDed = cpCollectCurrentMonth ? winningMonthRemaining : 0;
+  const crossDed = Object.entries(cpCrossChitCollect)
+    .filter(([, v]) => v.enabled)
+    .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
+  const totalDeductions = discountNum + currentMonthDed + crossDed;
+  const netPayout = Math.max(0, winningAmt - totalDeductions);
+  const isOverDeducted = totalDeductions > winningAmt;
+  const settlementLoading = cpMemberChitsLoading || cpCurrentBalanceLoading || cpCrossBalancesLoading;
+
+  function resetCreateForm() {
+    setCpChitId('');
+    setCpWinnerKey('');
+    setCpCollectCurrentMonth(false);
+    setCpCrossChitCollect({});
+    setCpDiscount('0');
+    setCpNotes('');
+  }
+
+  function toggleCrossChit(cId: string) {
+    const balance = (cpCrossBalances as any)[String(cId)] ?? 0;
+    setCpCrossChitCollect((prev) => {
+      const current = prev[cId];
+      if (current?.enabled) return { ...prev, [cId]: { enabled: false, amount: current.amount } };
+      return { ...prev, [cId]: { enabled: true, amount: String(balance) } };
+    });
+  }
+
   const createMut = useMutation({
-    mutationFn: () => createPayout({
-      memberId: cpMemberId, chitId: cpChitId,
-      drawNumber: Number(cpDrawNum), payoutAmount: Number(cpAmount),
-      notes: cpNotes || undefined,
-    }),
+    mutationFn: () => {
+      const mid = selectedWinner.memberId ?? selectedWinner.winnerId;
+      return createPayout({
+        chitId: cpChitId,
+        memberId: mid,
+        monthNumber: selectedWinner.monthNumber,
+        winningAmount: winningAmt,
+        discountAmount: totalDeductions,
+        installmentSettlement: currentMonthDed,
+        crossChitSettlement: crossDed,
+        manualAdjustment: discountNum,
+        notes: cpNotes || undefined,
+        collectCurrentMonthInstallment: cpCollectCurrentMonth && installmentAmount > 0,
+        crossChitDeductions: Object.entries(cpCrossChitCollect)
+          .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+          .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) })),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
+      qc.invalidateQueries({ queryKey: ['m-cp-all-payouts'] });
+      qc.invalidateQueries({ queryKey: ['m-cp-winners'] });
       setShowCreate(false);
-      setCpMemberId(''); setCpChitId(''); setCpDrawNum(''); setCpAmount(''); setCpNotes('');
-      toast.created('Payout created — disburse when ready');
+      resetCreateForm();
+      const msg = currentMonthDed > 0 || crossDed > 0
+        ? `Payout created · ₹${totalDeductions.toLocaleString('en-IN')} withheld as settlement`
+        : 'Payout created — disburse when ready';
+      toast.created(msg);
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to create payout — please try again.'),
   });
@@ -1230,7 +1375,7 @@ function PayoutsTab() {
             <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
-                  {memberMap[p.memberId ?? p.winnerId] ?? 'Unknown'}
+                  {(memberMap[p.memberId ?? p.winnerId] as any)?.fullName ?? 'Unknown'}
                 </Text>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>
                   {chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? p.monthNumber ?? '—'}
@@ -1293,72 +1438,272 @@ function PayoutsTab() {
       })}
 
       {/* ── Create Payout Modal ──────────────────────────────────────────────── */}
-      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
+      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Create Payout</Text>
-            <TouchableOpacity onPress={() => setShowCreate(false)}>
+            <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
               <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 20 }}>
-            <Text style={{ ...T.label, marginBottom: 8 }}>Winner (Member) *</Text>
-            <ScrollView style={{ maxHeight: 160, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
-              {(members as any[]).filter((m: any) => m.status !== 'INACTIVE').map((m: any) => (
-                <TouchableOpacity key={m.id} onPress={() => { setCpMemberId(m.id); setCpChitId(''); }}
-                  style={{ padding: 12, backgroundColor: cpMemberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                  <Text style={{ fontSize: 14, fontWeight: cpMemberId === m.id ? '700' : '400', color: cpMemberId === m.id ? C.navy : C.gray900 }}>
-                    {m.fullName ?? m.name} {cpMemberId === m.id ? '✓' : ''}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
 
-            {cpMemberId && (
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+            {/* Step 1: Chit selection */}
+            <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit *</Text>
+            {activeChits.length === 0 ? (
+              <View style={{ backgroundColor: C.gray50, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, color: C.gray500, fontStyle: 'italic' }}>No active chits found.</Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {activeChits.map((c: any) => (
+                    <TouchableOpacity key={c.id}
+                      onPress={() => { setCpChitId(c.id); setCpWinnerKey(''); setCpCollectCurrentMonth(false); setCpCrossChitCollect({}); setCpDiscount('0'); }}
+                      style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: cpChitId === c.id ? C.navy : C.gray300, backgroundColor: cpChitId === c.id ? C.navy50 : C.white }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: cpChitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
+                      {c.totalAmount && <Amount value={c.totalAmount} size="sm" color={cpChitId === c.id ? C.navy : C.green} />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {/* Step 2: Winner picker */}
+            {cpChitId && (
               <>
-                <Text style={{ ...T.label, marginBottom: 8 }}>Chit Fund *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {(memberChitsForCreate as any[]).map((c: any) => (
-                      <TouchableOpacity key={c.id} onPress={() => setCpChitId(c.id)}
-                        style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: cpChitId === c.id ? C.navy : C.gray300, backgroundColor: cpChitId === c.id ? C.navy50 : C.white }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: cpChitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
-                        {c.totalAmount && <Amount value={c.totalAmount} size="sm" color={C.green} />}
-                      </TouchableOpacity>
-                    ))}
+                <Text style={{ ...T.label, marginBottom: 8 }}>Select Winner *</Text>
+                {cpWinnersLoading ? (
+                  <Text style={{ fontSize: 13, color: C.gray400, marginBottom: 16 }}>Loading winners…</Text>
+                ) : cpUnpaidWinners.length === 0 ? (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                    <Text style={{ fontSize: 13, color: C.gray500, fontStyle: 'italic' }}>
+                      {(cpWinners as any[]).length === 0
+                        ? 'No winners recorded for this chit yet. Open the chit to record winners.'
+                        : 'All recorded winners already have payouts created.'}
+                    </Text>
                   </View>
-                </ScrollView>
+                ) : (
+                  <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
+                    {cpUnpaidWinners.map((w: any) => {
+                      const mid = w.memberId ?? w.winnerId;
+                      const key = `${w.monthNumber}:${mid}`;
+                      const member = (memberMap as any)[String(mid)];
+                      const name = member?.fullName ?? `Member #${String(mid).slice(0, 8)}`;
+                      return (
+                        <TouchableOpacity key={key}
+                          onPress={() => { setCpWinnerKey(key); setCpCollectCurrentMonth(false); setCpCrossChitCollect({}); setCpDiscount('0'); }}
+                          style={{ padding: 12, backgroundColor: cpWinnerKey === key ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                          <Text style={{ fontSize: 14, fontWeight: cpWinnerKey === key ? '700' : '400', color: cpWinnerKey === key ? C.navy : C.gray900 }}>
+                            Draw {w.monthNumber} — {name} {cpWinnerKey === key ? '✓' : ''}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: C.green, fontWeight: '600', marginTop: 2 }}>
+                            ₹{Number(w.winningAmount ?? 0).toLocaleString('en-IN')}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </>
             )}
 
-            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ ...T.label, marginBottom: 6 }}>Draw # *</Text>
-                <TextInput value={cpDrawNum} onChangeText={setCpDrawNum} keyboardType="numeric" placeholder="e.g. 3"
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
-              </View>
-              <View style={{ flex: 2 }}>
-                <Text style={{ ...T.label, marginBottom: 6 }}>Payout Amount (₹) *</Text>
-                <TextInput value={cpAmount} onChangeText={setCpAmount} keyboardType="numeric" placeholder="0"
-                  placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900, fontWeight: '700' }} />
-              </View>
-            </View>
+            {/* Step 3: Winner banner + settlement */}
+            {selectedWinner && (() => {
+              const memberName = (memberMap as any)[String(selectedWinner.memberId ?? selectedWinner.winnerId)]?.fullName ?? 'Winner';
+              return (
+                <>
+                  {/* Winner banner */}
+                  <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#92400E' }}>
+                      Draw {selectedWinner.monthNumber} — {memberName}
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#78350F', marginTop: 2 }}>
+                      Winning amount: ₹{winningAmt.toLocaleString('en-IN')}
+                    </Text>
+                    {installmentAmount > 0 && (
+                      <Text style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                        Monthly installment: ₹{installmentAmount.toLocaleString('en-IN')}
+                      </Text>
+                    )}
+                  </View>
 
+                  {/* Collect at payout section */}
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 12 }}>
+                      Collect at Payout
+                    </Text>
+                    {settlementLoading ? (
+                      <Text style={{ fontSize: 13, color: C.gray400 }}>Checking outstanding dues…</Text>
+                    ) : (
+                      <>
+                        {/* Current draw installment toggle */}
+                        {installmentAmount > 0 ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <View style={{ flex: 1, marginRight: 12 }}>
+                              <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>
+                                Draw {selectedWinner.monthNumber} installment
+                              </Text>
+                              {winningMonthRemaining === 0 ? (
+                                <Text style={{ fontSize: 11, color: C.green, marginTop: 2 }}>Already fully paid ✓</Text>
+                              ) : winningMonthRemaining < installmentAmount ? (
+                                <Text style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>
+                                  ₹{winningMonthRemaining.toLocaleString('en-IN')} remaining (₹{(installmentAmount - winningMonthRemaining).toLocaleString('en-IN')} already paid)
+                                </Text>
+                              ) : (
+                                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+                                  ₹{winningMonthRemaining.toLocaleString('en-IN')} due
+                                </Text>
+                              )}
+                            </View>
+                            {winningMonthRemaining > 0 && (
+                              <Switch
+                                value={cpCollectCurrentMonth}
+                                onValueChange={(v) => setCpCollectCurrentMonth(v)}
+                                trackColor={{ false: C.gray300, true: C.navy }}
+                                thumbColor={C.white}
+                              />
+                            )}
+                          </View>
+                        ) : (
+                          <Text style={{ fontSize: 13, color: C.gray400, fontStyle: 'italic', marginBottom: 10 }}>
+                            No installment amount set for this chit.
+                          </Text>
+                        )}
+
+                        {/* Cross-chit outstanding dues */}
+                        {cpOtherChitsWithBalance.length > 0 && (
+                          <>
+                            <Divider />
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginTop: 10, marginBottom: 8 }}>
+                              Outstanding in other chits
+                            </Text>
+                            {cpOtherChitsWithBalance.map((c: any) => {
+                              const cId = String(c.id);
+                              const balance = (cpCrossBalances as any)[cId] ?? 0;
+                              const state = cpCrossChitCollect[cId];
+                              return (
+                                <View key={cId} style={{ marginBottom: 12 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                      <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>{c.name}</Text>
+                                      <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+                                        Outstanding: ₹{balance.toLocaleString('en-IN')}
+                                      </Text>
+                                    </View>
+                                    <Switch
+                                      value={state?.enabled ?? false}
+                                      onValueChange={() => toggleCrossChit(cId)}
+                                      trackColor={{ false: C.gray300, true: C.navy }}
+                                      thumbColor={C.white}
+                                    />
+                                  </View>
+                                  {state?.enabled && (
+                                    <TextInput
+                                      value={state.amount}
+                                      onChangeText={(v) => setCpCrossChitCollect((prev) => ({ ...prev, [cId]: { ...prev[cId], amount: v } }))}
+                                      keyboardType="numeric"
+                                      placeholder="Amount to collect"
+                                      placeholderTextColor={C.gray400}
+                                      style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, padding: 10, fontSize: 14, color: C.gray900, marginTop: 8 }}
+                                    />
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </View>
+
+                  {/* Manual discount */}
+                  <Text style={{ ...T.label, marginBottom: 6 }}>Manual Discount / Adjustment (₹)</Text>
+                  <TextInput
+                    value={cpDiscount}
+                    onChangeText={setCpDiscount}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={C.gray400}
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
+                  />
+
+                  {/* Net payout summary */}
+                  <View style={{ backgroundColor: isOverDeducted ? '#FEF2F2' : '#F0FDF4', borderWidth: 1, borderColor: isOverDeducted ? C.red : C.green, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                    {totalDeductions > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 13, color: C.gray600 }}>Winning amount</Text>
+                        <Text style={{ fontSize: 13, color: C.gray600 }}>₹{winningAmt.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                    {currentMonthDed > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>− Draw {selectedWinner.monthNumber} installment</Text>
+                        <Text style={{ fontSize: 12, color: C.red }}>−₹{currentMonthDed.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                    {Object.entries(cpCrossChitCollect)
+                      .filter(([, v]) => v.enabled)
+                      .map(([cId, v]) => (
+                        <View key={cId} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: C.gray500 }} numberOfLines={1}>
+                            − {chitMap[cId] ?? 'Other chit'}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: C.red }}>
+                            −₹{Number(v.amount || 0).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      ))}
+                    {discountNum > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>− Manual discount</Text>
+                        <Text style={{ fontSize: 12, color: C.red }}>−₹{discountNum.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                    {totalDeductions > 0 && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: isOverDeducted ? '#FECACA' : '#BBF7D0', marginVertical: 8 }} />
+                    )}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: isOverDeducted ? C.red : C.green }}>
+                        {isOverDeducted ? 'Over-deducted!' : 'Net Payout'}
+                      </Text>
+                      <Text style={{ fontSize: 22, fontWeight: '800', color: isOverDeducted ? C.red : C.green }}>
+                        ₹{netPayout.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              );
+            })()}
+
+            {/* Notes */}
             <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
-            <TextInput value={cpNotes} onChangeText={setCpNotes} multiline placeholder="Any notes…"
+            <TextInput
+              value={cpNotes}
+              onChangeText={setCpNotes}
+              multiline
+              placeholder="Any notes…"
               placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top' }} />
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top' }}
+            />
           </ScrollView>
+
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
-            <Button label="Create Payout" variant="primary" fullWidth
-              disabled={!cpMemberId || !cpChitId || !cpDrawNum || !cpAmount || Number(cpAmount) <= 0}
+            <Button
+              label="Create Payout"
+              variant="primary"
+              fullWidth
+              disabled={!selectedWinner || winningAmt <= 0 || isOverDeducted || netPayout <= 0}
               loading={createMut.isPending}
-              onPress={() => Alert.alert('Create Payout', `Create a ₹${Number(cpAmount).toLocaleString('en-IN')} payout for draw #${cpDrawNum}?`, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Create', onPress: () => createMut.mutate() },
-              ])} />
+              onPress={() => Alert.alert(
+                'Create Payout',
+                `Create a ₹${netPayout.toLocaleString('en-IN')} payout for ${(memberMap as any)[String(selectedWinner?.memberId ?? selectedWinner?.winnerId)]?.fullName ?? 'Winner'} — Draw #${selectedWinner?.monthNumber}?${totalDeductions > 0 ? `\n\n₹${totalDeductions.toLocaleString('en-IN')} withheld as settlement.` : ''}`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Create', onPress: () => createMut.mutate() },
+                ]
+              )}
+            />
           </View>
         </SafeAreaView>
       </Modal>
@@ -1369,7 +1714,7 @@ function PayoutsTab() {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.green, marginBottom: 4 }}>Disburse Payout</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-              Winner: {memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] ?? '—'}
+              Winner: {(memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] as any)?.fullName ?? '—'}
               {disburseTarget?.status === 'PARTIALLY_DISBURSED' && ' (partial — add another tranche)'}
             </Text>
             <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
