@@ -1852,8 +1852,8 @@ function TreasuryTab() {
   const [txCategory, setTxCategory] = useState('');
   const [txNotes, setTxNotes] = useState('');
 
-  const TX_CATEGORIES_IN  = ['Multiple Payments Collection', 'Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
-  const TX_CATEGORIES_OUT = ['Payout Disbursement', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
+  const TX_CATEGORIES_IN  = ['Multiple Payments Collection', 'Multi-Slot Installment Collection', 'Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
+  const TX_CATEGORIES_OUT = ['Payout Disbursement', 'Multi-Slot Payout Disbursement', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
   const [selectedTx, setSelectedTx] = useState<any>(null);
   const [txShowCount, setTxShowCount] = useState(20);
 
