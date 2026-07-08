@@ -1680,10 +1680,16 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const isExtra   = addExtra && mid === extraMemberId;
       const isWinner  = isPrimary || isExtra;
       const isDouble  = isPrimary && isExtra; // same member gets both slots
-      // Net payout = what the winner physically receives (payout minus this month's installment)
-      const netPayout = isWinner && cyclePayoutAmount !== null
-        ? (isDouble ? 2 : 1) * cyclePayoutAmount - amountDue
-        : null;
+      // Resolve each winner's actual payout from their own slot amount
+      const extraSlotForPreview = addExtra && extraSlotId
+        ? reservations.find((r) => r.id === extraSlotId) : null;
+      const extraPayoutForPreview = Number(extraSlotForPreview?.payoutAmount ?? chit?.chitValue ?? 0);
+      const myPayoutAmt = isDouble
+        ? (cyclePayoutAmount ?? 0) + extraPayoutForPreview   // combined both slots
+        : isExtra
+          ? extraPayoutForPreview                             // extra member's own slot
+          : (cyclePayoutAmount ?? 0);                        // primary winner's slot
+      const netPayout = isWinner ? myPayoutAmt - amountDue : null;
 
       members.push({
         memberId: mid,
