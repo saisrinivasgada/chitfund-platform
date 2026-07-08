@@ -1680,16 +1680,10 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const isExtra   = addExtra && mid === extraMemberId;
       const isWinner  = isPrimary || isExtra;
       const isDouble  = isPrimary && isExtra; // same member gets both slots
-      // Resolve each winner's actual payout from their own slot amount
-      const extraSlotForPreview = addExtra && extraSlotId
-        ? reservations.find((r) => r.id === extraSlotId) : null;
-      const extraPayoutForPreview = Number(extraSlotForPreview?.payoutAmount ?? chit?.chitValue ?? 0);
-      const myPayoutAmt = isDouble
-        ? (cyclePayoutAmount ?? 0) + extraPayoutForPreview   // combined both slots
-        : isExtra
-          ? extraPayoutForPreview                             // extra member's own slot
-          : (cyclePayoutAmount ?? 0);                        // primary winner's slot
-      const netPayout = isWinner ? myPayoutAmt - amountDue : null;
+      // All winners in a draw receive the primary slot's payout amount
+      const netPayout = isWinner && cyclePayoutAmount !== null
+        ? (isDouble ? 2 : 1) * cyclePayoutAmount - amountDue
+        : null;
 
       members.push({
         memberId: mid,
@@ -1735,14 +1729,14 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       // Same member holding both slots → ONE record with combined amount (not two separate payouts)
       const primaryAmt = Number(primaryWinnerSlot?.payoutAmount ?? chit?.chitValue ?? 0);
       const extraSlotObj = addExtra && extraSlotId ? reservations.find((r) => r.id === extraSlotId) : null;
-      const extraAmt = Number(extraSlotObj?.payoutAmount ?? chit?.chitValue ?? 0);
       const isSameMember = addExtra && extraMemberId && extraMemberId === primaryWinnerSlot?.memberId;
+      // All winners use the primary slot's payout amount (the draw's prize)
       const winnersToRecord = [
         ...(primaryWinnerSlot
-          ? [{ memberId: primaryWinnerSlot.memberId, winningAmount: isSameMember ? primaryAmt + extraAmt : primaryAmt }]
+          ? [{ memberId: primaryWinnerSlot.memberId, winningAmount: isSameMember ? primaryAmt * 2 : primaryAmt }]
           : []),
         ...(!isSameMember && extraMemberId && extraSlotObj
-          ? [{ memberId: extraMemberId, winningAmount: extraAmt }]
+          ? [{ memberId: extraMemberId, winningAmount: primaryAmt }]
           : []),
       ];
       await Promise.all(
