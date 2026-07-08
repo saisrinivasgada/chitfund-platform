@@ -1830,7 +1830,7 @@ function TreasuryTab() {
   const [txShowCount, setTxShowCount] = useState(20);
 
   const { data: wallet, isLoading: walletLoading, refetch: refetchWallet } = useQuery({ queryKey: ['m-wallet'], queryFn: getWalletBalance });
-  const { data: txns = [], isLoading: txLoading, refetch: refetchTxns } = useQuery({ queryKey: ['m-wallet-txns'], queryFn: getWalletTransactions });
+  const { data: txns = [], isLoading: txLoading, refetch: refetchTxns } = useQuery({ queryKey: ['m-wallet-txns'], queryFn: getWalletTransactions, staleTime: 0 });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 120_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 120_000 });
   const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 120_000 });

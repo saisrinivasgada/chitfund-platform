@@ -18,12 +18,14 @@ const INVALIDATIONS: Record<string, string[][]> = {
   PAYMENTS_UPDATED: [
     ['m-today-batches'],
     ['m-wallet'],
+    ['m-wallet-txns'],
     ['m-recent-activity'],
     ['worker-history'],
   ],
   PAYOUTS_UPDATED: [
     ['m-today-payouts'],
     ['m-wallet'],
+    ['m-wallet-txns'],
     ['m-recent-activity'],
   ],
   DRAWS_UPDATED: [
@@ -34,6 +36,7 @@ const INVALIDATIONS: Record<string, string[][]> = {
   ],
   TREASURY_UPDATED: [
     ['m-wallet'],
+    ['m-wallet-txns'],
   ],
   IN_APP_UPDATED: [
     ['m-unread'],
