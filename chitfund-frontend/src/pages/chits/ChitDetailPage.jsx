@@ -3243,6 +3243,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [manualAdjustment,    setManualAdjustment]    = useState(String(winner.discountAmount ?? '0'));
   const [createNotes,         setCreateNotes]         = useState('');
   const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
+  const [installmentOverride, setInstallmentOverride] = useState('');
   const [crossChitCollect,    setCrossChitCollect]    = useState({}); // { [chitId]: { enabled, amount } }
   const installmentAmount = Number(chit?.installmentAmount ?? 0);
 
@@ -3298,13 +3299,16 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   );
   const otherChitsWithBalance = otherActiveChits.filter((c) => (crossBalances[String(c.id)] ?? 0) > 0);
 
-  // Only show "collect current month installment" if the member actually owes that draw
   const currentChitBalance = (perChitBalances ?? []).find((b) => String(b.chitId) === String(chitId));
   const currentMonthOwed = currentChitBalance?.months?.some(
     (m) => m.monthNumber === monthNumber && Number(m.balance) > 0
   ) ?? false;
+  const winningMonthRemaining = (() => {
+    const month = currentChitBalance?.months?.find((m) => m.monthNumber === monthNumber);
+    return month ? Number(month.balance ?? 0) : 0;
+  })();
 
-  const currentMonthDed = collectCurrentMonth ? installmentAmount : 0;
+  const currentMonthDed = collectCurrentMonth ? (Number(installmentOverride) || 0) : 0;
   const crossDed = Object.entries(crossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
@@ -3610,19 +3614,58 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
               </div>
               <div className="divide-y divide-gray-100">
 
-                {/* Current month installment — only if member actually owes this draw */}
-                {installmentAmount > 0 && currentMonthOwed && (
-                  <div className="px-4 py-3 flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{chit?.name} — ₹{installmentAmount.toLocaleString('en-IN')}</p>
+                {/* Current month installment */}
+                {installmentAmount > 0 && (
+                  <div className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          ₹{installmentAmount.toLocaleString('en-IN')}/slot
+                          {winningMonthRemaining === 0
+                            ? <span className="text-green-600 font-medium ml-1">· already paid</span>
+                            : <span className="ml-1">· ₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding</span>
+                          }
+                        </p>
+                      </div>
+                      <ToggleSwitch
+                        on={collectCurrentMonth}
+                        onToggle={() => {
+                          const next = !collectCurrentMonth;
+                          setCollectCurrentMonth(next);
+                          if (next) setInstallmentOverride(String(winningMonthRemaining || installmentAmount));
+                          else setInstallmentOverride('');
+                        }}
+                      />
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {collectCurrentMonth && (
-                        <span className="text-xs font-semibold text-[#1E3A5F]">−₹{installmentAmount.toLocaleString('en-IN')}</span>
-                      )}
-                      <ToggleSwitch on={collectCurrentMonth} onToggle={() => setCollectCurrentMonth((v) => !v)} />
-                    </div>
+                    {collectCurrentMonth && (
+                      <div className="mt-2 space-y-2">
+                        <input
+                          type="number"
+                          min="0"
+                          value={installmentOverride}
+                          onChange={(e) => setInstallmentOverride(e.target.value)}
+                          className="w-full border border-[#1E3A5F] rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-400">Quick set (slots):</span>
+                          {[1, 2, 3, 4].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setInstallmentOverride(String(installmentAmount * n))}
+                              className={`px-2.5 py-1 text-xs font-bold rounded-md border transition-colors ${
+                                Number(installmentOverride) === installmentAmount * n
+                                  ? 'border-[#1E3A5F] bg-[#EEF2F8] text-[#1E3A5F]'
+                                  : 'border-gray-300 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
+                              }`}
+                            >
+                              ×{n}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3674,7 +3717,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                   </>
                 )}
 
-                {otherChitsWithBalance.length === 0 && (!currentMonthOwed || installmentAmount === 0) && (
+                {otherChitsWithBalance.length === 0 && installmentAmount === 0 && (
                   <div className="px-4 py-3 text-xs text-gray-400 italic">
                     No outstanding dues or installment to collect.
                   </div>
@@ -3700,10 +3743,10 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                     <span className="text-gray-600">Winning amount</span>
                     <span className="font-medium text-gray-900">₹{winNum.toLocaleString('en-IN')}</span>
                   </div>
-                  {collectCurrentMonth && installmentAmount > 0 && (
+                  {currentMonthDed > 0 && (
                     <div className="flex justify-between text-amber-700">
                       <span className="flex items-center gap-1"><ArrowRight size={12} /> Draw {monthNumber} installment</span>
-                      <span>−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                      <span>−₹{currentMonthDed.toLocaleString('en-IN')}</span>
                     </div>
                   )}
                   {Object.entries(crossChitCollect).filter(([, v]) => v.enabled && Number(v.amount) > 0).map(([cId, v]) => {
