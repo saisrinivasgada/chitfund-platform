@@ -400,7 +400,7 @@ function CreatePayoutTab() {
                               </span>
                             </>
                           ) : (
-                            `₹${installmentAmount.toLocaleString('en-IN')}`
+                            `₹${winningMonthRemaining.toLocaleString('en-IN')}`
                           )}
                         </p>
                       </div>
