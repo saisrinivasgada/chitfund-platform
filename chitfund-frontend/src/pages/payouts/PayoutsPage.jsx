@@ -89,6 +89,7 @@ function CreatePayoutTab() {
   const [discountAmt, setDiscountAmt] = useState('0');
   const [notes, setNotes] = useState('');
   const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
+  const [installmentOverride, setInstallmentOverride] = useState('');
   const [crossChitCollect, setCrossChitCollect] = useState({}); // { [chitId]: { enabled, amount } }
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
@@ -220,6 +221,7 @@ function CreatePayoutTab() {
     setDiscountAmt('0');
     setNotes('');
     setCollectCurrentMonth(false);
+    setInstallmentOverride('');
     setCrossChitCollect({});
   }
 
@@ -244,7 +246,7 @@ function CreatePayoutTab() {
   // ── Calculations ─────────────────────────────────────────────────────────
   const winningAmt      = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
   const discountNum     = Number(discountAmt) || 0;
-  const currentMonthDed = collectCurrentMonth ? winningMonthRemaining : 0;
+  const currentMonthDed = collectCurrentMonth ? (Number(installmentOverride) || 0) : 0;
   const crossDed        = Object.entries(crossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
@@ -381,41 +383,52 @@ function CreatePayoutTab() {
                 <div className="divide-y divide-gray-100">
                   {/* Current month installment toggle */}
                   {installmentAmount > 0 && (
-                    <div className="px-4 py-3 flex items-center justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800">
-                          Month {selectedWinner.monthNumber} installment
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {selectedChit?.name} —{' '}
-                          {winningMonthRemaining === 0 ? (
-                            <span className="text-green-600 font-medium">Already fully paid</span>
-                          ) : winningMonthRemaining < installmentAmount ? (
-                            <>
-                              <span className="text-amber-600 font-medium">
-                                ₹{winningMonthRemaining.toLocaleString('en-IN')} remaining
-                              </span>
-                              <span className="text-gray-400 ml-1">
-                                (₹{(installmentAmount - winningMonthRemaining).toLocaleString('en-IN')} already paid)
-                              </span>
-                            </>
-                          ) : (
-                            `₹${winningMonthRemaining.toLocaleString('en-IN')}`
-                          )}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {collectCurrentMonth && winningMonthRemaining > 0 && (
-                          <span className="text-xs font-semibold text-[#1E3A5F]">
-                            −₹{winningMonthRemaining.toLocaleString('en-IN')}
-                          </span>
-                        )}
+                    <div className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800">
+                            Draw {selectedWinner.monthNumber} installment
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {selectedChit?.name} —{' '}
+                            {winningMonthRemaining === 0 ? (
+                              <span className="text-green-600 font-medium">Already fully paid</span>
+                            ) : (
+                              <>₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding</>
+                            )}
+                            {winningMonthRemaining > 0 && (
+                              <span className="text-gray-400 ml-1">· set ×2 for double payout</span>
+                            )}
+                          </p>
+                        </div>
                         <ToggleSwitch
                           on={collectCurrentMonth}
-                          onToggle={() => winningMonthRemaining > 0 && setCollectCurrentMonth((v) => !v)}
-                          disabled={winningMonthRemaining === 0}
+                          onToggle={() => {
+                            const next = !collectCurrentMonth;
+                            setCollectCurrentMonth(next);
+                            if (next) setInstallmentOverride(String(winningMonthRemaining || installmentAmount));
+                            else setInstallmentOverride('');
+                          }}
                         />
                       </div>
+                      {collectCurrentMonth && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            type="number"
+                            min="0"
+                            value={installmentOverride}
+                            onChange={(e) => setInstallmentOverride(e.target.value)}
+                            className="flex-1 border border-[#1E3A5F] rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setInstallmentOverride(String(installmentAmount * 2))}
+                            className="px-3 py-1.5 text-xs font-bold text-[#1E3A5F] border border-[#1E3A5F] rounded-lg bg-blue-50 hover:bg-blue-100"
+                          >
+                            ×2
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -507,12 +520,12 @@ function CreatePayoutTab() {
                     <span className="text-gray-600">Winning amount</span>
                     <span className="font-medium text-gray-900">₹{winningAmt.toLocaleString('en-IN')}</span>
                   </div>
-                  {collectCurrentMonth && installmentAmount > 0 && (
+                  {currentMonthDed > 0 && (
                     <div className="flex justify-between text-amber-700">
                       <span className="flex items-center gap-1">
-                        <ArrowRight size={12} /> Month {selectedWinner.monthNumber} installment
+                        <ArrowRight size={12} /> Draw {selectedWinner.monthNumber} installment
                       </span>
-                      <span>−₹{installmentAmount.toLocaleString('en-IN')}</span>
+                      <span>−₹{currentMonthDed.toLocaleString('en-IN')}</span>
                     </div>
                   )}
                   {Object.entries(crossChitCollect)

@@ -1112,6 +1112,7 @@ function PayoutsTab() {
   const [cpChitId, setCpChitId] = useState('');
   const [cpWinnerKey, setCpWinnerKey] = useState('');
   const [cpCollectCurrentMonth, setCpCollectCurrentMonth] = useState(false);
+  const [cpInstallmentAmt, setCpInstallmentAmt] = useState('');
   const [cpCrossChitCollect, setCpCrossChitCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
   const [cpDiscount, setCpDiscount] = useState('0');
   const [cpNotes, setCpNotes] = useState('');
@@ -1248,7 +1249,7 @@ function PayoutsTab() {
   // ── Calculations ──────────────────────────────────────────────────────────
   const winningAmt = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
   const discountNum = Number(cpDiscount) || 0;
-  const currentMonthDed = cpCollectCurrentMonth ? winningMonthRemaining : 0;
+  const currentMonthDed = cpCollectCurrentMonth ? (Number(cpInstallmentAmt) || 0) : 0;
   const crossDed = Object.entries(cpCrossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
@@ -1261,6 +1262,7 @@ function PayoutsTab() {
     setCpChitId('');
     setCpWinnerKey('');
     setCpCollectCurrentMonth(false);
+    setCpInstallmentAmt('');
     setCpCrossChitCollect({});
     setCpDiscount('0');
     setCpNotes('');
@@ -1539,30 +1541,47 @@ function PayoutsTab() {
                       <>
                         {/* Current draw installment toggle */}
                         {installmentAmount > 0 ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                            <View style={{ flex: 1, marginRight: 12 }}>
-                              <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>
-                                Draw {selectedWinner.monthNumber} installment
-                              </Text>
-                              {winningMonthRemaining === 0 ? (
-                                <Text style={{ fontSize: 11, color: C.green, marginTop: 2 }}>Already fully paid ✓</Text>
-                              ) : winningMonthRemaining < installmentAmount ? (
-                                <Text style={{ fontSize: 11, color: C.amber, marginTop: 2 }}>
-                                  ₹{winningMonthRemaining.toLocaleString('en-IN')} remaining (₹{(installmentAmount - winningMonthRemaining).toLocaleString('en-IN')} already paid)
+                          <View style={{ marginBottom: 10 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <View style={{ flex: 1, marginRight: 12 }}>
+                                <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>
+                                  Draw {selectedWinner.monthNumber} installment
                                 </Text>
-                              ) : (
-                                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
-                                  ₹{winningMonthRemaining.toLocaleString('en-IN')} due
-                                </Text>
-                              )}
-                            </View>
-                            {winningMonthRemaining > 0 && (
+                                {winningMonthRemaining === 0 ? (
+                                  <Text style={{ fontSize: 11, color: C.green, marginTop: 2 }}>Already fully paid ✓</Text>
+                                ) : (
+                                  <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+                                    ₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding · set ×2 for double payout
+                                  </Text>
+                                )}
+                              </View>
                               <Switch
                                 value={cpCollectCurrentMonth}
-                                onValueChange={(v) => setCpCollectCurrentMonth(v)}
+                                onValueChange={(v) => {
+                                  setCpCollectCurrentMonth(v);
+                                  if (v) setCpInstallmentAmt(String(winningMonthRemaining || installmentAmount));
+                                  else setCpInstallmentAmt('');
+                                }}
                                 trackColor={{ false: C.gray300, true: C.navy }}
                                 thumbColor={C.white}
                               />
+                            </View>
+                            {cpCollectCurrentMonth && (
+                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                                <TextInput
+                                  value={cpInstallmentAmt}
+                                  onChangeText={setCpInstallmentAmt}
+                                  keyboardType="numeric"
+                                  placeholder={String(winningMonthRemaining || installmentAmount)}
+                                  placeholderTextColor={C.gray400}
+                                  style={{ flex: 1, borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, padding: 10, fontSize: 14, color: C.gray900 }}
+                                />
+                                <TouchableOpacity
+                                  onPress={() => setCpInstallmentAmt(String(installmentAmount * 2))}
+                                  style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.navy50 }}>
+                                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>×2</Text>
+                                </TouchableOpacity>
+                              </View>
                             )}
                           </View>
                         ) : (
