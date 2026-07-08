@@ -6,6 +6,7 @@ import {
   createPayout, getAllPayouts, getPendingPayouts,
   disbursePayout, cancelPayout,
   getChitsForMember, getMemberBalance,
+  getWalletBalance,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -16,7 +17,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, Wallet, ArrowRight, IndianRupee } from 'lucide-react';
+import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, Wallet, ArrowRight, IndianRupee, Vault, CreditCard } from 'lucide-react';
 
 const TABS = ['Create Payout', 'Pending', 'All Payouts'];
 
@@ -714,6 +715,42 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
 }
 
 // ─── Disburse Modal ────────────────────────────────────────────────────────
+function TreasuryBadge() {
+  const [show, setShow] = useState(false);
+  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 60_000 });
+  const total = Number(bal?.totalBalance ?? 0);
+  const cash  = Number(bal?.cashBalance ?? 0);
+  const bank  = Number(bal?.bankBalance ?? 0);
+  return (
+    <div className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <button type="button" className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#B8CCE4] bg-[#EEF2F8] text-[#1E3A5F] text-xs font-semibold hover:bg-[#dce6f0] transition-colors cursor-default">
+        <Vault size={13} />
+        {fmtAmt(total)}
+      </button>
+      {show && (
+        <div className="absolute bottom-full right-0 mb-2 w-52 bg-[#1E3A5F] text-white text-xs rounded-xl shadow-xl p-3 z-50 pointer-events-none">
+          <p className="font-semibold text-[#D4A017] mb-2">Treasury Balance</p>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-white/70"><Banknote size={11} /> Cash</span>
+              <span className="font-semibold">{fmtAmt(cash)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-white/70"><CreditCard size={11} /> Bank</span>
+              <span className="font-semibold">{fmtAmt(bank)}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-white/20 pt-1.5 mt-1">
+              <span className="text-white/70">Total</span>
+              <span className="font-bold text-[#D4A017]">{fmtAmt(total)}</span>
+            </div>
+          </div>
+          <div className="absolute bottom-[-5px] right-4 w-2.5 h-2.5 bg-[#1E3A5F] rotate-45" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DisburseModal({ payout, memberName, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -821,7 +858,11 @@ function DisburseModal({ payout, memberName, onClose }) {
           )}
         </div>
 
-        <FormField label="Amount to Disburse (₹)" required>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700">Amount to Disburse (₹) <span className="text-red-500">*</span></span>
+          <TreasuryBadge />
+        </div>
+        <FormField>
           <Input type="number" min="1" max={remainingAmount} step="0.01"
             value={form.amount}
             onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
