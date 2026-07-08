@@ -390,15 +390,11 @@ function CreatePayoutTab() {
                             Draw {selectedWinner.monthNumber} installment
                           </p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {selectedChit?.name} —{' '}
-                            {winningMonthRemaining === 0 ? (
-                              <span className="text-green-600 font-medium">Already fully paid</span>
-                            ) : (
-                              <>₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding</>
-                            )}
-                            {winningMonthRemaining > 0 && (
-                              <span className="text-gray-400 ml-1">· set ×2 for double payout</span>
-                            )}
+                            ₹{installmentAmount.toLocaleString('en-IN')}/slot
+                            {winningMonthRemaining === 0
+                              ? <span className="text-green-600 font-medium ml-1">· already paid</span>
+                              : <span className="ml-1">· ₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding</span>
+                            }
                           </p>
                         </div>
                         <ToggleSwitch
@@ -412,21 +408,31 @@ function CreatePayoutTab() {
                         />
                       </div>
                       {collectCurrentMonth && (
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="mt-2 space-y-2">
                           <input
                             type="number"
                             min="0"
                             value={installmentOverride}
                             onChange={(e) => setInstallmentOverride(e.target.value)}
-                            className="flex-1 border border-[#1E3A5F] rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
+                            className="w-full border border-[#1E3A5F] rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
                           />
-                          <button
-                            type="button"
-                            onClick={() => setInstallmentOverride(String(installmentAmount * 2))}
-                            className="px-3 py-1.5 text-xs font-bold text-[#1E3A5F] border border-[#1E3A5F] rounded-lg bg-blue-50 hover:bg-blue-100"
-                          >
-                            ×2
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-400">Quick set (slots):</span>
+                            {[1, 2, 3, 4].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => setInstallmentOverride(String(installmentAmount * n))}
+                                className={`px-2.5 py-1 text-xs font-bold rounded-md border transition-colors ${
+                                  Number(installmentOverride) === installmentAmount * n
+                                    ? 'border-[#1E3A5F] bg-[#EEF2F8] text-[#1E3A5F]'
+                                    : 'border-gray-300 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
+                                }`}
+                              >
+                                ×{n}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>

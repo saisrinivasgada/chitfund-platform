@@ -1547,13 +1547,12 @@ function PayoutsTab() {
                                 <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>
                                   Draw {selectedWinner.monthNumber} installment
                                 </Text>
-                                {winningMonthRemaining === 0 ? (
-                                  <Text style={{ fontSize: 11, color: C.green, marginTop: 2 }}>Already fully paid ✓</Text>
-                                ) : (
-                                  <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
-                                    ₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding · set ×2 for double payout
-                                  </Text>
-                                )}
+                                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+                                  ₹{installmentAmount.toLocaleString('en-IN')}/slot
+                                  {winningMonthRemaining > 0
+                                    ? ` · ₹${winningMonthRemaining.toLocaleString('en-IN')} outstanding`
+                                    : ' · already paid'}
+                                </Text>
                               </View>
                               <Switch
                                 value={cpCollectCurrentMonth}
@@ -1567,20 +1566,30 @@ function PayoutsTab() {
                               />
                             </View>
                             {cpCollectCurrentMonth && (
-                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                              <View style={{ marginTop: 8 }}>
                                 <TextInput
                                   value={cpInstallmentAmt}
                                   onChangeText={setCpInstallmentAmt}
                                   keyboardType="numeric"
-                                  placeholder={String(winningMonthRemaining || installmentAmount)}
+                                  placeholder="0"
                                   placeholderTextColor={C.gray400}
-                                  style={{ flex: 1, borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, padding: 10, fontSize: 14, color: C.gray900 }}
+                                  style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, padding: 10, fontSize: 15, color: C.gray900, fontWeight: '600', marginBottom: 6 }}
                                 />
-                                <TouchableOpacity
-                                  onPress={() => setCpInstallmentAmt(String(installmentAmount * 2))}
-                                  style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.navy50 }}>
-                                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>×2</Text>
-                                </TouchableOpacity>
+                                <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 4 }}>
+                                  Quick set (₹{installmentAmount.toLocaleString('en-IN')} × slots):
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 6 }}>
+                                  {[1, 2, 3, 4].map((n) => (
+                                    <TouchableOpacity
+                                      key={n}
+                                      onPress={() => setCpInstallmentAmt(String(installmentAmount * n))}
+                                      style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5, borderColor: Number(cpInstallmentAmt) === installmentAmount * n ? C.navy : C.gray300, backgroundColor: Number(cpInstallmentAmt) === installmentAmount * n ? C.navy50 : C.white }}>
+                                      <Text style={{ fontSize: 12, fontWeight: '700', color: Number(cpInstallmentAmt) === installmentAmount * n ? C.navy : C.gray500 }}>
+                                        ×{n}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
                               </View>
                             )}
                           </View>
