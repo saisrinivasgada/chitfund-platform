@@ -1726,19 +1726,26 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       }
 
       // Allocate winner(s) — records who won this cycle; payout is managed separately in Winners tab
+      // Same member holding both slots → ONE record with combined amount (not two separate payouts)
+      const primaryAmt = Number(primaryWinnerSlot?.payoutAmount ?? chit?.chitValue ?? 0);
+      const extraSlotObj = addExtra && extraSlotId ? reservations.find((r) => r.id === extraSlotId) : null;
+      const extraAmt = Number(extraSlotObj?.payoutAmount ?? chit?.chitValue ?? 0);
+      const isSameMember = addExtra && extraMemberId && extraMemberId === primaryWinnerSlot?.memberId;
       const winnersToRecord = [
-        ...(primaryWinnerSlot ? [{ memberId: primaryWinnerSlot.memberId, slot: primaryWinnerSlot }] : []),
-        ...(addExtra && extraMemberId && extraSlotId
-          ? [{ memberId: extraMemberId, slot: reservations.find((r) => r.id === extraSlotId) }]
+        ...(primaryWinnerSlot
+          ? [{ memberId: primaryWinnerSlot.memberId, winningAmount: isSameMember ? primaryAmt + extraAmt : primaryAmt }]
+          : []),
+        ...(!isSameMember && extraMemberId && extraSlotObj
+          ? [{ memberId: extraMemberId, winningAmount: extraAmt }]
           : []),
       ];
       await Promise.all(
-        winnersToRecord.map(({ memberId, slot }) =>
+        winnersToRecord.map(({ memberId, winningAmount }) =>
           recordWinner({
             chitId,
             winnerId: memberId,
             monthNumber: nextCycleNum,
-            winningAmount: slot?.payoutAmount ?? chit?.chitValue ?? 0,
+            winningAmount,
             discountAmount: 0,
           }).catch(() => {})
         )
