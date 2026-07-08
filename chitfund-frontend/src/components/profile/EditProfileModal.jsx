@@ -465,9 +465,9 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           {/* ── Security tab ── */}
           {activeTab === 'security' && (
             <div className="space-y-4">
-              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100">
-                <ShieldCheck size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-blue-700">
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl border" style={{ backgroundColor: '#EEF2F8', borderColor: '#B8CCE4' }}>
+                <ShieldCheck size={15} color="#1E3A5F" className="flex-shrink-0 mt-0.5" />
+                <p className="text-sm" style={{ color: '#1E3A5F' }}>
                   Choose a strong password you don't use anywhere else.
                 </p>
               </div>

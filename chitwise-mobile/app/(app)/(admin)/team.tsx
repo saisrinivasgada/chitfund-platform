@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   listStaff, createStaff, activateStaff, deactivateStaff, changeStaffRole,
-  resetMemberPassword, getUserById, getWorkerRequests, getBatchesByCollector,
+  resetMemberPassword, getUserById, getWorkerRequests, getBatchesByCollector, getMembers,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, PhoneInput, Amount } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -59,6 +59,12 @@ export default function AdminTeamScreen() {
     queryKey: ['m-staff'],
     queryFn: listStaff,
   });
+
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 5 * 60_000 });
+  const memberMap: Record<string, string> = Object.fromEntries([
+    ...(staff as any[]).map((s: any) => [s.id, s.fullName ?? s.username ?? '—']),
+    ...(allMembers as any[]).map((m: any) => [m.id, m.fullName ?? m.name ?? '—']),
+  ]);
 
   const { data: selectedUser } = useQuery({
     queryKey: ['m-team-user-status', selected?.id],
@@ -308,7 +314,7 @@ export default function AdminTeamScreen() {
                           )}
                         </View>
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                          {r.memberName ?? r.memberId?.slice(0, 8) + '…'}
+                          {memberMap[r.memberId] ?? r.memberName ?? r.memberId?.slice(0, 8) + '…'}
                         </Text>
                         {r.chitName && (
                           <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{r.chitName}</Text>
@@ -332,7 +338,7 @@ export default function AdminTeamScreen() {
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                            {b.memberName ?? b.memberId?.slice(0, 8) + '…'}
+                            {memberMap[b.memberId] ?? b.memberName ?? b.memberId?.slice(0, 8) + '…'}
                           </Text>
                           {b.chitName && (
                             <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{b.chitName}</Text>

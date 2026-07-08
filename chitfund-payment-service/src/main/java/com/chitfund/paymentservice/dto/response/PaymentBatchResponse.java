@@ -22,6 +22,7 @@ public class PaymentBatchResponse {
     private BatchStatus status;
 
     private UUID collectedBy;
+    private UUID recordedBy;
     private LocalDateTime collectedAt;
     private LocalDateTime remittedAt;
     private UUID remittedBy;

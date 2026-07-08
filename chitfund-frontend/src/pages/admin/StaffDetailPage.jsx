@@ -6,10 +6,11 @@ import {
   resetMemberPassword,
   getWorkerRequests,
   getBatchesByCollector,
-  getMember,
   getChit,
   softDeleteStaff,
   changeStaffRole,
+  getMembers,
+  listStaff,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -70,7 +71,7 @@ function fmtDateTime(d) {
     + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-function CashPickupTrailModal({ request, workerName, onClose }) {
+function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) {
   const steps = [
     {
       icon: Clock,
@@ -124,7 +125,7 @@ function CashPickupTrailModal({ request, workerName, onClose }) {
         <div className="flex items-center gap-3 mb-5 px-1">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <MemberCell memberId={request.memberId} />
+              <MemberCell memberId={request.memberId} memberMap={memberMap} />
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                 request.status === 'COLLECTED' ? 'bg-green-100 text-green-700' :
                 request.status === 'PICKED_UP' ? 'bg-green-100 text-green-700' :
@@ -195,17 +196,6 @@ function CashPickupTrailModal({ request, workerName, onClose }) {
   );
 }
 
-// Fetches member name for a given memberId — cached by React Query
-function useMemberName(memberId) {
-  const { data } = useQuery({
-    queryKey: ['member', memberId],
-    queryFn: () => getMember(memberId),
-    staleTime: 5 * 60_000,
-    enabled: !!memberId,
-  });
-  return data?.name ?? data?.fullName ?? memberId?.slice(0, 8) + '…';
-}
-
 // Fetches chit name for a given chitId — cached by React Query
 function useChitName(chitId) {
   const { data } = useQuery({
@@ -217,8 +207,8 @@ function useChitName(chitId) {
   return data?.name ?? data?.chitName ?? '—';
 }
 
-function MemberCell({ memberId }) {
-  const name = useMemberName(memberId);
+function MemberCell({ memberId, memberMap = {} }) {
+  const name = memberMap[memberId] ?? memberId?.slice(0, 8) + '…';
   return (
     <Link
       to={`/members/${memberId}`}
@@ -352,6 +342,16 @@ export default function StaffDetailPage() {
     staleTime: 30_000,
     enabled: isCollector,
   });
+
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 5 * 60_000 });
+  const { data: allStaffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
+  const memberMap = Object.fromEntries([
+    ...allStaffList.map((s) => [s.id, s.fullName ?? s.username ?? '—']),
+    ...allMembers.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? '—';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
+  ]);
 
   const resetMutation = useMutation({
     mutationFn: () => resetMemberPassword(id),
@@ -549,7 +549,7 @@ export default function StaffDetailPage() {
                   const cfg = STATUS_BADGE[r.status] ?? { label: r.status, variant: 'default' };
                   return (
                     <Tr key={r.id}>
-                      <Td><MemberCell memberId={r.memberId} /></Td>
+                      <Td><MemberCell memberId={r.memberId} memberMap={memberMap} /></Td>
                       <Td><ChitCell chitId={r.chitId} /></Td>
                       <Td>
                         <span className="flex items-center gap-0.5 font-semibold text-gray-900">
@@ -604,7 +604,7 @@ export default function StaffDetailPage() {
                 const cfg = STATUS_BADGE[r.status] ?? { label: r.status, variant: 'default' };
                 return (
                   <Tr key={r.id}>
-                    <Td><MemberCell memberId={r.memberId} /></Td>
+                    <Td><MemberCell memberId={r.memberId} memberMap={memberMap} /></Td>
                     <Td><ChitCell chitId={r.chitId} /></Td>
                     <Td>
                       <span className="flex items-center gap-0.5 font-semibold text-gray-900">
@@ -663,7 +663,7 @@ export default function StaffDetailPage() {
                     b.status === 'AWAITING_REMITTANCE' ? 'Pending Remittance' : b.status;
                   return (
                     <Tr key={b.id}>
-                      <Td><MemberCell memberId={b.memberId} /></Td>
+                      <Td><MemberCell memberId={b.memberId} memberMap={memberMap} /></Td>
                       <Td><ChitCell chitId={b.chitId} /></Td>
                       <Td>
                         <span className="flex items-center gap-0.5 font-semibold text-gray-900">
@@ -691,6 +691,7 @@ export default function StaffDetailPage() {
         <CashPickupTrailModal
           request={trailRequest}
           workerName={staff.fullName ?? staff.username}
+          memberMap={memberMap}
           onClose={() => setTrailRequest(null)}
         />
       )}

@@ -60,6 +60,21 @@ public class InternalMemberController {
     }
 
     /**
+     * Returns the full name of a member for use in notification messages.
+     */
+    @GetMapping("/{memberId}/name")
+    public ResponseEntity<Map<String, String>> getMemberName(
+            @PathVariable UUID memberId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        }
+        return memberRepository.findById(memberId)
+                .map(m -> ResponseEntity.ok(Map.of("name", m.getFullName() != null ? m.getFullName() : "")))
+                .orElse(ResponseEntity.ok(Map.of("name", "")));
+    }
+
+    /**
      * Batch-resolve member profile IDs → user IDs for notification delivery.
      * Returns a map of { memberId → userId } for members that have an app account.
      */

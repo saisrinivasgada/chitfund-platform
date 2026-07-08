@@ -385,8 +385,11 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminOption = me ? { id: me.id, fullName: `${me.username} (Admin)` } : null;
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const adminOptions = staffList.map((s) => ({
+    id: s.id,
+    fullName: `${s.fullName ?? s.username} (Admin)`,
+  }));
 
   const initMonth  = prefill?.reservationMonth ? prefill.reservationMonth.substring(0, 7) : '';
   const initPayout = prefill?.payoutAmount     ? String(prefill.payoutAmount)             : '';
@@ -432,9 +435,9 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
         <FormField label="Member (optional — leave blank for Unallocated)">
           <Select value={form.memberId} onChange={(e) => setForm((f) => ({ ...f, memberId: e.target.value }))}>
             <option value="">— Unallocated —</option>
-            {adminOption && (chit?.adminHeldSpotsCount ?? 0) > 0 && (
-              <option key={adminOption.id} value={adminOption.id}>{adminOption.fullName}</option>
-            )}
+            {(chit?.adminHeldSpotsCount ?? 0) > 0 && adminOptions.map((ao) => (
+              <option key={ao.id} value={ao.id}>{ao.fullName}</option>
+            ))}
             {activeMembers.map((m) => (
               <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
             ))}
@@ -576,6 +579,201 @@ function MemberInfoPopover({ member }) {
         </div>
       )}
     </>
+  );
+}
+
+function SlotAuditTooltip({ slot, memberMap }) {
+  const [coords, setCoords] = useState(null);
+  const updatedByObj = slot.updatedBy ? memberMap[String(slot.updatedBy)] : null;
+  const updatedByName = updatedByObj
+    ? (updatedByObj.fullName ?? updatedByObj.name)
+    : slot.updatedBy ? `ID: ${String(slot.updatedBy).slice(0, 8)}…` : null;
+
+  return (
+    <>
+      <span
+        className="inline-flex cursor-help flex-shrink-0"
+        onMouseEnter={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setCoords({ x: r.left + r.width / 2, y: r.top });
+        }}
+        onMouseLeave={() => setCoords(null)}
+      >
+        <Info size={11} className="text-gray-300 hover:text-[#1E3A5F] transition-colors" />
+      </span>
+      {coords && (
+        <div
+          className="fixed w-56 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-[9999] pointer-events-none"
+          style={{ left: coords.x, top: coords.y - 10, transform: 'translate(-50%, -100%)' }}
+        >
+          <p className="text-xs font-semibold text-gray-700 mb-1.5">Last modified</p>
+          {updatedByName && (
+            <div className="flex items-center gap-1.5 text-xs text-gray-600">
+              <Users size={11} className="flex-shrink-0 text-gray-400" /> {updatedByName}
+            </div>
+          )}
+          {slot.updatedAt && (
+            <div className="flex items-center gap-1.5 mt-1 text-xs text-gray-500">
+              <Clock size={11} className="flex-shrink-0 text-gray-400" />
+              {new Date(slot.updatedAt).toLocaleString('en-IN', {
+                day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            </div>
+          )}
+          {slot.createdAt && (
+            <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-gray-100 text-xs text-gray-400">
+              Created {new Date(slot.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── Member / Admin picker modal ─────────────────────────────────────────────
+function MemberPickerRow({ id, name, phone, city, isAdmin, isSelected, balance, slotCount, onSelect }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-gray-50 last:border-0 ${isSelected ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'}`}
+    >
+      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${isAdmin ? 'bg-amber-600 text-white' : 'bg-[#1E3A5F] text-white'}`}>
+        {isAdmin ? '★' : (name?.[0] ?? '?').toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-medium text-gray-900 truncate">{name}</span>
+          {isAdmin && (
+            <span className="inline-flex items-center text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
+              Admin
+            </span>
+          )}
+          {isSelected && (
+            <span className="inline-flex items-center text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
+              Selected
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          {phone && <span className="text-xs text-gray-400">{phone}</span>}
+          {city && <span className="text-xs text-gray-400">{phone ? '·' : ''} {city}</span>}
+        </div>
+      </div>
+      <div className="text-right flex-shrink-0 min-w-[90px] space-y-0.5">
+        {slotCount > 0 && (
+          <p className="text-xs font-semibold text-[#1E3A5F]">{slotCount} ({slotCount === 1 ? 'total spot' : 'total spots'})</p>
+        )}
+        {balance !== undefined && (
+          <p className={`text-xs font-medium ${Number(balance) > 0 ? 'text-red-500' : 'text-green-600'}`}>
+            {Number(balance) > 0
+              ? `₹${Number(balance).toLocaleString('en-IN')} due`
+              : '✓ clear'}
+          </p>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function MemberPickerModal({ slots, members, adminOptions, canShowAdmins, value, onChange, onClose }) {
+  const [search, setSearch] = useState('');
+  const searchRef = useRef(null);
+
+  useEffect(() => { searchRef.current?.focus(); }, []);
+
+  const allPickableIds = [
+    ...(canShowAdmins ? adminOptions.map((a) => String(a.id)) : []),
+    ...members.map((m) => String(m.id)),
+  ];
+
+  const { data: balanceMap = {} } = useQuery({
+    queryKey: ['balances-picker', allPickableIds.slice().sort().join(',')],
+    queryFn: () => getMemberBalanceBulk(allPickableIds),
+    enabled: allPickableIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  // Slot count per member IN THIS CHIT (excluding voided)
+  const slotCountMap = {};
+  for (const s of slots) {
+    if (s.memberId && s.status !== 'VOIDED') {
+      const k = String(s.memberId);
+      slotCountMap[k] = (slotCountMap[k] ?? 0) + 1;
+    }
+  }
+
+  const q = search.toLowerCase().trim();
+  const filteredAdmins = (canShowAdmins ? adminOptions : []).filter(
+    (a) => !q || (a.fullName ?? '').toLowerCase().includes(q)
+  );
+  const filteredMembers = members.filter((m) => {
+    if (!q) return true;
+    return (
+      (m.fullName ?? m.name ?? '').toLowerCase().includes(q) ||
+      (m.phone ?? '').includes(search) ||
+      (m.city ?? '').toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <Modal title="Select Member or Admin" onClose={onClose} size="md">
+      <div className="px-4 pt-1 pb-3 border-b border-gray-100">
+        <input
+          ref={searchRef}
+          type="text"
+          placeholder="Search by name, phone or city…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]"
+        />
+      </div>
+      <div className="max-h-[480px] overflow-y-auto">
+        {/* Unallocated */}
+        <button
+          type="button"
+          onClick={() => { onChange(''); onClose(); }}
+          className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-gray-50 transition-colors ${!value ? 'bg-blue-50 hover:bg-blue-100' : 'hover:bg-gray-50'}`}
+        >
+          <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-base flex-shrink-0">—</div>
+          <span className="text-sm text-gray-500 italic flex-1">Unallocated</span>
+          {!value && <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Selected</span>}
+        </button>
+        {filteredAdmins.map((a) => (
+          <MemberPickerRow
+            key={a.id}
+            id={a.id}
+            name={a.fullName}
+            phone=""
+            city=""
+            isAdmin
+            isSelected={String(value) === String(a.id)}
+            balance={balanceMap[String(a.id)]}
+            slotCount={slotCountMap[String(a.id)] ?? 0}
+            onSelect={() => { onChange(String(a.id)); onClose(); }}
+          />
+        ))}
+        {filteredMembers.map((m) => (
+          <MemberPickerRow
+            key={m.id}
+            id={m.id}
+            name={m.fullName ?? m.name}
+            phone={m.phone}
+            city={m.city}
+            isAdmin={false}
+            isSelected={String(value) === String(m.id)}
+            balance={balanceMap[String(m.id)]}
+            slotCount={slotCountMap[String(m.id)] ?? 0}
+            onSelect={() => { onChange(String(m.id)); onClose(); }}
+          />
+        ))}
+        {filteredAdmins.length === 0 && filteredMembers.length === 0 && (
+          <div className="py-10 text-center text-sm text-gray-400">No matches for "{search}"</div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -874,6 +1072,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const [deletingSlot, setDeletingSlot] = useState(null);  // voided slot being permanently deleted
   const [fillingSlot, setFillingSlot] = useState(null);    // voided slot being filled with a new slot at same position
   const [historySlot, setHistorySlot] = useState(null);    // slot whose audit history is being viewed
+  const [pickerSlot, setPickerSlot] = useState(null);      // slot whose member picker popup is open
 
   // Local edits keyed by slot.id — only set when a user modifies a row
   const [edits, setEdits] = useState({});
@@ -884,14 +1083,20 @@ function ReservationScheduleTab({ chitId, chit }) {
   });
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminOption = me ? { id: me.id, fullName: `${me.username} (Admin)` } : null;
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const adminOptions = staffList.map((s) => ({
+    id: s.id,
+    fullName: `${s.fullName ?? s.username} (Admin)`,
+  }));
   const memberMap = Object.fromEntries([
-    ...(adminOption ? [[String(adminOption.id), adminOption]] : []),
+    ...adminOptions.map((ao) => [String(ao.id), ao]),
     ...allMembers.map((m) => [String(m.id), m]),
   ]);
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
+
+  // Precompute for member picker: which IDs are regular members vs. admins
+  const memberIdSet = new Set(activeMembers.map((m) => String(m.id)));
 
   // Current displayed value for a field — edit state wins over server state
   function getEdit(slot) {
@@ -1119,34 +1324,19 @@ function ReservationScheduleTab({ chitId, chit }) {
                             {memberObj && <MemberInfoPopover member={memberObj} />}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-3">
-                            {(() => {
-                              const adminHeld = chit?.adminHeldSpotsCount ?? 0;
-                              const allocatedAdminSlots = adminOption
-                                ? slots.filter((s) => s.id !== slot.id && String(s.memberId) === String(adminOption.id)).length
-                                : 0;
-                              const isAlreadyAdmin = adminOption && edit.memberId === String(adminOption.id);
-                              const canAddAdmin = adminHeld > 0 && (isAlreadyAdmin || allocatedAdminSlots < adminHeld);
-                              return (
-                                <Select
-                                  value={edit.memberId}
-                                  onChange={(e) => updateEdit(slot, 'memberId', e.target.value)}
-                                  className="w-40"
-                                >
-                                  <option value="">Unallocated</option>
-                                  {adminOption && canAddAdmin && (
-                                    <option key={adminOption.id} value={adminOption.id} title={adminOption.fullName}>
-                                      {shortName(adminOption.fullName)}
-                                    </option>
-                                  )}
-                                  {activeMembers.map((m) => (
-                                    <option key={m.id} value={m.id} title={m.fullName ?? m.name}>
-                                      {shortName(m.fullName ?? m.name)}
-                                    </option>
-                                  ))}
-                                </Select>
-                              );
-                            })()}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPickerSlot(slot)}
+                              className="flex items-center gap-2 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white hover:border-[#1E3A5F] transition-colors w-44 text-left"
+                            >
+                              <span className="flex-1 truncate text-gray-700">
+                                {edit.memberId
+                                  ? (memberMap[edit.memberId]?.fullName ?? memberMap[edit.memberId]?.name ?? 'Unknown')
+                                  : <span className="text-gray-400 italic">Unallocated</span>}
+                              </span>
+                              <ChevronDown size={13} className="text-gray-400 flex-shrink-0" />
+                            </button>
                             {edit.memberId && (
                               <span className="flex-shrink-0">
                                 <MemberInfoPopover member={memberMap[edit.memberId]} />
@@ -1185,9 +1375,12 @@ function ReservationScheduleTab({ chitId, chit }) {
                             </span>
                           )}
                           {slot.updatedAt && (
-                            <span className="text-xs text-gray-400" title={new Date(slot.updatedAt).toLocaleString('en-IN')}>
-                              {new Date(slot.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-gray-400">
+                                {new Date(slot.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                              <SlotAuditTooltip slot={slot} memberMap={memberMap} />
+                            </div>
                           )}
                         </div>
                       </td>
@@ -1298,6 +1491,27 @@ function ReservationScheduleTab({ chitId, chit }) {
           onClose={() => setHistorySlot(null)}
         />
       )}
+
+      {pickerSlot && (() => {
+        const adminHeld = chit?.adminHeldSpotsCount ?? 0;
+        const edit = getEdit(pickerSlot);
+        const allocatedAdminSlots = slots.filter(
+          (s) => s.id !== pickerSlot.id && s.memberId && !memberIdSet.has(String(s.memberId))
+        ).length;
+        const currentIsAdmin = edit.memberId && !memberIdSet.has(edit.memberId);
+        const canShowAdmins = adminHeld > 0 && (currentIsAdmin || allocatedAdminSlots < adminHeld);
+        return (
+          <MemberPickerModal
+            slots={slots}
+            members={activeMembers}
+            adminOptions={adminOptions}
+            canShowAdmins={canShowAdmins}
+            value={edit.memberId}
+            onChange={(val) => updateEdit(pickerSlot, 'memberId', val)}
+            onClose={() => setPickerSlot(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -1383,10 +1597,9 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
     queryFn: () => getReservations(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: meUser } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminMemberOption = meUser ? { id: meUser.id, fullName: `${meUser.username} (Admin)` } : null;
+  const { data: staffListDraw = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const memberMap = Object.fromEntries([
-    ...(adminMemberOption ? [[String(adminMemberOption.id), adminMemberOption]] : []),
+    ...staffListDraw.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)`, phone: null }]),
     ...allMembers.map((m) => [m.id, m]),
   ]);
   // Only ACTIVE members can be selected for additional early payout
@@ -1415,10 +1628,10 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
     .sort((a, b) => (a.monthNumber ?? 999) - (b.monthNumber ?? 999))[0] ?? null;
   const cyclePayoutAmount = primaryWinnerSlot?.payoutAmount ? Number(primaryWinnerSlot.payoutAmount) : null;
 
-  // Candidates for additional early payout: active enrolled members (+ admin) with RESERVED slots, excluding primary winner
+  // Candidates for additional early payout: all enrolled members (members + any admin) with RESERVED slots
   const activeMemberIds = new Set([
     ...activeMembers.map((m) => String(m.id)),
-    ...(adminMemberOption ? [String(adminMemberOption.id)] : []),
+    ...staffListDraw.map((s) => String(s.id)),
   ]);
   const extraCandidates = (() => {
     const seen = new Set();
@@ -1470,6 +1683,8 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
         previousBalance,
         processedCount:  processedSlots.length,
         reservedCount:   reservedSlots.length,
+        reservedSlotNums: reservedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
+        processedSlotNums: processedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
         amountDue,
         isWinner, isPrimary, isExtra,
         netPayout,
@@ -1539,7 +1754,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
     ? reservations.filter((r) => r.status === 'PROCESSED').length : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-8 lg:p-10">
       {/* Backdrop */}
       <div
         className="absolute inset-0"
@@ -1549,12 +1764,12 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       />
 
       {/* Dialog */}
-      <div className="relative w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[90vh]">
+      <div className="relative w-full sm:max-w-3xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[82vh]">
 
         {/* ── Left panel — navy context sidebar ── */}
         <div
           className="flex-shrink-0 sm:w-52 px-6 py-6 flex flex-col gap-5 overflow-y-auto"
-          style={{ background: 'linear-gradient(160deg, #1E3A5F 0%, #243F6A 60%, #2C5282 100%)' }}
+          style={{ background: 'linear-gradient(160deg, #162D49 0%, #1E3A5F 60%, #243F6A 100%)' }}
         >
           {/* Draw number */}
           <div>
@@ -1713,7 +1928,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 {/* Stats row */}
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Due Date', value: new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) },
+                    { label: 'Due Date', value: (() => { const [y,m,d] = dueDate.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); })() },
                     { label: 'Members', value: preview.members.length },
                     { label: 'Total', value: `₹${totalCollection.toLocaleString()}` },
                   ].map(({ label, value }) => (
@@ -1766,6 +1981,20 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                                     </span>
                                   )}
                                 </div>
+                                {(m.reservedSlotNums?.length > 0 || m.processedSlotNums?.length > 0) && (
+                                  <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                    {m.reservedSlotNums?.map((n) => (
+                                      <span key={n} className="text-[10px] font-semibold bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-md">
+                                        Slot #{n}
+                                      </span>
+                                    ))}
+                                    {m.processedSlotNums?.map((n) => (
+                                      <span key={n} className="text-[10px] font-semibold bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-md line-through">
+                                        Slot #{n}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </td>
                             <td className="px-4 py-2.5 text-right align-middle">
@@ -2426,10 +2655,9 @@ function DrawsTab({ chitId, chit }) {
     queryFn: () => getEnrollments(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminOption = me ? { id: me.id, fullName: `${me.username} (Admin)` } : null;
+  const { data: staffListDraws = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const memberMap = Object.fromEntries([
-    ...(adminOption ? [[String(adminOption.id), adminOption]] : []),
+    ...staffListDraws.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
     ...allMembers.map((m) => [m.id, m]),
   ]);
 
@@ -2766,10 +2994,9 @@ function RecordWinnerModal({ chitId, winnerSelectionMode, onClose }) {
     queryFn: () => getEnrollments(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: meRec } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminRecOption = meRec ? { id: meRec.id, fullName: `${meRec.username} (Admin)` } : null;
+  const { data: recStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
   const memberMap = Object.fromEntries([
-    ...(adminRecOption ? [[String(adminRecOption.id), adminRecOption]] : []),
+    ...(recStaff ?? []).map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
     ...allMembers.map((m) => [m.id, m]),
   ]);
 
@@ -2844,11 +3071,10 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
     queryFn: () => getPayoutsByChit(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: meWinner } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminWinnerOption = meWinner ? { id: meWinner.id, fullName: `${meWinner.username} (Admin)` } : null;
+  const { data: allStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
   const memberMap = Object.fromEntries([
-    ...(adminWinnerOption ? [[String(adminWinnerOption.id), adminWinnerOption]] : []),
-    ...allMembers.map((m) => [m.id, m]),
+    ...allStaff.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
+    ...allMembers.map((m) => [String(m.id), m]),
   ]);
   // Key: `${monthNumber}:${memberId}` — supports multiple winners per cycle (double payout)
   const payoutByKey = Object.fromEntries(

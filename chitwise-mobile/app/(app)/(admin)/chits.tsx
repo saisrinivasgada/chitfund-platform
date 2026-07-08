@@ -15,6 +15,7 @@ import {
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot, hardDeleteReservationSlot,
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
+  listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -278,6 +279,7 @@ export default function AdminChitsScreen() {
     queryFn: () => getPaymentBatches(undefined, selected!.id),
     enabled: !!selected?.id && detailTab === 'draws',
   });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
 
   // ── Mutations: list/create ─────────────────────────────────────────────────
   function buildMonthRows(startDateStr: string, count: number, defaultPayout: string) {
@@ -479,6 +481,11 @@ export default function AdminChitsScreen() {
     onSuccess: () => {
       setShowCollectPay(false);
       setCpDraw(null); setCpMemberId(''); setCpAmount(''); setCpMode('CASH'); setCpNotes('');
+      qc.invalidateQueries({ predicate: (q: any) => q.queryKey[0] === 'draw-payments' });
+      if (selected?.id) {
+        qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
+        qc.invalidateQueries({ queryKey: ['a-payment-history', selected.id, cpMemberId] });
+      }
       toast.saved('Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Payment failed'),
@@ -563,8 +570,9 @@ export default function AdminChitsScreen() {
     mutationFn: () => createPayout({
       memberId: wpWinner?.memberId ?? wpWinner?.winnerId,
       chitId: selected?.id,
-      drawNumber: wpWinner?.monthNumber ?? wpWinner?.drawNumber,
-      payoutAmount: Number(wpAmount),
+      monthNumber: wpWinner?.monthNumber ?? wpWinner?.drawNumber,
+      winningAmount: Number(wpAmount),
+      discountAmount: 0,
       notes: wpNotes || undefined,
     }),
     onSuccess: () => {
@@ -591,7 +599,10 @@ export default function AdminChitsScreen() {
   });
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const memberMap = Object.fromEntries((members as any[]).map((m) => [m.id, m.fullName ?? m.name ?? '—']));
+  const memberMap: Record<string, string> = Object.fromEntries([
+    ...(staff as any[]).map((s) => [String(s.id), `${s.fullName ?? s.username} (Admin)`]),
+    ...(members as any[]).map((m) => [String(m.id), m.fullName ?? m.name ?? '—']),
+  ]);
   const enrolledIds = new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id));
   const unenrolled = (members as any[]).filter((m) => !enrolledIds.has(m.id));
   const reservedSlots = (reservations as any[]).filter((r) => r.status === 'RESERVED');
@@ -1270,6 +1281,11 @@ export default function AdminChitsScreen() {
                     const isVoided = slot.status === 'VOIDED';
                     const isEditing = editingSlotId === slot.id;
                     const activeMembers = (members as any[]).filter((m: any) => m.status === 'ACTIVE').sort((a: any, b: any) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
+                    const adminHeld = selected?.adminHeldSpotsCount ?? 0;
+                    const memberIdSet = new Set((members as any[]).map((m: any) => String(m.id)));
+                    const allocatedAdminSlots = slotsList.filter((s: any) => s.id !== slot.id && s.memberId && !memberIdSet.has(String(s.memberId)) && s.status !== 'VOIDED').length;
+                    const currentIsAdmin = slot.memberId && !memberIdSet.has(String(slot.memberId));
+                    const canShowAdmins = adminHeld > 0 && (currentIsAdmin || allocatedAdminSlots < adminHeld);
                     const mName = slot.memberName ?? memberMap[slot.memberId] ?? (slot.memberId ? 'Unknown' : 'Unallocated');
                     const monthLabel = slot.reservationMonth ? (() => {
                       const [y, m] = slot.reservationMonth.split('-').map(Number);
@@ -1317,6 +1333,15 @@ export default function AdminChitsScreen() {
                                       Unallocated
                                     </Text>
                                   </TouchableOpacity>
+                                  {canShowAdmins && (staff as any[]).map((s: any) => (
+                                    <TouchableOpacity key={s.id}
+                                      onPress={() => setSlotEditMemberId(String(s.id))}
+                                      style={{ padding: 10, backgroundColor: slotEditMemberId === String(s.id) ? C.navy + '15' : '#F0F4FF', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                                      <Text style={{ fontSize: 13, color: slotEditMemberId === String(s.id) ? C.navy : C.navy, fontWeight: '600' }}>
+                                        {s.fullName ?? s.username} (Admin)
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ))}
                                   {activeMembers.map((m: any) => (
                                     <TouchableOpacity key={m.id}
                                       onPress={() => setSlotEditMemberId(m.id)}

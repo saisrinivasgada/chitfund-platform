@@ -96,7 +96,12 @@ export default function ManagerHomePage() {
     staleTime: 300_000,
   });
 
-  const memberMap = Object.fromEntries(members.map((m) => [m.id, m.fullName ?? m.name ?? '—']));
+  const memberMap = Object.fromEntries(
+    members.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? '—';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    })
+  );
   const chitMap   = Object.fromEntries(chits.map((c)  => [c.id, c.name ?? '—']));
   const staffMap  = Object.fromEntries(staff.map((s)  => [s.id, s.fullName ?? s.username ?? 'Staff']));
 

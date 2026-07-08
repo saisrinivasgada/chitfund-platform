@@ -11,6 +11,7 @@ import {
   getWalletBalance, getUnreadCount,
   adminCreateCashRequest, getAuditLogs,
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
+  getMe, getChitsForMember, getMemberTotalBalance,
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -42,6 +43,19 @@ export default function AdminDashboard() {
   const { data: todayBatchesRaw = [], refetch: refetchBatches  } = useQuery({ queryKey: ['m-today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
   const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
   const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
+
+  // My Participation — admin's own slots in chits
+  const { data: me } = useQuery({ queryKey: ['a-me'], queryFn: getMe });
+  const { data: myChits = [] } = useQuery({
+    queryKey: ['a-my-chits', me?.id],
+    queryFn: () => getChitsForMember(me!.id),
+    enabled: !!me?.id,
+  });
+  const { data: myBalance } = useQuery({
+    queryKey: ['a-my-balance', me?.id],
+    queryFn: () => getMemberTotalBalance(me!.id),
+    enabled: !!me?.id,
+  });
 
   const newRequestMutation = useMutation({
     mutationFn: () => adminCreateCashRequest(nrMemberId, nrChitId, parseFloat(nrAmount), undefined, nrNotes),
@@ -158,6 +172,42 @@ export default function AdminDashboard() {
             onPress={() => router.push('/(app)/(admin)/activity')}
           />
         </View>
+
+        {/* My Participation — only when admin holds slots in active chits */}
+        {(myChits as any[]).length > 0 && (() => {
+          const activeMyChits = (myChits as any[]).filter((c: any) => c.status === 'ACTIVE');
+          if (activeMyChits.length === 0) return null;
+          const outstandingBalance = Number((myBalance as any)?.totalBalance ?? (myBalance as any)?.balance ?? 0);
+          return (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push('/(app)/(admin)/chits')}
+              style={{
+                backgroundColor: '#FFFBEB', borderRadius: 16, padding: 16, marginBottom: 16,
+                borderWidth: 1.5, borderColor: '#FCD34D',
+                shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
+              }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E', letterSpacing: 1, marginBottom: 4 }}>MY PARTICIPATION</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#78350F' }}>
+                    Holding slots in {activeMyChits.length} active chit{activeMyChits.length > 1 ? 's' : ''}
+                  </Text>
+                  {outstandingBalance !== 0 ? (
+                    <Text style={{ fontSize: 13, color: outstandingBalance > 0 ? '#DC2626' : '#059669', fontWeight: '600', marginTop: 2 }}>
+                      {outstandingBalance > 0
+                        ? `₹${outstandingBalance.toLocaleString('en-IN')} outstanding`
+                        : `₹${Math.abs(outstandingBalance).toLocaleString('en-IN')} credit`}
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 13, color: '#059669', fontWeight: '600', marginTop: 2 }}>All dues clear ✓</Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 20, marginLeft: 12 }}>🏷️</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })()}
 
         {/* Quick Actions */}
         <SectionHeader title="Quick Actions" />

@@ -41,6 +41,9 @@ jwt:
   access-token-expiry-ms: ${JWT_ACCESS_EXPIRY_MS:86400000}
   refresh-token-expiry-days: ${JWT_REFRESH_EXPIRY_DAYS:7}
 
+app:
+  internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
+
 management:
   endpoints:
     web:

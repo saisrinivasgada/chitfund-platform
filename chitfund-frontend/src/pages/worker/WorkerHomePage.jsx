@@ -71,7 +71,12 @@ export default function WorkerHomePage() {
     staleTime: 5 * 60_000,
   });
 
-  const memberMap = Object.fromEntries(members.map((m) => [m.id, m.fullName ?? m.name ?? '—']));
+  const memberMap = Object.fromEntries(
+    members.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? '—';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    })
+  );
   const chitMap   = Object.fromEntries(chits.map((c)   => [c.id, c.name ?? c.chitName ?? '—']));
 
   const collectedHistory = history.filter((r) => r.status === 'COLLECTED');

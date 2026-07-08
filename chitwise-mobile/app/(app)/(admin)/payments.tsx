@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
-  getCashRequestAuditLog, assignWorkerToRequest, listStaff, adminCreateCashRequest,
+  getCashRequestAuditLog, assignWorkerToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
   getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout,
@@ -49,6 +49,12 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   const [assignWorkerId, setAssignWorkerId] = useState('');
   const [assignNotes, setAssignNotes] = useState('');
 
+  // Edit request
+  const [editTarget, setEditTarget] = useState<any>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editWorkerId, setEditWorkerId] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
   // Void pickup
   const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
@@ -76,7 +82,13 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
     enabled: !!auditTarget,
   });
 
-  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const memberMap = Object.fromEntries([
+    ...(staff as any[]).map((s: any) => [s.id, `${s.fullName ?? s.username ?? '—'} (Admin)`]),
+    ...(members as any[]).flatMap((m: any) => {
+      const name = m.fullName ?? '—';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
+  ]);
   const workers = (staff as any[]).filter((s: any) => ['WORKER', 'MANAGER'].includes(s.role));
   const workerMap = Object.fromEntries((staff as any[]).map((w: any) => [w.id, w.fullName ?? w.username ?? '—']));
 
@@ -126,6 +138,21 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       toast.assigned('Worker assigned');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Assignment failed — please try again.'),
+  });
+
+  const editMut = useMutation({
+    mutationFn: () => updateCashRequest(editTarget.id, {
+      requestedAmount: editAmount ? Number(editAmount) : undefined,
+      updateWorker: editWorkerId !== (editTarget.assignedWorkerId ?? ''),
+      workerId: editWorkerId || null,
+      adminNotes: editNotes || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+      setEditTarget(null);
+      toast.assigned('Request updated');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Update failed'),
   });
 
   const setupMut = useMutation({
@@ -268,6 +295,15 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 
             {/* Action buttons */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {(r.status === 'PENDING' || r.status === 'ASSIGNED') && (
+                <Button label="Edit" variant="outline" size="sm"
+                  onPress={() => {
+                    setEditTarget(r);
+                    setEditAmount(r.requestedAmount != null ? String(r.requestedAmount) : '');
+                    setEditWorkerId(r.assignedWorkerId ?? '');
+                    setEditNotes(r.adminNotes ?? '');
+                  }} />
+              )}
               {r.status === 'PENDING' && (
                 <Button label="Assign Worker" variant="primary" size="sm"
                   onPress={() => { setAssignTarget(r); setAssignWorkerId(''); setAssignNotes(''); }} />
@@ -456,6 +492,75 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             />
           </ScrollView>
         </SafeAreaView>
+      </Modal>
+
+      {/* ── Edit Cash Request Modal ─────────────────────────────────────────── */}
+      <Modal visible={!!editTarget} animationType="slide" transparent onRequestClose={() => setEditTarget(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Edit Cash Pickup</Text>
+              <TouchableOpacity onPress={() => setEditTarget(null)}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {editTarget && (
+              <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+                {memberMap[editTarget.memberId]} · {editTarget.status}
+              </Text>
+            )}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Amount */}
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Amount (₹)</Text>
+              <TextInput
+                value={editAmount}
+                onChangeText={setEditAmount}
+                placeholder="Leave blank to keep current"
+                placeholderTextColor={C.gray400}
+                keyboardType="numeric"
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+              />
+
+              {/* Worker */}
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Assigned Worker</Text>
+              <TouchableOpacity
+                onPress={() => setEditWorkerId('')}
+                style={{ padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                  borderColor: editWorkerId === '' ? C.navy : C.gray200,
+                  backgroundColor: editWorkerId === '' ? '#EEF2F8' : C.white }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: editWorkerId === '' ? C.navy : C.gray700 }}>— Unassign —</Text>
+              </TouchableOpacity>
+              {workers.map((w: any) => (
+                <TouchableOpacity key={w.id} onPress={() => setEditWorkerId(w.id)}
+                  style={{ padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 2,
+                    borderColor: editWorkerId === w.id ? C.navy : C.gray200,
+                    backgroundColor: editWorkerId === w.id ? '#EEF2F8' : C.white }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: editWorkerId === w.id ? C.navy : C.gray700 }}>
+                    {w.fullName ?? w.username}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: C.gray400, textTransform: 'capitalize' }}>{w.role.toLowerCase()}</Text>
+                </TouchableOpacity>
+              ))}
+
+              {/* Notes */}
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginTop: 8, marginBottom: 6 }}>Admin Notes</Text>
+              <TextInput
+                value={editNotes}
+                onChangeText={setEditNotes}
+                placeholder="Internal note (optional)"
+                placeholderTextColor={C.gray400}
+                multiline
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, minHeight: 64, fontSize: 14, color: C.gray900, marginBottom: 16, textAlignVertical: 'top' }}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 10, paddingBottom: 8 }}>
+                <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setEditTarget(null)} /></View>
+                <View style={{ flex: 1 }}><Button label="Save Changes" variant="primary" loading={editMut.isPending} onPress={() => editMut.mutate()} /></View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
       {/* ── Void Pickup Modal ───────────────────────────────────────────────── */}
@@ -648,6 +753,9 @@ function RecordPaymentTab() {
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
+      // Refresh draw payment rows in chits screen
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draw-payments' });
+      if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment — please try again.'),
@@ -1726,7 +1834,10 @@ function RemittanceTab() {
     refetchInterval: 30_000,
   });
 
-  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const memberMap = Object.fromEntries((members as any[]).flatMap((m: any) => {
+    const name = m.fullName ?? '—';
+    return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+  }));
   const staffMap = Object.fromEntries((staff as any[]).map((s: any) => [s.id, s.fullName ?? s.username ?? '—']));
   const chitMap = Object.fromEntries((allChits as any[]).map((c: any) => [c.id, c.name ?? c.chitName ?? '—']));
   const pickedUpRequests = (allRequests as any[]).filter((r: any) => r.status === 'PICKED_UP');
@@ -1951,7 +2062,10 @@ function HistoryTab() {
     staleTime: 30_000,
   });
 
-  const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id, m.fullName ?? '—']));
+  const memberMap = Object.fromEntries((members as any[]).flatMap((m: any) => {
+    const name = m.fullName ?? '—';
+    return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+  }));
   const chitMap = Object.fromEntries((allChits as any[]).map((c: any) => [c.id, c.name ?? '—']));
   const staffMap = Object.fromEntries((staff as any[]).map((s: any) => [s.id, s.fullName ?? s.username ?? '—']));
 

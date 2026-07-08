@@ -29,6 +29,9 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     // All records withheld by a specific payout — used to revert across chits in one call
     List<PaymentRecord> findBySettledByPayoutId(UUID settledByPayoutId);
 
+    // Used to verify enrollment before accepting payment from admin-held slot holders (non-member UUIDs)
+    boolean existsByMemberIdAndChitId(UUID memberId, UUID chitId);
+
     void deleteByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
     // Cross-chit FIFO: all outstanding records for a member across every chit EXCEPT the one being paid.

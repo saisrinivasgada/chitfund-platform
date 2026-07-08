@@ -258,7 +258,11 @@ public class PayoutService {
         payout.setCancellationReason(request.getReason());
 
         payoutRepository.save(payout);
-        log.info("Payout {} cancelled. Reason: {}", payoutId, request.getReason());
+
+        // Revert any PAYOUT_DEDUCTED installments back to OUTSTANDING
+        paymentServiceClient.revertPayoutDeductions(payoutId);
+
+        log.info("Payout {} cancelled. Reason: {}. Installment deductions reverted.", payoutId, request.getReason());
 
         return toResponse(payout);
     }

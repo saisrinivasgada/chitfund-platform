@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getMe, getDeletedChits } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, listStaff } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -89,9 +89,12 @@ function CreateChitModal({ onClose }) {
 
   // Pre-fetch members for the member dropdown in schedule step
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  // Include the logged-in admin as a selectable slot owner (admin-held spots)
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
-  const adminOption = me ? { id: me.id, fullName: `${me.username} (Admin)` } : null;
+  // Load all staff so any admin can be selected as a slot owner (admin-held spots)
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const adminOptions = staffList.map((s) => ({
+    id: s.id,
+    fullName: `${s.fullName ?? s.username} (Admin)`,
+  }));
 
   function setBasicField(key, val) {
     setBasic((b) => {
@@ -474,19 +477,20 @@ function CreateChitModal({ onClose }) {
                           <td className="px-3 py-2">
                             {(() => {
                               const adminHeld = Number(basic.adminHeldSpotsCount) || 0;
-                              const allocatedAdminSlots = adminOption
-                                ? schedule.filter((s, si) => si !== i && s.memberId === String(adminOption.id)).length
-                                : 0;
-                              const isAlreadyAdmin = adminOption && row.memberId === String(adminOption.id);
-                              const canAddAdmin = adminHeld > 0 && (isAlreadyAdmin || allocatedAdminSlots < adminHeld);
+                              const memberIdSet = new Set(members.map((m) => String(m.id)));
+                              const allocatedAdminSlots = schedule.filter(
+                                (s, si) => si !== i && s.memberId && !memberIdSet.has(s.memberId)
+                              ).length;
+                              const currentIsAdmin = row.memberId && !memberIdSet.has(row.memberId);
+                              const canShowAdmins = adminHeld > 0 && (currentIsAdmin || allocatedAdminSlots < adminHeld);
                               return (
                                 <Select value={row.memberId}
                                   onChange={(e) => setScheduleRow(i, 'memberId', e.target.value)}
                                   className="min-w-36">
                                   <option value="">Unallocated</option>
-                                  {adminOption && canAddAdmin && (
-                                    <option value={adminOption.id}>{adminOption.fullName}</option>
-                                  )}
+                                  {canShowAdmins && adminOptions.map((ao) => (
+                                    <option key={ao.id} value={ao.id}>{ao.fullName}</option>
+                                  ))}
                                   {members.map((m) => (
                                     <option key={m.id} value={m.id}>{m.fullName ?? m.name}</option>
                                   ))}

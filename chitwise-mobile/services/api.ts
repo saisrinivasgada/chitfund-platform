@@ -194,8 +194,13 @@ export const getWorkerRequests = async (workerId: string) =>
   unwrapList(await api.get(`/payments/requests/worker/${workerId}`));
 export const getBatchesByCollector = async (collectorId: string) =>
   unwrapList(await api.get(`/payments/batches/collector/${collectorId}`));
-export const updateCashRequest = async (requestId: string, body: { requestedAmount?: number; notes?: string }) =>
-  unwrapObj(await api.patch(`/payments/requests/${requestId}`, body));
+export const updateCashRequest = async (requestId: string, body: {
+  requestedAmount?: number | null;
+  updateWorker?: boolean;
+  workerId?: string | null;
+  adminNotes?: string | null;
+  scheduledFor?: string | null;
+}) => unwrapObj(await api.patch(`/payments/requests/${requestId}`, body));
 export const getMyAssignedRequests = async () => unwrapList(await api.get('/payments/requests/mine'));
 export const getMyPendingBatches = async () => unwrapList(await api.get('/payments/batches/mine'));
 export const getTodaysPaymentBatches = async () => unwrapList(await api.get('/payments/batches/today'));

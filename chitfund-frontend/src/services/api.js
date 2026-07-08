@@ -279,7 +279,8 @@ export const shiftReservations = async ({ chitId, fromMonth }) => {
 
 export const getSlotHistory = async (slotId) => {
   const res = await api.get(`/audit/logs/RESERVATION_SLOT/${slotId}`);
-  return res.data.data ?? [];
+  const data = res.data.data;
+  return Array.isArray(data) ? data : (data?.content ?? []);
 };
 
 // Legacy (kept for backward compat with ChitDetailPage reservation tab)
@@ -504,6 +505,17 @@ export const cancelCashRequest = async ({ requestId, reason }) => {
 export const voidCashPickup = async ({ requestId, reason }) => {
   const params = reason ? { reason } : {};
   const res = await api.patch(`/payments/requests/${requestId}/void-pickup`, null, { params });
+  return res.data.data;
+};
+
+export const updateCashRequest = async ({ requestId, requestedAmount, updateWorker, workerId, adminNotes, scheduledFor }) => {
+  const res = await api.patch(`/payments/requests/${requestId}`, {
+    requestedAmount: requestedAmount ?? null,
+    updateWorker: updateWorker ?? false,
+    workerId: workerId ?? null,
+    adminNotes: adminNotes ?? null,
+    scheduledFor: scheduledFor ?? null,
+  });
   return res.data.data;
 };
 

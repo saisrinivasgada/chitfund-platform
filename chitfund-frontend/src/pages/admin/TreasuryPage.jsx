@@ -705,7 +705,12 @@ export default function TreasuryPage() {
   const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 300_000 });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff(), staleTime: 300_000 });
 
-  const memberMap = Object.fromEntries((allMembers ?? []).map((m) => [m.id, m.fullName ?? m.name ?? m.id]));
+  const memberMap = Object.fromEntries(
+    (allMembers ?? []).flatMap((m) => {
+      const name = m.fullName ?? m.name ?? m.id;
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    })
+  );
   const chitMap = Object.fromEntries((allChits ?? []).map((c) => [c.id, c.name ?? c.id]));
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Admin']));
 

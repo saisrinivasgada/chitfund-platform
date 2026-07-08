@@ -67,7 +67,8 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin) {
-        if (!memberServiceClient.isMemberActive(request.getMemberId())) {
+        if (!memberServiceClient.isMemberActive(request.getMemberId())
+                && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
         }
@@ -119,7 +120,8 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId) {
-        if (!memberServiceClient.isMemberActive(request.getMemberId())) {
+        if (!memberServiceClient.isMemberActive(request.getMemberId())
+                && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
         }
@@ -135,6 +137,7 @@ public class PaymentService {
                 .notes(request.getNotes())
                 .collectedAt(request.getPaymentMode() == PaymentMode.CASH ? LocalDateTime.now() : null)
                 .collectedBy(request.getPaymentMode() == PaymentMode.CASH ? adminId : null)
+                .recordedBy(adminId)
                 .build();
         batchRepository.save(batch);
 
@@ -689,6 +692,7 @@ public class PaymentService {
                 .paymentMode(batch.getPaymentMode())
                 .status(batch.getStatus())
                 .collectedBy(batch.getCollectedBy())
+                .recordedBy(batch.getRecordedBy())
                 .collectedAt(batch.getCollectedAt())
                 .remittedAt(batch.getRemittedAt())
                 .remittedBy(batch.getRemittedBy())

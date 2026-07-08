@@ -18,7 +18,6 @@ rsync -az --progress \
   --exclude='chitfund-frontend/node_modules' \
   --exclude='chitfund-audit-service' \
   --exclude='chitfund-reporting-service' \
-  --exclude='chitfund-member-service' \
   --exclude='restful-web-services' \
   --exclude='MyVibeCodingApp' \
   -e "ssh -i $KEY -o StrictHostKeyChecking=no" \

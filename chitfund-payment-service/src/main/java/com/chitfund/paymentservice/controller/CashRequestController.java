@@ -3,6 +3,7 @@ package com.chitfund.paymentservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.AssignWorkerRequest;
 import com.chitfund.paymentservice.dto.request.CreateCashRequestRequest;
+import com.chitfund.paymentservice.dto.request.UpdateCashRequestRequest;
 import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
@@ -72,6 +73,23 @@ public class CashRequestController {
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getActiveRequests() {
         return ResponseEntity.ok(ApiResponse.success(cashRequestService.getActiveRequests()));
+    }
+
+    /**
+     * Admin/Manager: edit a PENDING or ASSIGNED request.
+     * Can update amount, worker assignment, notes, and scheduled date.
+     * Notifies member and worker of any changes.
+     */
+    @PatchMapping("/{requestId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> updateRequest(
+            @PathVariable UUID requestId,
+            @Valid @RequestBody UpdateCashRequestRequest request,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        CashRequestResponse response = cashRequestService.updateRequest(requestId, request, adminId, role);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**

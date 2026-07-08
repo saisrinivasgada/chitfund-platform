@@ -40,6 +40,7 @@ public class PaymentBatch {
     private BatchStatus status;
 
     private UUID collectedBy;       // worker who collected (CASH only)
+    private UUID recordedBy;        // admin who recorded a direct (UPI/bank/self-cash) payment
     private LocalDateTime collectedAt;
     private LocalDateTime remittedAt;
     private UUID remittedBy;        // admin who confirmed receipt (CASH only)

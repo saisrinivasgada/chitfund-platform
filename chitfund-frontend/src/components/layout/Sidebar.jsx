@@ -39,7 +39,7 @@ const ALL_NAV = [
   { to: '/tasks',     icon: ClipboardList,   label: 'My Tasks',    roles: ['WORKER'] },
   { to: '/members',   icon: Users,           label: 'Members',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/chits',     icon: BookOpen,        label: 'Chit Funds',  roles: ['ADMIN', 'MANAGER'] },
-  { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER', 'WORKER'] },
+  { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   // { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
   { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'] },

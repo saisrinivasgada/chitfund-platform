@@ -47,6 +47,7 @@ jwt:
 
 app:
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
+  user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
   member-service-url: ${MEMBER_SERVICE_URL:http://localhost:8083}
   chit-service-url: ${CHIT_SERVICE_URL:http://localhost:8082}
   payout-service-url: ${PAYOUT_SERVICE_URL:http://localhost:8085}

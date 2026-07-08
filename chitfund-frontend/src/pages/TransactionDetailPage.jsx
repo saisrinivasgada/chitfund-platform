@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle, Clock, XCircle, Banknote, CreditCard, Building2,
   User, FileText, Calendar, Hash, Layers, AlertCircle, Receipt, AlertTriangle,
-  Mail, MapPin, Phone, Copy, Check, IndianRupee, Users, CalendarDays,
+  Mail, MapPin, Phone, Copy, Check, IndianRupee, Users, CalendarDays, ShieldCheck,
 } from 'lucide-react';
 import {
   getPaymentBatchById, getMember, getChit, listStaff, getDraws,
@@ -205,7 +205,10 @@ export default function TransactionDetailPage() {
 
   // Unified name lookup: staff first, then members (covers admin-as-staff, member UUIDs, etc.)
   const nameMap = Object.fromEntries([
-    ...allMembers.map((m) => [m.id, m.fullName ?? m.name]),
+    ...allMembers.flatMap((m) => {
+      const name = m.fullName ?? m.name;
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
     ...staff.map((s) => [s.id, s.fullName ?? s.username]),
   ]);
 
@@ -250,7 +253,8 @@ export default function TransactionDetailPage() {
   const StatusIcon  = statusCfg.icon;
   const ModeIcon    = MODE_ICON[batch.paymentMode] ?? CreditCard;
 
-  const memberName  = member?.fullName ?? member?.name ?? '—';
+  const memberAsAdmin = !member ? staff.find((s) => String(s.id) === String(batch?.memberId)) : null;
+  const memberName  = member?.fullName ?? member?.name ?? memberAsAdmin?.fullName ?? memberAsAdmin?.username ?? '—';
   const memberPhone = member?.phone ?? member?.phoneNumber ?? null;
   const chitName    = chit?.name ?? '—';
   const chitStatus  = chit?.status ?? null;
@@ -353,14 +357,33 @@ export default function TransactionDetailPage() {
       {/* Main grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Member */}
-        <Card title="Member" icon={User}>
-          <InfoRow icon={User} label="Name" value={memberName} />
+        <Card title={memberAsAdmin ? 'Member (Admin)' : 'Member'} icon={memberAsAdmin ? ShieldCheck : User}>
+          <InfoRow
+            icon={memberAsAdmin ? ShieldCheck : User}
+            label="Name"
+            value={
+              memberAsAdmin ? (
+                <span className="flex items-center gap-2 flex-wrap">
+                  <span>{memberName}</span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-700">
+                    <ShieldCheck size={10} /> Admin
+                  </span>
+                </span>
+              ) : memberName
+            }
+          />
           {memberPhone && (
             <InfoRow icon={Phone} label="Phone"
               value={member?.phoneCountryCode ? `${member.phoneCountryCode} ${memberPhone}` : memberPhone} />
           )}
-          {member?.email && <InfoRow icon={Mail} label="Email" value={member.email} />}
+          {(member?.email ?? memberAsAdmin?.email) && (
+            <InfoRow icon={Mail} label="Email" value={member?.email ?? memberAsAdmin?.email} />
+          )}
           {member?.city && <InfoRow icon={MapPin} label="City" value={member.city} />}
+          {memberAsAdmin?.role && (
+            <InfoRow icon={Hash} label="Role"
+              value={memberAsAdmin.role.charAt(0).toUpperCase() + memberAsAdmin.role.slice(1).toLowerCase()} />
+          )}
           {member?.status && (
             <InfoRow icon={Hash} label="Status" value={member.status}
               valueClass={
@@ -466,8 +489,33 @@ export default function TransactionDetailPage() {
 
       {/* Collection Info */}
       <Card title="Collection" icon={Receipt}>
-        <InfoRow icon={User} label="Collected By" value={resolveName(batch.collectedBy)} />
-        <InfoRow icon={Clock} label="Collected At" value={fmtDateTime(batch.collectedAt)} />
+        {batch.recordedBy ? (() => {
+          const admin = staff.find((s) => String(s.id) === String(batch.recordedBy));
+          return (
+            <>
+              <InfoRow
+                icon={ShieldCheck}
+                label="Recorded By"
+                value={
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span>{admin?.fullName ?? admin?.username ?? resolveName(batch.recordedBy)}</span>
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-700">
+                      <ShieldCheck size={10} /> Admin
+                    </span>
+                  </span>
+                }
+              />
+              {admin?.role && (
+                <InfoRow icon={Hash} label="Admin Role"
+                  value={admin.role.charAt(0).toUpperCase() + admin.role.slice(1).toLowerCase()} />
+              )}
+              {admin?.email && <InfoRow icon={Mail} label="Admin Email" value={admin.email} />}
+            </>
+          );
+        })() : (
+          <InfoRow icon={User} label="Collected By" value={resolveName(batch.collectedBy)} />
+        )}
+        <InfoRow icon={Clock} label={batch.collectedAt ? 'Collected At' : 'Recorded At'} value={fmtDateTime(batch.collectedAt ?? batch.createdAt)} />
       </Card>
 
       {/* Remittance Info (only if COMPLETED) */}

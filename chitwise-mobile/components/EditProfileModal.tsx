@@ -16,15 +16,23 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, secureTe
   placeholder?: string; keyboardType?: any; secureTextEntry?: boolean;
   autoCapitalize?: any; hint?: string;
 }) {
+  const [focused, setFocused] = React.useState(false);
   return (
     <View style={{ marginBottom: 14 }}>
-      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>{label}</Text>
+      <Text style={{ fontSize: 13, fontWeight: '600', color: focused ? C.navy : C.gray700, marginBottom: 6 }}>{label}</Text>
       <TextInput
         value={value} onChangeText={onChangeText} placeholder={placeholder}
         keyboardType={keyboardType ?? 'default'} secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize ?? 'sentences'}
         placeholderTextColor={C.gray400}
-        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          borderWidth: 1.5,
+          borderColor: focused ? C.navy : C.gray300,
+          borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900,
+          ...(focused ? { shadowColor: C.navy, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 4 } : {}),
+        }}
       />
       {hint ? <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>{hint}</Text> : null}
     </View>
@@ -238,8 +246,8 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
             {/* ── Security tab ────────────────────────────────────────────── */}
             {tab === 'security' && (
               <>
-                <View style={{ backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                  <Text style={{ fontSize: 13, color: '#1D4ED8' }}>🛡️  Choose a strong password you don't use anywhere else.</Text>
+                <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#B8CCE4' }}>
+                  <Text style={{ fontSize: 13, color: C.navy }}>🛡️  Choose a strong password you don't use anywhere else.</Text>
                 </View>
                 <Field label="Current Password" value={curPwd} onChangeText={setCurPwd} placeholder="Current password" secureTextEntry autoCapitalize="none" />
                 <Field label="New Password" value={newPwd} onChangeText={setNewPwd} placeholder="Min 8 characters" secureTextEntry autoCapitalize="none" />

@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
 import {
   getMyAssignedRequests, markPickedUp, cancelByWorker,
-  getMembers, getChits, getMyPendingBatches, updateCashRequest,
+  getMembers, getChits, getMyPendingBatches, updateCashRequest, listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -394,6 +394,7 @@ export default function WorkerTasksScreen() {
 
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
   const { data: chits = [] }   = useQuery({ queryKey: ['chits'],   queryFn: getChits });
+  const { data: staff = [] }   = useQuery({ queryKey: ['staff'],   queryFn: listStaff, staleTime: 5 * 60_000 });
   const { data: pendingBatches = [] } = useQuery({
     queryKey: ['worker-pending-batches'],
     queryFn: getMyPendingBatches,
@@ -401,7 +402,12 @@ export default function WorkerTasksScreen() {
   });
 
   const memberMap: Record<string, string> = {};
-  (members as any[]).forEach((m: any) => { memberMap[m.id] = m.fullName ?? m.name ?? m.id.slice(0, 8); });
+  (staff as any[]).forEach((s: any) => { memberMap[s.id] = s.fullName ?? s.username ?? s.id.slice(0, 8); });
+  (members as any[]).forEach((m: any) => {
+    const name = m.fullName ?? m.name ?? m.id.slice(0, 8);
+    memberMap[m.id] = name;
+    if (m.userId) memberMap[m.userId] = name;
+  });
   const chitMap: Record<string, string> = {};
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
 

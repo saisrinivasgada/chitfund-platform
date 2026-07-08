@@ -10,9 +10,12 @@ import com.chitfund.paymentservice.domain.enums.NotificationType;
 import com.chitfund.paymentservice.dto.request.AssignWorkerRequest;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
 import com.chitfund.paymentservice.dto.request.CreateCashRequestRequest;
+import com.chitfund.paymentservice.dto.request.UpdateCashRequestRequest;
 import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.client.MemberServiceClient;
+import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.repository.CashPaymentRequestRepository;
 import com.chitfund.paymentservice.repository.CashRequestAuditLogRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +37,8 @@ public class CashRequestService {
     private final CashRequestAuditLogRepository auditLogRepository;
     private final PaymentService paymentService;
     private final NotificationService notificationService;
+    private final MemberServiceClient memberServiceClient;
+    private final UserServiceClient userServiceClient;
 
     // ─── Audit helper ────────────────────────────────────────────────────────
 
@@ -117,15 +122,19 @@ public class CashRequestService {
         }
 
         if (workerId != null) {
+            String memberName = memberServiceClient.getMemberName(memberId);
+            String memberDisplay = memberName.isBlank() ? "a member" : memberName;
             notificationService.notifyUser(workerId, NotificationType.CASH_REQUEST_ASSIGNED,
                     "New Cash Pickup Task",
-                    "You have been assigned to collect cash from a member. Check your tasks.",
+                    "You have been assigned to collect cash from " + memberDisplay + ". Check your tasks.",
                     "CASH_REQUEST", saved.getId(), "/tasks");
         }
+        String workerName = workerId != null ? userServiceClient.getUserName(workerId) : "";
+        String workerDisplay = workerName.isBlank() ? "a worker" : workerName;
         notificationService.notifyUser(memberId, NotificationType.CASH_REQUEST_SUBMITTED,
                 "Cash Pickup Scheduled",
                 workerId != null
-                        ? "A worker has been assigned to collect your payment. They will contact you shortly."
+                        ? workerDisplay + " has been assigned to collect your payment and will contact you shortly."
                         : "A cash pickup has been scheduled for you. A worker will be assigned soon.",
                 "CASH_REQUEST", saved.getId(), "/member");
 
@@ -148,13 +157,18 @@ public class CashRequestService {
 
         logAudit(requestId, "ASSIGNED", CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED, assignerId, assignerRole, dto.getAdminNotes());
 
+        String memberName = memberServiceClient.getMemberName(req.getMemberId());
+        String memberDisplay = memberName.isBlank() ? "a member" : memberName;
+        String workerName = userServiceClient.getUserName(dto.getWorkerId());
+        String workerDisplay = workerName.isBlank() ? "a worker" : workerName;
+
         notificationService.notifyUser(dto.getWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
                 "New Cash Pickup Task",
-                "You have been assigned to collect cash from a member. Check your tasks.",
+                "You have been assigned to collect cash from " + memberDisplay + ". Check your tasks.",
                 "CASH_REQUEST", requestId, "/tasks");
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
                 "Worker Assigned",
-                "A worker has been assigned to your cash pickup request and will contact you shortly.",
+                workerDisplay + " has been assigned to your cash pickup request and will contact you shortly.",
                 "CASH_REQUEST", requestId, "/member");
         if ("ADMIN".equals(assignerRole)) {
             notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
@@ -214,9 +228,11 @@ public class CashRequestService {
 
         logAudit(requestId, "PICKED_UP", CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP, workerId, "WORKER", null);
 
+        String wName = userServiceClient.getUserName(workerId);
+        String wDisplay = wName.isBlank() ? "A worker" : wName;
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
                 "Cash Picked Up",
-                "A worker has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
+                wDisplay + " has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
                 "CASH_REQUEST", requestId, "/member");
         notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
                 "Cash Picked Up — Ready to Collect",
@@ -384,6 +400,100 @@ public class CashRequestService {
         CashPaymentRequest saved = requestRepository.save(req);
 
         logAudit(requestId, "CANCELLED", from, CashRequestStatus.CANCELLED, null, "ADMIN", reason);
+
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public CashRequestResponse updateRequest(UUID requestId, UpdateCashRequestRequest dto, UUID adminId, String adminRole) {
+        CashPaymentRequest req = findOrThrow(requestId);
+
+        if (req.getStatus() == CashRequestStatus.PICKED_UP
+                || req.getStatus() == CashRequestStatus.COLLECTED
+                || req.getStatus() == CashRequestStatus.CANCELLED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Cannot edit a request in " + req.getStatus() + " state");
+        }
+
+        UUID oldWorkerId = req.getAssignedWorkerId();
+        boolean amountChanged = dto.getRequestedAmount() != null
+                && !dto.getRequestedAmount().equals(req.getRequestedAmount());
+        boolean workerChanged = Boolean.TRUE.equals(dto.getUpdateWorker())
+                && !java.util.Objects.equals(oldWorkerId, dto.getWorkerId());
+
+        if (dto.getRequestedAmount() != null) req.setRequestedAmount(dto.getRequestedAmount());
+        if (dto.getAdminNotes() != null) req.setAdminNotes(dto.getAdminNotes());
+        if (dto.getScheduledFor() != null) req.setScheduledFor(dto.getScheduledFor());
+
+        if (workerChanged) {
+            UUID newWorkerId = dto.getWorkerId();
+            req.setAssignedWorkerId(newWorkerId);
+            if (newWorkerId != null) {
+                req.setAssignedAt(LocalDateTime.now());
+                req.setAssignedBy(adminId);
+                req.setStatus(CashRequestStatus.ASSIGNED);
+            } else {
+                req.setAssignedAt(null);
+                req.setAssignedBy(null);
+                req.setStatus(CashRequestStatus.PENDING);
+            }
+        }
+
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        StringBuilder auditReason = new StringBuilder("Admin updated");
+        if (amountChanged) auditReason.append("; amount changed to ").append(dto.getRequestedAmount());
+        if (workerChanged) auditReason.append("; worker changed");
+        logAudit(requestId, "UPDATED", req.getStatus(), saved.getStatus(), adminId, adminRole, auditReason.toString());
+
+        // Notify member and worker of changes
+        if (amountChanged || workerChanged) {
+            String memberName = memberServiceClient.getMemberName(req.getMemberId());
+            String memberDisplay = memberName.isBlank() ? "your" : memberName + "'s";
+
+            if (amountChanged) {
+                String amtStr = "₹" + dto.getRequestedAmount().toPlainString();
+                notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                        "Cash Pickup Updated",
+                        "The amount for your cash pickup has been updated to " + amtStr + ".",
+                        "CASH_REQUEST", requestId, "/member");
+                if (saved.getAssignedWorkerId() != null) {
+                    notificationService.notifyUser(saved.getAssignedWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                            "Pickup Amount Updated",
+                            "The amount for " + memberDisplay + " cash pickup has been updated to " + amtStr + ". Please collect the revised amount.",
+                            "CASH_REQUEST", requestId, "/tasks");
+                }
+            }
+
+            if (workerChanged) {
+                // Notify old worker they've been removed
+                if (oldWorkerId != null) {
+                    notificationService.notifyUser(oldWorkerId, NotificationType.CASH_REQUEST_ASSIGNED,
+                            "Task Reassigned",
+                            "The cash pickup for " + memberDisplay + " has been reassigned to another worker.",
+                            "CASH_REQUEST", requestId, "/tasks");
+                }
+                // Notify new worker
+                if (saved.getAssignedWorkerId() != null) {
+                    String wName = userServiceClient.getUserName(saved.getAssignedWorkerId());
+                    notificationService.notifyUser(saved.getAssignedWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                            "New Cash Pickup Task",
+                            "You have been assigned to collect cash from " + (memberName.isBlank() ? "a member" : memberName) + ". Check your tasks.",
+                            "CASH_REQUEST", requestId, "/tasks");
+                    String workerDisplay = wName.isBlank() ? "A new worker" : wName;
+                    notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                            "Worker Updated",
+                            workerDisplay + " has been assigned to collect your cash payment.",
+                            "CASH_REQUEST", requestId, "/member");
+                } else {
+                    // Worker was removed (back to pending)
+                    notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                            "Pickup Pending",
+                            "Your cash pickup is awaiting reassignment. You'll be notified once a worker is assigned.",
+                            "CASH_REQUEST", requestId, "/member");
+                }
+            }
+        }
 
         return toResponse(saved);
     }

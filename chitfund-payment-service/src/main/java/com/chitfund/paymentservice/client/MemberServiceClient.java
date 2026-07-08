@@ -79,6 +79,31 @@ public class MemberServiceClient {
     }
 
     /**
+     * Returns the member's full name for use in notification messages.
+     * Returns empty string on any error — callers should fall back to a generic phrase.
+     */
+    @SuppressWarnings("unchecked")
+    public String getMemberName(UUID memberId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    memberServiceUrl + "/internal/members/" + memberId + "/name",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+
+            Map<String, Object> body = response.getBody();
+            return body != null && body.get("name") != null ? (String) body.get("name") : "";
+
+        } catch (RestClientException e) {
+            log.warn("member-service unreachable for name lookup memberId={}: {}", memberId, e.getMessage());
+            return "";
+        }
+    }
+
+    /**
      * Batch-resolves member profile IDs → user IDs for notification delivery.
      * Returns empty map on any error (notifications are best-effort, never block the main flow).
      */

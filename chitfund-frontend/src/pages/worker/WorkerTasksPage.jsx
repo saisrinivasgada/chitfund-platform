@@ -10,6 +10,7 @@ import {
   workerCancelRequest,
   getMembers,
   getChits,
+  listStaff,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
@@ -60,8 +61,21 @@ function useLookupMaps() {
     queryFn: () => getChits(),
     staleTime: 5 * 60_000,
   });
+  const { data: staff = [] } = useQuery({
+    queryKey: ['staff'],
+    queryFn: () => listStaff(),
+    staleTime: 5 * 60_000,
+  });
 
-  const memberMap = Object.fromEntries(members.map((m) => [m.id, m.fullName ?? m.name ?? '—']));
+  // Payment-service stores memberId as the member's userId (JWT principal).
+  // Index by both m.id (member-service UUID) and m.userId so both lookup paths resolve.
+  const memberMap = Object.fromEntries([
+    ...staff.map((s) => [s.id, s.fullName ?? s.username ?? '—']),
+    ...members.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? '—';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
+  ]);
   const chitMap   = Object.fromEntries(chits.map((c)   => [c.id, c.name ?? c.chitName ?? '—']));
   return { memberMap, chitMap };
 }
@@ -436,19 +450,16 @@ function ActiveTasksTab({ memberMap, chitMap }) {
         </div>
       )}
 
-      {/* Defer bottom-sheet — big simple buttons for laymen */}
+      {/* Defer dialog — centered */}
       {deferTask && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0"
             style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
             onClick={() => setDeferTask(null)}
           />
-          <div className="relative bg-white w-full rounded-t-2xl overflow-hidden">
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-gray-300" />
-            </div>
-            <div className="px-5 pb-2">
+          <div className="relative bg-white w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl">
+            <div className="px-5 pt-5 pb-2">
               <p className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
                 Can't collect today?
               </p>
