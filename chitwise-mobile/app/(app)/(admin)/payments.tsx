@@ -1876,10 +1876,10 @@ function TreasuryTab() {
       description: txNotes || undefined,
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-wallet'] });
-      qc.invalidateQueries({ queryKey: ['m-wallet-txns'] });
       setShowAdd(false); setTxAmount(''); setTxCategory(''); setTxNotes('');
       toast.saved(`${txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded`);
+      refetchWallet();
+      refetchTxns();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record transaction.'),
   });
