@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 // Maps WS event type → React Query keys to invalidate
 const INVALIDATIONS = {
   CASH_REQUESTS_UPDATED: [
-    ['cashRequests'],
+    ['cashRequests'],        // admin dashboard: ['cashRequests', 'active'] matched by prefix
     ['my-cash-requests'],
     ['pending-remittance'],
     ['today-batches'],
@@ -15,9 +15,11 @@ const INVALIDATIONS = {
     ['payment-batches-all'],
     ['wallet-balance'],
     ['today-payouts'],
+    ['adminBalance'],        // admin dashboard: member balance after payment recorded
+    ['remittance'],          // remittance pending list
   ],
   PAYOUTS_UPDATED: [
-    ['payouts'],
+    ['payouts'],             // admin dashboard: ['payouts', 'pending'] matched by prefix
     ['today-payouts'],
     ['wallet-balance'],
   ],
@@ -25,6 +27,7 @@ const INVALIDATIONS = {
     ['draws'],
     ['today-draws'],
     ['drawPayments'],
+    ['chits'],               // chit status updates when draw months open/skip
   ],
   TREASURY_UPDATED: [
     ['wallet-balance'],

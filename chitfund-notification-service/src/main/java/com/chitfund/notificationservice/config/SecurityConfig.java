@@ -37,6 +37,7 @@ public class SecurityConfig {
                 .requestMatchers("/internal/**").permitAll()
                 // WebSocket handshake — no auth at transport level; no sensitive data flows over WS
                 .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/ws-native/**").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

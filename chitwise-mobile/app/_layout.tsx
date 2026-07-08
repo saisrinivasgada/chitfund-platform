@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuthStore } from '../store/authStore';
 import { LoadingScreen } from '../components/ui';
 import { ToastRoot } from '../components/Toast';
+import { useRealtimeUpdates } from '../hooks/useRealtimeUpdates';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,12 @@ function redirectByRole(role: string, router: any) {
   } else {
     router.replace('/(auth)/login');
   }
+}
+
+function RealtimeUpdater() {
+  const { user } = useAuthStore();
+  useRealtimeUpdates(!!user);
+  return null;
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -82,6 +89,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
+        <RealtimeUpdater />
         <AuthGuard>
           <Stack screenOptions={{ headerShown: false }} />
         </AuthGuard>
