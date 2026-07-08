@@ -34,10 +34,9 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
-                // Internal endpoints are network-restricted in production (VPC/cluster only).
-                // The X-Internal-Key header provides an additional layer of validation
-                // inside the InternalNotifyController itself.
                 .requestMatchers("/internal/**").permitAll()
+                // WebSocket handshake — no auth at transport level; no sensitive data flows over WS
+                .requestMatchers("/ws/**").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

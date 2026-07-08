@@ -84,6 +84,12 @@ spring:
             - JwtAuthGatewayFilter
             - StripPrefix=1
 
+        # WebSocket — SockJS + STOMP; no JWT filter (only event signals, no sensitive data)
+        - id: websocket
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/ws/**
+
         # ── Payout Service ────────────────────────────────────────────────────
         # Controller: /payouts/**  External: /api/payouts/**
         - id: payout-service

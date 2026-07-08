@@ -8,6 +8,7 @@ import useToast from '../../hooks/useToast';
 import { createContext, useContext } from 'react';
 import { Menu, BookOpen, Eye, EyeOff } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
+import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
 
 const ToastContext = createContext(null);
 export const useToastContext = () => useContext(ToastContext);
@@ -18,6 +19,7 @@ export default function AppLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
+  useRealtimeUpdates(isAuthenticated);
 
   // Close drawer whenever the route changes (tapping a nav link on mobile)
   useEffect(() => {

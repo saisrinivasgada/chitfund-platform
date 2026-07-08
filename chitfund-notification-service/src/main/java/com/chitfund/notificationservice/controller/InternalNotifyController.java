@@ -5,6 +5,7 @@ import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
 import com.chitfund.notificationservice.service.NotificationService;
+import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,9 +37,21 @@ public class InternalNotifyController {
 
     private final NotificationService notificationService;
     private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
+    private final WebSocketBroadcaster broadcaster;
 
     @Value("${notification.internal-key}")
     private String internalKey;
+
+    private static final java.util.Map<String, String> NOTIF_TYPE_TO_WS_EVENT = java.util.Map.of(
+        "CASH_REQUEST_SUBMITTED", "CASH_REQUESTS_UPDATED",
+        "CASH_REQUEST_ASSIGNED",  "CASH_REQUESTS_UPDATED",
+        "CASH_REQUEST_UPDATED",   "CASH_REQUESTS_UPDATED",
+        "CASH_REQUEST_PICKED_UP", "CASH_REQUESTS_UPDATED",
+        "CASH_COLLECTED",         "CASH_REQUESTS_UPDATED",
+        "PAYMENT_RECEIVED",       "PAYMENTS_UPDATED",
+        "WINNER_SELECTED",        "PAYOUTS_UPDATED",
+        "PAYOUT_DISBURSED",       "PAYOUTS_UPDATED"
+    );
 
     /**
      * Single notification — payment reminder, winner announcement, payout receipt.
@@ -83,6 +96,9 @@ public class InternalNotifyController {
             java.util.Map<String, String> meta =
                 (java.util.Map<String, String>) body.getOrDefault("metadata", java.util.Map.of());
             inAppService.create(recipientId, title, message, type, meta);
+            String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
+            if (wsEvent != null) broadcaster.broadcast(wsEvent);
+            broadcaster.broadcast("IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create in-app notification: {}", e.getMessage());

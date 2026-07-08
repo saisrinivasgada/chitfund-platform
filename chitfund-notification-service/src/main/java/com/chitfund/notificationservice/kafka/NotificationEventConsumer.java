@@ -4,6 +4,7 @@ import com.chitfund.common.event.*;
 import com.chitfund.notificationservice.domain.enums.NotificationEventType;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.service.NotificationService;
+import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ public class NotificationEventConsumer {
     private final NotificationService notificationService;
     private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
     private final ObjectMapper objectMapper;
+    private final WebSocketBroadcaster broadcaster;
 
     @KafkaListener(topics = KafkaTopics.MONTH_OPENED, groupId = "notification-service")
     public void onMonthOpened(String payload) {
@@ -66,7 +68,6 @@ public class NotificationEventConsumer {
                 );
                 notificationService.send(req);
 
-                // In-app notification for member
                 inAppService.create(
                     UUID.fromString(memberId),
                     "Installment Due",
@@ -76,6 +77,8 @@ public class NotificationEventConsumer {
                            "monthNumber", event.monthNumber().toString())
                 );
             }
+            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED event: {}", e.getMessage(), e);
         }
@@ -111,6 +114,8 @@ public class NotificationEventConsumer {
                     Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason)
                 );
             }
+            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED event: {}", e.getMessage(), e);
         }
@@ -148,6 +153,9 @@ public class NotificationEventConsumer {
                        "amount", event.amount().toPlainString(),
                        "workerId", event.collectedByUserId())
             );
+            broadcaster.broadcast("CASH_REQUESTS_UPDATED");
+            broadcaster.broadcast("PAYMENTS_UPDATED");
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_COLLECTED event: {}", e.getMessage(), e);
         }
@@ -184,6 +192,8 @@ public class NotificationEventConsumer {
                 Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
                        "monthsSettled", String.valueOf(event.monthsSettled()))
             );
+            broadcaster.broadcast("PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED event: {}", e.getMessage(), e);
         }
@@ -215,6 +225,8 @@ public class NotificationEventConsumer {
                 Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                        "monthNumber", event.monthNumber().toString())
             );
+            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED event: {}", e.getMessage(), e);
         }
@@ -248,6 +260,9 @@ public class NotificationEventConsumer {
                 Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                        "mode", event.disbursementMode(), "reference", ref)
             );
+            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast("TREASURY_UPDATED");
+            broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
         }
