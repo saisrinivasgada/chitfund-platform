@@ -13,7 +13,7 @@ import {
   getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
-  getMe, listStaff, getUserById,
+  getMe, listStaff, getUserById, getWalletBalance,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -29,7 +29,7 @@ import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, Wallet, RotateCcw, X, History,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, Wallet, RotateCcw, X, History, Vault, CreditCard,
 } from 'lucide-react';
 
 function ToggleSwitch({ on, onToggle, disabled = false }) {
@@ -1639,16 +1639,22 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const mid = e.memberId ?? e.id;
       if (seen.has(mid)) return false;
       if (!activeMemberIds.has(String(mid))) return false;
-      if (mid === primaryWinnerSlot?.memberId) return false;
-      if (!reservations.some((r) => r.memberId === mid && r.status === 'RESERVED')) return false;
+      const memberReserved = reservations.filter((r) => r.memberId === mid && r.status === 'RESERVED');
+      // Allow primary winner only if they have >1 reserved slot (one for primary, one for extra)
+      if (mid === primaryWinnerSlot?.memberId && memberReserved.length <= 1) return false;
+      if (!memberReserved.length) return false;
       seen.add(mid);
       return true;
     });
   })();
 
-  // RESERVED slots belonging to the selected extra member
+  // RESERVED slots belonging to the selected extra member, excluding the primary winner slot
   const extraMemberSlots = extraMemberId
-    ? reservations.filter((r) => r.memberId === extraMemberId && r.status === 'RESERVED')
+    ? reservations.filter((r) =>
+        r.memberId === extraMemberId &&
+        r.status === 'RESERVED' &&
+        r.id !== primaryWinnerSlot?.id
+      )
     : [];
 
   function computePreview() {
@@ -1673,8 +1679,11 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const isPrimary = mid === primaryWinnerSlot?.memberId;
       const isExtra   = addExtra && mid === extraMemberId;
       const isWinner  = isPrimary || isExtra;
+      const isDouble  = isPrimary && isExtra; // same member gets both slots
       // Net payout = what the winner physically receives (payout minus this month's installment)
-      const netPayout = isWinner && cyclePayoutAmount !== null ? cyclePayoutAmount - amountDue : null;
+      const netPayout = isWinner && cyclePayoutAmount !== null
+        ? (isDouble ? 2 : 1) * cyclePayoutAmount - amountDue
+        : null;
 
       members.push({
         memberId: mid,
@@ -1799,7 +1808,9 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 )}
                 {addExtra && extraMemberId && (
                   <div className="mt-2 rounded-lg px-3 py-2" style={{ background: 'rgba(212,160,23,0.15)' }}>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-0.5">Also paying</p>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-0.5">
+                      {extraMemberId === primaryWinnerSlot?.memberId ? 'Double Payout' : 'Also paying'}
+                    </p>
                     <p className="text-xs font-semibold text-white/80">{memberMap[extraMemberId]?.fullName ?? '—'}</p>
                   </div>
                 )}
@@ -3174,6 +3185,41 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
   );
 }
 
+function TreasuryBadge() {
+  const [show, setShow] = useState(false);
+  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 60_000 });
+  const cash = Number(bal?.cashBalance ?? 0);
+  const bank = Number(bal?.bankBalance ?? 0);
+  const total = Number(bal?.totalBalance ?? 0);
+  return (
+    <div className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <button type="button" className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#B8CCE4] bg-[#EEF2F8] text-[#1E3A5F] hover:bg-[#dce6f0] transition-colors cursor-default">
+        <Vault size={14} />
+      </button>
+      {show && (
+        <div className="absolute bottom-full right-0 mb-2 w-56 bg-[#1E3A5F] text-white text-xs rounded-xl shadow-xl p-4 z-50 pointer-events-none">
+          <p className="font-semibold text-[#D4A017] mb-2">Treasury Balance</p>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-white/70"><Banknote size={11} /> Cash</span>
+              <span className="font-semibold">{`₹${cash.toLocaleString('en-IN')}`}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-white/70"><CreditCard size={11} /> Bank</span>
+              <span className="font-semibold">{`₹${bank.toLocaleString('en-IN')}`}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-white/20 pt-1.5 mt-1">
+              <span className="text-white/70">Total</span>
+              <span className="font-bold text-[#D4A017]">{`₹${total.toLocaleString('en-IN')}`}</span>
+            </div>
+          </div>
+          <div className="absolute bottom-[-5px] right-4 w-2.5 h-2.5 bg-[#1E3A5F] rotate-45" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Disbursement modal ────────────────────────────────────────────────────────
 function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, onClose }) {
   const qc    = useQueryClient();
@@ -3738,7 +3784,13 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
               )}
             </div>
             {/* Amount field — leave blank to disburse full remaining amount */}
-            <FormField label={`Amount to disburse (₹) — blank = full ₹${Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}`}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-gray-700">
+                Amount to disburse (₹) <span className="text-gray-400 font-normal">— blank = full ₹{Number(payout.remainingAmount ?? payout.netPayoutAmount).toLocaleString('en-IN')}</span>
+              </span>
+              <TreasuryBadge />
+            </div>
+            <FormField>
               <Input
                 type="number"
                 min="1"

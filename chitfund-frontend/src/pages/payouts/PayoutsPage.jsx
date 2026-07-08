@@ -95,7 +95,13 @@ function CreatePayoutTab() {
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
-  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m]));
+  const memberMap = Object.fromEntries(
+    allMembers.flatMap((m) => {
+      const entries = [[String(m.id), m]];
+      if (m.userId) entries.push([String(m.userId), m]);
+      return entries;
+    })
+  );
 
   // Pre-fetch winners for all active chits in parallel so we can filter the dropdown
   const activeChitIdStr = activeChits.map((c) => c.id).join(',');
@@ -336,7 +342,7 @@ function CreatePayoutTab() {
                   const key = `${w.monthNumber}:${mid}`;
                   return (
                     <option key={key} value={key}>
-                      Month {w.monthNumber} — {member?.fullName ?? `Member #${String(mid).slice(0, 8)}`} · ₹{Number(w.winningAmount ?? 0).toLocaleString('en-IN')}
+                      Draw {w.monthNumber} — {member?.fullName ?? `Member #${String(mid).slice(0, 8)}`} · ₹{Number(w.winningAmount ?? 0).toLocaleString('en-IN')}
                     </option>
                   );
                 })}
@@ -353,7 +359,7 @@ function CreatePayoutTab() {
               {/* Winner banner */}
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
                 <p className="font-semibold text-amber-800 text-sm">
-                  Month {selectedWinner.monthNumber} — {memberName}
+                  Draw {selectedWinner.monthNumber} — {memberName}
                 </p>
                 <p className="text-amber-700 text-sm mt-0.5">
                   Winning amount: <strong>₹{winningAmt.toLocaleString('en-IN')}</strong>
@@ -723,12 +729,11 @@ function TreasuryBadge() {
   const bank  = Number(bal?.bankBalance ?? 0);
   return (
     <div className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      <button type="button" className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#B8CCE4] bg-[#EEF2F8] text-[#1E3A5F] text-xs font-semibold hover:bg-[#dce6f0] transition-colors cursor-default">
-        <Vault size={13} />
-        {fmtAmt(total)}
+      <button type="button" className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#B8CCE4] bg-[#EEF2F8] text-[#1E3A5F] hover:bg-[#dce6f0] transition-colors cursor-default">
+        <Vault size={14} />
       </button>
       {show && (
-        <div className="absolute bottom-full right-0 mb-2 w-52 bg-[#1E3A5F] text-white text-xs rounded-xl shadow-xl p-3 z-50 pointer-events-none">
+        <div className="absolute bottom-full right-0 mb-2 w-56 bg-[#1E3A5F] text-white text-xs rounded-xl shadow-xl p-4 z-50 pointer-events-none">
           <p className="font-semibold text-[#D4A017] mb-2">Treasury Balance</p>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -977,7 +982,14 @@ function PendingTab() {
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
 
   const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
-  const memberMap = Object.fromEntries(allMembers.map((m) => [m.id, m.fullName ?? m.name ?? m.id]));
+  const memberMap = Object.fromEntries(
+    allMembers.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);
+      const entries = [[String(m.id), name]];
+      if (m.userId) entries.push([String(m.userId), name]);
+      return entries;
+    })
+  );
 
   return (
     <div className="space-y-4">
@@ -987,7 +999,7 @@ function PendingTab() {
         ) : pending.length === 0 ? (
           <EmptyState icon={Clock} title="No pending payouts" message="All payouts have been processed." />
         ) : (
-          <Table columns={['Chit', 'Member', 'Month', 'Net Payout', 'Disbursed', 'Remaining', 'Status', 'Actions']}>
+          <Table columns={['Chit', 'Member', 'Draw', 'Net Payout', 'Disbursed', 'Remaining', 'Status', 'Actions']}>
             {pending.map((p) => {
               const chitInfo = chitMap[p.chitId];
               const mName   = memberMap[p.memberId] ?? p.memberId;
@@ -996,7 +1008,7 @@ function PendingTab() {
                 <Tr key={p.id} onClick={() => setDetailTarget({ ...p, _memberName: mName, _chitName: chitInfo?.name })}>
                   <Td className="font-medium text-gray-900">{chitInfo?.name ?? p.chitId?.toString().slice(0, 8)}</Td>
                   <Td className="font-medium text-gray-900">{mName}</Td>
-                  <Td className="font-semibold">M{p.monthNumber}</Td>
+                  <Td className="font-semibold">D{p.monthNumber}</Td>
                   <Td className="font-bold text-green-700">{fmtAmt(p.netPayoutAmount ?? p.winningAmount)}</Td>
                   <Td className="text-blue-700 font-medium">
                     {isPartial ? fmtAmt(p.disbursedAmount) : '—'}
@@ -1057,7 +1069,14 @@ function AllPayoutsTab() {
   const [detailTarget, setDetailTarget] = useState(null);
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
-  const memberMap = Object.fromEntries(allMembers.map((m) => [m.id, m.fullName ?? m.name ?? m.id]));
+  const memberMap = Object.fromEntries(
+    allMembers.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);
+      const entries = [[String(m.id), name]];
+      if (m.userId) entries.push([String(m.userId), name]);
+      return entries;
+    })
+  );
   const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c]));
 
   const { data: payouts = [], isLoading } = useQuery({
@@ -1089,7 +1108,7 @@ function AllPayoutsTab() {
         ) : payouts.length === 0 ? (
           <EmptyState icon={Banknote} title="No payouts found" message="No payouts recorded." />
         ) : (
-          <Table columns={['Chit', 'Month', 'Member', 'Net Payout', 'Disbursed', 'Remaining', 'Mode', 'Status', 'Date']}>
+          <Table columns={['Chit', 'Draw', 'Member', 'Net Payout', 'Disbursed', 'Remaining', 'Mode', 'Status', 'Date']}>
             {payouts.map((p) => {
               const alreadyDisbursed = Number(p.disbursedAmount ?? 0);
               const remaining = Number(p.remainingAmount ?? (Number(p.netPayoutAmount ?? 0) - alreadyDisbursed));
@@ -1098,7 +1117,7 @@ function AllPayoutsTab() {
               return (
                 <Tr key={p.id} onClick={() => setDetailTarget({ ...p, _memberName: mName, _chitName: chitName })}>
                   <Td className="text-gray-600 text-xs">{chitName}</Td>
-                  <Td className="font-semibold">M{p.monthNumber}</Td>
+                  <Td className="font-semibold">D{p.monthNumber}</Td>
                   <Td className="font-medium text-gray-900">{mName}</Td>
                   <Td className="font-semibold text-green-700">{fmtAmt(p.netPayoutAmount ?? p.winningAmount)}</Td>
                   <Td className="text-blue-700">

@@ -41,7 +41,7 @@ function DialogShell({ onClose, children }) {
         aria-hidden="true"
       />
       {/* Mobile: bottom sheet | Tablet+: centred card */}
-      <div className="relative bg-white w-full rounded-t-2xl sm:rounded-2xl sm:shadow-2xl sm:max-w-md overflow-hidden">
+      <div className="relative bg-white w-full rounded-t-2xl sm:rounded-2xl sm:shadow-2xl sm:max-w-md">
         {/* Drag pill — mobile only */}
         <div className="sm:hidden flex justify-center pt-3 pb-0">
           <div className="w-10 h-1 rounded-full bg-gray-300" />

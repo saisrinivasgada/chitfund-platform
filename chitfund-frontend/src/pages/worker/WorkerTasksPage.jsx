@@ -458,7 +458,7 @@ function ActiveTasksTab({ memberMap, chitMap }) {
             style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
             onClick={() => setDeferTask(null)}
           />
-          <div className="relative bg-white w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl">
+          <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl">
             <div className="px-5 pt-5 pb-2">
               <p className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
                 Can't collect today?
