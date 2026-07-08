@@ -2815,7 +2815,10 @@ function DrawsTab({ chitId, chit }) {
             const cycleWinners = winners.filter((w) => w.monthNumber === c.monthNumber);
             const payout      = payoutByMonth[c.monthNumber];
             const fullyCollected = pct === 100 || (c.outstandingCount === 0 && c.settledCount > 0);
-            const isCompleted  = (c.status === 'CLOSED' || c.status === 'SKIPPED') && payout?.status === 'DISBURSED';
+            const isDone = c.status === 'CLOSED' || c.status === 'SKIPPED';
+            // No-payout draw: all collected, draw closed, but no winner (e.g. early-pay month, pool/admin slot)
+            const isNoPayoutDraw = isDone && cycleWinners.length === 0 && !payout && fullyCollected;
+            const isCompleted  = (isDone && payout?.status === 'DISBURSED') || isNoPayoutDraw;
 
             return (
               <div key={c.id ?? c.monthNumber} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -2834,9 +2837,13 @@ function DrawsTab({ chitId, chit }) {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-gray-900">Draw {c.monthNumber}</span>
                           {isCompleted
-                            ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-800 bg-green-100 px-2 py-0.5 rounded-full">
-                                <CheckCircle size={10} /> Completed
-                              </span>
+                            ? isNoPayoutDraw
+                              ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                                  <CheckCircle size={10} /> Completed · No Payout
+                                </span>
+                              : <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-800 bg-green-100 px-2 py-0.5 rounded-full">
+                                  <CheckCircle size={10} /> Completed
+                                </span>
                             : <Badge variant={statusBadge(c.status ?? 'OPEN')}>{c.status ?? 'OPEN'}</Badge>
                           }
                           {/* Disbursement status tag */}
