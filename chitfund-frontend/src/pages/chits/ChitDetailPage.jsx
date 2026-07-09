@@ -917,7 +917,7 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
                       {cfg.label}
                     </span>
                     <span className="text-[11px] text-gray-400">
-                      {entry.createdAt ? new Date(entry.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {entry.createdAt ? new Date(entry.createdAt.endsWith('Z') ? entry.createdAt : entry.createdAt + 'Z').toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </span>
                     {entry.actorRole && (
                       <span className="text-[10px] text-gray-300 font-medium uppercase tracking-wide">{entry.actorRole}</span>
@@ -2342,7 +2342,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                 {batches.map((b) => {
                   const isVoiding  = voidingId === b.id;
                   const isVoided   = b.status === 'VOIDED';
-                  const date       = b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+                  const date       = b.createdAt ? new Date(b.createdAt.endsWith('Z') ? b.createdAt : b.createdAt + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
                   // Cross-chit: this batch was recorded for a DIFFERENT chit but spilled into this one
                   const isCarryIn  = b.chitId !== chitId;
 
@@ -3644,7 +3644,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                         <div className="text-gray-400 font-mono">{d.referenceNumber}</div>
                       )}
                       <div className="text-gray-400">
-                        {new Date(d.disbursedAt).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                        {new Date(d.disbursedAt.endsWith('Z') ? d.disbursedAt : d.disbursedAt + 'Z').toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
                       </div>
                       {d.notes && <div className="text-gray-400 italic">{d.notes}</div>}
                     </div>
@@ -3666,7 +3666,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                   Voided: {payout.voidReason}
                   {payout.voidedAt && (
                     <span className="ml-2 text-gray-400">
-                      {new Date(payout.voidedAt).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                      {new Date(payout.voidedAt.endsWith('Z') ? payout.voidedAt : payout.voidedAt + 'Z').toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
                     </span>
                   )}
                 </div>

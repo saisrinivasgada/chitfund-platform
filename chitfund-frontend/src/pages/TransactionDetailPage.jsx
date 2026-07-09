@@ -32,15 +32,16 @@ const MODE_ICON = {
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function fmtAmt(v) { return '₹' + Number(v ?? 0).toLocaleString('en-IN'); }
+function utc(str) { return str ? (str.endsWith('Z') ? str : str + 'Z') : null; }
 function fmtDateTime(dt) {
   if (!dt) return '—';
-  const d = new Date(dt);
+  const d = new Date(utc(dt));
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     + ' · ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 function fmtDate(dt) {
   if (!dt) return '—';
-  return new Date(dt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(utc(dt)).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function CopyableId({ value }) {

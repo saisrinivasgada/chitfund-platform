@@ -74,9 +74,10 @@ const REQ_STATUS_STYLE = {
   CANCELLED: 'bg-gray-100 text-gray-500',
 };
 
+function utc(s) { return s ? (s.endsWith('Z') ? s : s + 'Z') : null; }
 function fmtCRDateTime(d) {
   if (!d) return null;
-  const dt = new Date(d);
+  const dt = new Date(utc(d));
   return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
     + ' ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
@@ -1152,7 +1153,7 @@ export function PendingRemittanceTab() {
                   </p>
                   {r.pickedUpAt && (
                     <p className="text-xs text-green-600 mt-0.5">
-                      Picked up {new Date(r.pickedUpAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                      Picked up {new Date(utc(r.pickedUpAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
                     </p>
                   )}
                 </div>
@@ -1217,7 +1218,7 @@ export function PendingRemittanceTab() {
                 ₹{Number(b.totalAmount).toLocaleString('en-IN')}
               </Td>
               <Td className="text-xs text-gray-400">
-                {b.collectedAt ? new Date(b.collectedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                {b.collectedAt ? new Date(utc(b.collectedAt)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
               </Td>
               <Td>
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -1407,9 +1408,9 @@ export function HistoryTab() {
                 </Td>
                 <Td className="text-xs text-gray-400">
                   {b.collectedAt
-                    ? new Date(b.collectedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ? new Date(utc(b.collectedAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
                     : b.createdAt
-                    ? new Date(b.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    ? new Date(utc(b.createdAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
                     : '—'}
                 </Td>
                 <Td>

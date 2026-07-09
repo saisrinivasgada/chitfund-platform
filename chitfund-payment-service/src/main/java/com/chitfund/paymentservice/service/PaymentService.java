@@ -346,8 +346,20 @@ public class PaymentService {
         List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
         for (PaymentRecord r : records) {
             if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
-            r.setAmountPaid(BigDecimal.ZERO);
-            r.setStatus(PaymentRecordStatus.OUTSTANDING);
+            // Re-derive how much was actually paid via cash/UPI before the payout withheld the rest.
+            // Sum allocations from COMPLETED (non-voided) batches only — voided batches were already
+            // reversed and their amount was subtracted from amountPaid at void time.
+            BigDecimal cashPaid = allocationRepository.findByPaymentRecordId(r.getId()).stream()
+                    .filter(a -> {
+                        PaymentBatch b = batchRepository.findById(a.getBatchId()).orElse(null);
+                        return b != null && b.getStatus() == BatchStatus.COMPLETED;
+                    })
+                    .map(PaymentAllocation::getAllocatedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            r.setAmountPaid(cashPaid);
+            r.setStatus(cashPaid.compareTo(BigDecimal.ZERO) == 0
+                    ? PaymentRecordStatus.OUTSTANDING
+                    : PaymentRecordStatus.PARTIALLY_PAID);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
         }
