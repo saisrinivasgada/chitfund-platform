@@ -1382,6 +1382,29 @@ function resolveDescription(text, memberMap, chitMap, staffMap = {}) {
   });
 }
 
+function resolveDescriptionJsx(text, memberMap, chitMap, staffMap = {}) {
+  if (!text) return <span className="text-gray-400">—</span>;
+  const parts = text.split(UUID_RE);
+  const matches = text.match(new RegExp(UUID_RE.source, 'gi')) ?? [];
+  return (
+    <span>
+      {parts.map((part, i) => {
+        const uuid = matches[i - 1];
+        const resolved = uuid
+          ? (memberMap[uuid?.toLowerCase()]
+              ? <strong key={i} className="font-semibold text-gray-900">{memberMap[uuid.toLowerCase()]}</strong>
+              : chitMap[uuid?.toLowerCase()]
+              ? <strong key={i} className="font-semibold text-[#1E3A5F]">{chitMap[uuid.toLowerCase()]}</strong>
+              : staffMap[uuid?.toLowerCase()]
+              ? <strong key={i} className="font-semibold text-purple-700">⚙ {staffMap[uuid.toLowerCase()]}</strong>
+              : <span key={i} className="text-gray-400 text-xs">{uuid}</span>)
+          : null;
+        return <span key={`p${i}`}>{i > 0 ? resolved : null}{part}</span>;
+      })}
+    </span>
+  );
+}
+
 function resolveUUID(uuid, memberMap, chitMap, staffMap = {}) {
   if (!uuid) return '—';
   const key = String(uuid).toLowerCase();
@@ -1519,7 +1542,7 @@ function TreasuryTab() {
                     <td className={`px-4 py-2.5 font-bold ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
                       {t.entryType === 'IN' ? '+' : '-'}{fmt(t.amount)}
                     </td>
-                    <td className="px-4 py-2.5 text-gray-700 text-xs">{resolveDescription(t.description ?? t.notes, memberMap, chitMap, staffMap)}</td>
+                    <td className="px-4 py-2.5 text-gray-700 text-xs">{resolveDescriptionJsx(t.description ?? t.notes, memberMap, chitMap, staffMap)}</td>
                   </tr>
                 ))}
               </tbody>
