@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getChit, getMembers, getMember,
   getChitsForMember, getMemberTotalBalance,
@@ -80,7 +81,7 @@ function openPrint(title, html) {
   w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>${PRINT_CSS}</style></head><body>
     <h1>${title}</h1>${html}
     <div class="footer">Generated on ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; ChitWise Management System</div>
-    <script>window.onload=()=>window.print();</script>
+    <script>window.onload=()=>setTimeout(()=>window.print(),400);</script>
   </body></html>`);
   w.document.close();
 }
@@ -121,16 +122,41 @@ function StatCard({ icon: Icon, label, value, sub, color = '#1E3A5F' }) {
 
 function TabBar({ active, onChange }) {
   return (
-    <div className="flex border-b border-gray-200 gap-0.5 overflow-x-auto">
+    <div className="flex gap-2 overflow-x-auto pb-1">
       {TABS.map((t) => (
         <button key={t} onClick={() => onChange(t)}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px whitespace-nowrap ${
-            active === t ? 'border-[#1E3A5F] text-[#1E3A5F]' : 'border-transparent text-gray-500 hover:text-gray-700'
+          className={`px-5 py-2 text-sm font-semibold rounded-lg border-2 transition-colors cursor-pointer whitespace-nowrap ${
+            active === t
+              ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white'
+              : 'bg-white border-gray-200 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
           }`}>
           {t}
         </button>
       ))}
     </div>
+  );
+}
+
+// ─── Clickable entity links ───────────────────────────────────────────────────
+function MemberLink({ id, name }) {
+  const nav = useNavigate();
+  if (!id || !name || name === id) return <span>{name ?? '—'}</span>;
+  return (
+    <button type="button" onClick={() => nav(`/members/${id}`)}
+      className="hover:underline hover:text-[#1E3A5F] cursor-pointer text-left font-medium">
+      {name}
+    </button>
+  );
+}
+
+function ChitLink({ id, name }) {
+  const nav = useNavigate();
+  if (!id || !name || name === id) return <span>{name ?? '—'}</span>;
+  return (
+    <button type="button" onClick={() => nav(`/chits/${id}`)}
+      className="hover:underline hover:text-[#1E3A5F] cursor-pointer text-left font-medium">
+      {name}
+    </button>
   );
 }
 
@@ -184,7 +210,7 @@ function ChitPaymentSection({ memberId, chit }) {
   const { data: history = [], isLoading } = useQuery({
     queryKey: ['payment-history', memberId, chit.id],
     queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
-    enabled: open,
+    enabled: !!memberId,
   });
 
   const totalDue  = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
@@ -202,7 +228,7 @@ function ChitPaymentSection({ memberId, chit }) {
         <div className="flex items-center gap-3">
           {open ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
           <div className="text-left">
-            <p className="text-sm font-semibold text-gray-800">{chit.name}</p>
+            <p className="text-sm font-semibold text-[#1E3A5F] hover:underline">{chit.name}</p>
             <p className="text-xs text-gray-400">
               {chit.status} &nbsp;·&nbsp; ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} &nbsp;·&nbsp; {chit.totalMembers} members
             </p>
@@ -368,6 +394,7 @@ function OverviewTab() {
 // ─── Member Report Tab ────────────────────────────────────────────────────────
 function MemberReportTab() {
   const [memberId, setMemberId] = useState('');
+  const queryClient = useQueryClient();
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members'], queryFn: getMembers });
 
@@ -433,13 +460,14 @@ function MemberReportTab() {
 
     const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
       <table>
-        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payouts.map((p) => `<tr>
             <td>${chitName(p)}</td>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
+            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -463,13 +491,30 @@ function MemberReportTab() {
       </table>
     `;
 
+    const chitHistoriesHtml = memberChits.map((chit) => {
+      const hist = queryClient.getQueryData(['payment-history', memberId, chit.id]) ?? [];
+      if (hist.length === 0) return '';
+      const rows = hist.map((r) => `<tr>
+        <td>#${r.monthNumber ?? '—'}</td>
+        <td>${fmtDate(r.dueDate ?? r.createdAt)}</td>
+        <td>${fmt(r.amountDue)}</td>
+        <td>${fmt(r.amountPaid)}</td>
+        <td>${fmt(r.balance)}</td>
+        <td><span class="badge ${r.balance > 0 ? 'red' : 'green'}">${r.status ?? '—'}</span></td>
+        ${r.balance <= 0 ? '' : `<td>${r.promisedPaymentDate ? fmtDate(r.promisedPaymentDate) : '—'}</td>`}
+      </tr>`).join('');
+      return `<h3 style="margin:14px 0 4px;font-size:12px;color:#1E3A5F">${chit.name} <span style="font-weight:400;color:#888">(${chit.status})</span></h3>
+        <table>
+          <thead><tr><th>Draw</th><th>Due Date</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th>${hist.some((r) => r.balance > 0) ? '<th>Promised Date</th>' : ''}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }).join('');
+
     openPrint(`Member Report — ${member.fullName}`,
       `${profileHtml}${summaryHtml}
-       <p style="font-size:10px;color:#888;margin:4px 0 12px">
-         Expand each chit section in the app to load draw-wise payment data before printing for a complete report.
-       </p>
        <h2>Payouts Received</h2>${payoutsHtml}
-       ${settlementsHtml}`
+       ${settlementsHtml}
+       ${chitHistoriesHtml ? `<h2>Draw-wise Payment History</h2>${chitHistoriesHtml}` : ''}`
     );
   }
 
@@ -554,9 +599,9 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
-                          {h === 'Adjustment' ? <span title="Withheld installment deducted from payout">{h}</span> : h}
+                          {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span> : h}
                         </th>
                       ))}
                     </tr>
@@ -564,7 +609,7 @@ function MemberReportTab() {
                   <tbody>
                     {payouts.map((p) => (
                       <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-3 py-2 font-medium text-gray-700">{chitName(p)}</td>
+                        <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">#{p.monthNumber ?? '—'}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
                         <td className="px-3 py-2">
@@ -572,6 +617,7 @@ function MemberReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
+                        <td className="px-3 py-2 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -583,7 +629,7 @@ function MemberReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 text-xs font-semibold">
-                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
                       <td colSpan={2} />
@@ -629,11 +675,14 @@ function MemberReportTab() {
 // ─── Chit Report Tab ──────────────────────────────────────────────────────────
 function ChitReportTab() {
   const [chitId, setChitId] = useState('');
+  const nav = useNavigate();
 
   const { data: chits = [], isLoading: loadingChits } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits({ size: 200 }),
   });
+
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
 
   const { data: chit } = useQuery({
     queryKey: ['chit', chitId],
@@ -672,6 +721,8 @@ function ChitReportTab() {
   });
 
   const payoutsData = payoutsReport.length > 0 ? payoutsReport : payoutsByChit;
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
+  const resolveMember = (p) => memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId ?? '—';
 
   const drawMap = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
   const collectionRows = collectionsReport.length > 0
@@ -682,13 +733,18 @@ function ChitReportTab() {
         outstanding: r.outstanding ?? r.balance ?? ((r.totalDue ?? 0) - (r.totalCollected ?? r.totalPaid ?? 0)),
         drawStatus: r.drawStatus ?? drawMap[r.monthNumber ?? r.month]?.status ?? '—',
       }))
-    : draws.map((d) => ({
-        monthNumber: d.monthNumber,
-        totalDue: null,
-        totalCollected: null,
-        outstanding: null,
-        drawStatus: d.status,
-      }));
+    : draws.map((d) => {
+        const collected   = Number(d.totalCollected ?? 0);
+        const outstanding = Number(d.totalOutstanding ?? 0);
+        const totalDue    = collected + outstanding;
+        return {
+          monthNumber: d.monthNumber,
+          totalDue:       totalDue > 0 ? totalDue : null,
+          totalCollected: d.totalCollected != null ? collected : null,
+          outstanding:    d.totalOutstanding != null ? outstanding : null,
+          drawStatus: d.status,
+        };
+      });
 
   const totalExpected    = collectionRows.reduce((s, r) => s + Number(r.totalDue ?? 0), 0);
   const totalCollected   = collectionRows.reduce((s, r) => s + Number(r.totalCollected ?? 0), 0);
@@ -752,20 +808,21 @@ function ChitReportTab() {
 
     const payoutsHtml = payoutsData.length === 0 ? '<p style="color:#888">No payouts</p>' : `
       <table>
-        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payoutsData.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
-            <td>${p.memberName ?? p.memberId ?? '—'}</td>
+            <td>${resolveMember(p)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
+            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="5">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="6">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `;
 
@@ -917,7 +974,7 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -926,13 +983,14 @@ function ChitReportTab() {
                     {payoutsData.map((p) => (
                       <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2 font-semibold">#{p.monthNumber ?? '—'}</td>
-                        <td className="px-3 py-2 font-medium text-gray-700">{p.memberName ?? p.memberId ?? '—'}</td>
+                        <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
                         <td className="px-3 py-2">
                           {Number(p.discountAmount) > 0
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
+                        <td className="px-3 py-2 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -944,7 +1002,7 @@ function ChitReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-100 text-xs font-semibold">
-                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
                       <td colSpan={2} />
@@ -966,8 +1024,13 @@ function PaymentsTab() {
   const [to, setTo]                 = useState(todayStr());
   const [activePreset, setPreset]   = useState('This Month');
   const [filterChit, setFilterChit] = useState('');
+  const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
+
   const { data: batches = [], isLoading } = useQuery({
     queryKey: ['all-batches', from, to, filterChit],
     queryFn: () => getAllPaymentBatches({ fromDate: from || undefined, toDate: to || undefined, chitId: filterChit || undefined }),
@@ -1021,8 +1084,8 @@ function PaymentsTab() {
         <tbody>
           ${batches.map((b) => `<tr>
             <td>${fmtDate(b.collectedAt ?? b.createdAt)}</td>
-            <td>${b.memberName ?? b.memberId ?? '—'}</td>
-            <td>${b.chitName ?? b.chitId ?? '—'}</td>
+            <td>${memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId ?? '—'}</td>
+            <td>${chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId ?? '—'}</td>
             <td>${fmt(b.amount ?? b.totalAmount)}</td>
             <td>${b.paymentMode ?? '—'}</td>
             <td>${b.collectorName ?? '—'}</td>
@@ -1085,8 +1148,12 @@ function PaymentsTab() {
                 {batches.map((b) => (
                   <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-800">{b.memberName ?? b.memberId ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-xs text-gray-600">{b.chitName ?? b.chitId ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <MemberLink id={b.memberId} name={memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <ChitLink id={b.chitId} name={chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId} />
+                    </td>
                     <td className="px-4 py-2.5 font-bold text-green-700">{fmt(b.amount ?? b.totalAmount)}</td>
                     <td className="px-4 py-2.5">
                       <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
@@ -1122,8 +1189,13 @@ function PayoutsTab() {
   const [activePreset, setPreset]     = useState('All Time');
   const [filterChit, setFilterChit]   = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
+
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['all-payouts-tab', from, to, filterChit],
     queryFn: () => getAllPayouts({ chitId: filterChit || undefined, fromDate: from || undefined, toDate: to || undefined }),
@@ -1149,21 +1221,22 @@ function PayoutsTab() {
         <span><strong>Pending:</strong> ${fmt(pendingTotal)}</span>
       </div>
       <table>
-        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${filtered.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
-            <td>${p.chitName ?? p.chitId ?? '—'}</td>
-            <td>${p.memberName ?? p.memberId ?? '—'}</td>
+            <td>${chitMap[String(p.chitId)] ?? p.chitName ?? p.chitId ?? '—'}</td>
+            <td>${memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
+            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="6">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="7">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `);
   }
@@ -1210,7 +1283,7 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                     <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -1219,14 +1292,19 @@ function PayoutsTab() {
                 {filtered.map((p) => (
                   <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-3 py-2.5 font-semibold text-gray-700">#{p.monthNumber ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-xs text-gray-600">{p.chitName ?? p.chitId ?? '—'}</td>
-                    <td className="px-3 py-2.5 font-medium text-gray-800">{p.memberName ?? p.memberId ?? '—'}</td>
+                    <td className="px-3 py-2.5">
+                      <ChitLink id={p.chitId} name={chitMap[String(p.chitId)] ?? p.chitName ?? p.chitId} />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <MemberLink id={p.memberId} name={memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId} />
+                    </td>
                     <td className="px-3 py-2.5">{fmt(p.winningAmount)}</td>
                     <td className="px-3 py-2.5">
                       {Number(p.discountAmount) > 0
                         ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
+                    <td className="px-3 py-2.5 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
                     <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
                     <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1238,7 +1316,7 @@ function PayoutsTab() {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
-                  <td colSpan={5} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
+                  <td colSpan={6} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
                   <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                   <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
                   <td colSpan={2} />
@@ -1254,6 +1332,10 @@ function PayoutsTab() {
 
 // ─── Treasury Tab ─────────────────────────────────────────────────────────────
 function TreasuryTab() {
+  const [from, setFrom]           = useState('');
+  const [to, setTo]               = useState('');
+  const [activePreset, setPreset] = useState('All Time');
+
   const { data: wallet, isLoading: loadingWallet } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: getWalletBalance,
@@ -1263,25 +1345,45 @@ function TreasuryTab() {
     queryFn: getWalletTransactions,
   });
 
+  function onPreset(range) {
+    setFrom(range.from);
+    setTo(range.to);
+    setPreset(PRESETS.find((p) => { const v = p.fn(); return v.from === range.from && v.to === range.to; })?.label ?? '');
+  }
+
+  const filtered = transactions.filter((t) => {
+    const d = t.createdAt ?? t.transactionDate;
+    if (!d) return true;
+    const date = d.slice(0, 10);
+    if (from && date < from) return false;
+    if (to   && date > to)   return false;
+    return true;
+  });
+
   const totalBalance = Number(wallet?.totalBalance ?? 0);
   const cashBalance  = Number(wallet?.cashBalance ?? 0);
   const bankBalance  = Number(wallet?.bankBalance ?? 0);
-  const inflows  = transactions.filter((t) => Number(t.amount ?? 0) > 0).reduce((s, t) => s + Number(t.amount ?? 0), 0);
-  const outflows = transactions.filter((t) => Number(t.amount ?? 0) < 0).reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0);
+  const inflows  = filtered.filter((t) => Number(t.amount ?? 0) > 0).reduce((s, t) => s + Number(t.amount ?? 0), 0);
+  const outflows = filtered.filter((t) => Number(t.amount ?? 0) < 0).reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0);
+
+  const periodLabel = from || to ? `${fmtDate(from)} – ${fmtDate(to)}` : 'All Time';
 
   function handlePrint() {
-    openPrint('Treasury Report', `
+    openPrint(`Treasury Report — ${periodLabel}`, `
+      <div class="meta"><span><strong>Period:</strong> ${periodLabel}</span></div>
       <div class="summary">
         <div class="summary-item"><p class="lbl">Total Balance</p><p class="val">${fmt(totalBalance)}</p></div>
         <div class="summary-item"><p class="lbl">Cash</p><p class="val">${fmt(cashBalance)}</p></div>
         <div class="summary-item"><p class="lbl">Bank</p><p class="val">${fmt(bankBalance)}</p></div>
-        <div class="summary-item"><p class="lbl">Transactions</p><p class="val">${transactions.length}</p></div>
+        <div class="summary-item"><p class="lbl">Inflows</p><p class="val" style="color:#166534">${fmt(inflows)}</p></div>
+        <div class="summary-item"><p class="lbl">Outflows</p><p class="val" style="color:#991b1b">${fmt(outflows)}</p></div>
+        <div class="summary-item"><p class="lbl">Transactions</p><p class="val">${filtered.length}</p></div>
       </div>
       <h2>Transaction History</h2>
       <table>
         <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Description</th><th>Balance After</th></tr></thead>
         <tbody>
-          ${transactions.map((t) => `<tr>
+          ${filtered.map((t) => `<tr>
             <td>${fmtDate(t.createdAt ?? t.transactionDate)}</td>
             <td>${t.type ?? t.transactionType ?? '—'}</td>
             <td style="color:${Number(t.amount ?? 0) >= 0 ? '#166534' : '#991b1b'};font-weight:bold">
@@ -1291,6 +1393,7 @@ function TreasuryTab() {
             <td>${t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
           </tr>`).join('')}
         </tbody>
+        <tfoot><tr><td colspan="2">Total (${filtered.length})</td><td style="color:#166534;font-weight:bold">+${fmt(inflows)}</td><td style="color:#991b1b;font-weight:bold">-${fmt(outflows)}</td><td></td></tr></tfoot>
       </table>
     `);
   }
@@ -1299,11 +1402,13 @@ function TreasuryTab() {
 
   return (
     <div className="space-y-5">
+      <DateRangeBar from={from} to={to} onFrom={setFrom} onTo={setTo} active={activePreset} onPreset={onPreset} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Wallet}     label="Total Balance"  value={fmt(totalBalance)} color="#7c3aed" />
         <StatCard icon={Banknote}   label="Cash Balance"   value={fmt(cashBalance)}  color="#1E3A5F" />
         <StatCard icon={TrendingUp} label="Bank Balance"   value={fmt(bankBalance)}  color="#0891b2" />
-        <StatCard icon={BarChart2}  label="Transactions"   value={transactions.length} sub={`Inflows: ${fmt(inflows)}`} />
+        <StatCard icon={BarChart2}  label={`Inflows (${periodLabel})`} value={fmt(inflows)} sub={`Outflows: ${fmt(outflows)}`} color="#16a34a" />
       </div>
 
       <div className="flex justify-end">
@@ -1312,12 +1417,13 @@ function TreasuryTab() {
         </Button>
       </div>
 
-      {transactions.length === 0 ? (
-        <EmptyState icon={Wallet} title="No transactions" description="No wallet transactions recorded yet" />
+      {filtered.length === 0 ? (
+        <EmptyState icon={Wallet} title="No transactions" description={transactions.length > 0 ? 'No transactions in the selected period' : 'No wallet transactions recorded yet'} />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-800">Transaction History</h3>
+            <span className="text-xs text-gray-400">{filtered.length} of {transactions.length} transactions</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1329,7 +1435,7 @@ function TreasuryTab() {
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((t, i) => {
+                {filtered.map((t, i) => {
                   const amt = Number(t.amount ?? 0);
                   return (
                     <tr key={t.id ?? i} className="border-b border-gray-100 hover:bg-gray-50">
@@ -1350,6 +1456,17 @@ function TreasuryTab() {
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 text-xs font-semibold">
+                  <td colSpan={2} className="px-4 py-2.5 text-gray-600">Total ({filtered.length} transactions)</td>
+                  <td className="px-4 py-2.5">
+                    <span className="text-green-700">+{fmt(inflows)}</span>
+                    <span className="text-gray-400 mx-1">/</span>
+                    <span className="text-red-600">-{fmt(outflows)}</span>
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -1371,12 +1488,14 @@ export default function ReportsPage() {
 
       <TabBar active={tab} onChange={setTab} />
 
-      {tab === 'Overview'      && <OverviewTab />}
-      {tab === 'Member Report' && <MemberReportTab />}
-      {tab === 'Chit Report'   && <ChitReportTab />}
-      {tab === 'Payments'      && <PaymentsTab />}
-      {tab === 'Payouts'       && <PayoutsTab />}
-      {tab === 'Treasury'      && <TreasuryTab />}
+      <div>
+        {tab === 'Overview'      && <OverviewTab />}
+        {tab === 'Member Report' && <MemberReportTab />}
+        {tab === 'Chit Report'   && <ChitReportTab />}
+        {tab === 'Payments'      && <PaymentsTab />}
+        {tab === 'Payouts'       && <PayoutsTab />}
+        {tab === 'Treasury'      && <TreasuryTab />}
+      </div>
     </div>
   );
 }
