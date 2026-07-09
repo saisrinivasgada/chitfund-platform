@@ -324,7 +324,6 @@ export default function TeamPage() {
   const { data: staff = [], isLoading } = useQuery({
     queryKey: ['staff', { deleted: showDeleted }],
     queryFn: () => listStaff({ deleted: showDeleted }),
-    staleTime: 30_000,
   });
 
   const toggleMutation = useMutation({

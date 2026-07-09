@@ -73,7 +73,6 @@ export default function MemberChitDetailPage() {
     queryKey: ['memberPortalBalance', member?.id, chitId],
     queryFn: () => getMemberBalance({ memberId: member.id, chitId }),
     enabled: !!member?.id && !!chitId,
-    staleTime: 60_000,
   });
 
   const { data: history = [], isLoading: histLoading } = useQuery({
@@ -86,14 +85,12 @@ export default function MemberChitDetailPage() {
     queryKey: ['draws', chitId],
     queryFn: () => getDraws(chitId),
     enabled: !!chitId,
-    staleTime: 60_000,
   });
 
   const { data: winners = [] } = useQuery({
     queryKey: ['winners', chitId],
     queryFn: () => getWinners(chitId),
     enabled: !!chitId,
-    staleTime: 60_000,
   });
 
   if (memberLoading || chitLoading) return <PageSpinner />;

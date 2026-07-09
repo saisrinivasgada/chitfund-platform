@@ -844,7 +844,6 @@ export default function ChitsPage() {
     queryKey: ['latest-cycles', activeChitIds.join(',')],
     queryFn: () => getLatestDrawNumbers(activeChitIds),
     enabled: activeChitIds.length > 0,
-    staleTime: 60_000,
   });
 
   // A chit is "behind" if the expected cycle for the current month hasn't been opened

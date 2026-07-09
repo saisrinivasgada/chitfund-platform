@@ -162,7 +162,6 @@ function AdminSpotCell({ adminId }) {
   const { data: adminUser } = useQuery({
     queryKey: ['user', adminId],
     queryFn: () => getUserById(adminId),
-    staleTime: 10 * 60_000,
     enabled: !!adminId,
   });
   const name = adminUser?.fullName ?? adminUser?.username ?? 'Admin';
@@ -517,7 +516,6 @@ function MemberInfoPopover({ member }) {
     queryKey: ['member-total-balance', member?.id],
     queryFn: () => getMemberTotalBalance(member.id),
     enabled: !!coords && !!member?.id,
-    staleTime: 30_000,
   });
 
   if (!member) return null;
@@ -693,7 +691,6 @@ function MemberPickerModal({ slots, members, adminOptions, canShowAdmins, value,
     queryKey: ['balances-picker', allPickableIds.slice().sort().join(',')],
     queryFn: () => getMemberBalanceBulk(allPickableIds),
     enabled: allPickableIds.length > 0,
-    staleTime: 30_000,
   });
 
   // Slot count per member IN THIS CHIT (excluding voided)
@@ -855,7 +852,6 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['slotHistory', slot.id],
     queryFn: () => getSlotHistory(slot.id),
-    staleTime: 30_000,
   });
 
   function renderState(raw) {
@@ -2470,7 +2466,6 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
     queryKey: ['drawPayments', draw.id],
     queryFn: () => getDrawPayments(draw.id),
     enabled: !!draw.id,
-    staleTime: 0,
     refetchOnMount: 'always',
   });
 
@@ -2604,7 +2599,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const [collectedBy, setCollectedBy] = useState('SELF'); // 'SELF' or a staff UUID
   const [notes, setNotes]           = useState('');
 
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const collectors = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
 
   const isCash       = paymentMode === 'CASH';
@@ -2761,7 +2756,6 @@ function DrawsTab({ chitId, chit }) {
   const { data: chitPayouts = [] } = useQuery({
     queryKey: ['payouts', chitId],
     queryFn: () => getPayoutsByChit(chitId),
-    staleTime: 30_000,
   });
   const payoutsByMonth = chitPayouts.reduce((acc, p) => {
     acc[p.monthNumber] = acc[p.monthNumber] ? [...acc[p.monthNumber], p] : [p];
@@ -3094,7 +3088,7 @@ function RecordWinnerModal({ chitId, winnerSelectionMode, onClose }) {
     queryFn: () => getEnrollments(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: recStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
+  const { data: recStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const memberMap = Object.fromEntries([
     ...(recStaff ?? []).map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
     ...allMembers.map((m) => [m.id, m]),
@@ -3171,7 +3165,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
     queryFn: () => getPayoutsByChit(chitId),
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: allStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
+  const { data: allStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const memberMap = Object.fromEntries([
     ...allStaff.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
     ...allMembers.map((m) => [String(m.id), m]),
@@ -3276,7 +3270,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
 
 function TreasuryBadge() {
   const [show, setShow] = useState(false);
-  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 60_000 });
+  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance});
   const cash = Number(bal?.cashBalance ?? 0);
   const bank = Number(bal?.bankBalance ?? 0);
   const total = Number(bal?.totalBalance ?? 0);
@@ -4248,7 +4242,6 @@ function HeaderActions({ chitId, chit }) {
     queryKey: ['reservations', chitId],
     queryFn: () => getReservations(chitId),
     enabled: status === 'DRAFT',
-    staleTime: 30_000,
   });
   const unallocatedCount = reservations.filter((r) => r.status === 'UNALLOCATED').length;
 

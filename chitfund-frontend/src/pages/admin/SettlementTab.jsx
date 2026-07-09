@@ -544,7 +544,6 @@ export default function SettlementTab({ initialMemberId = '' }) {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 300_000,
   });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
   const selectedMember = allMembers.find((m) => m.id === selectedMemberId) ?? null;
@@ -562,7 +561,7 @@ export default function SettlementTab({ initialMemberId = '' }) {
       chitIds: null, // fetch all chits
     }),
     enabled: !!selectedMemberId,
-    staleTime: 0,   // always fresh
+
     retry: 1,       // fail fast — errors usually aren't transient here
   });
 
@@ -584,7 +583,6 @@ export default function SettlementTab({ initialMemberId = '' }) {
     queryKey: ['settlement-history', selectedMemberId],
     queryFn: () => getMemberSettlements(selectedMemberId),
     enabled: !!selectedMemberId && historyOpen,
-    staleTime: 60_000,
   });
 
   // ── Derived calculation (respecting toggles + mode overrides) ─────────

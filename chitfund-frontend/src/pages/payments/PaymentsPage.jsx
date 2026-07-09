@@ -96,7 +96,6 @@ function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
   const { data: auditLogs = [], isLoading } = useQuery({
     queryKey: ['cashAudit', request.id],
     queryFn: () => getCashRequestAuditLog(request.id),
-    staleTime: 10_000,
   });
 
   return (
@@ -212,7 +211,6 @@ function AssignWorkerModal({ request, onClose }) {
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: listStaff,
-    staleTime: 60_000,
   });
   const workers = staff.filter((s) => s.role === 'WORKER' && s.enabled);
 
@@ -270,20 +268,19 @@ function SetupCashPickupModal({ onClose }) {
   const [workerId, setWorkerId] = useState('');
   const [notes, setNotes] = useState('');
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
 
   const { data: memberChits = [] } = useQuery({
     queryKey: ['member-chits', memberId],
     queryFn: () => getChitsForMember(memberId),
     enabled: !!memberId,
-    staleTime: 30_000,
   });
   const activeChits = memberChits.filter((c) =>
     c.status === 'ACTIVE' || c.status === 'PAUSED' || c.status === 'COMPLETED'
   );
 
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const workers = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
 
   const selectedChit = activeChits.find((c) => c.id === chitId);
@@ -515,9 +512,9 @@ export function CashRequestsTab() {
     refetchInterval: 30_000,
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 120_000 });
-  const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 120_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
+  const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
   const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Staff']));
   const memberMap = Object.fromEntries([
@@ -740,7 +737,6 @@ export function RecordPaymentTab() {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 60_000,
   });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
 
@@ -748,7 +744,6 @@ export function RecordPaymentTab() {
     queryKey: ['member-chits', memberId],
     queryFn: () => getChitsForMember(memberId),
     enabled: !!memberId,
-    staleTime: 30_000,
   });
   const collectableChits = memberChits.filter((c) =>
     c.status === 'ACTIVE' || c.status === 'PAUSED' || c.status === 'COMPLETED'
@@ -757,7 +752,6 @@ export function RecordPaymentTab() {
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: listStaff,
-    staleTime: 60_000,
   });
   const collectors = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
 
@@ -804,14 +798,12 @@ export function RecordPaymentTab() {
     queryKey: ['memberBalance', memberId, chitId],
     queryFn: () => getMemberBalance({ memberId, chitId }),
     enabled: !!memberId && !!chitId,
-    staleTime: 30_000,
   });
 
   const { data: memberCredit } = useQuery({
     queryKey: ['memberCredit', memberId],
     queryFn: () => getMemberCredit(memberId),
     enabled: !!memberId,
-    staleTime: 30_000,
   });
   const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
 
@@ -1020,19 +1012,16 @@ export function PendingRemittanceTab() {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 60_000,
   });
   const { data: allChits = [] } = useQuery({
     queryKey: ['chits'],
     queryFn: getChits,
-    staleTime: 60_000,
   });
   const chitMap = Object.fromEntries(allChits.map((c) => [c.id, c.name]));
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: listStaff,
-    staleTime: 60_000,
   });
   const staffMap = Object.fromEntries(staff.map((s) => [s.id, s.fullName ?? s.username]));
   const memberMap = Object.fromEntries([
@@ -1282,13 +1271,12 @@ export function HistoryTab() {
   const [chitId, setChitId]     = useState('');
   const [memberId, setMemberId] = useState('');
 
-  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 60_000 });
+  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
   const chits = allChits.filter((c) => c.status !== 'DRAFT');
 
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 60_000,
   });
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
@@ -1300,13 +1288,12 @@ export function HistoryTab() {
   const { data: batches = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['payment-batches-all', chitId, memberId],
     queryFn: () => getAllPaymentBatches({ ...(chitId ? { chitId } : {}), ...(memberId ? { memberId } : {}) }),
-    staleTime: 30_000,
     retry: 2,
   });
 
   const chitMap = Object.fromEntries(chits.map((c) => [c.id, { name: c.name, status: c.status }]));
 
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const staffMap = Object.fromEntries(staff.map((s) => [s.id, s.fullName ?? s.username]));
 
   const selectedChit = chits.find((c) => c.id === chitId);

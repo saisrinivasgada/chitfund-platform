@@ -36,7 +36,6 @@ function AddMemberModal({ onClose }) {
   const { data: activeMembers = [] } = useQuery({
     queryKey: ['members', 'active-for-referral'],
     queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
-    staleTime: 60_000,
   });
 
   const mutation = useMutation({
@@ -206,7 +205,6 @@ export default function MembersPage() {
     queryKey: ['memberBalancesBulk', memberIds],
     queryFn: () => getMemberBalanceBulk(memberIds),
     enabled: memberIds.length > 0,
-    staleTime: 60_000,
   });
 
   const displayList = showDeleted ? deletedMembers : members;

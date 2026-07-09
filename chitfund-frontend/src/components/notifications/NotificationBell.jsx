@@ -77,14 +77,12 @@ export default function NotificationBell() {
     queryKey: ['notif-unread'],
     queryFn: getUnreadCount,
     refetchInterval: 30_000,
-    staleTime: 20_000,
   });
 
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications'],
     queryFn: getNotifications,
     enabled: open,
-    staleTime: 15_000,
   });
 
   const readMutation = useMutation({

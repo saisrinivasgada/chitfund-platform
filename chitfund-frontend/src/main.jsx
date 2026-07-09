@@ -11,7 +11,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 2 * 60_000,   // 2 minutes — reduces network chatter on navigation
+      staleTime: 0,
       refetchOnWindowFocus: false,
     },
   },

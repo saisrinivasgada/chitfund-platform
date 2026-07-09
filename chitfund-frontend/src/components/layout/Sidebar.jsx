@@ -83,7 +83,6 @@ function QuickNotes({ role }) {
   const { data: notes = [] } = useQuery({
     queryKey: ['team-notes'],
     queryFn: getTeamNotes,
-    staleTime: 60_000,
   });
 
   const createMut = useMutation({
@@ -482,13 +481,11 @@ export default function Sidebar({ open = false, onClose }) {
     queryKey: ['myUserAccount'],
     queryFn: getMe,
     enabled: isStaff,
-    staleTime: 5 * 60_000,
   });
   const { data: lookup } = useQuery({
     queryKey: ['mobileLookup', me?.phone, me?.phoneCountryCode],
     queryFn: () => mobileLookup(me.phone, me.phoneCountryCode),
     enabled: !!me?.phone,
-    staleTime: 10 * 60_000,
   });
   const memberAccount = lookup?.accounts?.find((a) => a.role === 'MEMBER');
   const altPhone = me?.phone;

@@ -131,21 +131,18 @@ export default function TransactionDetailPage() {
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn:  listStaff,
-    staleTime: 120_000,
   });
 
   // Build a combined name map: staff + all members — resolves any UUID in collectedBy/remittedBy
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn:  getMembers,
-    staleTime: 120_000,
   });
 
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', batch?.chitId],
     queryFn:  () => getDraws(batch.chitId),
     enabled:  !!batch?.chitId,
-    staleTime: 60_000,
   });
 
   // Member outstanding dues (cross-chit)
@@ -153,13 +150,11 @@ export default function TransactionDetailPage() {
     queryKey: ['memberTotalBalance', batch?.memberId],
     queryFn:  () => getMemberTotalBalance(batch.memberId),
     enabled:  !!batch?.memberId,
-    staleTime: 30_000,
   });
   const { data: memberChits = [] } = useQuery({
     queryKey: ['memberChits', batch?.memberId],
     queryFn:  () => getChitsForMember(batch.memberId),
     enabled:  !!batch?.memberId,
-    staleTime: 30_000,
   });
   const { data: perChitBalances } = useQuery({
     queryKey: ['memberBalancesAllChits', batch?.memberId, memberChits.map(c => c.id).join(',')],
@@ -170,7 +165,6 @@ export default function TransactionDetailPage() {
       return results.map((b, i) => ({ ...b, chitName: memberChits[i].name, chitId: memberChits[i].id }));
     },
     enabled: memberChits.length > 0 && !!batch?.memberId,
-    staleTime: 30_000,
   });
 
   // Remit mutation — mark cash as received from collector

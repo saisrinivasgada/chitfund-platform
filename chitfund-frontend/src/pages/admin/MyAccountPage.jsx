@@ -32,7 +32,6 @@ function ChitPaymentHistory({ memberId, chit }) {
   const { data: balance = 0 } = useQuery({
     queryKey: ['adminBalance', memberId, chit.id],
     queryFn: () => getMemberBalance({ memberId, chitId: chit.id }),
-    staleTime: 60_000,
   });
 
   const { data: history = [], isLoading } = useQuery({
@@ -254,7 +253,6 @@ export default function MyAccountPage() {
     queryKey: ['adminTotalBalance', me?.id],
     queryFn: () => getMemberTotalBalance(me.id),
     enabled: !!me?.id,
-    staleTime: 60_000,
   });
 
   if (meLoading) return <PageSpinner />;

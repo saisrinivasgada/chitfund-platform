@@ -54,17 +54,14 @@ function useLookupMaps() {
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
-    staleTime: 5 * 60_000,
   });
   const { data: chits = [] } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
-    staleTime: 5 * 60_000,
   });
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: () => listStaff(),
-    staleTime: 5 * 60_000,
   });
 
   // Payment-service stores memberId as the member's userId (JWT principal).
@@ -570,7 +567,6 @@ function MyHistoryTab({ memberMap, chitMap }) {
   const { data: history = [], isLoading } = useQuery({
     queryKey: ['worker-history'],
     queryFn: getMyRequestHistory,
-    staleTime: 30_000,
   });
 
   if (isLoading) return <PageSpinner />;
@@ -646,12 +642,10 @@ export default function WorkerTasksPage() {
   const { data: tasks = [] } = useQuery({
     queryKey: ['worker-tasks'],
     queryFn: getMyAssignedRequests,
-    staleTime: 30_000,
   });
   const { data: pendingBatches = [] } = useQuery({
     queryKey: ['worker-pending-batches'],
     queryFn: getMyPendingBatches,
-    staleTime: 30_000,
   });
 
   return (

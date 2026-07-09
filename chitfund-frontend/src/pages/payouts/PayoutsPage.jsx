@@ -95,7 +95,7 @@ function CreatePayoutTab() {
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
       const entries = [[String(m.id), m]];
@@ -117,14 +117,12 @@ function CreatePayoutTab() {
       return Object.fromEntries(entries);
     },
     enabled: activeChits.length > 0,
-    staleTime: 60_000,
   });
 
   // Fetch all existing payouts once (avoids per-chit queries)
   const { data: allPayouts = [] } = useQuery({
     queryKey: ['payouts', 'all-for-create'],
     queryFn: () => getAllPayouts({}),
-    staleTime: 0,
   });
 
   // Global paid-key set: "chitId:monthNumber:memberId"
@@ -169,7 +167,6 @@ function CreatePayoutTab() {
     queryKey: ['chitsForMember', selectedMemberId],
     queryFn: () => getChitsForMember(selectedMemberId),
     enabled: !!selectedMemberId,
-    staleTime: 60_000,
   });
 
   const otherActiveChits = memberChits.filter(
@@ -191,7 +188,6 @@ function CreatePayoutTab() {
       return Object.fromEntries(entries);
     },
     enabled: otherActiveChits.length > 0 && !!selectedMemberId,
-    staleTime: 60_000,
   });
 
   // Fetch the winning month's actual remaining balance for the current chit.
@@ -200,7 +196,6 @@ function CreatePayoutTab() {
     queryKey: ['memberCurrentChitBalance', selectedMemberId, chitId],
     queryFn: () => getMemberBalance({ memberId: selectedMemberId, chitId }),
     enabled: !!selectedMemberId && !!chitId,
-    staleTime: 60_000,
   });
 
   const winningMonthRemaining = (() => {
@@ -776,7 +771,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
 // ─── Disburse Modal ────────────────────────────────────────────────────────
 function TreasuryBadge() {
   const [show, setShow] = useState(false);
-  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 0 });
+  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance});
   const total = Number(bal?.totalBalance ?? 0);
   const cash  = Number(bal?.cashBalance ?? 0);
   const bank  = Number(bal?.bankBalance ?? 0);
@@ -1029,11 +1024,10 @@ function PendingTab() {
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: getPendingPayouts,
-    staleTime: 0,
   });
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
 
   const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
   const memberMap = Object.fromEntries(
@@ -1122,7 +1116,7 @@ function AllPayoutsTab() {
   const [chitId, setChitId] = useState('');
   const [detailTarget, setDetailTarget] = useState(null);
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 120_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
       const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);
@@ -1136,7 +1130,6 @@ function AllPayoutsTab() {
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['payouts', 'all', chitId],
     queryFn: () => getAllPayouts(chitId ? { chitId } : {}),
-    staleTime: 0,
   });
 
   const STATUS_LABEL = { ACTIVE: 'Active', PAUSED: 'Paused', COMPLETED: 'Done', DRAFT: 'Draft', CANCELLED: 'Cancelled' };

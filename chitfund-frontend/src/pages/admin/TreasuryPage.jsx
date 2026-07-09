@@ -256,7 +256,6 @@ function MemberContactCard({ member }) {
     queryKey: ['member-total-balance', member?.id],
     queryFn: () => getMemberTotalBalance(member.id),
     enabled: !!coords && !!member?.id,
-    staleTime: 30_000,
   });
 
   if (!member) return null;
@@ -367,7 +366,6 @@ function AddTransactionModal({ onClose }) {
     queryKey: ['member-chits', form.memberId],
     queryFn: () => getChitsForMember(form.memberId),
     enabled: isMemberPayment && !!form.memberId,
-    staleTime: 30_000,
   });
 
   const mutation = useMutation({
@@ -694,7 +692,6 @@ export default function TreasuryPage() {
   const { data: balance, isLoading: balanceLoading } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: getWalletBalance,
-    staleTime: 0,
   });
 
   const { data: transactions = [], isLoading: txLoading } = useQuery({
@@ -702,9 +699,9 @@ export default function TreasuryPage() {
     queryFn: getWalletTransactions,
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 300_000 });
-  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 300_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff(), staleTime: 300_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff()});
 
   const memberMap = Object.fromEntries(
     (allMembers ?? []).flatMap((m) => {

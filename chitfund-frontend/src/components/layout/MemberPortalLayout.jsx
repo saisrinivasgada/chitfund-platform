@@ -109,14 +109,12 @@ export default function MemberPortalLayout() {
     queryKey: ['myUserAccount'],
     queryFn: getMe,
     enabled: isAuthenticated && user?.role === 'MEMBER',
-    staleTime: 5 * 60_000,
   });
 
   const { data: lookup } = useQuery({
     queryKey: ['mobileLookup', me?.phone],
     queryFn: () => mobileLookup(me.phone),
     enabled: !!me?.phone,
-    staleTime: 10 * 60_000,
   });
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;

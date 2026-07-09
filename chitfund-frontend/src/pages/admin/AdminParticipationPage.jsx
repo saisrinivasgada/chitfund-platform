@@ -35,7 +35,6 @@ function ChitRow({ chit, adminId, hidden }) {
     queryKey: ['paymentHistory', adminId, chit.id],
     queryFn: () => getPaymentHistory({ memberId: adminId, chitId: chit.id }),
     enabled: open,
-    staleTime: 60_000,
   });
 
   const totalDue = history.reduce((s, p) => s + Number(p.amountDue ?? 0), 0);
@@ -133,28 +132,24 @@ export default function AdminParticipationPage() {
     queryKey: ['user', adminId],
     queryFn: () => getUserById(adminId),
     enabled: !!adminId,
-    staleTime: 10 * 60_000,
   });
 
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['memberChits', adminId],
     queryFn: () => getChitsForMember(adminId),
     enabled: !!adminId,
-    staleTime: 60_000,
   });
 
   const { data: totalBalance } = useQuery({
     queryKey: ['adminBalance', adminId],
     queryFn: () => getMemberTotalBalance(adminId),
     enabled: !!adminId,
-    staleTime: 60_000,
   });
 
   const { data: payouts = [] } = useQuery({
     queryKey: ['adminPayouts', adminId],
     queryFn: () => getPayoutsForMember(adminId),
     enabled: !!adminId,
-    staleTime: 60_000,
   });
 
   if (userLoading || chitsLoading) return <PageSpinner />;

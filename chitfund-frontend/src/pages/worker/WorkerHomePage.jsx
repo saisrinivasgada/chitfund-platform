@@ -44,31 +44,26 @@ export default function WorkerHomePage() {
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ['worker-tasks'],
     queryFn: getMyAssignedRequests,
-    staleTime: 30_000,
   });
 
   const { data: history = [], isLoading: histLoading } = useQuery({
     queryKey: ['worker-history'],
     queryFn: getMyRequestHistory,
-    staleTime: 60_000,
   });
 
   const { data: pendingBatches = [] } = useQuery({
     queryKey: ['worker-pending-batches'],
     queryFn: getMyPendingBatches,
-    staleTime: 30_000,
   });
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
-    staleTime: 5 * 60_000,
   });
 
   const { data: chits = [] } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
-    staleTime: 5 * 60_000,
   });
 
   const memberMap = Object.fromEntries(

@@ -141,47 +141,40 @@ export default function DashboardPage() {
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
-    staleTime: 0,
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
-    staleTime: 0,
   });
 
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: () => getPendingPayouts(),
-    staleTime: 0,
   });
 
   const { data: walletBalance } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: () => getWalletBalance(),
     enabled: isAdmin,
-    staleTime: 0,
   });
 
   const { data: cashRequests = [] } = useQuery({
     queryKey: ['cashRequests', 'active'],
     queryFn: () => getActiveCashRequests(),
     enabled: isAdmin,
-    staleTime: 0,
   });
 
   const { data: remittanceBatches = [] } = useQuery({
     queryKey: ['remittance', 'pending'],
     queryFn: () => getPendingRemittance(),
     enabled: isAdmin,
-    staleTime: 0,
   });
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: () => listStaff(),
     enabled: isAdmin,
-    staleTime: 5 * 60_000,
   });
 
   const staffMap = Object.fromEntries(staff.map((s) => [String(s.id), s]));
@@ -190,19 +183,16 @@ export default function DashboardPage() {
     queryKey: ['me'],
     queryFn: getMe,
     enabled: isAdmin,
-    staleTime: 10 * 60_000,
   });
   const { data: myChits = [] } = useQuery({
     queryKey: ['memberChits', me?.id],
     queryFn: () => getChitsForMember(me.id),
     enabled: isAdmin && !!me?.id,
-    staleTime: 0,
   });
   const { data: myBalance } = useQuery({
     queryKey: ['adminBalance', me?.id],
     queryFn: () => getMemberTotalBalance(me.id),
     enabled: isAdmin && !!me?.id,
-    staleTime: 0,
   });
 
   const today = new Date().toISOString().split('T')[0];

@@ -59,13 +59,11 @@ function ChitCard({ memberId, chit }) {
   const { data: balance } = useQuery({
     queryKey: ['memberPortalBalance', memberId, chit.id],
     queryFn: () => getMemberBalance({ memberId, chitId: chit.id }),
-    staleTime: 60_000,
   });
 
   const { data: history = [] } = useQuery({
     queryKey: ['memberPortalHistory', memberId, chit.id],
     queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
-    staleTime: 60_000,
   });
 
   const outstanding  = Number(balance?.totalOutstanding ?? 0);
@@ -230,7 +228,6 @@ function PayoutsTab({ memberId, chits }) {
     queryKey: ['memberPortalPayouts', memberId],
     queryFn: () => getPayoutsForMember(memberId),
     enabled: !!memberId,
-    staleTime: 60_000,
   });
 
   const chitNameById = Object.fromEntries(chits.map(c => [c.id, c.name]));
@@ -395,7 +392,6 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['myCashRequests'],
     queryFn: getMyCashRequests,
-    staleTime: 30_000,
   });
 
   if (isLoading) return <div className="py-10 flex justify-center"><PageSpinner /></div>;
@@ -603,7 +599,6 @@ export function MemberPortalContent({ memberId }) {
     queryKey: ['portalChits', memberId],
     queryFn: () => getChitsForMember(memberId),
     enabled: !!memberId,
-    staleTime: 60_000,
   });
 
   const [tab, setTab] = useState('chits');
@@ -662,14 +657,12 @@ export default function MemberPortalPage() {
     queryKey: ['portalChits', member?.id],
     queryFn: () => getChitsForMember(member.id),
     enabled: !!member?.id,
-    staleTime: 60_000,
   });
 
   const { data: totalOutstanding = 0 } = useQuery({
     queryKey: ['portalTotalBalance', member?.id],
     queryFn: () => getMemberTotalBalance(member.id),
     enabled: !!member?.id,
-    staleTime: 60_000,
   });
 
   if (memberLoading) return <PageSpinner />;

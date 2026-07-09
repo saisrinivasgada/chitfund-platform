@@ -161,7 +161,6 @@ function Step3Draw({ chit, month, onNext, onBack }) {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 5 * 60_000,
   });
 
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m]));

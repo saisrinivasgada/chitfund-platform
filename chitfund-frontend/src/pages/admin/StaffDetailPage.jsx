@@ -201,7 +201,6 @@ function useChitName(chitId) {
   const { data } = useQuery({
     queryKey: ['chit', chitId],
     queryFn: () => getChit(chitId),
-    staleTime: 5 * 60_000,
     enabled: !!chitId,
   });
   return data?.name ?? data?.chitName ?? '—';
@@ -324,7 +323,6 @@ export default function StaffDetailPage() {
   const { data: staff, isLoading } = useQuery({
     queryKey: ['staff-detail', id],
     queryFn: () => getUserById(id),
-    staleTime: 30_000,
   });
 
   const isCollector = staff?.role === 'WORKER' || staff?.role === 'MANAGER';
@@ -332,19 +330,17 @@ export default function StaffDetailPage() {
   const { data: requests = [], isLoading: requestsLoading } = useQuery({
     queryKey: ['worker-requests', id],
     queryFn: () => getWorkerRequests(id),
-    staleTime: 30_000,
     enabled: isCollector,
   });
 
   const { data: collectionBatches = [], isLoading: batchesLoading } = useQuery({
     queryKey: ['collector-batches', id],
     queryFn: () => getBatchesByCollector(id),
-    staleTime: 30_000,
     enabled: isCollector,
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 5 * 60_000 });
-  const { data: allStaffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allStaffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const memberMap = Object.fromEntries([
     ...allStaffList.map((s) => [s.id, s.fullName ?? s.username ?? '—']),
     ...allMembers.flatMap((m) => {

@@ -271,14 +271,12 @@ function PayoutsTab({ members, chits }) {
     queryKey: ['report-payouts-chit', filterChitId],
     queryFn: () => getAllPayouts({ chitId: filterChitId }),
     enabled: !!filterChitId,
-    staleTime: 30_000,
   });
 
   const { data: allPayoutsRaw = [], isLoading: allLoading } = useQuery({
     queryKey: ['report-payouts-all'],
     queryFn: () => getAllPayouts({}),
     enabled: !filterChitId,
-    staleTime: 30_000,
   });
 
   const payouts   = filterChitId ? singleChitPayouts : allPayoutsRaw;

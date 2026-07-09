@@ -61,39 +61,33 @@ export default function ManagerHomePage() {
   const { data: todayBatches = [], isLoading: todayLoading } = useQuery({
     queryKey: ['today-batches'],
     queryFn: getTodaysPaymentBatches,
-    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
   const { data: pendingRemittances = [], isLoading: remLoading } = useQuery({
     queryKey: ['pending-remittances'],
     queryFn: getPendingRemittance,
-    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: getPendingPayouts,
-    staleTime: 60_000,
   });
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: () => listStaff(),
-    staleTime: 300_000,
   });
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    staleTime: 300_000,
   });
 
   const { data: chits = [] } = useQuery({
     queryKey: ['chits'],
     queryFn: getChits,
-    staleTime: 300_000,
   });
 
   const memberMap = Object.fromEntries(

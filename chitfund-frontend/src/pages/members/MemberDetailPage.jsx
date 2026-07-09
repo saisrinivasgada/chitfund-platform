@@ -297,7 +297,6 @@ function EditMemberPanel({ member, onClose }) {
   const { data: activeMembers = [] } = useQuery({
     queryKey: ['members', 'active-for-referral'],
     queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
-    staleTime: 60_000,
   });
 
   const mutation = useMutation({
@@ -614,7 +613,6 @@ function EnrolledChitsSection({ memberId }) {
     queryKey: ['chitsForMember', memberId],
     queryFn: () => getChitsForMember(memberId),
     enabled: !!memberId,
-    staleTime: 60_000,
   });
 
   if (isLoading || chits.length === 0) return null;
@@ -738,14 +736,12 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
     queryKey: ['memberBalance', memberId, chit.id],
     queryFn: () => getMemberBalance({ memberId, chitId: chit.id }),
     enabled: !!memberId && !!chit.id,
-    staleTime: 60_000,
   });
 
   const { data: history = [], isLoading: histLoading } = useQuery({
     queryKey: ['paymentHistory', memberId, chit.id],
     queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
     enabled: expanded && !!memberId && !!chit.id,
-    staleTime: 30_000,
   });
 
   const outstanding = Number(balance?.totalOutstanding ?? 0);
@@ -883,7 +879,6 @@ function ProfileHistorySection({ memberId, flat = false }) {
     queryKey: ['memberAuditHistory', memberId],
     queryFn: () => getMemberAuditHistory(memberId),
     enabled: (flat || open) && !!memberId,
-    staleTime: 60_000,
   });
 
   const ACTION_LABELS = {
@@ -1119,14 +1114,12 @@ export default function MemberDetailPage() {
     queryKey: ['memberTotalBalance', id],
     queryFn: () => getMemberTotalBalance(id),
     enabled: !!id,
-    staleTime: 60_000,
   });
 
   const { data: memberCredit } = useQuery({
     queryKey: ['memberCredit', id],
     queryFn: () => getMemberCredit(id),
     enabled: !!id,
-    staleTime: 60_000,
   });
   const creditBalance = Number(memberCredit?.balance ?? 0);
 
@@ -1134,7 +1127,6 @@ export default function MemberDetailPage() {
     queryKey: ['memberUserAccount', member?.userId],
     queryFn: () => getUserById(member.userId),
     enabled: !!member?.userId,
-    staleTime: 60_000,
   });
 
   const reminderMutation = useMutation({
@@ -1181,14 +1173,12 @@ export default function MemberDetailPage() {
     queryKey: ['members-for-referral'],
     queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
     enabled: showReferralEdit,
-    staleTime: 120_000,
   });
 
   const { data: activeCashRequests = [] } = useQuery({
     queryKey: ['active-cash-requests'],
     queryFn: getActiveCashRequests,
     enabled: !!id,
-    staleTime: 60_000,
   });
   const pendingMemberPickups = activeCashRequests.filter(
     (r) => r.memberId === id && (r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PENDING'),
