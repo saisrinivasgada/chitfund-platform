@@ -8,7 +8,7 @@ import {
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser,
 } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -352,7 +352,7 @@ export default function AdminMembersScreen() {
     setShowStatusInline(false);
   }
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <ListLoadingScreen />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>

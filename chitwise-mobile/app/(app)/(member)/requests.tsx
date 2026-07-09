@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, Alert, Modal, ScrollView, Touchab
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyRequests, getMyChits, createCashRequest, updateCashRequest, getCashRequestAuditLog } from '../../../services/api';
-import { C, T, Card, Badge, Button, Amount, Input, EmptyState, LoadingScreen, Divider, fmtDateTime, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Button, Amount, Input, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDateTime, fmtDate } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -131,7 +131,7 @@ export default function MemberRequestsScreen() {
     }
   }
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <ListLoadingScreen />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>

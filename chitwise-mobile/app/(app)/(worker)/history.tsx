@@ -2,7 +2,7 @@ import { View, Text, FlatList, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyWorkerHistory, getMembers, getChits } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const PAGE_SIZE = 25;
@@ -23,7 +23,7 @@ export default function WorkerHistoryScreen() {
   const chitMap: Record<string, string> = {};
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <ListLoadingScreen />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>

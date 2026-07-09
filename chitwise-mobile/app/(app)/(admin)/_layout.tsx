@@ -15,6 +15,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     chits:    '≡',
     activity: '◈',
     team:     '✦',
+    reports:  '📊',
   };
   return (
     <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
@@ -71,6 +72,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="members"  options={{ title: 'Members' }} />
       <Tabs.Screen name="chits"    options={{ title: 'Chits' }} />
       <Tabs.Screen name="payments" options={{ title: 'Finance' }} />
+      <Tabs.Screen name="reports"  options={{ title: 'Reports' }} />
       <Tabs.Screen name="team"     options={{ title: 'Team' }} />
       <Tabs.Screen name="activity" options={{
         title: 'Activity',

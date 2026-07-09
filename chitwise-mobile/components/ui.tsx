@@ -369,10 +369,9 @@ export function LoadingScreen() {
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] });
 
   const Bone = ({ w, h, br = 10, mt = 0 }: { w?: number | string; h: number; br?: number; mt?: number }) => (
-    <Animated.View style={{
-      width: w ?? '100%', height: h, borderRadius: br,
-      backgroundColor: C.gray200, opacity, marginTop: mt,
-    }} />
+    <View style={{ width: (w ?? '100%') as any, height: h, marginTop: mt }}>
+      <Animated.View style={{ width: '100%', height: h, borderRadius: br, backgroundColor: C.gray200, opacity }} />
+    </View>
   );
 
   return (
@@ -405,6 +404,50 @@ export function LoadingScreen() {
         {/* List section */}
         <Bone w={110} h={18} br={6} mt={4} />
         {[0, 1, 2].map(i => <Bone key={i} h={60} br={14} />)}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// ── List Loading Screen ───────────────────────────────────────────────────────
+export function ListLoadingScreen() {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(pulse, { toValue: 0, duration: 850, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    ).start();
+  }, []);
+
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] });
+  const Bone = ({ w, h, br = 8, mt = 0 }: { w?: number | string; h: number; br?: number; mt?: number }) => (
+    <View style={{ width: (w ?? '100%') as any, height: h, marginTop: mt }}>
+      <Animated.View style={{ width: '100%', height: h, borderRadius: br, backgroundColor: C.gray200, opacity }} />
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+      <View style={{ padding: 16, gap: 12 }}>
+        {/* Search/filter bar */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Bone w="70%" h={36} br={10} />
+          <Bone w="25%" h={36} br={10} />
+        </View>
+        {/* List rows */}
+        {[0, 1, 2, 3, 4, 5, 6].map(i => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Bone w={40} h={40} br={20} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Bone w="55%" h={14} />
+              <Bone w="35%" h={11} />
+            </View>
+            <Bone w={60} h={14} br={6} />
+          </View>
+        ))}
       </View>
     </SafeAreaView>
   );

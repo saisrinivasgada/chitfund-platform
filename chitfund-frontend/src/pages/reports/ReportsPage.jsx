@@ -15,7 +15,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
 import { Select, Input } from '../../components/ui/FormField';
-import { PageSpinner } from '../../components/ui/Spinner';
+import { ListSkeleton } from '../../components/ui/Spinner';
 import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
@@ -26,6 +26,21 @@ import {
 const fmt = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+// Computes "MMM YYYY" for draw #N given chit start date
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function drawMonthLabel(startDate, monthNumber) {
+  if (!startDate || !monthNumber) return '';
+  const d = new Date(startDate + (startDate.length === 10 ? 'T00:00:00' : ''));
+  d.setDate(1);
+  d.setMonth(d.getMonth() + (Number(monthNumber) - 1));
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+}
+function drawLabel(startDate, monthNumber) {
+  const ml = drawMonthLabel(startDate, monthNumber);
+  return `#${monthNumber}${ml ? ` (${ml})` : ''}`;
+}
+
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStartStr = () =>
   new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
@@ -269,7 +284,7 @@ function ChitPaymentSection({ memberId, chit }) {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-white border-b border-gray-200">
-                      {['Draw', 'Due', 'Paid', 'Balance', 'Status', ...(hasPromised ? ['Promised Date'] : [])].map((h) => (
+                      {['Draw', 'Due Date', 'Due', 'Paid', 'Balance', 'Status', 'Paid Date', ...(hasPromised ? ['Promised Date'] : [])].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -277,7 +292,8 @@ function ChitPaymentSection({ memberId, chit }) {
                   <tbody>
                     {history.map((r) => (
                       <tr key={r.id} className="border-b border-gray-100 hover:bg-white">
-                        <td className="px-3 py-2 font-semibold text-gray-700">#{r.monthNumber}</td>
+                        <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
+                        <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2 text-gray-700">{fmt(r.amountDue)}</td>
                         <td className="px-3 py-2 text-green-700 font-medium">{fmt(r.amountPaid)}</td>
                         <td className={`px-3 py-2 font-medium ${Number(r.balance) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
@@ -288,6 +304,7 @@ function ChitPaymentSection({ memberId, chit }) {
                             {r.status?.replace(/_/g, ' ')}
                           </Badge>
                         </td>
+                        <td className="px-3 py-2 text-gray-500">{Number(r.amountPaid) > 0 ? fmtDate(r.updatedAt) : '—'}</td>
                         {hasPromised && <td className="px-3 py-2 text-gray-500">{fmtDate(r.promisedPaymentDate)}</td>}
                       </tr>
                     ))}
@@ -295,10 +312,11 @@ function ChitPaymentSection({ memberId, chit }) {
                   <tfoot>
                     <tr className="bg-gray-100 font-semibold text-xs">
                       <td className="px-3 py-2 text-gray-700">Total</td>
+                      <td className="px-3 py-2" />
                       <td className="px-3 py-2 text-gray-700">{fmt(totalDue)}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalPaid)}</td>
                       <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</td>
-                      <td colSpan={hasPromised ? 2 : 1} />
+                      <td colSpan={hasPromised ? 3 : 2} />
                     </tr>
                   </tfoot>
                 </table>
@@ -430,7 +448,8 @@ function MemberReportTab() {
   });
 
   const member = memberDetail ?? members.find((m) => String(m.id) === String(memberId));
-  const chitNameMap = Object.fromEntries(memberChits.map((c) => [String(c.id), c.name ?? c.chitName]));
+  const chitNameMap  = Object.fromEntries(memberChits.map((c) => [String(c.id), c.name ?? c.chitName]));
+  const chitStartMap = Object.fromEntries(memberChits.map((c) => [String(c.id), c.startDate]));
   const chitName = (p) => chitNameMap[String(p.chitId)] ?? p.chitName ?? p.chitId ?? '—';
 
   const totalPayoutsReceived = payouts
@@ -463,9 +482,9 @@ function MemberReportTab() {
       <table>
         <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
-          ${payouts.map((p) => `<tr>
+          ${payouts.map((p) => { const pdl = drawMonthLabel(chitStartMap[String(p.chitId)], p.monthNumber); return `<tr>
             <td>${chitName(p)}</td>
-            <td>#${p.monthNumber ?? '—'}</td>
+            <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
             <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
@@ -473,7 +492,7 @@ function MemberReportTab() {
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
-          </tr>`).join('')}
+          </tr>`; }).join('')}
         </tbody>
       </table>
     `;
@@ -495,18 +514,23 @@ function MemberReportTab() {
     const chitHistoriesHtml = memberChits.map((chit) => {
       const hist = queryClient.getQueryData(['payment-history', memberId, chit.id]) ?? [];
       if (hist.length === 0) return '';
-      const rows = hist.map((r) => `<tr>
-        <td>#${r.monthNumber ?? '—'}</td>
-        <td>${fmtDate(r.dueDate ?? r.createdAt)}</td>
+      const hasP = hist.some((r) => r.balance > 0);
+      const rows = hist.map((r) => {
+        const dl = drawMonthLabel(chit.startDate, r.monthNumber);
+        return `<tr>
+        <td>#${r.monthNumber ?? '—'}${dl ? ` (${dl})` : ''}</td>
+        <td>${fmtDate(r.dueDate)}</td>
         <td>${fmt(r.amountDue)}</td>
         <td>${fmt(r.amountPaid)}</td>
         <td>${fmt(r.balance)}</td>
         <td><span class="badge ${r.balance > 0 ? 'red' : 'green'}">${r.status ?? '—'}</span></td>
-        ${r.balance <= 0 ? '' : `<td>${r.promisedPaymentDate ? fmtDate(r.promisedPaymentDate) : '—'}</td>`}
-      </tr>`).join('');
+        <td>${Number(r.amountPaid) > 0 ? fmtDate(r.updatedAt) : '—'}</td>
+        ${hasP ? `<td>${r.promisedPaymentDate ? fmtDate(r.promisedPaymentDate) : '—'}</td>` : ''}
+      </tr>`;
+      }).join('');
       return `<h3 style="margin:14px 0 4px;font-size:12px;color:#1E3A5F">${chit.name} <span style="font-weight:400;color:#888">(${chit.status})</span></h3>
         <table>
-          <thead><tr><th>Draw</th><th>Due Date</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th>${hist.some((r) => r.balance > 0) ? '<th>Promised Date</th>' : ''}</tr></thead>
+          <thead><tr><th>Draw</th><th>Due Date</th><th>Due</th><th>Paid</th><th>Balance</th><th>Status</th><th>Paid Date</th>${hasP ? '<th>Promised Date</th>' : ''}</tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
     }).join('');
@@ -519,7 +543,7 @@ function MemberReportTab() {
     );
   }
 
-  if (loadingMembers) return <PageSpinner />;
+  if (loadingMembers) return <ListSkeleton rows={5} cols={4} />;
   const sortedMembers = [...members].sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
 
   return (
@@ -545,7 +569,7 @@ function MemberReportTab() {
         <EmptyState icon={Users} title="Select a member" description="Choose a member to view their complete report" />
       )}
 
-      {memberId && (loadingMember || loadingChits) && <PageSpinner />}
+      {memberId && (loadingMember || loadingChits) && <ListSkeleton rows={5} cols={4} />}
 
       {memberId && member && (
         <div className="space-y-5">
@@ -611,7 +635,7 @@ function MemberReportTab() {
                     {payouts.map((p) => (
                       <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
-                        <td className="px-3 py-2">#{p.monthNumber ?? '—'}</td>
+                        <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
                         <td className="px-3 py-2">
                           {Number(p.discountAmount) > 0
@@ -794,13 +818,13 @@ function ChitReportTab() {
       <table>
         <thead><tr><th>Draw</th><th>Total Due</th><th>Collected</th><th>Outstanding</th><th>Status</th></tr></thead>
         <tbody>
-          ${collectionRows.map((r) => `<tr>
-            <td>#${r.monthNumber}</td>
+          ${collectionRows.map((r) => { const cdl = drawMonthLabel(chit.startDate, r.monthNumber); return `<tr>
+            <td>#${r.monthNumber}${cdl ? ` (${cdl})` : ''}</td>
             <td>${r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
             <td>${r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
             <td>${r.outstanding != null ? fmt(r.outstanding) : '—'}</td>
             <td>${r.drawStatus}</td>
-          </tr>`).join('')}
+          </tr>`; }).join('')}
         </tbody>
         <tfoot><tr><td>Total</td><td>${fmt(totalExpected)}</td><td>${fmt(totalCollected)}</td><td>${fmt(totalOutstanding)}</td><td></td></tr></tfoot>
       </table>
@@ -823,8 +847,8 @@ function ChitReportTab() {
       <table>
         <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
-          ${payoutsData.map((p) => `<tr>
-            <td>#${p.monthNumber ?? '—'}</td>
+          ${payoutsData.map((p) => { const pdl = drawMonthLabel(chit.startDate, p.monthNumber); return `<tr>
+            <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
             <td>${resolveMember(p)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
@@ -833,7 +857,7 @@ function ChitReportTab() {
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
-          </tr>`).join('')}
+          </tr>`; }).join('')}
         </tbody>
         <tfoot><tr><td colspan="6">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
       </table>
@@ -847,7 +871,7 @@ function ChitReportTab() {
     );
   }
 
-  if (loadingChits) return <PageSpinner />;
+  if (loadingChits) return <ListSkeleton rows={5} cols={4} />;
   const isLoading = loadingDraws || loadingCollections || loadingMembersReport || loadingPayoutsReport;
 
   return (
@@ -870,7 +894,7 @@ function ChitReportTab() {
       </div>
 
       {!chitId && <EmptyState icon={FileText} title="Select a chit" description="Choose a chit to view its complete report" />}
-      {chitId && isLoading && <PageSpinner />}
+      {chitId && isLoading && <ListSkeleton rows={5} cols={4} />}
 
       {chitId && chit && !isLoading && (
         <div className="space-y-5">
@@ -944,7 +968,7 @@ function ChitReportTab() {
                   <tbody>
                     {collectionRows.map((r) => (
                       <tr key={r.monthNumber} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-3 py-2 font-semibold text-gray-700">#{r.monthNumber}</td>
+                        <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
                         <td className="px-3 py-2">{r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
                         <td className="px-3 py-2 text-green-700 font-medium">{r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
                         <td className={`px-3 py-2 font-medium ${Number(r.outstanding) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
@@ -1019,7 +1043,7 @@ function ChitReportTab() {
                   <tbody>
                     {payoutsData.map((p) => (
                       <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-3 py-2 font-semibold">#{p.monthNumber ?? '—'}</td>
+                        <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
                         <td className="px-3 py-2">
@@ -1168,7 +1192,7 @@ function PaymentsTab() {
         </div>
       )}
 
-      {isLoading ? <PageSpinner /> : batches.length === 0 ? (
+      {isLoading ? <ListSkeleton rows={5} cols={4} /> : batches.length === 0 ? (
         <EmptyState icon={Banknote} title="No payments" description="No payment records for the selected period" />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1231,9 +1255,10 @@ function PayoutsTab() {
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
   const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],       queryFn: listStaff });
-  const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
-  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
-  const staffMap  = Object.fromEntries(staffList.map((s) => [String(s.id), s.fullName ?? s.username]));
+  const chitMap      = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
+  const chitStartMap = Object.fromEntries(chits.map((c) => [String(c.id), c.startDate]));
+  const memberMap    = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
+  const staffMap     = Object.fromEntries(staffList.map((s) => [String(s.id), s.fullName ?? s.username]));
 
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['all-payouts-tab', from, to, filterChit],
@@ -1262,8 +1287,8 @@ function PayoutsTab() {
       <table>
         <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
-          ${filtered.map((p) => `<tr>
-            <td>#${p.monthNumber ?? '—'}</td>
+          ${filtered.map((p) => { const pdl = drawMonthLabel(chitStartMap[String(p.chitId)], p.monthNumber); return `<tr>
+            <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
             <td>${resolveUUID(p.chitId, {}, chitMap, {})}</td>
             <td>${resolveUUID(p.memberId, memberMap, {}, staffMap)}</td>
             <td>${fmt(p.winningAmount)}</td>
@@ -1273,7 +1298,7 @@ function PayoutsTab() {
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
-          </tr>`).join('')}
+          </tr>`; }).join('')}
         </tbody>
         <tfoot><tr><td colspan="7">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
       </table>
@@ -1314,7 +1339,7 @@ function PayoutsTab() {
         </div>
       )}
 
-      {isLoading ? <PageSpinner /> : filtered.length === 0 ? (
+      {isLoading ? <ListSkeleton rows={5} cols={4} /> : filtered.length === 0 ? (
         <EmptyState icon={TrendingUp} title="No payouts" description="No payout records for the selected filters" />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1330,7 +1355,7 @@ function PayoutsTab() {
               <tbody>
                 {filtered.map((p) => (
                   <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-3 py-2.5 font-semibold text-gray-700">#{p.monthNumber ?? '—'}</td>
+                    <td className="px-3 py-2.5 font-semibold text-gray-700">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                     <td className="px-3 py-2.5">
                       <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
                     </td>
@@ -1490,7 +1515,7 @@ function TreasuryTab() {
     `);
   }
 
-  if (loadingWallet || loadingTxns) return <PageSpinner />;
+  if (loadingWallet || loadingTxns) return <ListSkeleton rows={5} cols={4} />;
 
   return (
     <div className="space-y-5">

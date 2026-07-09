@@ -8,7 +8,7 @@ import Modal from '../../components/ui/Modal';
 import Badge, { statusBadge } from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea, DateInput } from '../../components/ui/FormField';
-import { PageSpinner } from '../../components/ui/Spinner';
+import { CardGridSkeleton } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Ban } from 'lucide-react';
@@ -933,7 +933,7 @@ export default function ChitsPage() {
       {/* Content */}
       {showCancelled ? (
         loadingCancelled ? (
-          <PageSpinner />
+          <CardGridSkeleton cards={6} />
         ) : cancelledChits.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             <EmptyState
@@ -976,7 +976,7 @@ export default function ChitsPage() {
         )
       ) : showDeleted ? (
         loadingDeleted ? (
-          <PageSpinner />
+          <CardGridSkeleton cards={6} />
         ) : deletedChits.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             <EmptyState
@@ -1018,7 +1018,7 @@ export default function ChitsPage() {
           </div>
         )
       ) : isLoading ? (
-        <PageSpinner />
+        <CardGridSkeleton cards={6} />
       ) : chits.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <EmptyState

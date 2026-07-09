@@ -18,7 +18,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { PageSpinner } from '../../components/ui/Spinner';
+import { ListSkeleton } from '../../components/ui/Spinner';
 import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle, Pencil } from 'lucide-react';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
@@ -556,7 +556,7 @@ export function CashRequestsTab() {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Void failed'),
   });
 
-  if (isLoading) return <PageSpinner />;
+  if (isLoading) return <ListSkeleton rows={6} cols={4} />;
 
   const STATUS_LABEL = { PENDING: 'Pending', ASSIGNED: 'Assigned', PICKED_UP: 'Picked Up', COLLECTED: 'Collected', CANCELLED: 'Cancelled' };
 
@@ -1071,7 +1071,7 @@ export function PendingRemittanceTab() {
   // All workers + managers for the filter dropdown (not just those with pending batches)
   const collectorOptions = staff.filter((s) => s.role === 'WORKER' || s.role === 'MANAGER');
 
-  if (isLoading) return <PageSpinner />;
+  if (isLoading) return <ListSkeleton rows={6} cols={4} />;
 
   const filteredBatches = filterCollector
     ? batches.filter((b) => b.collectedBy === filterCollector)
@@ -1351,7 +1351,7 @@ export function HistoryTab() {
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         {isLoading ? (
-          <PageSpinner />
+          <div className="p-6"><ListSkeleton rows={6} cols={4} /></div>
         ) : isError ? (
           <div className="flex flex-col items-center gap-3 py-12 text-center">
             <History size={32} className="text-gray-300" />

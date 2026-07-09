@@ -3,7 +3,7 @@ import { View, Text, FlatList, RefreshControl, Modal, ScrollView, TouchableOpaci
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyMemberProfile, getPayoutsForMember, getMyChits } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const PAYOUT_STATUS_COLOR: Record<string, string> = {
@@ -49,7 +49,7 @@ export default function MemberPayoutsScreen() {
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
 
   const isLoading = profileLoading || payoutsLoading;
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <ListLoadingScreen />;
 
   const sorted = [...(payouts as any[])].sort((a, b) => {
     const order: Record<string, number> = { PENDING: 0, PARTIALLY_DISBURSED: 1, DISBURSED: 2, DISBURSEMENT_SETTLED: 3, CANCELLED: 4, VOIDED: 5 };

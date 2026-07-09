@@ -9,7 +9,7 @@ import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
 import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
-import { PageSpinner } from '../../components/ui/Spinner';
+import { ListSkeleton } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Phone, Mail, AtSign, Copy, Check, AlertTriangle } from 'lucide-react';
 
@@ -351,7 +351,7 @@ export default function TeamPage() {
     },
   });
 
-  if (isLoading) return <PageSpinner />;
+  if (isLoading) return <ListSkeleton rows={5} cols={4} />;
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">

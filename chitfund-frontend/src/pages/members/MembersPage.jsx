@@ -12,7 +12,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
-import { PageSpinner } from '../../components/ui/Spinner';
+import { ListSkeleton, CardGridSkeleton } from '../../components/ui/Spinner';
 import { Plus, Search, Users, Trash2, Eye, EyeOff } from 'lucide-react';
 
 const INITIAL_FORM = {
@@ -277,7 +277,7 @@ export default function MembersPage() {
         </div>
 
         {isLoadingView ? (
-          <PageSpinner />
+          <ListSkeleton rows={8} cols={5} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={showDeleted ? Trash2 : Users}

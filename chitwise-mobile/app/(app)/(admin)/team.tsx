@@ -8,7 +8,7 @@ import {
   listStaff, createStaff, activateStaff, deactivateStaff, changeStaffRole,
   resetMemberPassword, getUserById, getWorkerRequests, getBatchesByCollector, getMembers,
 } from '../../../services/api';
-import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, PhoneInput, Amount } from '../../../components/ui';
+import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
 
@@ -170,7 +170,7 @@ export default function AdminTeamScreen() {
     setShowDetail(true);
   }
 
-  if (isLoading) return <LoadingScreen />;
+  if (isLoading) return <ListLoadingScreen />;
 
   const rs = selected ? (ROLE_STYLE[selected.role as Role] ?? ROLE_STYLE.WORKER) : ROLE_STYLE.WORKER;
 
