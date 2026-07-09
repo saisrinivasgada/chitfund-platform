@@ -132,7 +132,7 @@ export default function AppLayout() {
             className="flex-1 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
-            <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+            <div className="p-4 sm:p-8 lg:p-10 max-w-7xl mx-auto">
               <Outlet />
             </div>
           </main>

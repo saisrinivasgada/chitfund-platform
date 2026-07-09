@@ -2,14 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getChit, updateChitStatus, pauseChit, resumeChit, deleteChit,
+  getChit, updateChitStatus, updateChitName, pauseChit, resumeChit, deleteChit,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw, shiftReservations,
   getWinners, recordWinner, deleteWinnerForDraw,
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, markSlotProcessed, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
-  getDrawPayments, recordPayment, collectPayment, adminCreateCashRequest, getPaymentHistory,
+  getDrawPayments, recordPayment, collectPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
   getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
@@ -1245,8 +1245,25 @@ function ReservationScheduleTab({ chitId, chit }) {
   const maxSlots = chit?.durationMonths ?? chit?.totalMembers ?? Infinity;
   const slotsAreFull = active.length >= maxSlots;
 
+  // Extra slots: active slots beyond the chit's member count — admin can delete these directly
+  const memberCount = chit?.totalMembers ?? 0;
+  const extraSlotIds = memberCount > 0 && active.length > memberCount
+    ? new Set(
+        [...active]
+          .sort((a, b) => (a.monthNumber ?? Infinity) - (b.monthNumber ?? Infinity))
+          .slice(memberCount)
+          .map((s) => s.id)
+      )
+    : new Set();
+
   return (
     <div className="space-y-4">
+      {extraSlotIds.size > 0 && (
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+          <AlertTriangle size={13} className="flex-shrink-0" />
+          {extraSlotIds.size} slot{extraSlotIds.size > 1 ? 's' : ''} exceed{extraSlotIds.size === 1 ? 's' : ''} the chit's {memberCount}-member limit. Use the Delete button on the extra slot{extraSlotIds.size > 1 ? 's' : ''} to remove them.
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">
@@ -1414,10 +1431,18 @@ function ReservationScheduleTab({ chitId, chit }) {
                                   <CheckCircle size={13} /> Save
                                 </Button>
                               )}
-                              <Button variant="danger" size="sm"
-                                onClick={() => setVoidingSlot(slot)}>
-                                <XCircle size={13} /> Void
-                              </Button>
+                              {extraSlotIds.has(slot.id) && slot.status !== 'PROCESSED' ? (
+                                <Button variant="danger" size="sm"
+                                  title="Extra slot beyond member count — delete permanently"
+                                  onClick={() => setDeletingSlot(slot)}>
+                                  <Trash2 size={13} /> Delete
+                                </Button>
+                              ) : (
+                                <Button variant="danger" size="sm"
+                                  onClick={() => setVoidingSlot(slot)}>
+                                  <XCircle size={13} /> Void
+                                </Button>
+                              )}
                             </>
                           )) : (
                             <span className="text-xs text-gray-400 italic">—</span>
@@ -1583,10 +1608,12 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
   const toast = useToastContext();
   const [step, setStep] = useState(1);
   const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum));
-  const [addExtra, setAddExtra] = useState(false);
-  const [extraMemberId, setExtraMemberId] = useState('');
-  const [extraSlotId, setExtraSlotId] = useState('');
+  const [additionalWinners, setAdditionalWinners] = useState([]); // [{ id, memberId, slotId }]
   const [preview, setPreview] = useState(null);
+
+  const addWinner    = () => setAdditionalWinners((prev) => [...prev, { id: Date.now(), memberId: '', slotId: '' }]);
+  const removeWinner = (id) => setAdditionalWinners((prev) => prev.filter((w) => w.id !== id));
+  const updateWinner = (id, updates) => setAdditionalWinners((prev) => prev.map((w) => w.id === id ? { ...w, ...updates } : w));
 
   const { data: enrollments = [] } = useQuery({
     queryKey: ['enrollments', chitId],
@@ -1648,15 +1675,6 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
     });
   })();
 
-  // RESERVED slots belonging to the selected extra member, excluding the primary winner slot
-  const extraMemberSlots = extraMemberId
-    ? reservations.filter((r) =>
-        r.memberId === extraMemberId &&
-        r.status === 'RESERVED' &&
-        r.id !== primaryWinnerSlot?.id
-      )
-    : [];
-
   function computePreview() {
     const seen = new Set();
     const members = [];
@@ -1676,13 +1694,14 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       const amountDue = processedAmt + reservedSlots.length * baseInstallment;
 
       const previousBalance = Number(balanceMap[mid] ?? 0);
-      const isPrimary = mid === primaryWinnerSlot?.memberId;
-      const isExtra   = addExtra && mid === extraMemberId;
-      const isWinner  = isPrimary || isExtra;
-      const isDouble  = isPrimary && isExtra; // same member gets both slots
-      // All winners in a draw receive the primary slot's payout amount
-      const netPayout = isWinner && cyclePayoutAmount !== null
-        ? (isDouble ? 2 : 1) * cyclePayoutAmount - amountDue
+      const isPrimary  = String(mid) === String(primaryWinnerSlot?.memberId);
+      const extraCount = additionalWinners.filter((w) => w.memberId && String(w.memberId) === String(mid)).length;
+      const isExtra    = extraCount > 0;
+      const isWinner   = isPrimary || isExtra;
+      // Total wins for this member (could be primary + multiple extra slots)
+      const winCount   = (isPrimary ? 1 : 0) + extraCount;
+      const netPayout  = isWinner && cyclePayoutAmount !== null
+        ? winCount * cyclePayoutAmount - amountDue
         : null;
 
       members.push({
@@ -1695,7 +1714,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
         reservedSlotNums: reservedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
         processedSlotNums: processedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
         amountDue,
-        isWinner, isPrimary, isExtra,
+        isWinner, isPrimary, isExtra, winCount,
         netPayout,
       });
     }
@@ -1706,7 +1725,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
   // Slot IDs to mark PROCESSED when cycle is opened
   const slotsToProcess = [
     ...(primaryWinnerSlot ? [primaryWinnerSlot.id] : []),
-    ...(addExtra && extraSlotId ? [extraSlotId] : []),
+    ...additionalWinners.filter((w) => w.slotId).map((w) => w.slotId),
   ];
 
   const mutation = useMutation({
@@ -1726,19 +1745,22 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
       }
 
       // Allocate winner(s) — records who won this cycle; payout is managed separately in Winners tab
-      // Same member holding both slots → ONE record with combined amount (not two separate payouts)
+      // Group by memberId so same member with multiple slots gets ONE combined winner record
       const primaryAmt = Number(primaryWinnerSlot?.payoutAmount ?? chit?.chitValue ?? 0);
-      const extraSlotObj = addExtra && extraSlotId ? reservations.find((r) => r.id === extraSlotId) : null;
-      const isSameMember = addExtra && extraMemberId && extraMemberId === primaryWinnerSlot?.memberId;
-      // All winners use the primary slot's payout amount (the draw's prize)
-      const winnersToRecord = [
-        ...(primaryWinnerSlot
-          ? [{ memberId: primaryWinnerSlot.memberId, winningAmount: isSameMember ? primaryAmt * 2 : primaryAmt }]
-          : []),
-        ...(!isSameMember && extraMemberId && extraSlotObj
-          ? [{ memberId: extraMemberId, winningAmount: primaryAmt }]
-          : []),
-      ];
+      const winsByMember = {};
+      if (primaryWinnerSlot) {
+        const mid = String(primaryWinnerSlot.memberId);
+        winsByMember[mid] = (winsByMember[mid] ?? 0) + 1;
+      }
+      for (const aw of additionalWinners) {
+        if (aw.memberId && aw.slotId) {
+          winsByMember[String(aw.memberId)] = (winsByMember[String(aw.memberId)] ?? 0) + 1;
+        }
+      }
+      const winnersToRecord = Object.entries(winsByMember).map(([memberId, count]) => ({
+        memberId,
+        winningAmount: count * primaryAmt,
+      }));
       await Promise.all(
         winnersToRecord.map(({ memberId, winningAmount }) =>
           recordWinner({
@@ -1813,14 +1835,14 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                     ₹{cyclePayoutAmount.toLocaleString()}
                   </p>
                 )}
-                {addExtra && extraMemberId && (
-                  <div className="mt-2 rounded-lg px-3 py-2" style={{ background: 'rgba(212,160,23,0.15)' }}>
+                {additionalWinners.filter((w) => w.memberId).map((w) => (
+                  <div key={w.id} className="mt-2 rounded-lg px-3 py-2" style={{ background: 'rgba(212,160,23,0.15)' }}>
                     <p className="text-[10px] text-white/40 uppercase tracking-widest mb-0.5">
-                      {extraMemberId === primaryWinnerSlot?.memberId ? 'Double Payout' : 'Also paying'}
+                      {String(w.memberId) === String(primaryWinnerSlot?.memberId) ? 'Double Payout' : 'Also paying'}
                     </p>
-                    <p className="text-xs font-semibold text-white/80">{memberMap[extraMemberId]?.fullName ?? '—'}</p>
+                    <p className="text-xs font-semibold text-white/80">{memberMap[w.memberId]?.fullName ?? '—'}</p>
                   </div>
-                )}
+                ))}
               </>
             ) : (
               <p className="text-sm text-white/40 italic">No winner scheduled</p>
@@ -1891,44 +1913,59 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                   <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} required />
                 </FormField>
 
-                {/* Double payout */}
-                {cyclePayoutAmount && extraCandidates.length > 0 && (
-                  <div className={`rounded-xl border transition-colors ${addExtra ? 'border-[#1E3A5F]/30 bg-[#F0F4FA]' : 'border-gray-200 bg-gray-50'}`}>
-                    <button
-                      type="button"
-                      onClick={() => { setAddExtra((v) => !v); setExtraMemberId(''); setExtraSlotId(''); }}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 cursor-pointer text-left"
-                    >
-                      <ToggleSwitch on={addExtra} onToggle={() => {}} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-800">Pay an additional member</p>
-                        <p className="text-xs text-gray-400 mt-0.5 leading-snug">
-                          Both receive ₹{cyclePayoutAmount.toLocaleString()}. Both slots settle immediately.
-                        </p>
-                      </div>
-                    </button>
+                {/* Additional winners */}
+                {cyclePayoutAmount && (
+                  <div className="space-y-3">
+                    {additionalWinners.map((aw, idx) => {
+                      // RESERVED slots for this additional winner, excluding primary slot and slots already picked by earlier rows
+                      const usedSlotIds = new Set(additionalWinners.filter((_, i) => i < idx).map((w) => w.slotId).filter(Boolean));
+                      const awSlots = aw.memberId
+                        ? reservations.filter((r) =>
+                            String(r.memberId) === String(aw.memberId) &&
+                            r.status === 'RESERVED' &&
+                            r.id !== primaryWinnerSlot?.id &&
+                            !usedSlotIds.has(r.id)
+                          )
+                        : [];
+                      return (
+                        <div key={aw.id} className="rounded-xl border border-[#1E3A5F]/20 bg-[#F0F4FA]">
+                          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E3A5F]/10">
+                            <p className="text-sm font-semibold text-gray-800">Additional Winner {idx + 1}</p>
+                            <button type="button" onClick={() => removeWinner(aw.id)}
+                              className="text-gray-400 hover:text-red-500 transition-colors">
+                              <X size={14} />
+                            </button>
+                          </div>
+                          <div className="px-4 pb-4 pt-3 grid grid-cols-2 gap-3">
+                            <FormField label="Member">
+                              <Select value={aw.memberId}
+                                onChange={(e) => updateWinner(aw.id, { memberId: e.target.value, slotId: '' })}>
+                                <option value="">Select member…</option>
+                                {[...extraCandidates].sort((a, b) => {
+                                  const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
+                                  const nameB = memberMap[b.memberId ?? b.id]?.fullName ?? '';
+                                  return nameA.localeCompare(nameB);
+                                }).map((e) => {
+                                  const mid = e.memberId ?? e.id;
+                                  return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
+                                })}
+                              </Select>
+                            </FormField>
+                            <FormField label="Slot to settle">
+                              <SlotPickerDropdown slots={awSlots} value={aw.slotId}
+                                onChange={(v) => updateWinner(aw.id, { slotId: v })}
+                                disabled={!aw.memberId} placeholder="Select slot…" />
+                            </FormField>
+                          </div>
+                        </div>
+                      );
+                    })}
 
-                    {addExtra && (
-                      <div className="px-4 pb-4 grid grid-cols-2 gap-3 border-t border-[#1E3A5F]/10 pt-3">
-                        <FormField label="Member">
-                          <Select value={extraMemberId}
-                            onChange={(e) => { setExtraMemberId(e.target.value); setExtraSlotId(''); }}>
-                            <option value="">Select member…</option>
-                            {[...extraCandidates].sort((a, b) => {
-                              const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
-                              const nameB = memberMap[b.memberId ?? b.id]?.fullName ?? '';
-                              return nameA.localeCompare(nameB);
-                            }).map((e) => {
-                              const mid = e.memberId ?? e.id;
-                              return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
-                            })}
-                          </Select>
-                        </FormField>
-                        <FormField label="Slot to settle">
-                          <SlotPickerDropdown slots={extraMemberSlots} value={extraSlotId}
-                            onChange={setExtraSlotId} disabled={!extraMemberId} placeholder="Select slot…" />
-                        </FormField>
-                      </div>
+                    {extraCandidates.length > 0 && (
+                      <button type="button" onClick={addWinner}
+                        className="flex items-center gap-2 text-sm text-[#1E3A5F] hover:text-[#0f2540] font-semibold transition-colors">
+                        <Plus size={14} /> Add another member
+                      </button>
                     )}
                   </div>
                 )}
@@ -1983,7 +2020,9 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                                     </span>
                                   )}
                                   {m.isExtra && (
-                                    <span className="text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">Extra</span>
+                                    <span className="text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">
+                                      {m.winCount > 1 ? `×${m.winCount} Payout` : 'Extra'}
+                                    </span>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -2059,7 +2098,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 <Button
                   type="submit"
                   form="open-draw-form"
-                  disabled={enrollments.length === 0 || (addExtra && (!extraMemberId || !extraSlotId))}
+                  disabled={enrollments.length === 0 || additionalWinners.some((w) => !w.memberId || !w.slotId)}
                   className="flex-1">
                   Preview →
                 </Button>
@@ -2425,10 +2464,25 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
 
 // ── Per-cycle payment rows (lazy-loaded when the card is expanded) ────────────
 function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTransactions }) {
+  const qc = useQueryClient();
+  const toast = useToastContext();
   const { data: payments = [], isLoading } = useQuery({
     queryKey: ['drawPayments', draw.id],
     queryFn: () => getDrawPayments(draw.id),
     enabled: !!draw.id,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const promisedDateMutation = useMutation({
+    mutationFn: ({ recordId, date }) => updatePromisedDate({ recordId, promisedPaymentDate: date || null }),
+    onSuccess: (updated) => {
+      qc.setQueryData(['drawPayments', draw.id], (old) =>
+        (old ?? []).map((p) => p.id === updated.id ? { ...p, promisedPaymentDate: updated.promisedPaymentDate } : p)
+      );
+      toast.success('Promised date saved');
+    },
+    onError: () => toast.error('Failed to save date'),
   });
 
   if (isLoading) return (
@@ -2452,6 +2506,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Paid</th>
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Balance</th>
             <th className="pl-8 pr-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Status</th>
+            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Promised Date</th>
             <th className="px-3 py-2.5 sticky top-0 bg-gray-50 z-10" />
           </tr>
         </thead>
@@ -2485,6 +2540,19 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
                 </td>
                 <td className="pl-8 pr-3 py-3">
                   <PaymentStatusBadge status={p.status} overdue={p.overdue} />
+                </td>
+                <td className="px-3 py-3">
+                  {(canCollect || p.promisedPaymentDate) ? (
+                    <input
+                      type="date"
+                      defaultValue={p.promisedPaymentDate ?? ''}
+                      className="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-600 focus:outline-none focus:border-[#1E3A5F] cursor-pointer"
+                      title="Date member promised to pay"
+                      onChange={(e) => promisedDateMutation.mutate({ recordId: p.id, date: e.target.value || null })}
+                    />
+                  ) : (
+                    <span className="text-xs text-gray-300">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-3">
                   <div className="flex gap-1.5 justify-end items-center">
@@ -2695,7 +2763,10 @@ function DrawsTab({ chitId, chit }) {
     queryFn: () => getPayoutsByChit(chitId),
     staleTime: 30_000,
   });
-  const payoutByMonth = Object.fromEntries(chitPayouts.map((p) => [p.monthNumber, p]));
+  const payoutsByMonth = chitPayouts.reduce((acc, p) => {
+    acc[p.monthNumber] = acc[p.monthNumber] ? [...acc[p.monthNumber], p] : [p];
+    return acc;
+  }, {});
 
   const closeMutation = useMutation({
     mutationFn: (cycleId) => closeDraw(cycleId),
@@ -2709,29 +2780,27 @@ function DrawsTab({ chitId, chit }) {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ cycleId, monthNumber }) => {
-      // 1. Find which member was the winner for this cycle
-      const winner = winners.find((w) => w.monthNumber === monthNumber);
+      // 1. Find ALL winners for this cycle (multi-winner draws have more than one)
+      const cycleWinnerList = winners.filter((w) => w.monthNumber === monthNumber);
 
-      if (winner) {
-        const winnerId = winner.memberId ?? winner.winnerId;
-
-        // 2. If a payout exists for this draw, revert any PAYOUT_DEDUCTED records and cancel it.
-        const payout = payoutByMonth[monthNumber];
-        if (payout) {
-          if (payout.status === 'PARTIALLY_DISBURSED') {
-            throw new Error('Cannot delete draw — payout has been partially disbursed. Disburse the remaining amount first.');
-          }
-          if (payout.status === 'DISBURSED') {
-            throw new Error('Cannot delete draw — payout has already been fully disbursed.');
-          }
-          if (payout.status === 'PENDING') {
-            // Revert PAYOUT_DEDUCTED records across all chits linked to this payout
-            await revertPayoutDeductions(payout.id).catch(() => null);
-            await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
-          }
+      // 2. Cancel ALL payouts for this draw
+      const drawPayouts = payoutsByMonth[monthNumber] ?? [];
+      for (const payout of drawPayouts) {
+        if (payout.status === 'PARTIALLY_DISBURSED') {
+          throw new Error('Cannot delete draw — a payout has been partially disbursed. Disburse the remaining amount first.');
         }
+        if (payout.status === 'DISBURSED') {
+          throw new Error('Cannot delete draw — a payout has already been fully disbursed.');
+        }
+        if (payout.status === 'PENDING') {
+          await revertPayoutDeductions(payout.id).catch(() => null);
+          await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
+        }
+      }
 
-        // 3. Revert the PROCESSED reservation slot back to RESERVED
+      // 3. Revert PROCESSED reservation slot for EACH winner back to RESERVED
+      for (const winner of cycleWinnerList) {
+        const winnerId = winner.memberId ?? winner.winnerId;
         const slotToRevert = [...reservations]
           .filter((r) => String(r.memberId) === String(winnerId) && r.status === 'PROCESSED')
           .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
@@ -2746,10 +2815,10 @@ function DrawsTab({ chitId, chit }) {
             postPayoutContribution: slotToRevert.postPayoutContribution ?? null,
           }).catch(() => {});
         }
-
-        // 4. Remove the winner record for this cycle
-        await deleteWinnerForDraw({ chitId, monthNumber }).catch(() => {});
       }
+
+      // 4. Remove all winner records for this cycle
+      await deleteWinnerForDraw({ chitId, monthNumber }).catch(() => {});
 
       // 5. Delete the cycle itself
       await deleteDraw(cycleId);
@@ -2813,12 +2882,12 @@ function DrawsTab({ chitId, chit }) {
             const isOverdue   = c.status === 'OPEN' && (c.outstandingCount ?? 0) > 0 && dueDate && dueDate < today;
             const isExpanded  = expandedCycle === c.id;
             const cycleWinners = winners.filter((w) => w.monthNumber === c.monthNumber);
-            const payout      = payoutByMonth[c.monthNumber];
+            const monthPayouts = payoutsByMonth[c.monthNumber] ?? [];
             const fullyCollected = pct === 100 || (c.outstandingCount === 0 && c.settledCount > 0);
             const isDone = c.status === 'CLOSED' || c.status === 'SKIPPED';
-            // No-payout draw: all collected, draw closed, but no winner (e.g. early-pay month, pool/admin slot)
-            const isNoPayoutDraw = isDone && cycleWinners.length === 0 && !payout && fullyCollected;
-            const isCompleted  = (isDone && payout?.status === 'DISBURSED') || isNoPayoutDraw;
+            // No-payout draw: all collected, draw closed, but no winner (e.g. unallocated month)
+            const isNoPayoutDraw = isDone && cycleWinners.length === 0 && monthPayouts.length === 0 && fullyCollected;
+            const isCompleted  = (isDone && monthPayouts.length > 0 && monthPayouts.every((p) => p.status === 'DISBURSED')) || isNoPayoutDraw;
 
             return (
               <div key={c.id ?? c.monthNumber} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -2846,18 +2915,17 @@ function DrawsTab({ chitId, chit }) {
                                 </span>
                             : <Badge variant={statusBadge(c.status ?? 'OPEN')}>{c.status ?? 'OPEN'}</Badge>
                           }
-                          {/* Disbursement status tag */}
-                          {payout && payout.status === 'DISBURSED' && (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                              <CheckCircle size={10} /> Disbursed ₹{Number(payout.netPayoutAmount).toLocaleString('en-IN')}
+                          {/* Disbursement status — one badge per payout (multi-winner draws show multiple) */}
+                          {monthPayouts.map((p) => p.status === 'DISBURSED' ? (
+                            <span key={p.id} className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                              <CheckCircle size={10} /> Disbursed ₹{Number(p.netPayoutAmount).toLocaleString('en-IN')}
                             </span>
-                          )}
-                          {payout && payout.status === 'PENDING' && (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
-                              <Clock size={10} /> Payout Pending ₹{Number(payout.netPayoutAmount).toLocaleString('en-IN')}
+                          ) : p.status === 'PENDING' || p.status === 'PARTIALLY_DISBURSED' ? (
+                            <span key={p.id} className="inline-flex items-center gap-1 text-xs font-medium text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                              <Clock size={10} /> {p.status === 'PARTIALLY_DISBURSED' ? 'Partial' : 'Pending'} ₹{Number(p.netPayoutAmount).toLocaleString('en-IN')}
                             </span>
-                          )}
-                          {!payout && cycleWinners.length > 0 && (c.status === 'CLOSED' || fullyCollected) && (
+                          ) : null)}
+                          {monthPayouts.length === 0 && cycleWinners.length > 0 && (c.status === 'CLOSED' || fullyCollected) && (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
                               <Clock size={10} /> No Payout Created
                             </span>
@@ -2884,8 +2952,10 @@ function DrawsTab({ chitId, chit }) {
                         </div>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {dueDate ? dueDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                          {payout?.status === 'DISBURSED'
-                            ? ` · Disbursed ₹${Number(payout.netPayoutAmount).toLocaleString('en-IN')}`
+                          {monthPayouts.length > 0 && monthPayouts.every((p) => p.status === 'DISBURSED')
+                            ? monthPayouts.length > 1
+                              ? ` · ${monthPayouts.length} payouts disbursed`
+                              : ` · Disbursed ₹${Number(monthPayouts[0].netPayoutAmount).toLocaleString('en-IN')}`
                             : c.installmentAmount ? ` · ₹${Number(c.installmentAmount).toLocaleString('en-IN')} / member` : ''}
                           {chit?.postPayoutContributionEnabled && chit?.defaultPostPayoutContribution
                             ? ` · ₹${Number(chit.defaultPostPayoutContribution).toLocaleString('en-IN')} post-payout`
@@ -3385,8 +3455,8 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
         return [...without, p];
       });
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
-      // Refresh draw payment cards so installment/cross-chit payments appear immediately
-      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+      // Force-refetch draw payment cards so PAYOUT_DEDUCTED status appears immediately
+      qc.refetchQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['paymentHistory', chitId, memberId] });
       const msg = currentMonthDed > 0 || crossDed > 0
@@ -3442,7 +3512,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();
-      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+      qc.refetchQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
       toast.success('Payout cancelled');
       setShowCancelForm(false);
     },
@@ -4300,9 +4370,25 @@ export default function ChitDetailPage() {
   const activeTab = rawTab ? rawTab.charAt(0).toUpperCase() + rawTab.slice(1) : 'Overview';
   const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
 
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [descInput, setDescInput] = useState('');
+
   const { data: chit, isLoading } = useQuery({
     queryKey: ['chit', id],
     queryFn: () => getChit(id),
+  });
+
+  const renameMutation = useMutation({
+    mutationFn: () => updateChitName({ id, name: nameInput.trim(), description: descInput.trim() || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chit', id] });
+      setEditingName(false);
+      toast.success('Chit name updated');
+    },
+    onError: (e) => toast.error(e.response?.data?.message ?? 'Failed to update name'),
   });
 
   if (isLoading) return <PageSpinner />;
@@ -4347,24 +4433,67 @@ export default function ChitDetailPage() {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-2xl font-bold tracking-tight" style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}>
-              {chit.name}
-            </h2>
-            <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
-            {chit.chitType && chit.chitType !== 'RESERVATION' && (
-              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
-                {chit.chitType}
-              </span>
-            )}
-            {chit.status === 'PAUSED' && (
-              <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                ⏸ Paused {chit.totalPausedMonths > 0 ? `· ${chit.totalPausedMonths} months paused` : ''}
-              </span>
-            )}
-          </div>
-          {chit.description && <p className="text-sm text-gray-500 mt-1">{chit.description}</p>}
+        <div className="flex-1 min-w-0">
+          {editingName ? (
+            <div className="space-y-2">
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') renameMutation.mutate(); if (e.key === 'Escape') setEditingName(false); }}
+                className="text-2xl font-bold w-full border-b-2 border-[#1E3A5F] bg-transparent outline-none pb-0.5"
+                style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}
+                placeholder="Chit name…"
+              />
+              <input
+                value={descInput}
+                onChange={(e) => setDescInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') setEditingName(false); }}
+                className="text-sm w-full border-b border-gray-300 bg-transparent outline-none pb-0.5 text-gray-500"
+                placeholder="Description (optional)…"
+              />
+              <div className="flex gap-2 pt-1">
+                <Button type="button" size="sm" loading={renameMutation.isPending}
+                  disabled={!nameInput.trim()}
+                  onClick={() => renameMutation.mutate()}>
+                  Save
+                </Button>
+                <Button type="button" size="sm" variant="secondary" onClick={() => setEditingName(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-2xl font-bold tracking-tight" style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                  {chit.name}
+                </h2>
+                {chit.status !== 'DELETED' && (
+                  <button
+                    type="button"
+                    onClick={() => { setNameInput(chit.name); setDescInput(chit.description ?? ''); setEditingName(true); }}
+                    className="text-gray-400 hover:text-[#1E3A5F] transition-colors"
+                    title="Edit chit name"
+                  >
+                    <Settings size={15} />
+                  </button>
+                )}
+                <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
+                {chit.chitType && chit.chitType !== 'RESERVATION' && (
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
+                    {chit.chitType}
+                  </span>
+                )}
+                {chit.status === 'PAUSED' && (
+                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                    ⏸ Paused {chit.totalPausedMonths > 0 ? `· ${chit.totalPausedMonths} months paused` : ''}
+                  </span>
+                )}
+              </div>
+              {chit.description && <p className="text-sm text-gray-500 mt-1">{chit.description}</p>}
+            </div>
+          )}
         </div>
         <HeaderActions chitId={id} chit={chit} />
       </div>

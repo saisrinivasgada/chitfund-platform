@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, listStaff } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -11,7 +11,7 @@ import FormField, { Input, Select, Textarea, DateInput } from '../../components/
 import { PageSpinner } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check } from 'lucide-react';
+import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Ban } from 'lucide-react';
 
 const MODE_LABELS = {
   AUCTION: 'Auction',
@@ -51,18 +51,35 @@ const CHIT_TYPES = [
   },
 ];
 
-// Build month rows from startDate (YYYY-MM-DD or YYYY-MM) + count
-// Splits the string to avoid timezone conversion bugs.
-// defaultPayoutAmount: pre-fills payout so rows aren't silently dropped on submit.
-function buildMonthRows(startDateStr, count, defaultPayoutAmount = '') {
-  if (!startDateStr || !count || count < 1) return [];
+// Build month rows from startDate (YYYY-MM-DD or YYYY-MM) + count.
+// existingRows: current rows — passed to preserve member/payout assignments across regeneration.
+// Without a startDate: generates placeholder "Slot N" rows with no date assigned yet.
+function buildMonthRows(startDateStr, count, defaultPayoutAmount = '', existingRows = []) {
+  if (!count || Number(count) < 1) return [];
+  const n = Number(count);
+
+  if (!startDateStr) {
+    return Array.from({ length: n }, (_, i) => ({
+      reservationMonth: '',
+      label: `Slot ${i + 1}`,
+      memberId:              existingRows[i]?.memberId              ?? '',
+      payoutAmount:          existingRows[i]?.payoutAmount          ?? String(defaultPayoutAmount || ''),
+      postPayoutContribution: existingRows[i]?.postPayoutContribution ?? '',
+    }));
+  }
+
   const [year, month] = startDateStr.split('-').map(Number);
   if (!year || !month) return [];
-  return Array.from({ length: Number(count) }, (_, i) => {
-    const d = new Date(year, month - 1 + i, 1);
+  return Array.from({ length: n }, (_, i) => {
+    const d   = new Date(year, month - 1 + i, 1);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-    const label = d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-    return { reservationMonth: iso, label, memberId: '', payoutAmount: String(defaultPayoutAmount || ''), postPayoutContribution: '' };
+    return {
+      reservationMonth: iso,
+      label: d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+      memberId:              existingRows[i]?.memberId              ?? '',
+      payoutAmount:          existingRows[i]?.payoutAmount          ?? String(defaultPayoutAmount || ''),
+      postPayoutContribution: existingRows[i]?.postPayoutContribution ?? '',
+    };
   });
 }
 
@@ -78,7 +95,7 @@ function CreateChitModal({ onClose }) {
   const [basic, setBasic] = useState({
     name: '', description: '', chitValue: '', numberOfMembers: '',
     installmentAmount: '',
-    startDate: '', monthlyDueDate: '', adminHeldSpotsCount: '0',
+    startDate: new Date().toISOString().slice(0, 10), monthlyDueDate: '', adminHeldSpotsCount: '0',
   });
 
   // Contribution rule
@@ -103,10 +120,11 @@ function CreateChitModal({ onClose }) {
       // Pass chitValue so payout amounts are pre-filled with the chit value —
       // prevents rows being silently dropped on submit due to empty payoutAmount.
       if (key === 'startDate' || key === 'numberOfMembers') {
-        setSchedule(buildMonthRows(
+        setSchedule((prev) => buildMonthRows(
           key === 'startDate' ? val : next.startDate,
           key === 'numberOfMembers' ? val : next.numberOfMembers,
           next.chitValue,
+          prev,
         ));
       }
       return next;
@@ -119,9 +137,14 @@ function CreateChitModal({ onClose }) {
 
   function addSlotAtEnd() {
     setSchedule((rows) => {
-      const base = rows.length > 0 ? rows[rows.length - 1].reservationMonth : (basic.startDate || new Date().toISOString().slice(0, 7) + '-01');
+      const lastWithDate = [...rows].reverse().find((r) => r.reservationMonth);
+      if (!lastWithDate && !basic.startDate) {
+        // No dates at all — add a placeholder slot
+        return [...rows, { reservationMonth: '', label: `Slot ${rows.length + 1}`, memberId: '', payoutAmount: String(basic.chitValue || ''), postPayoutContribution: '' }];
+      }
+      const base = lastWithDate?.reservationMonth ?? basic.startDate;
       const [y, m] = base.split('-').map(Number);
-      const isFirst = rows.length === 0;
+      const isFirst = !lastWithDate;
       const nextY = !isFirst ? (m === 12 ? y + 1 : y) : y;
       const nextM = !isFirst ? (m === 12 ? 1 : m + 1) : m;
       const iso   = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
@@ -151,8 +174,9 @@ function CreateChitModal({ onClose }) {
     // Send ALL rows regardless of whether payout is filled — the backend accepts
     // null payoutAmount and marks those slots UNALLOCATED. Rows the admin didn't
     // touch will still appear in the Schedule tab so they can be filled in later.
-    const reservationSchedule = includeSchedule && schedule.length > 0
-      ? schedule.map((r) => ({
+    const datedRows = schedule.filter((r) => r.reservationMonth);
+    const reservationSchedule = includeSchedule && datedRows.length > 0
+      ? datedRows.map((r) => ({
           reservationMonth: r.reservationMonth,
           memberId: r.memberId || null,
           payoutAmount: r.payoutAmount ? Number(r.payoutAmount) : null,
@@ -433,11 +457,19 @@ function CreateChitModal({ onClose }) {
             Assign who receives the payout each month. Member is optional — slots can stay unallocated and be filled later.
           </p>
 
+          {/* Warn when slots exist but no start date — month labels won't be included on submit */}
+          {schedule.length > 0 && schedule.every((r) => !r.reservationMonth) && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <Calendar size={13} className="flex-shrink-0 mt-0.5" />
+              No start date set — go back to Step 2 to assign months to these slots. You can still assign members now.
+            </div>
+          )}
+
           {schedule.length === 0 ? (
             <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-200 space-y-3">
               <Calendar size={28} className="mx-auto text-gray-300" />
               <p className="text-sm text-gray-400">
-                Set a Start Date and Number of Members in Step 2 to auto-generate the schedule.
+                Set Number of Members in Step 2 to auto-generate slots.
               </p>
               <button type="button" onClick={addSlotAtEnd}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#1E3A5F] border border-[#1E3A5F]/40 rounded-lg hover:bg-[#1E3A5F]/5 transition-colors cursor-pointer">
@@ -521,7 +553,7 @@ function CreateChitModal({ onClose }) {
             </div>
           )}
 
-          {schedule.length > 0 && (
+          {schedule.length > 0 && (!basic.numberOfMembers || schedule.length < Number(basic.numberOfMembers)) && (
             <button type="button" onClick={addSlotAtEnd}
               className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium text-[#1E3A5F] border border-dashed border-[#1E3A5F]/30 rounded-lg hover:bg-[#1E3A5F]/5 transition-colors cursor-pointer">
               <Plus size={14} /> Add Slot
@@ -529,7 +561,7 @@ function CreateChitModal({ onClose }) {
           )}
 
           {/* Sticky footer — always visible regardless of scroll position */}
-          <div className="sticky bottom-0 bg-white pt-3 pb-1 space-y-2 -mx-6 px-6 border-t border-gray-100 mt-2">
+          <div className="sticky bottom-0 bg-white pt-3 pb-1 -mx-6 px-6 border-t border-gray-100 mt-2">
             <div className="flex gap-3">
               <Button variant="secondary" onClick={() => setStep(3)} className="flex-1">
                 <ChevronLeft size={15} /> Back
@@ -541,14 +573,6 @@ function CreateChitModal({ onClose }) {
                 Create Chit Fund
               </Button>
             </div>
-            <button
-              type="button"
-              onClick={() => submit(false)}
-              disabled={mutation.isPending}
-              className="w-full text-center text-sm text-gray-400 hover:text-[#1E3A5F] hover:underline py-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              Save and fill schedule later
-            </button>
           </div>
         </div>
       )}
@@ -783,6 +807,7 @@ export default function ChitsPage() {
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState('board');
   const [showDeleted, setShowDeleted] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   useEffect(() => {
     if (location.state?.openAdd && isAdmin) {
@@ -802,6 +827,13 @@ export default function ChitsPage() {
     enabled: showDeleted && canSeeDeleted,
   });
   const deletedChits = deletedData.content ?? [];
+
+  const { data: cancelledData = { content: [] }, isLoading: loadingCancelled } = useQuery({
+    queryKey: ['chits', 'cancelled'],
+    queryFn: () => getCancelledChits({ size: 100 }),
+    enabled: showCancelled && canSeeDeleted,
+  });
+  const cancelledChits = cancelledData.content ?? [];
 
   // IDs of ACTIVE chits that have a start date — we need cycle status for these
   const activeChitIds = chits
@@ -845,15 +877,25 @@ export default function ChitsPage() {
 
         <div className="flex items-center gap-3">
           {canSeeDeleted && (
-            <Button
-              variant={showDeleted ? 'danger' : 'secondary'}
-              onClick={() => setShowDeleted((v) => !v)}
-            >
-              <Trash2 size={14} />
-              {showDeleted ? 'Show Active' : 'Show Deleted'}
-            </Button>
+            <>
+              <Button
+                variant={showCancelled ? 'secondary' : 'secondary'}
+                className={showCancelled ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100' : ''}
+                onClick={() => { setShowCancelled((v) => !v); setShowDeleted(false); }}
+              >
+                <Ban size={14} />
+                {showCancelled ? 'Show Active' : 'Show Cancelled'}
+              </Button>
+              <Button
+                variant={showDeleted ? 'danger' : 'secondary'}
+                onClick={() => { setShowDeleted((v) => !v); setShowCancelled(false); }}
+              >
+                <Trash2 size={14} />
+                {showDeleted ? 'Show Active' : 'Show Deleted'}
+              </Button>
+            </>
           )}
-          {!showDeleted && (
+          {!showDeleted && !showCancelled && (
             <div className="flex items-center gap-3">
               {/* View toggle — iOS-style segmented control */}
               <div className="flex items-center bg-gray-200 rounded-full p-1">
@@ -890,7 +932,50 @@ export default function ChitsPage() {
       </div>
 
       {/* Content */}
-      {showDeleted ? (
+      {showCancelled ? (
+        loadingCancelled ? (
+          <PageSpinner />
+        ) : cancelledChits.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+            <EmptyState
+              icon={Ban}
+              title="No cancelled chits"
+              message="No chit funds have been cancelled yet."
+            />
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h3 className="text-sm font-semibold text-gray-700">Cancelled Chit Funds</h3>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {cancelledChits.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => navigate(`/chits/${c.id}`)}
+                  className="flex items-center justify-between px-6 py-4 opacity-60 hover:opacity-80 cursor-pointer hover:bg-gray-50 transition-all"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">{c.name}</p>
+                    {c.description && <p className="text-xs text-gray-400">{c.description}</p>}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      &#8377;{c.chitValue?.toLocaleString()} &middot; {c.totalMembers} members
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <Badge variant="warning">Cancelled</Badge>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {c.updatedAt
+                        ? new Date(c.updatedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      ) : showDeleted ? (
         loadingDeleted ? (
           <PageSpinner />
         ) : deletedChits.length === 0 ? (

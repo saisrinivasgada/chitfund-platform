@@ -202,8 +202,18 @@ export const updateChitStatus = async ({ id, status, startDate }) => {
   return res.data.data;
 };
 
+export const updateChitName = async ({ id, name, description }) => {
+  const res = await api.patch(`/chits/${id}/name`, { name, description });
+  return res.data.data;
+};
+
 export const getDeletedChits = async ({ page = 0, size = 20 } = {}) => {
   const res = await api.get('/chits/deleted', { params: { page, size } });
+  return res.data.data ?? { content: [], totalElements: 0 };
+};
+
+export const getCancelledChits = async ({ page = 0, size = 100 } = {}) => {
+  const res = await api.get('/chits', { params: { page, size, status: 'CANCELLED' } });
   return res.data.data ?? { content: [], totalElements: 0 };
 };
 
@@ -324,6 +334,11 @@ export const getDraws = async (chitId) => {
 export const getDrawPayments = async (drawId) => {
   const res = await api.get(`/admin/draws/${drawId}/payments`);
   return res.data.data ?? [];
+};
+
+export const updatePromisedDate = async ({ recordId, promisedPaymentDate }) => {
+  const res = await api.patch(`/payments/records/${recordId}/promised-date`, { promisedPaymentDate });
+  return res.data.data;
 };
 
 export const recordPayment = async ({ chitId, memberId, amount, paymentMode, notes }) => {

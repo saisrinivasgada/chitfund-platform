@@ -516,6 +516,8 @@ export function CashRequestsTab() {
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 120_000 });
+  const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 120_000 });
+  const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Staff']));
   const memberMap = Object.fromEntries([
     ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (Admin)`]),
@@ -578,13 +580,16 @@ export function CashRequestsTab() {
         </div>
       )}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <Table columns={['Member', 'Worker', 'Amount', 'Note', 'Status', 'Requested', 'Actions']}>
+        <Table columns={['Member', 'Chit', 'Worker', 'Amount', 'Note', 'Status', 'Requested', 'Actions']}>
           {requests.map((r) => (
             <Tr key={r.id}>
               <Td>
                 <span className="text-sm font-medium text-gray-900">
                   {memberMap[r.memberId] ?? <span className="font-mono text-xs text-gray-400">{r.memberId?.slice(0, 8)}…</span>}
                 </span>
+              </Td>
+              <Td>
+                <span className="text-sm text-gray-700">{chitMap[r.chitId] ?? <span className="text-xs text-gray-400 italic">—</span>}</span>
               </Td>
               <Td>
                 {r.assignedWorkerId

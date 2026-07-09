@@ -694,6 +694,7 @@ export default function TreasuryPage() {
   const { data: balance, isLoading: balanceLoading } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: getWalletBalance,
+    staleTime: 0,
   });
 
   const { data: transactions = [], isLoading: txLoading } = useQuery({
