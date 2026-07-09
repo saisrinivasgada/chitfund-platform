@@ -21,7 +21,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1E3A5F"
       },
-      "package": "com.chitwise.mobile"
+      "package": "com.chitwise.mobile",
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro",

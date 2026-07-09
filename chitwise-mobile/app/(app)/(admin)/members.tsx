@@ -451,6 +451,11 @@ export default function AdminMembersScreen() {
                     <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>App Login Active</Text>
                   </View>
                 )}
+                {memberUser?.username && (
+                  <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 11, color: C.gray500, fontFamily: 'monospace' }}>@{memberUser.username}</Text>
+                  </View>
+                )}
               </View>
               {selected?.id && (
                 <Text style={{ fontSize: 10, color: C.gray400, marginTop: 3, fontFamily: 'monospace' }}>

@@ -15,7 +15,7 @@ import {
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot, hardDeleteReservationSlot,
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
-  listStaff,
+  listStaff, updateChitName,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -148,6 +148,9 @@ export default function AdminChitsScreen() {
   const [showDetail, setShowDetail] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('info');
+  const [editingChitName, setEditingChitName] = useState(false);
+  const [chitNameInput, setChitNameInput] = useState('');
+  const [chitDescInput, setChitDescInput] = useState('');
 
   // ── Create form (4-step wizard matching web) ──────────────────────────────
   const [createStep, setCreateStep] = useState(1);       // 1=type 2=details 3=contribution 4=schedule
@@ -157,7 +160,7 @@ export default function AdminChitsScreen() {
   const [cChitValue, setCChitValue] = useState('');
   const [cMembers, setCMembers] = useState('');
   const [cInstall, setCInstall] = useState('');
-  const [cStart, setCStart] = useState('');
+  const [cStart, setCStart] = useState(new Date().toISOString().slice(0, 10));
   const [cDueDate, setCDueDate] = useState('');
   const [cAdminSpots, setCAdminSpots] = useState('0');
   const [cPostPayoutEnabled, setCPostPayoutEnabled] = useState(false);
@@ -178,8 +181,10 @@ export default function AdminChitsScreen() {
 
   // ── Draws tab ──────────────────────────────────────────────────────────────
   const [showOpenDraw, setShowOpenDraw] = useState(false);
-  const [odWinnerId, setOdWinnerId] = useState('');
+  const [odWinnerIds, setOdWinnerIds] = useState<string[]>([]);
   const [odDrawNum, setOdDrawNum] = useState('');
+  const toggleOdWinner = (mid: string) =>
+    setOdWinnerIds((prev) => prev.includes(mid) ? prev.filter((id) => id !== mid) : [...prev, mid]);
   const [showSkipDraw, setShowSkipDraw] = useState(false);
   const [sdDrawId, setSdDrawId] = useState('');
   const [sdDrawNum, setSdDrawNum] = useState('');
@@ -301,14 +306,14 @@ export default function AdminChitsScreen() {
 
   function handleCMembersChange(val: string) {
     setCMembers(val);
-    if (cStart && val) setCSchedule(buildMonthRows(cStart, Number(val), cChitValue));
+    if (val) setCSchedule(buildMonthRows(cStart || new Date().toISOString().slice(0, 10), Number(val), cChitValue));
   }
 
   function resetCreateForm() {
     setCreateStep(1);
     setCChitType('RESERVATION'); setCName(''); setCDesc('');
     setCChitValue(''); setCMembers(''); setCInstall('');
-    setCStart(''); setCDueDate(''); setCAdminSpots('0');
+    setCStart(new Date().toISOString().slice(0, 10)); setCDueDate(''); setCAdminSpots('0');
     setCPostPayoutEnabled(false); setCPostPayoutAmount('');
     setCSchedule([]);
   }
@@ -399,14 +404,25 @@ export default function AdminChitsScreen() {
 
   // ── Mutations: draws ───────────────────────────────────────────────────────
   const openDrawMut = useMutation({
-    mutationFn: () => openDraw({
-      chitId: selected.id, drawNumber: Number(odDrawNum),
-      winnerId: odWinnerId || undefined,
-    }),
+    mutationFn: async () => {
+      const drawNum = Number(odDrawNum) || nextDrawNum;
+      await openDraw({ chitId: selected.id, drawNumber: drawNum });
+      // Record each winner separately
+      const chitValue = Number(selected?.chitValue ?? 0);
+      for (const mid of odWinnerIds) {
+        await recordWinner(selected.id, {
+          winnerId: mid,
+          monthNumber: drawNum,
+          winningAmount: chitValue,
+          discountAmount: 0,
+        }).catch(() => {});
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
-      setShowOpenDraw(false); setOdWinnerId(''); setOdDrawNum('');
+      if (odWinnerIds.length > 0) qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
+      setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum('');
       toast.noted('Draw opened');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -598,6 +614,17 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Disburse Failed', e.response?.data?.message ?? 'Disbursement failed. Please try again.'),
   });
 
+  const renameMut = useMutation({
+    mutationFn: () => updateChitName(selected!.id, chitNameInput.trim(), chitDescInput.trim() || undefined),
+    onSuccess: (updated: any) => {
+      qc.setQueryData(['a-chits'], (old: any[]) => old?.map((c) => c.id === updated.id ? updated : c));
+      setSelected(updated);
+      setEditingChitName(false);
+      toast.saved('Chit name updated');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update name'),
+  });
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const memberMap: Record<string, string> = Object.fromEntries([
     ...(staff as any[]).map((s) => [String(s.id), `${s.fullName ?? s.username} (Admin)`]),
@@ -615,12 +642,15 @@ export default function AdminChitsScreen() {
   const paused    = (chits as any[]).filter((c) => c.status === 'PAUSED');
   const completed = (chits as any[]).filter((c) => c.status === 'COMPLETED');
   const draft     = (chits as any[]).filter((c) => c.status === 'DRAFT');
+  const cancelled = (chits as any[]).filter((c) => c.status === 'CANCELLED');
 
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [chitShowCount, setChitShowCount] = useState(15);
   const [sortBy, setSortBy] = useState<'name' | 'amount' | 'members'>('name');
 
-  const allDisplayChits = [...(chits as any[])].filter((c) => statusFilter === 'ALL' || c.status === statusFilter)
+  const allDisplayChits = [...(chits as any[])].filter((c) =>
+    statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
+  )
     .sort((a, b) => {
       if (sortBy === 'amount') return Number(b.installmentAmount ?? 0) - Number(a.installmentAmount ?? 0);
       if (sortBy === 'members') return Number(b.enrolledCount ?? b.totalMembers ?? 0) - Number(a.enrolledCount ?? a.totalMembers ?? 0);
@@ -665,11 +695,12 @@ export default function AdminChitsScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {[
-                  { label: 'All', status: 'ALL', count: (chits as any[]).length, color: C.navy },
+                  { label: 'All', status: 'ALL', count: (chits as any[]).filter((c) => c.status !== 'CANCELLED').length, color: C.navy },
                   { label: 'Active', status: 'ACTIVE', count: active.length, color: C.green },
                   { label: 'Paused', status: 'PAUSED', count: paused.length, color: C.amber },
                   { label: 'Done', status: 'COMPLETED', count: completed.length, color: C.navy },
                   { label: 'Draft', status: 'DRAFT', count: draft.length, color: C.gray400 },
+                  { label: 'Cancelled', status: 'CANCELLED', count: cancelled.length, color: C.amber },
                 ].map((s) => {
                   const isActive = statusFilter === s.status;
                   return (
@@ -750,17 +781,52 @@ export default function AdminChitsScreen() {
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           {/* Header */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={T.h2} numberOfLines={1}>{selected?.name}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                <Badge status={selected?.status ?? 'DRAFT'} />
-                {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
+          <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            {editingChitName ? (
+              <View>
+                <TextInput
+                  autoFocus
+                  value={chitNameInput}
+                  onChangeText={setChitNameInput}
+                  style={{ fontSize: 18, fontWeight: '700', color: C.navy, borderBottomWidth: 2, borderBottomColor: C.navy, paddingBottom: 4, marginBottom: 8 }}
+                  placeholder="Chit name…"
+                  returnKeyType="next"
+                />
+                <TextInput
+                  value={chitDescInput}
+                  onChangeText={setChitDescInput}
+                  style={{ fontSize: 13, color: C.gray500, borderBottomWidth: 1, borderBottomColor: C.gray300, paddingBottom: 4, marginBottom: 10 }}
+                  placeholder="Description (optional)…"
+                />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button label="Save" size="sm" loading={renameMut.isPending} disabled={!chitNameInput.trim()} onPress={() => renameMut.mutate()} />
+                  <Button label="Cancel" size="sm" variant="outline" onPress={() => setEditingChitName(false)} />
+                </View>
               </View>
-            </View>
-            <TouchableOpacity onPress={() => setShowDetail(false)}>
-              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
-            </TouchableOpacity>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[T.h2, { flex: 1 }]} numberOfLines={1}>{selected?.name}</Text>
+                    {selected?.status !== 'DELETED' && (
+                      <TouchableOpacity
+                        onPress={() => { setChitNameInput(selected?.name ?? ''); setChitDescInput(selected?.description ?? ''); setEditingChitName(true); }}
+                        style={{ padding: 4 }}
+                      >
+                        <Text style={{ fontSize: 16, color: C.gray400 }}>✎</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <Badge status={selected?.status ?? 'DRAFT'} />
+                    {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setShowDetail(false)}>
+                  <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* Sub-tabs (scrollable) — no extra margin, border is on tab row itself */}
@@ -1701,7 +1767,7 @@ export default function AdminChitsScreen() {
                 {cSchedule.length === 0 ? (
                   <View style={{ backgroundColor: C.gray50, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, borderStyle: 'dashed', padding: 24, alignItems: 'center', marginTop: 12 }}>
                     <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginBottom: 12 }}>
-                      Set a Start Date and Number of Members in Step 2 to auto-generate the schedule.
+                      Set Number of Members in Step 2 to auto-generate slots.
                     </Text>
                     <TouchableOpacity
                       onPress={() => {
@@ -1743,21 +1809,23 @@ export default function AdminChitsScreen() {
                         </TouchableOpacity>
                       </View>
                     ))}
-                    <TouchableOpacity
-                      onPress={() => {
-                        setCSchedule((rows) => {
-                          const last = rows[rows.length - 1]?.reservationMonth ?? (cStart || new Date().toISOString().slice(0, 7) + '-01');
-                          const [y, m] = last.split('-').map(Number);
-                          const nextM = m === 12 ? 1 : m + 1;
-                          const nextY = m === 12 ? y + 1 : y;
-                          const iso = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
-                          const label = new Date(nextY, nextM - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-                          return [...rows, { reservationMonth: iso, label, payoutAmount: cChitValue }];
-                        });
-                      }}
-                      style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.navy, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot</Text>
-                    </TouchableOpacity>
+                    {(!cMembers || cSchedule.length < Number(cMembers)) && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCSchedule((rows) => {
+                            const last = rows[rows.length - 1]?.reservationMonth ?? (cStart || new Date().toISOString().slice(0, 7) + '-01');
+                            const [y, m] = last.split('-').map(Number);
+                            const nextM = m === 12 ? 1 : m + 1;
+                            const nextY = m === 12 ? y + 1 : y;
+                            const iso = `${nextY}-${String(nextM).padStart(2, '0')}-01`;
+                            const label = new Date(nextY, nextM - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                            return [...rows, { reservationMonth: iso, label, payoutAmount: cChitValue }];
+                          });
+                        }}
+                        style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: C.navy, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 4 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>+ Add Slot</Text>
+                      </TouchableOpacity>
+                    )}
                   </>
                 )}
               </>
@@ -1905,36 +1973,51 @@ export default function AdminChitsScreen() {
                   style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
                 <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Next suggested: #{nextDrawNum}</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winner (optional)</Text>
-              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>You can record the winner later via the Winners tab.</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
+              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
+
+              {/* Selected winners chips */}
+              {odWinnerIds.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  {odWinnerIds.map((mid) => (
+                    <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.navy, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>{memberMap[mid] ?? mid}</Text>
+                      <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>×</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
               <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-                <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
-                  <TouchableOpacity onPress={() => setOdWinnerId('')}
-                    style={{ padding: 12, backgroundColor: !odWinnerId ? C.gray100 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                    <Text style={{ fontSize: 14, color: !odWinnerId ? C.gray700 : C.gray400, fontWeight: !odWinnerId ? '600' : '400' }}>
-                      No winner yet {!odWinnerId ? '✓' : ''}
-                    </Text>
-                  </TouchableOpacity>
+                <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
                   {(enrollments as any[]).map((e: any) => {
-                    const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
-                    const mid = e.memberId ?? e.id;
+                    const mid = String(e.memberId ?? e.id);
+                    const name = memberMap[mid] ?? 'Unknown';
+                    const isSelected = odWinnerIds.includes(mid);
                     return (
-                      <TouchableOpacity key={mid} onPress={() => setOdWinnerId(mid)}
-                        style={{ padding: 12, backgroundColor: odWinnerId === mid ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                        <Text style={{ fontSize: 14, fontWeight: odWinnerId === mid ? '700' : '400', color: odWinnerId === mid ? C.navy : C.gray900 }}>
-                          {name} {odWinnerId === mid ? '✓' : ''}
+                      <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                        style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
+                          {name}
                         </Text>
+                        {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
                       </TouchableOpacity>
                     );
                   })}
                 </ScrollView>
               </View>
+
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerId(''); setOdDrawNum(''); }} />
+                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); }} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Button label={`Open Draw #${odDrawNum || nextDrawNum}`} variant="success"
+                  <Button
+                    label={odWinnerIds.length > 1
+                      ? `Open Draw #${odDrawNum || nextDrawNum} · ${odWinnerIds.length} Winners`
+                      : `Open Draw #${odDrawNum || nextDrawNum}`}
+                    variant="success"
                     onPress={() => openDrawMut.mutate()} loading={openDrawMut.isPending}
                     disabled={!odDrawNum} />
                 </View>

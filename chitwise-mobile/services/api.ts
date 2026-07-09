@@ -105,6 +105,8 @@ export const getChit = async (id: string) => unwrapObj(await api.get(`/chits/${i
 export const createChit = async (body: any) => unwrapObj(await api.post('/chits', body));
 export const updateChitStatus = async (id: string, status: string, startDate?: string) =>
   unwrapObj(await api.put(`/chits/${id}/status`, { status, startDate: startDate ?? null }));
+export const updateChitName = async (id: string, name: string, description?: string) =>
+  unwrapObj(await api.patch(`/chits/${id}/name`, { name, description }));
 export const getChitsForMember = async (memberId: string) =>
   unwrapList(await api.get(`/chits/member/${memberId}`));
 export const getMyChits = async () => unwrapList(await api.get('/chits/mine'));
