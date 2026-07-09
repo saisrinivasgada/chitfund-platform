@@ -461,14 +461,14 @@ function MemberReportTab() {
 
     const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
       <table>
-        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payouts.map((p) => `<tr>
             <td>${chitName(p)}</td>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
+            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -535,9 +535,9 @@ function MemberReportTab() {
           </Select>
         </div>
         {memberId && member && (
-          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
             <Printer size={15} /> Print Report
-          </Button>
+          </button>
         )}
       </div>
 
@@ -600,7 +600,7 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
                           {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span> : h}
                         </th>
@@ -618,7 +618,7 @@ function MemberReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
-                        <td className="px-3 py-2 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -821,14 +821,14 @@ function ChitReportTab() {
 
     const payoutsHtml = payoutsData.length === 0 ? '<p style="color:#888">No payouts</p>' : `
       <table>
-        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payoutsData.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${resolveMember(p)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
+            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -840,7 +840,7 @@ function ChitReportTab() {
     `;
 
     openPrint(`Chit Report — ${chit.name}`,
-      `${chitInfoHtml}${summaryHtml}
+      `${chitInfoHtml}
        <h2>Draw-wise Collections</h2>${collectionsHtml}
        <h2>Member Payment Summary</h2>${membersHtml}
        <h2>Payouts</h2>${payoutsHtml}`
@@ -863,9 +863,9 @@ function ChitReportTab() {
           </Select>
         </div>
         {chitId && chit && (
-          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
             <Printer size={15} /> Print Report
-          </Button>
+          </button>
         )}
       </div>
 
@@ -1011,7 +1011,7 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -1027,7 +1027,7 @@ function ChitReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
-                        <td className="px-3 py-2 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -1148,9 +1148,9 @@ function PaymentsTab() {
           </Select>
         </div>
         <div className="ml-auto flex gap-2">
-          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2 text-sm">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
             <Printer size={14} /> Print
-          </Button>
+          </button>
           <Button variant="outline" onClick={handleCSV} className="flex items-center gap-2 text-sm">
             <Download size={14} /> CSV
           </Button>
@@ -1260,7 +1260,7 @@ function PayoutsTab() {
         <span><strong>Pending:</strong> ${fmt(pendingTotal)}</span>
       </div>
       <table>
-        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Adj &amp; Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${filtered.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
@@ -1268,7 +1268,7 @@ function PayoutsTab() {
             <td>${resolveUUID(p.memberId, memberMap, {}, staffMap)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
+            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -1301,9 +1301,9 @@ function PayoutsTab() {
             ))}
           </Select>
         </div>
-        <Button variant="outline" onClick={handlePrint} className="ml-auto flex items-center gap-2 text-sm">
+        <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
           <Printer size={14} /> Print
-        </Button>
+        </button>
       </div>
 
       {!isLoading && payouts.length > 0 && (
@@ -1322,7 +1322,7 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj & Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                     <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -1343,7 +1343,7 @@ function PayoutsTab() {
                         ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600 text-xs">{p.notes ?? p.cancellationReason ?? p.voidReason ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-3 py-2.5 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                     <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
                     <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1504,9 +1504,9 @@ function TreasuryTab() {
       </div>
 
       <div className="flex justify-end">
-        <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2 text-sm">
+        <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
           <Printer size={14} /> Print Report
-        </Button>
+        </button>
       </div>
 
       {filtered.length === 0 ? (
