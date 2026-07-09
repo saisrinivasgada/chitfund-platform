@@ -1,101 +1,131 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  getChits, getMembers,
+  getChits, getChit, getMembers, getMember,
+  getChitsForMember, getMemberTotalBalance,
+  getPaymentHistory, getPayoutsForMember, getMemberSettlements,
   getAllPaymentBatches, getAllPayouts,
+  getPayoutsByChit, getDraws,
+  getCollectionsReport, getMembersReport, getPayoutsReport,
+  getWalletBalance, getWalletTransactions,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
-import Badge, { statusBadge } from '../../components/ui/Badge';
-import Table, { Tr, Td } from '../../components/ui/Table';
+import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
-import { Input, Select } from '../../components/ui/FormField';
+import { Select, Input } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
 import {
-  BarChart2, TrendingUp, AlertTriangle, DollarSign,
-  Users, Banknote, Download, Filter, ExternalLink, Printer,
+  BarChart2, DollarSign, Users, Banknote,
+  Download, Filter, Printer, ChevronDown, ChevronRight,
+  Wallet, AlertCircle, TrendingUp, FileText,
 } from 'lucide-react';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-const fmt     = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-const today      = () => new Date().toISOString().slice(0, 10);
-const daysAgo    = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
-const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-const lastMonthRange = () => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end   = new Date(now.getFullYear(), now.getMonth(), 0);
-  return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
-};
+// ─── Formatters ───────────────────────────────────────────────────────────────
+const fmt = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
+const fmtDate = (d) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const monthStartStr = () =>
+  new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
 
 const PRESETS = [
-  { label: 'Today',      get: () => ({ from: today(),      to: today() }) },
-  { label: 'Last 7 days',get: () => ({ from: daysAgo(6),   to: today() }) },
-  { label: 'This Month', get: () => ({ from: monthStart(), to: today() }) },
-  { label: 'Last Month', get: () => lastMonthRange() },
-  { label: 'All Time',   get: () => ({ from: '', to: '' }) },
+  { label: 'Today',       fn: () => ({ from: todayStr(), to: todayStr() }) },
+  { label: 'Last 7 days', fn: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { from: d.toISOString().slice(0, 10), to: todayStr() }; } },
+  { label: 'This Month',  fn: () => ({ from: monthStartStr(), to: todayStr() }) },
+  { label: 'Last Month',  fn: () => {
+    const n = new Date();
+    const s = new Date(n.getFullYear(), n.getMonth() - 1, 1);
+    const e = new Date(n.getFullYear(), n.getMonth(), 0);
+    return { from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) };
+  }},
+  { label: 'All Time', fn: () => ({ from: '', to: '' }) },
 ];
 
-// ─── Stat Card ─────────────────────────────────────────────────────────────
+const PMT_STATUS_COLOR = {
+  SETTLED: 'green', PAYOUT_DEDUCTED: 'green', WAIVED: 'blue', SETTLEMENT_CLEARED: 'green',
+  PARTIALLY_PAID: 'yellow', OUTSTANDING: 'red',
+};
+const PY_STATUS_COLOR = { DISBURSED: 'green', PENDING: 'yellow', CANCELLED: 'red', VOIDED: 'gray' };
+
+const TABS = ['Overview', 'Member Report', 'Chit Report', 'Payments', 'Payouts', 'Treasury'];
+
+// ─── Print CSS ────────────────────────────────────────────────────────────────
+const PRINT_CSS = `
+  body{font-family:Arial,sans-serif;font-size:11px;color:#222;margin:24px}
+  h1{color:#1E3A5F;border-bottom:2px solid #1E3A5F;padding-bottom:6px;font-size:17px;margin-bottom:6px}
+  h2{color:#1E3A5F;font-size:13px;margin:16px 0 6px}
+  h3{color:#1E3A5F;font-size:11px;margin:10px 0 4px}
+  table{width:100%;border-collapse:collapse;margin:6px 0;font-size:10px}
+  th{background:#1E3A5F;color:#fff;padding:5px 8px;text-align:left;font-size:10px}
+  td{border:1px solid #ddd;padding:4px 8px}
+  tr:nth-child(even) td{background:#f8f8f8}
+  tfoot td{background:#e8eef4;font-weight:bold}
+  .meta{display:flex;gap:24px;margin-bottom:12px;font-size:11px;flex-wrap:wrap}
+  .meta span{color:#555}
+  .meta strong{color:#222}
+  .summary{background:#f0f4f8;padding:10px 14px;border-radius:6px;margin:8px 0;display:flex;gap:30px;flex-wrap:wrap}
+  .summary-item p{margin:2px 0}
+  .summary-item .val{font-size:14px;font-weight:bold;color:#1E3A5F}
+  .summary-item .lbl{font-size:10px;color:#666}
+  .footer{margin-top:20px;font-size:9px;color:#aaa;border-top:1px solid #eee;padding-top:6px}
+  .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:bold}
+  .green{background:#dcfce7;color:#166534} .red{background:#fee2e2;color:#991b1b}
+  .yellow{background:#fef3c7;color:#92400e} .blue{background:#dbeafe;color:#1e40af}
+  .gray{background:#f3f4f6;color:#374151}
+`;
+
+function openPrint(title, html) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Allow pop-ups to print reports.'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>${PRINT_CSS}</style></head><body>
+    <h1>${title}</h1>${html}
+    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; ChitWise Management System</div>
+    <script>window.onload=()=>window.print();</script>
+  </body></html>`);
+  w.document.close();
+}
+
+// ─── CSV export ───────────────────────────────────────────────────────────────
+function downloadCSV(rows, filename) {
+  if (!rows.length) return;
+  const keys = Object.keys(rows[0]);
+  const csv = [
+    keys.join(','),
+    ...rows.map((r) => keys.map((k) => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(',')),
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── UI Primitives ────────────────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, sub, color = '#1E3A5F' }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
       <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: `${color}18` }}>
+        style={{ background: `${color}18` }}>
         <Icon size={20} style={{ color }} />
       </div>
       <div>
         <p className="text-xs text-gray-400 font-medium">{label}</p>
         <p className="text-xl font-bold text-gray-900 mt-0.5">{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
 }
 
-// ─── Date Range Bar ─────────────────────────────────────────────────────────
-function DateRangeBar({ from, to, onFromChange, onToChange, activePreset, onPreset }) {
+function TabBar({ active, onChange }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1.5 flex-wrap">
-          {PRESETS.map((p) => (
-            <button key={p.label} onClick={() => onPreset(p)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                activePreset === p.label
-                  ? 'bg-[#1E3A5F] text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 ml-auto">
-          <Filter size={14} className="text-gray-400" />
-          <Input type="date" value={from} max={to || today()}
-            onChange={(e) => onFromChange(e.target.value)} />
-          <span className="text-gray-400 text-sm">to</span>
-          <Input type="date" value={to} min={from} max={today()}
-            onChange={(e) => onToChange(e.target.value)} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Tabs ───────────────────────────────────────────────────────────────────
-const TABS = ['Overview', 'Payments', 'Payouts', 'Members', 'Chit-wise'];
-
-function Tabs({ active, onChange }) {
-  return (
-    <div className="flex border-b border-gray-200 gap-1 overflow-x-auto">
+    <div className="flex border-b border-gray-200 gap-0.5 overflow-x-auto">
       {TABS.map((t) => (
         <button key={t} onClick={() => onChange(t)}
           className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px whitespace-nowrap ${
-            active === t
-              ? 'border-[#1E3A5F] text-[#1E3A5F]'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+            active === t ? 'border-[#1E3A5F] text-[#1E3A5F]' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}>
           {t}
         </button>
@@ -104,513 +134,1227 @@ function Tabs({ active, onChange }) {
   );
 }
 
-// ─── Overview Tab ──────────────────────────────────────────────────────────
-function OverviewTab({ batches, payouts, chits, members }) {
-  const totalCollected = batches.filter((b) => b.status === 'COMPLETED').reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-  const totalVoided    = batches.filter((b) => b.status === 'VOIDED').reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-  const cashAwaiting   = batches.filter((b) => b.status === 'AWAITING_REMITTANCE').reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-  const totalDisbursed = payouts.filter((p) => p.status === 'DISBURSED').reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
-  const pendingPayouts = payouts.filter((p) => ['PENDING', 'PARTIALLY_DISBURSED'].includes(p.status)).reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
-  const activeChits    = chits.filter((c) => c.status === 'ACTIVE').length;
+function DateRangeBar({ from, to, onFrom, onTo, active, onPreset }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
+      <div className="flex gap-1.5 flex-wrap">
+        {PRESETS.map((p) => (
+          <button key={p.label} onClick={() => onPreset(p.fn())}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              active === p.label ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>{p.label}</button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 ml-auto">
+        <Filter size={13} className="text-gray-400" />
+        <Input type="date" value={from} max={to || todayStr()} onChange={(e) => onFrom(e.target.value)} />
+        <span className="text-gray-400 text-xs">to</span>
+        <Input type="date" value={to} min={from} max={todayStr()} onChange={(e) => onTo(e.target.value)} />
+      </div>
+    </div>
+  );
+}
 
-  const modeBreakdown = batches.filter((b) => b.status === 'COMPLETED').reduce((acc, b) => {
-    acc[b.paymentMode] = (acc[b.paymentMode] ?? 0) + Number(b.totalAmount ?? 0);
+function Row({ label, value }) {
+  return (
+    <div className="flex justify-between py-1.5 border-b border-gray-100 last:border-0">
+      <span className="text-xs text-gray-500">{label}</span>
+      <span className="text-xs font-semibold text-gray-800">{value ?? '—'}</span>
+    </div>
+  );
+}
+
+function SummaryBar({ items }) {
+  return (
+    <div className="flex flex-wrap gap-6 bg-blue-50 rounded-xl p-4">
+      {items.map(({ label, value, color }) => (
+        <div key={label}>
+          <p className="text-xs text-gray-500">{label}</p>
+          <p className={`text-base font-bold ${color ?? 'text-gray-800'}`}>{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Per-chit payment section (lazy, self-fetching) ───────────────────────────
+function ChitPaymentSection({ memberId, chit }) {
+  const [open, setOpen] = useState(false);
+
+  const { data: history = [], isLoading } = useQuery({
+    queryKey: ['payment-history', memberId, chit.id],
+    queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
+    enabled: open,
+  });
+
+  const totalDue  = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
+  const totalPaid = history.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
+  const totalBal  = history.reduce((s, r) => s + Number(r.balance ?? 0), 0);
+  const hasPromised = history.some((r) => r.promisedPaymentDate);
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between p-4 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          {open ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
+          <div className="text-left">
+            <p className="text-sm font-semibold text-gray-800">{chit.name}</p>
+            <p className="text-xs text-gray-400">
+              {chit.status} &nbsp;·&nbsp; ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} &nbsp;·&nbsp; {chit.totalMembers} members
+            </p>
+          </div>
+        </div>
+        {history.length > 0 && (
+          <div className="flex gap-4 text-right text-xs">
+            <div><p className="text-gray-400">Paid</p><p className="font-bold text-green-700">{fmt(totalPaid)}</p></div>
+            <div><p className="text-gray-400">Balance</p><p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</p></div>
+          </div>
+        )}
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3">
+          {isLoading ? (
+            <p className="text-sm text-gray-400 text-center py-4">Loading payment records…</p>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No payment records found</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">Total Due</p>
+                  <p className="font-bold text-gray-800">{fmt(totalDue)}</p>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">Total Paid</p>
+                  <p className="font-bold text-green-700">{fmt(totalPaid)}</p>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <p className="text-xs text-gray-400">Outstanding</p>
+                  <p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-white border-b border-gray-200">
+                      {['Draw', 'Due', 'Paid', 'Balance', 'Status', ...(hasPromised ? ['Promised Date'] : [])].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((r) => (
+                      <tr key={r.id} className="border-b border-gray-100 hover:bg-white">
+                        <td className="px-3 py-2 font-semibold text-gray-700">#{r.monthNumber}</td>
+                        <td className="px-3 py-2 text-gray-700">{fmt(r.amountDue)}</td>
+                        <td className="px-3 py-2 text-green-700 font-medium">{fmt(r.amountPaid)}</td>
+                        <td className={`px-3 py-2 font-medium ${Number(r.balance) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                          {fmt(r.balance)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge color={PMT_STATUS_COLOR[r.status] ?? 'gray'} size="xs">
+                            {r.status?.replace(/_/g, ' ')}
+                          </Badge>
+                        </td>
+                        {hasPromised && <td className="px-3 py-2 text-gray-500">{fmtDate(r.promisedPaymentDate)}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-100 font-semibold text-xs">
+                      <td className="px-3 py-2 text-gray-700">Total</td>
+                      <td className="px-3 py-2 text-gray-700">{fmt(totalDue)}</td>
+                      <td className="px-3 py-2 text-green-700">{fmt(totalPaid)}</td>
+                      <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</td>
+                      <td colSpan={hasPromised ? 2 : 1} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Overview Tab ─────────────────────────────────────────────────────────────
+function OverviewTab() {
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
+  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: wallet } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance });
+  const { data: thisMonthBatches = [] } = useQuery({
+    queryKey: ['batches-this-month'],
+    queryFn: () => getAllPaymentBatches({ fromDate: monthStartStr(), toDate: todayStr() }),
+  });
+  const { data: allPayouts = [] } = useQuery({
+    queryKey: ['all-payouts-overview'],
+    queryFn: () => getAllPayouts(),
+  });
+
+  const activeChits    = chits.filter((c) => c.status === 'ACTIVE').length;
+  const completedChits = chits.filter((c) => c.status === 'COMPLETED').length;
+  const activeMembers  = members.filter((m) => m.status === 'ACTIVE').length;
+  const thisMonthTotal = thisMonthBatches.reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
+  const pendingPayouts = allPayouts.filter((p) => p.status === 'PENDING');
+  const pendingPayoutTotal = pendingPayouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? p.winningAmount ?? 0), 0);
+  const disbursedTotal = allPayouts
+    .filter((p) => p.status === 'DISBURSED')
+    .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+
+  const modeBreakdown = thisMonthBatches.reduce((acc, b) => {
+    const mode = b.paymentMode ?? 'UNKNOWN';
+    acc[mode] = (acc[mode] ?? 0) + Number(b.amount ?? b.totalAmount ?? 0);
     return acc;
   }, {});
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard icon={TrendingUp}    label="Total Collected"  value={fmt(totalCollected)} sub={`${batches.filter(b => b.status === 'COMPLETED').length} transactions`}  color="#16A34A" />
-        <StatCard icon={Banknote}      label="Total Disbursed"  value={fmt(totalDisbursed)} sub={`${payouts.filter(p => p.status === 'DISBURSED').length} payouts`}          color="#1E3A5F" />
-        <StatCard icon={AlertTriangle} label="Pending Payouts"  value={fmt(pendingPayouts)} sub={`${payouts.filter(p => ['PENDING','PARTIALLY_DISBURSED'].includes(p.status)).length} payouts`} color="#D97706" />
-        <StatCard icon={DollarSign}    label="Cash in Transit"  value={fmt(cashAwaiting)}   sub="awaiting remittance"                                                        color="#7C3AED" />
-        <StatCard icon={BarChart2}     label="Voided"           value={fmt(totalVoided)}    sub={`${batches.filter(b => b.status === 'VOIDED').length} transactions`}         color="#DC2626" />
-        <StatCard icon={Users}         label="Members"          value={members.length}      sub={`${activeChits} active chits`} />
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <StatCard icon={BarChart2}   label="Active Chits"    value={activeChits}    sub={`${completedChits} completed`} />
+        <StatCard icon={Users}       label="Active Members"  value={activeMembers}  sub={`${members.length} total`} />
+        <StatCard icon={Banknote}    label="This Month"      value={fmt(thisMonthTotal)} sub={`${thisMonthBatches.length} transactions`} color="#16a34a" />
+        <StatCard icon={AlertCircle} label="Pending Payouts" value={pendingPayouts.length} sub={fmt(pendingPayoutTotal)} color="#dc2626" />
+        <StatCard icon={Wallet}      label="Wallet Balance"  value={fmt(wallet?.balance ?? wallet)} color="#7c3aed" />
       </div>
 
-      {Object.keys(modeBreakdown).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h3 className="font-semibold text-gray-900 mb-4">Collections by Payment Mode</h3>
-          <div className="space-y-3">
-            {Object.entries(modeBreakdown).sort(([, a], [, b]) => b - a).map(([mode, amount]) => {
-              const pct = totalCollected > 0 ? Math.round((amount / totalCollected) * 100) : 0;
-              return (
-                <div key={mode}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-700 font-medium">{mode}</span>
-                    <span className="text-gray-500">{fmt(amount)} <span className="text-gray-400 text-xs">({pct}%)</span></span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div className="h-2 rounded-full bg-[#1E3A5F]" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {batches.length === 0 && payouts.length === 0 && (
-        <EmptyState icon={BarChart2} title="No data in range" message="Try adjusting your date range or selecting All Time." />
-      )}
-    </div>
-  );
-}
-
-// ─── Payments Tab ──────────────────────────────────────────────────────────
-function PaymentsTab({ batches, members, chits, filterChitId, onFilterChit, filterMemberId, onFilterMember }) {
-  const navigate = useNavigate();
-  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]));
-  const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
-
-  // Client-side member filter on top of API-side date+chit filter
-  const displayBatches = useMemo(() => (
-    filterMemberId
-      ? batches.filter((b) => String(b.memberId) === String(filterMemberId))
-      : batches
-  ), [batches, filterMemberId]);
-
-  const totalCollected = displayBatches.filter(b => b.status === 'COMPLETED').reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-  const txCount        = displayBatches.filter(b => b.status === 'COMPLETED').length;
-
-  function exportCSV() {
-    const rows = [
-      ['Date', 'Member', 'Chit', 'Amount', 'Mode', 'Status'],
-      ...displayBatches.map((b) => [
-        fmtDate(b.createdAt),
-        memberMap[b.memberId]?.fullName ?? b.memberId,
-        chitMap[b.chitId]?.name ?? b.chitId,
-        b.totalAmount,
-        b.paymentMode,
-        b.status,
-      ]),
-    ];
-    const csv  = rows.map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `payments-report.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={TrendingUp}    label="Collected"           value={fmt(totalCollected)} color="#16A34A" />
-        <StatCard icon={BarChart2}     label="Transactions"        value={txCount} />
-        <StatCard icon={AlertTriangle} label="Awaiting Remittance" value={displayBatches.filter(b => b.status === 'AWAITING_REMITTANCE').length} color="#D97706" />
-        <StatCard icon={DollarSign}    label="Voided"              value={displayBatches.filter(b => b.status === 'VOIDED').length} color="#DC2626" />
-      </div>
-
-      {/* Filters + actions row */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Select value={filterChitId} onChange={(e) => onFilterChit(e.target.value)}>
-          <option value="">All Chits</option>
-          {chits.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-
-        <Select value={filterMemberId} onChange={(e) => onFilterMember(e.target.value)}>
-          <option value="">All Members</option>
-          {[...members].sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? '')).map((m) => (
-            <option key={m.id} value={m.id}>{m.fullName}</option>
-          ))}
-        </Select>
-
-        <span className="text-sm text-gray-400">{displayBatches.length} records</span>
-
-        <div className="ml-auto flex gap-2">
-          <Button variant="secondary" onClick={exportCSV}>
-            <Download size={14} /> Export CSV
-          </Button>
-          <Button variant="secondary" onClick={() => window.print()}>
-            <Printer size={14} /> Print
-          </Button>
-        </div>
-      </div>
-
-      {displayBatches.length === 0
-        ? <EmptyState icon={TrendingUp} title="No payments" message="No payments found for the selected filters." />
-        : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <Table columns={['Date', 'Member', 'Chit', 'Amount', 'Mode', 'Status', '']}>
-              {displayBatches.map((b) => {
-                const member = memberMap[b.memberId] ?? {};
-                const chit   = chitMap[b.chitId]   ?? {};
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <h3 className="font-semibold text-gray-800 text-sm">This Month — Payment Mode Breakdown</h3>
+          {Object.keys(modeBreakdown).length === 0 ? (
+            <p className="text-sm text-gray-400">No payments this month</p>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(modeBreakdown).map(([mode, total]) => {
+                const pct = thisMonthTotal > 0 ? Math.round((total / thisMonthTotal) * 100) : 0;
                 return (
-                  <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`)}
-                    className="cursor-pointer hover:bg-blue-50/30 transition-colors">
-                    <Td className="text-gray-500 text-xs">{fmtDate(b.createdAt)}</Td>
-                    <Td className="font-medium">{member.fullName ?? `#${String(b.memberId).slice(0, 8)}`}</Td>
-                    <Td className="text-gray-600 text-sm">{chit.name ?? '—'}</Td>
-                    <Td className="font-semibold">{fmt(b.totalAmount)}</Td>
-                    <Td><span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{b.paymentMode}</span></Td>
-                    <Td><Badge variant={statusBadge(b.status)}>{b.status}</Badge></Td>
-                    <Td><ExternalLink size={14} className="text-gray-300" /></Td>
-                  </Tr>
+                  <div key={mode}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-gray-600">{mode.replace(/_/g, ' ')}</span>
+                      <span className="font-semibold">{fmt(total)} ({pct}%)</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full">
+                      <div className="h-2 bg-[#1E3A5F] rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
                 );
               })}
-            </Table>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
+          <h3 className="font-semibold text-gray-800 text-sm mb-3">Payout Summary (All Time)</h3>
+          <Row label="Total Disbursed" value={fmt(disbursedTotal)} />
+          <Row label="Pending Payouts" value={`${pendingPayouts.length} · ${fmt(pendingPayoutTotal)}`} />
+          <Row label="Total Payouts" value={allPayouts.length} />
+          <div className="border-t border-gray-100 pt-2 space-y-1">
+            <Row label="Total Chits" value={chits.length} />
+            <Row label="Active Chits" value={activeChits} />
+            <Row label="Completed Chits" value={completedChits} />
           </div>
-        )}
-    </div>
-  );
-}
-
-// ─── Payouts Tab ──────────────────────────────────────────────────────────
-// Fetches payouts independently (no date restriction) so records created in
-// prior months still show. Has its own chit filter separate from Payments.
-function PayoutsTab({ members, chits }) {
-  const [filterChitId, setFilterChitId] = useState('');
-  const memberMap = Object.fromEntries(members.map((m) => [m.id, m]));
-  const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
-
-  const { data: singleChitPayouts = [], isLoading: singleLoading } = useQuery({
-    queryKey: ['report-payouts-chit', filterChitId],
-    queryFn: () => getAllPayouts({ chitId: filterChitId }),
-    enabled: !!filterChitId,
-  });
-
-  const { data: allPayoutsRaw = [], isLoading: allLoading } = useQuery({
-    queryKey: ['report-payouts-all'],
-    queryFn: () => getAllPayouts({}),
-    enabled: !filterChitId,
-  });
-
-  const payouts   = filterChitId ? singleChitPayouts : allPayoutsRaw;
-  const isLoading = filterChitId ? singleLoading     : allLoading;
-
-  const totalDisbursed = payouts.filter(p => p.status === 'DISBURSED').reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
-  const totalPending   = payouts.filter(p => ['PENDING', 'PARTIALLY_DISBURSED'].includes(p.status)).reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
-
-  function exportCSV() {
-    const rows = [
-      ['Date', 'Winner', 'Chit', 'Month', 'Winning Amt', 'Adjusted', 'Net Payout', 'Disbursed', 'Status'],
-      ...payouts.map((p) => [
-        fmtDate(p.createdAt),
-        memberMap[p.memberId]?.fullName ?? p.memberId,
-        chitMap[p.chitId]?.name ?? p.chitId,
-        `M${p.monthNumber}`,
-        p.winningAmount,
-        p.discountAmount ?? 0,
-        p.netPayoutAmount,
-        p.disbursedAmount ?? 0,
-        p.status,
-      ]),
-    ];
-    const csv  = rows.map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = 'payouts-report.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Banknote}  label="Disbursed"       value={fmt(totalDisbursed)} color="#16A34A" />
-        <StatCard icon={DollarSign}label="Pending"         value={fmt(totalPending)}   color="#D97706" />
-        <StatCard icon={BarChart2} label="Total Payouts"   value={payouts.length} />
-        <StatCard icon={TrendingUp}label="Disbursed Count" value={payouts.filter(p => p.status === 'DISBURSED').length} color="#1E3A5F" />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Select value={filterChitId} onChange={(e) => setFilterChitId(e.target.value)}>
-          <option value="">All Chits</option>
-          {chits.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-        <span className="text-sm text-gray-400">{payouts.length} records</span>
-        <div className="ml-auto flex gap-2">
-          <Button variant="secondary" onClick={exportCSV}>
-            <Download size={14} /> Export CSV
-          </Button>
-          <Button variant="secondary" onClick={() => window.print()}>
-            <Printer size={14} /> Print
-          </Button>
         </div>
       </div>
-
-      {isLoading ? <PageSpinner /> : payouts.length === 0
-        ? <EmptyState icon={Banknote} title="No payouts found" message="No payouts recorded." />
-        : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <Table columns={['Date', 'Winner', 'Chit', 'Month', 'Winning Amt', 'Adjusted', 'Net Payout', 'Disbursed', 'Status']}>
-              {payouts.map((p) => {
-                const member = memberMap[p.memberId] ?? {};
-                const chit   = chitMap[p.chitId]   ?? {};
-                return (
-                  <Tr key={p.id}>
-                    <Td className="text-gray-500 text-xs">{fmtDate(p.createdAt)}</Td>
-                    <Td className="font-medium">{member.fullName ?? `#${String(p.memberId).slice(0, 8)}`}</Td>
-                    <Td className="text-gray-600 text-sm">{chit.name ?? '—'}</Td>
-                    <Td className="font-semibold text-center">M{p.monthNumber}</Td>
-                    <Td>{fmt(p.winningAmount)}</Td>
-                    <Td className="text-red-600">{Number(p.discountAmount ?? 0) > 0 ? `-${fmt(p.discountAmount)}` : '—'}</Td>
-                    <Td className="font-semibold text-green-700">{fmt(p.netPayoutAmount)}</Td>
-                    <Td>{Number(p.disbursedAmount ?? 0) > 0 ? fmt(p.disbursedAmount) : '—'}</Td>
-                    <Td><Badge variant={statusBadge(p.status)}>{p.status}</Badge></Td>
-                  </Tr>
-                );
-              })}
-            </Table>
-          </div>
-        )}
     </div>
   );
 }
 
-// ─── Members Tab ──────────────────────────────────────────────────────────
-function MembersTab({ members, batches }) {
-  const [sortBy, setSortBy] = useState('name');
+// ─── Member Report Tab ────────────────────────────────────────────────────────
+function MemberReportTab() {
+  const [memberId, setMemberId] = useState('');
 
-  const memberStats = useMemo(() => {
-    const stats = {};
-    members.forEach((m) => { stats[m.id] = { member: m, paid: 0, txCount: 0, voided: 0 }; });
-    batches.forEach((b) => {
-      if (!stats[b.memberId]) return;
-      if (b.status === 'COMPLETED') { stats[b.memberId].paid += Number(b.totalAmount ?? 0); stats[b.memberId].txCount++; }
-      if (b.status === 'VOIDED')    { stats[b.memberId].voided += Number(b.totalAmount ?? 0); }
-    });
-    return Object.values(stats);
-  }, [members, batches]);
+  const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members'], queryFn: getMembers });
 
-  const sorted = [...memberStats].sort((a, b) => {
-    if (sortBy === 'paid') return b.paid - a.paid;
-    if (sortBy === 'tx')   return b.txCount - a.txCount;
-    return (a.member.fullName ?? '').localeCompare(b.member.fullName ?? '');
+  const { data: memberDetail, isLoading: loadingMember } = useQuery({
+    queryKey: ['member-detail', memberId],
+    queryFn: () => getMember(memberId),
+    enabled: !!memberId,
   });
 
-  const totalPaid     = memberStats.reduce((s, m) => s + m.paid, 0);
-  const activeMembers = memberStats.filter((m) => m.txCount > 0).length;
+  const { data: memberChits = [], isLoading: loadingChits } = useQuery({
+    queryKey: ['member-chits', memberId],
+    queryFn: () => getChitsForMember(memberId),
+    enabled: !!memberId,
+  });
+
+  const { data: totalBalance } = useQuery({
+    queryKey: ['member-total-balance', memberId],
+    queryFn: () => getMemberTotalBalance(memberId),
+    enabled: !!memberId,
+  });
+
+  const { data: payouts = [] } = useQuery({
+    queryKey: ['member-payouts', memberId],
+    queryFn: () => getPayoutsForMember(memberId),
+    enabled: !!memberId,
+  });
+
+  const { data: settlements = [] } = useQuery({
+    queryKey: ['member-settlements', memberId],
+    queryFn: () => getMemberSettlements(memberId),
+    enabled: !!memberId,
+  });
+
+  const member = memberDetail ?? members.find((m) => String(m.id) === String(memberId));
+  const totalPayoutsReceived = payouts
+    .filter((p) => p.status === 'DISBURSED')
+    .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+
+  function handlePrint() {
+    if (!member) return;
+
+    const profileHtml = `
+      <div class="meta">
+        <span><strong>Name:</strong> ${member.fullName ?? '—'}</span>
+        <span><strong>Phone:</strong> ${member.phone ?? '—'}</span>
+        <span><strong>Email:</strong> ${member.email ?? '—'}</span>
+        <span><strong>Status:</strong> ${member.status ?? '—'}</span>
+        <span><strong>City:</strong> ${member.city ?? '—'}</span>
+      </div>
+    `;
+
+    const summaryHtml = `
+      <div class="summary">
+        <div class="summary-item"><p class="lbl">Enrolled Chits</p><p class="val">${memberChits.length}</p></div>
+        <div class="summary-item"><p class="lbl">Overall Outstanding</p><p class="val">${fmt(totalBalance)}</p></div>
+        <div class="summary-item"><p class="lbl">Payouts Received</p><p class="val">${fmt(totalPayoutsReceived)}</p></div>
+        <div class="summary-item"><p class="lbl">Total Payouts</p><p class="val">${payouts.filter((p) => p.status === 'DISBURSED').length}</p></div>
+      </div>
+    `;
+
+    const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
+      <table>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          ${payouts.map((p) => `<tr>
+            <td>${p.chitName ?? p.chitId ?? '—'}</td>
+            <td>#${p.monthNumber ?? '—'}</td>
+            <td>${fmt(p.winningAmount)}</td>
+            <td>${fmt(p.netPayoutAmount)}</td>
+            <td>${fmt(p.disbursedAmount)}</td>
+            <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
+            <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+
+    const settlementsHtml = settlements.length === 0 ? '' : `
+      <h2>Settlements</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Amount</th><th>Notes</th></tr></thead>
+        <tbody>
+          ${settlements.map((s) => `<tr>
+            <td>${fmtDate(s.settledAt ?? s.createdAt)}</td>
+            <td>${fmt(s.totalAmount ?? s.amount)}</td>
+            <td>${s.notes ?? '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+
+    openPrint(`Member Report — ${member.fullName}`,
+      `${profileHtml}${summaryHtml}
+       <p style="font-size:10px;color:#888;margin:4px 0 12px">
+         Expand each chit section in the app to load draw-wise payment data before printing for a complete report.
+       </p>
+       <h2>Payouts Received</h2>${payoutsHtml}
+       ${settlementsHtml}`
+    );
+  }
+
+  if (loadingMembers) return <PageSpinner />;
+  const sortedMembers = [...members].sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatCard icon={Users}     label="Total Members"   value={members.length} />
-        <StatCard icon={TrendingUp}label="Paid in Range"   value={activeMembers} sub="members with payments" color="#16A34A" />
-        <StatCard icon={DollarSign}label="Total Collected" value={fmt(totalPaid)} color="#1E3A5F" />
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex-1 max-w-xs">
+          <label className="text-xs font-medium text-gray-600 mb-1 block">Select Member</label>
+          <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+            <option value="">— choose a member —</option>
+            {sortedMembers.map((m) => (
+              <option key={m.id} value={m.id}>{m.fullName}{m.phone ? ` · ${m.phone}` : ''}</option>
+            ))}
+          </Select>
+        </div>
+        {memberId && member && (
+          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2">
+            <Printer size={15} /> Print Report
+          </Button>
+        )}
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-gray-500">Sort by:</span>
-        {[['name', 'Name'], ['paid', 'Amount Paid'], ['tx', 'Transactions']].map(([val, label]) => (
-          <button key={val} onClick={() => setSortBy(val)}
-            className={`text-xs px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-colors ${
-              sortBy === val ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {!memberId && (
+        <EmptyState icon={Users} title="Select a member" description="Choose a member to view their complete report" />
+      )}
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <Table columns={['Member', 'Phone', 'Paid (Range)', 'Transactions', 'Voided']}>
-          {sorted.map(({ member, paid, txCount, voided }) => (
-            <Tr key={member.id}>
-              <Td className="font-medium">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                    style={{ backgroundColor: '#1E3A5F' }}>
-                    {(member.fullName ?? '?')[0].toUpperCase()}
-                  </div>
-                  {member.fullName}
-                </div>
-              </Td>
-              <Td className="text-gray-500">{member.phone ?? '—'}</Td>
-              <Td>
-                <span className={`font-semibold ${paid > 0 ? 'text-green-700' : 'text-gray-400'}`}>
-                  {paid > 0 ? fmt(paid) : '—'}
-                </span>
-              </Td>
-              <Td>{txCount > 0 ? <span className="text-[#1E3A5F] font-medium">{txCount}</span> : <span className="text-gray-300">0</span>}</Td>
-              <Td>{voided > 0 ? <span className="text-red-500 text-sm">{fmt(voided)}</span> : <span className="text-gray-300">—</span>}</Td>
-            </Tr>
-          ))}
-        </Table>
-      </div>
-    </div>
-  );
-}
+      {memberId && (loadingMember || loadingChits) && <PageSpinner />}
 
-// ─── Chit-wise Tab ─────────────────────────────────────────────────────────
-// Shows chits filtered by status. COMPLETED and PAUSED chits are now visible.
-function ChitwiseTab({ chits, batches, payouts }) {
-  const [showStatus, setShowStatus] = useState('ACTIVE');
-
-  const STATUS_FILTERS = [
-    { key: 'ACTIVE',    label: 'Active' },
-    { key: 'COMPLETED', label: 'Completed' },
-    { key: 'PAUSED',    label: 'Paused' },
-    { key: 'ALL',       label: 'All' },
-  ];
-
-  const chitStats = useMemo(() => {
-    const filtered = showStatus === 'ALL'
-      ? chits
-      : chits.filter((c) => c.status === showStatus);
-
-    return filtered.map((chit) => {
-      const chitBatches = batches.filter((b) => b.chitId === chit.id);
-      const chitPayouts = payouts.filter((p) => p.chitId === chit.id);
-
-      const collected    = chitBatches.filter(b => b.status === 'COMPLETED').reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-      const disbursed    = chitPayouts.filter(p => p.status === 'DISBURSED').reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
-      const pendingPayout= chitPayouts.filter(p => ['PENDING', 'PARTIALLY_DISBURSED'].includes(p.status)).reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
-      const txCount      = chitBatches.filter(b => b.status === 'COMPLETED').length;
-      const payoutCount  = chitPayouts.filter(p => p.status === 'DISBURSED').length;
-
-      return { chit, collected, disbursed, pendingPayout, txCount, payoutCount };
-    });
-  }, [chits, batches, payouts, showStatus]);
-
-  return (
-    <div className="space-y-4">
-      {/* Status filter pills */}
-      <div className="flex gap-2">
-        {STATUS_FILTERS.map(({ key, label }) => (
-          <button key={key} onClick={() => setShowStatus(key)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-              showStatus === key ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}>
-            {label}
-          </button>
-        ))}
-        <span className="text-sm text-gray-400 self-center ml-2">{chitStats.length} chit{chitStats.length !== 1 ? 's' : ''}</span>
-      </div>
-
-      {chitStats.length === 0 ? (
-        <EmptyState icon={BarChart2} title={`No ${showStatus.toLowerCase()} chits`}
-          message="Try a different status filter." />
-      ) : (
-        chitStats.map(({ chit, collected, disbursed, pendingPayout, txCount, payoutCount }) => (
-          <div key={chit.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
+      {memberId && member && (
+        <div className="space-y-5">
+          {/* Profile Card */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-gray-900">{chit.name}</h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {chit.totalMembers} members · {fmt(chit.installmentAmount)}/month
-                  {txCount > 0 ? ` · ${txCount} transactions in range` : ' · no transactions in range'}
+                <h2 className="text-lg font-bold text-gray-900">{member.fullName}</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {[member.phone, member.email].filter(Boolean).join(' · ')}
                 </p>
               </div>
-              <Badge variant={statusBadge(chit.status)}>{chit.status}</Badge>
+              <Badge color={member.status === 'ACTIVE' ? 'green' : 'gray'}>{member.status}</Badge>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                ['Collected',     fmt(collected),    '#16A34A'],
-                ['Disbursed',     fmt(disbursed),    '#1E3A5F'],
-                ['Pending Payout',fmt(pendingPayout),'#D97706'],
-                ['Payouts Done',  payoutCount,       '#6B7280'],
-              ].map(([label, value, color]) => (
-                <div key={label} className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-400">{label}</p>
-                  <p className="text-base font-bold mt-0.5" style={{ color }}>{value}</p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-x-6">
+              {member.address && <Row label="Address" value={member.address} />}
+              {member.city && <Row label="City" value={member.city} />}
+              {member.referredByName && <Row label="Referred By" value={member.referredByName} />}
+              {member.joinedDate && <Row label="Joined" value={fmtDate(member.joinedDate)} />}
             </div>
           </div>
-        ))
+
+          {/* Summary */}
+          <SummaryBar items={[
+            { label: 'Enrolled Chits', value: memberChits.length },
+            { label: 'Overall Outstanding', value: fmt(totalBalance), color: Number(totalBalance) > 0 ? 'text-red-600' : 'text-green-600' },
+            { label: 'Payouts Received', value: fmt(totalPayoutsReceived), color: 'text-green-700' },
+            { label: 'Disbursed Payouts', value: payouts.filter((p) => p.status === 'DISBURSED').length },
+          ]} />
+
+          {/* Per-Chit Payment History */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Payment History by Chit</h3>
+            {memberChits.length === 0 ? (
+              <p className="text-sm text-gray-400">Not enrolled in any chits</p>
+            ) : (
+              <div className="space-y-3">
+                {memberChits.map((chit) => (
+                  <ChitPaymentSection key={chit.id} memberId={memberId} chit={chit} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Payouts */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Payouts Received</h3>
+            {payouts.length === 0 ? (
+              <p className="text-sm text-gray-400">No payouts</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {['Chit', 'Draw', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payouts.map((p) => (
+                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2 font-medium text-gray-700">{p.chitName ?? p.chitId ?? '—'}</td>
+                        <td className="px-3 py-2">#{p.monthNumber ?? '—'}</td>
+                        <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
+                        <td className="px-3 py-2 text-red-600">{fmt(p.discountAmount)}</td>
+                        <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
+                        <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
+                        <td className="px-3 py-2">
+                          <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 text-xs font-semibold">
+                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                      <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Settlements */}
+          {settlements.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Settlements</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {['Date', 'Amount', 'Notes'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {settlements.map((s) => (
+                      <tr key={s.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2">{fmtDate(s.settledAt ?? s.createdAt)}</td>
+                        <td className="px-3 py-2 font-semibold">{fmt(s.totalAmount ?? s.amount)}</td>
+                        <td className="px-3 py-2 text-gray-500">{s.notes ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────
-export default function ReportsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') ?? 'Overview';
-  const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
-  const [from,           setFrom]           = useState(monthStart());
-  const [to,             setTo]             = useState(today());
-  const [activePreset,   setActivePreset]   = useState('This Month');
-  const [filterChitId,   setFilterChitId]   = useState('');
-  const [filterMemberId, setFilterMemberId] = useState('');
+// ─── Chit Report Tab ──────────────────────────────────────────────────────────
+function ChitReportTab() {
+  const [chitId, setChitId] = useState('');
 
-  const handlePreset = (preset) => {
-    const range = preset.get();
-    setFrom(range.from);
-    setTo(range.to);
-    setActivePreset(preset.label);
-  };
-
-  const dateParams = useMemo(() => ({
-    fromDate: from  || undefined,
-    toDate:   to    || undefined,
-    chitId:   filterChitId || undefined,
-  }), [from, to, filterChitId]);
-
-  const { data: chits   = [] } = useQuery({ queryKey: ['chits'],   queryFn: getChits });
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-
-  const { data: batches = [], isLoading: loadingBatches } = useQuery({
-    queryKey: ['report-batches', dateParams],
-    queryFn:  () => getAllPaymentBatches(dateParams),
+  const { data: chits = [], isLoading: loadingChits } = useQuery({
+    queryKey: ['chits'],
+    queryFn: () => getChits({ size: 200 }),
   });
 
-  // Overview needs date-filtered payouts for period stats.
-  // PayoutsTab fetches independently without date constraint.
-  const { data: payouts = [], isLoading: loadingPayouts } = useQuery({
-    queryKey: ['report-payouts-overview', dateParams],
-    queryFn:  () => getAllPayouts(dateParams),
+  const { data: chit } = useQuery({
+    queryKey: ['chit', chitId],
+    queryFn: () => getChit(chitId),
+    enabled: !!chitId,
   });
 
-  const isLoading = loadingBatches || loadingPayouts;
+  const { data: draws = [], isLoading: loadingDraws } = useQuery({
+    queryKey: ['draws', chitId],
+    queryFn: () => getDraws(chitId),
+    enabled: !!chitId,
+  });
 
-  const rangeLabel = from && to
-    ? `${fmtDate(from)} – ${fmtDate(to)}`
-    : from ? `From ${fmtDate(from)}` : to ? `Until ${fmtDate(to)}` : 'All Time';
+  const { data: collectionsReport = [], isLoading: loadingCollections } = useQuery({
+    queryKey: ['collections-report', chitId],
+    queryFn: () => getCollectionsReport(chitId),
+    enabled: !!chitId,
+  });
+
+  const { data: membersReport = [], isLoading: loadingMembersReport } = useQuery({
+    queryKey: ['members-report', chitId],
+    queryFn: () => getMembersReport(chitId),
+    enabled: !!chitId,
+  });
+
+  const { data: payoutsReport = [], isLoading: loadingPayoutsReport } = useQuery({
+    queryKey: ['payouts-report', chitId],
+    queryFn: () => getPayoutsReport(chitId),
+    enabled: !!chitId,
+  });
+
+  const { data: payoutsByChit = [] } = useQuery({
+    queryKey: ['payouts-by-chit', chitId],
+    queryFn: () => getPayoutsByChit(chitId),
+    enabled: !!chitId,
+  });
+
+  const payoutsData = payoutsReport.length > 0 ? payoutsReport : payoutsByChit;
+
+  const drawMap = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
+  const collectionRows = collectionsReport.length > 0
+    ? collectionsReport.map((r) => ({
+        monthNumber: r.monthNumber ?? r.drawNumber ?? r.month,
+        totalDue: r.totalDue ?? r.expectedAmount ?? 0,
+        totalCollected: r.totalCollected ?? r.collectedAmount ?? r.totalPaid ?? 0,
+        outstanding: r.outstanding ?? r.balance ?? ((r.totalDue ?? 0) - (r.totalCollected ?? r.totalPaid ?? 0)),
+        drawStatus: r.drawStatus ?? drawMap[r.monthNumber ?? r.month]?.status ?? '—',
+      }))
+    : draws.map((d) => ({
+        monthNumber: d.monthNumber,
+        totalDue: null,
+        totalCollected: null,
+        outstanding: null,
+        drawStatus: d.status,
+      }));
+
+  const totalExpected    = collectionRows.reduce((s, r) => s + Number(r.totalDue ?? 0), 0);
+  const totalCollected   = collectionRows.reduce((s, r) => s + Number(r.totalCollected ?? 0), 0);
+  const totalOutstanding = collectionRows.reduce((s, r) => s + Number(r.outstanding ?? 0), 0);
+  const totalDisbursed   = payoutsData
+    .filter((p) => p.status === 'DISBURSED')
+    .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+
+  function handlePrint() {
+    if (!chit) return;
+
+    const chitInfoHtml = `
+      <div class="meta">
+        <span><strong>Chit:</strong> ${chit.name}</span>
+        <span><strong>Value:</strong> ${fmt(chit.chitValue)}</span>
+        <span><strong>Members:</strong> ${chit.totalMembers}</span>
+        <span><strong>Status:</strong> ${chit.status}</span>
+        <span><strong>Started:</strong> ${fmtDate(chit.startDate)}</span>
+        <span><strong>Installment:</strong> ${fmt(chit.installmentAmount)}</span>
+      </div>
+    `;
+
+    const summaryHtml = `
+      <div class="summary">
+        <div class="summary-item"><p class="lbl">Total Draws</p><p class="val">${draws.length}</p></div>
+        <div class="summary-item"><p class="lbl">Expected</p><p class="val">${fmt(totalExpected)}</p></div>
+        <div class="summary-item"><p class="lbl">Collected</p><p class="val">${fmt(totalCollected)}</p></div>
+        <div class="summary-item"><p class="lbl">Outstanding</p><p class="val">${fmt(totalOutstanding)}</p></div>
+        <div class="summary-item"><p class="lbl">Total Disbursed</p><p class="val">${fmt(totalDisbursed)}</p></div>
+      </div>
+    `;
+
+    const collectionsHtml = collectionRows.length === 0 ? '<p style="color:#888">No draw data</p>' : `
+      <table>
+        <thead><tr><th>Draw</th><th>Total Due</th><th>Collected</th><th>Outstanding</th><th>Status</th></tr></thead>
+        <tbody>
+          ${collectionRows.map((r) => `<tr>
+            <td>#${r.monthNumber}</td>
+            <td>${r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
+            <td>${r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
+            <td>${r.outstanding != null ? fmt(r.outstanding) : '—'}</td>
+            <td>${r.drawStatus}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><td>Total</td><td>${fmt(totalExpected)}</td><td>${fmt(totalCollected)}</td><td>${fmt(totalOutstanding)}</td><td></td></tr></tfoot>
+      </table>
+    `;
+
+    const membersHtml = membersReport.length === 0 ? '<p style="color:#888">No member data</p>' : `
+      <table>
+        <thead><tr>
+          ${Object.keys(membersReport[0] ?? {}).map((k) => `<th>${k.replace(/([A-Z])/g, ' $1').trim()}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${membersReport.map((r) => `<tr>
+            ${Object.values(r).map((v) => `<td>${typeof v === 'number' ? fmt(v) : (v ?? '—')}</td>`).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+
+    const payoutsHtml = payoutsData.length === 0 ? '<p style="color:#888">No payouts</p>' : `
+      <table>
+        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          ${payoutsData.map((p) => `<tr>
+            <td>#${p.monthNumber ?? '—'}</td>
+            <td>${p.memberName ?? p.memberId ?? '—'}</td>
+            <td>${fmt(p.winningAmount)}</td>
+            <td>${fmt(p.netPayoutAmount)}</td>
+            <td>${fmt(p.disbursedAmount)}</td>
+            <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
+            <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><td colspan="4">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
+      </table>
+    `;
+
+    openPrint(`Chit Report — ${chit.name}`,
+      `${chitInfoHtml}${summaryHtml}
+       <h2>Draw-wise Collections</h2>${collectionsHtml}
+       <h2>Member Payment Summary</h2>${membersHtml}
+       <h2>Payouts</h2>${payoutsHtml}`
+    );
+  }
+
+  if (loadingChits) return <PageSpinner />;
+  const isLoading = loadingDraws || loadingCollections || loadingMembersReport || loadingPayoutsReport;
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
-          Reports
-        </h2>
-        <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
-      </div>
-
-      {/* Date range bar */}
-      <DateRangeBar
-        from={from} to={to}
-        onFromChange={(v) => { setFrom(v); setActivePreset(''); }}
-        onToChange={(v)   => { setTo(v);   setActivePreset(''); }}
-        activePreset={activePreset}
-        onPreset={handlePreset}
-      />
-
-      {/* Tabs */}
-      <div className="space-y-5">
-        <Tabs active={activeTab} onChange={setActiveTab} />
-
-        {isLoading ? <PageSpinner /> : (
-          <>
-            {activeTab === 'Overview' && (
-              <OverviewTab batches={batches} payouts={payouts} chits={chits} members={members} />
-            )}
-            {activeTab === 'Payments' && (
-              <PaymentsTab
-                batches={batches} members={members} chits={chits}
-                filterChitId={filterChitId} onFilterChit={setFilterChitId}
-                filterMemberId={filterMemberId} onFilterMember={setFilterMemberId}
-              />
-            )}
-            {activeTab === 'Payouts' && (
-              <PayoutsTab members={members} chits={chits} />
-            )}
-            {activeTab === 'Members' && (
-              <MembersTab members={members} batches={batches} />
-            )}
-            {activeTab === 'Chit-wise' && (
-              <ChitwiseTab chits={chits} batches={batches} payouts={payouts} />
-            )}
-          </>
+      <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex-1 max-w-xs">
+          <label className="text-xs font-medium text-gray-600 mb-1 block">Select Chit</label>
+          <Select value={chitId} onChange={(e) => setChitId(e.target.value)}>
+            <option value="">— choose a chit —</option>
+            {[...chits].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((c) => (
+              <option key={c.id} value={c.id}>{c.name} ({c.status})</option>
+            ))}
+          </Select>
+        </div>
+        {chitId && chit && (
+          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2">
+            <Printer size={15} /> Print Report
+          </Button>
         )}
       </div>
+
+      {!chitId && <EmptyState icon={FileText} title="Select a chit" description="Choose a chit to view its complete report" />}
+      {chitId && isLoading && <PageSpinner />}
+
+      {chitId && chit && !isLoading && (
+        <div className="space-y-5">
+          {/* Chit Info */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">{chit.name}</h2>
+                {chit.description && <p className="text-sm text-gray-500 mt-0.5">{chit.description}</p>}
+              </div>
+              <Badge color={chit.status === 'ACTIVE' ? 'green' : chit.status === 'COMPLETED' ? 'blue' : 'gray'}>
+                {chit.status}
+              </Badge>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6">
+              <Row label="Chit Value" value={fmt(chit.chitValue)} />
+              <Row label="Installment" value={fmt(chit.installmentAmount)} />
+              <Row label="Members" value={chit.totalMembers} />
+              <Row label="Start Date" value={fmtDate(chit.startDate)} />
+            </div>
+          </div>
+
+          {/* Summary */}
+          <SummaryBar items={[
+            { label: 'Total Draws', value: draws.length },
+            { label: 'Expected Collections', value: totalExpected > 0 ? fmt(totalExpected) : '—' },
+            { label: 'Total Collected', value: totalCollected > 0 ? fmt(totalCollected) : '—', color: 'text-green-700' },
+            { label: 'Outstanding', value: totalOutstanding > 0 ? fmt(totalOutstanding) : '—', color: totalOutstanding > 0 ? 'text-red-600' : 'text-gray-800' },
+            { label: 'Disbursed Payouts', value: fmt(totalDisbursed), color: 'text-blue-700' },
+          ]} />
+
+          {/* Draw-wise Collections */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Draw-wise Collections</h3>
+            {collectionRows.length === 0 ? (
+              <p className="text-sm text-gray-400">No draw data available</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {['Draw', 'Total Due', 'Collected', 'Outstanding', 'Status'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {collectionRows.map((r) => (
+                      <tr key={r.monthNumber} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2 font-semibold text-gray-700">#{r.monthNumber}</td>
+                        <td className="px-3 py-2">{r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
+                        <td className="px-3 py-2 text-green-700 font-medium">{r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
+                        <td className={`px-3 py-2 font-medium ${Number(r.outstanding) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                          {r.outstanding != null ? fmt(r.outstanding) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-gray-500 text-xs">{r.drawStatus}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {totalExpected > 0 && (
+                    <tfoot>
+                      <tr className="bg-gray-100 text-xs font-semibold">
+                        <td className="px-3 py-2 text-gray-700">Total</td>
+                        <td className="px-3 py-2">{fmt(totalExpected)}</td>
+                        <td className="px-3 py-2 text-green-700">{fmt(totalCollected)}</td>
+                        <td className={`px-3 py-2 ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOutstanding)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Member Payment Summary */}
+          {membersReport.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Member Payment Summary</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {Object.keys(membersReport[0] ?? {}).map((k) => (
+                        <th key={k} className="px-3 py-2 text-left text-gray-500 font-medium capitalize">
+                          {k.replace(/([A-Z])/g, ' $1').trim()}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {membersReport.map((r, i) => (
+                      <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
+                        {Object.entries(r).map(([k, v]) => (
+                          <td key={k} className="px-3 py-2 text-gray-700">
+                            {typeof v === 'number' ? fmt(v) : (v ?? '—')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Payouts */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Payouts</h3>
+            {payoutsData.length === 0 ? (
+              <p className="text-sm text-gray-400">No payouts for this chit</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      {['Draw', 'Member', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payoutsData.map((p) => (
+                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="px-3 py-2 font-semibold">#{p.monthNumber ?? '—'}</td>
+                        <td className="px-3 py-2 font-medium text-gray-700">{p.memberName ?? p.memberId ?? '—'}</td>
+                        <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
+                        <td className="px-3 py-2 text-red-600">{fmt(p.discountAmount)}</td>
+                        <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
+                        <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
+                        <td className="px-3 py-2">
+                          <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-100 text-xs font-semibold">
+                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                      <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Payments Tab ─────────────────────────────────────────────────────────────
+function PaymentsTab() {
+  const [from, setFrom]             = useState(monthStartStr());
+  const [to, setTo]                 = useState(todayStr());
+  const [activePreset, setPreset]   = useState('This Month');
+  const [filterChit, setFilterChit] = useState('');
+
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
+  const { data: batches = [], isLoading } = useQuery({
+    queryKey: ['all-batches', from, to, filterChit],
+    queryFn: () => getAllPaymentBatches({ fromDate: from || undefined, toDate: to || undefined, chitId: filterChit || undefined }),
+  });
+
+  function onPreset(range) {
+    setFrom(range.from);
+    setTo(range.to);
+    setPreset(PRESETS.find((p) => { const v = p.fn(); return v.from === range.from && v.to === range.to; })?.label ?? '');
+  }
+
+  const totalCollected = batches.reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
+  const modeBreakdown = batches.reduce((acc, b) => {
+    const m = b.paymentMode ?? 'UNKNOWN';
+    acc[m] = (acc[m] ?? 0) + Number(b.amount ?? b.totalAmount ?? 0);
+    return acc;
+  }, {});
+
+  function handleCSV() {
+    downloadCSV(
+      batches.map((b) => ({
+        Date: fmtDate(b.collectedAt ?? b.createdAt),
+        Member: b.memberName ?? b.memberId ?? '',
+        Chit: b.chitName ?? b.chitId ?? '',
+        Amount: b.amount ?? b.totalAmount ?? 0,
+        PaymentMode: b.paymentMode ?? '',
+        Collector: b.collectorName ?? '',
+        Status: b.status ?? '',
+      })),
+      `payments-${from || 'all'}-to-${to || 'all'}.csv`
+    );
+  }
+
+  function handlePrint() {
+    const periodLabel = from || to ? `${fmtDate(from)} – ${fmtDate(to)}` : 'All Time';
+    const modeRows = Object.entries(modeBreakdown)
+      .map(([m, v]) => `<tr><td>${m.replace(/_/g, ' ')}</td><td>${fmt(v)}</td></tr>`)
+      .join('');
+
+    openPrint(`Payments Report — ${periodLabel}`, `
+      <div class="meta">
+        <span><strong>Period:</strong> ${periodLabel}</span>
+        <span><strong>Transactions:</strong> ${batches.length}</span>
+        <span><strong>Total Collected:</strong> ${fmt(totalCollected)}</span>
+      </div>
+      <h2>Payment Mode Breakdown</h2>
+      <table><thead><tr><th>Mode</th><th>Amount</th></tr></thead><tbody>${modeRows}</tbody></table>
+      <h2>All Transactions</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Member</th><th>Chit</th><th>Amount</th><th>Mode</th><th>Collector</th><th>Status</th></tr></thead>
+        <tbody>
+          ${batches.map((b) => `<tr>
+            <td>${fmtDate(b.collectedAt ?? b.createdAt)}</td>
+            <td>${b.memberName ?? b.memberId ?? '—'}</td>
+            <td>${b.chitName ?? b.chitId ?? '—'}</td>
+            <td>${fmt(b.amount ?? b.totalAmount)}</td>
+            <td>${b.paymentMode ?? '—'}</td>
+            <td>${b.collectorName ?? '—'}</td>
+            <td>${b.status ?? '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><td colspan="3">Total (${batches.length})</td><td>${fmt(totalCollected)}</td><td colspan="3"></td></tr></tfoot>
+      </table>
+    `);
+  }
+
+  return (
+    <div className="space-y-5">
+      <DateRangeBar from={from} to={to} onFrom={setFrom} onTo={setTo} active={activePreset} onPreset={onPreset} />
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="w-52">
+          <Select value={filterChit} onChange={(e) => setFilterChit(e.target.value)}>
+            <option value="">All Chits</option>
+            {[...chits].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="ml-auto flex gap-2">
+          <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2 text-sm">
+            <Printer size={14} /> Print
+          </Button>
+          <Button variant="outline" onClick={handleCSV} className="flex items-center gap-2 text-sm">
+            <Download size={14} /> CSV
+          </Button>
+        </div>
+      </div>
+
+      {!isLoading && batches.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={Banknote} label="Total Collected" value={fmt(totalCollected)}
+            sub={`${batches.length} transactions`} color="#16a34a" />
+          {Object.entries(modeBreakdown).map(([mode, total]) => (
+            <StatCard key={mode} icon={DollarSign} label={mode.replace(/_/g, ' ')} value={fmt(total)}
+              sub={`${batches.filter((b) => b.paymentMode === mode).length} txns`} color="#7c3aed" />
+          ))}
+        </div>
+      )}
+
+      {isLoading ? <PageSpinner /> : batches.length === 0 ? (
+        <EmptyState icon={Banknote} title="No payments" description="No payment records for the selected period" />
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  {['Date', 'Member', 'Chit', 'Amount', 'Mode', 'Collector', 'Status'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b) => (
+                  <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">{b.memberName ?? b.memberId ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-600">{b.chitName ?? b.chitId ?? '—'}</td>
+                    <td className="px-4 py-2.5 font-bold text-green-700">{fmt(b.amount ?? b.totalAmount)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        {b.paymentMode?.replace(/_/g, ' ') ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{b.collectorName ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <Badge color={b.status === 'VOIDED' ? 'red' : 'green'} size="xs">{b.status ?? 'OK'}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 font-bold text-sm">
+                  <td colSpan={3} className="px-4 py-3 text-gray-600">Total ({batches.length} transactions)</td>
+                  <td className="px-4 py-3 text-green-700">{fmt(totalCollected)}</td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Payouts Tab ──────────────────────────────────────────────────────────────
+function PayoutsTab() {
+  const [from, setFrom]               = useState('');
+  const [to, setTo]                   = useState('');
+  const [activePreset, setPreset]     = useState('All Time');
+  const [filterChit, setFilterChit]   = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
+  const { data: payouts = [], isLoading } = useQuery({
+    queryKey: ['all-payouts-tab', from, to, filterChit],
+    queryFn: () => getAllPayouts({ chitId: filterChit || undefined, fromDate: from || undefined, toDate: to || undefined }),
+  });
+
+  function onPreset(range) {
+    setFrom(range.from);
+    setTo(range.to);
+    setPreset(PRESETS.find((p) => { const v = p.fn(); return v.from === range.from && v.to === range.to; })?.label ?? '');
+  }
+
+  const filtered = filterStatus ? payouts.filter((p) => p.status === filterStatus) : payouts;
+  const disbursedTotal = payouts.filter((p) => p.status === 'DISBURSED').reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+  const pendingTotal   = payouts.filter((p) => p.status === 'PENDING').reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0);
+
+  function handlePrint() {
+    const periodLabel = from || to ? `${fmtDate(from)} – ${fmtDate(to)}` : 'All Time';
+    openPrint(`Payouts Report — ${periodLabel}`, `
+      <div class="meta">
+        <span><strong>Period:</strong> ${periodLabel}</span>
+        <span><strong>Total:</strong> ${payouts.length}</span>
+        <span><strong>Disbursed:</strong> ${fmt(disbursedTotal)}</span>
+        <span><strong>Pending:</strong> ${fmt(pendingTotal)}</span>
+      </div>
+      <table>
+        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Discount</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          ${filtered.map((p) => `<tr>
+            <td>#${p.monthNumber ?? '—'}</td>
+            <td>${p.chitName ?? p.chitId ?? '—'}</td>
+            <td>${p.memberName ?? p.memberId ?? '—'}</td>
+            <td>${fmt(p.winningAmount)}</td>
+            <td>${fmt(p.discountAmount)}</td>
+            <td>${fmt(p.netPayoutAmount)}</td>
+            <td>${fmt(p.disbursedAmount)}</td>
+            <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
+            <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr><td colspan="6">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
+      </table>
+    `);
+  }
+
+  return (
+    <div className="space-y-5">
+      <DateRangeBar from={from} to={to} onFrom={setFrom} onTo={setTo} active={activePreset} onPreset={onPreset} />
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="w-52">
+          <Select value={filterChit} onChange={(e) => setFilterChit(e.target.value)}>
+            <option value="">All Chits</option>
+            {[...chits].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')).map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-40">
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="">All Statuses</option>
+            {['PENDING', 'DISBURSED', 'CANCELLED', 'VOIDED'].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </Select>
+        </div>
+        <Button variant="outline" onClick={handlePrint} className="ml-auto flex items-center gap-2 text-sm">
+          <Printer size={14} /> Print
+        </Button>
+      </div>
+
+      {!isLoading && payouts.length > 0 && (
+        <div className="grid grid-cols-3 gap-4">
+          <StatCard icon={TrendingUp}   label="Total Disbursed"  value={fmt(disbursedTotal)} sub={`${payouts.filter((p) => p.status === 'DISBURSED').length} payouts`} color="#16a34a" />
+          <StatCard icon={AlertCircle}  label="Pending Amount"   value={fmt(pendingTotal)}   sub={`${payouts.filter((p) => p.status === 'PENDING').length} payouts`}  color="#d97706" />
+          <StatCard icon={BarChart2}    label="Total Payouts"    value={payouts.length}       sub={`${payouts.filter((p) => p.status === 'CANCELLED').length} cancelled`} />
+        </div>
+      )}
+
+      {isLoading ? <PageSpinner /> : filtered.length === 0 ? (
+        <EmptyState icon={TrendingUp} title="No payouts" description="No payout records for the selected filters" />
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                    <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-3 py-2.5 font-semibold text-gray-700">#{p.monthNumber ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-xs text-gray-600">{p.chitName ?? p.chitId ?? '—'}</td>
+                    <td className="px-3 py-2.5 font-medium text-gray-800">{p.memberName ?? p.memberId ?? '—'}</td>
+                    <td className="px-3 py-2.5">{fmt(p.winningAmount)}</td>
+                    <td className="px-3 py-2.5 text-red-600">{fmt(p.discountAmount)}</td>
+                    <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
+                    <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 font-bold text-sm">
+                  <td colSpan={5} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
+                  <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                  <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Treasury Tab ─────────────────────────────────────────────────────────────
+function TreasuryTab() {
+  const { data: wallet, isLoading: loadingWallet } = useQuery({
+    queryKey: ['wallet-balance'],
+    queryFn: getWalletBalance,
+  });
+  const { data: transactions = [], isLoading: loadingTxns } = useQuery({
+    queryKey: ['wallet-transactions'],
+    queryFn: getWalletTransactions,
+  });
+
+  const balance  = wallet?.balance ?? wallet;
+  const inflows  = transactions.filter((t) => Number(t.amount ?? 0) > 0).reduce((s, t) => s + Number(t.amount ?? 0), 0);
+  const outflows = transactions.filter((t) => Number(t.amount ?? 0) < 0).reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0);
+
+  function handlePrint() {
+    openPrint('Treasury Report', `
+      <div class="summary">
+        <div class="summary-item"><p class="lbl">Current Balance</p><p class="val">${fmt(balance)}</p></div>
+        <div class="summary-item"><p class="lbl">Total Inflows</p><p class="val">${fmt(inflows)}</p></div>
+        <div class="summary-item"><p class="lbl">Total Outflows</p><p class="val">${fmt(outflows)}</p></div>
+        <div class="summary-item"><p class="lbl">Transactions</p><p class="val">${transactions.length}</p></div>
+      </div>
+      <h2>Transaction History</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Description</th><th>Balance After</th></tr></thead>
+        <tbody>
+          ${transactions.map((t) => `<tr>
+            <td>${fmtDate(t.createdAt ?? t.transactionDate)}</td>
+            <td>${t.type ?? t.transactionType ?? '—'}</td>
+            <td style="color:${Number(t.amount ?? 0) >= 0 ? '#166534' : '#991b1b'};font-weight:bold">
+              ${Number(t.amount ?? 0) >= 0 ? '+' : ''}${fmt(t.amount)}
+            </td>
+            <td>${t.description ?? t.notes ?? '—'}</td>
+            <td>${t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `);
+  }
+
+  if (loadingWallet || loadingTxns) return <PageSpinner />;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard icon={Wallet}     label="Current Balance" value={fmt(balance)}   color="#7c3aed" />
+        <StatCard icon={TrendingUp} label="Total Inflows"   value={fmt(inflows)}   sub={`${transactions.filter((t) => Number(t.amount ?? 0) > 0).length} txns`} color="#16a34a" />
+        <StatCard icon={Banknote}   label="Total Outflows"  value={fmt(outflows)}  sub={`${transactions.filter((t) => Number(t.amount ?? 0) < 0).length} txns`} color="#dc2626" />
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={handlePrint} className="flex items-center gap-2 text-sm">
+          <Printer size={14} /> Print Report
+        </Button>
+      </div>
+
+      {transactions.length === 0 ? (
+        <EmptyState icon={Wallet} title="No transactions" description="No wallet transactions recorded yet" />
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-800">Transaction History</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  {['Date', 'Type', 'Amount', 'Description', 'Balance After'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((t, i) => {
+                  const amt = Number(t.amount ?? 0);
+                  return (
+                    <tr key={t.id ?? i} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
+                      <td className="px-4 py-2.5 text-xs">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                          {t.type ?? t.transactionType ?? '—'}
+                        </span>
+                      </td>
+                      <td className={`px-4 py-2.5 font-bold ${amt >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {amt >= 0 ? '+' : ''}{fmt(t.amount)}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-700">{t.description ?? t.notes ?? '—'}</td>
+                      <td className="px-4 py-2.5 font-semibold text-gray-700">
+                        {t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export default function ReportsPage() {
+  const [tab, setTab] = useState('Overview');
+
+  return (
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Full visibility into members, chits, payments and treasury</p>
+      </div>
+
+      <TabBar active={tab} onChange={setTab} />
+
+      {tab === 'Overview'      && <OverviewTab />}
+      {tab === 'Member Report' && <MemberReportTab />}
+      {tab === 'Chit Report'   && <ChitReportTab />}
+      {tab === 'Payments'      && <PaymentsTab />}
+      {tab === 'Payouts'       && <PayoutsTab />}
+      {tab === 'Treasury'      && <TreasuryTab />}
     </div>
   );
 }
