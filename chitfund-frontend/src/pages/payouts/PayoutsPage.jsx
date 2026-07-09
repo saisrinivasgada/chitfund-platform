@@ -124,7 +124,7 @@ function CreatePayoutTab() {
   const { data: allPayouts = [] } = useQuery({
     queryKey: ['payouts', 'all-for-create'],
     queryFn: () => getAllPayouts({}),
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   // Global paid-key set: "chitId:monthNumber:memberId"
@@ -776,7 +776,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
 // ─── Disburse Modal ────────────────────────────────────────────────────────
 function TreasuryBadge() {
   const [show, setShow] = useState(false);
-  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 60_000 });
+  const { data: bal } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance, staleTime: 0 });
   const total = Number(bal?.totalBalance ?? 0);
   const cash  = Number(bal?.cashBalance ?? 0);
   const bank  = Number(bal?.bankBalance ?? 0);
@@ -1029,6 +1029,7 @@ function PendingTab() {
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: getPendingPayouts,
+    staleTime: 0,
   });
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
@@ -1135,7 +1136,7 @@ function AllPayoutsTab() {
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['payouts', 'all', chitId],
     queryFn: () => getAllPayouts(chitId ? { chitId } : {}),
-    staleTime: 30_000,
+    staleTime: 0,
   });
 
   const STATUS_LABEL = { ACTIVE: 'Active', PAUSED: 'Paused', COMPLETED: 'Done', DRAFT: 'Draft', CANCELLED: 'Cancelled' };

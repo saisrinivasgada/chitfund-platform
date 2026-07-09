@@ -2542,7 +2542,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
                   <PaymentStatusBadge status={p.status} overdue={p.overdue} />
                 </td>
                 <td className="px-3 py-3">
-                  {(canCollect || p.promisedPaymentDate) ? (
+                  {canCollect ? (
                     <input
                       type="date"
                       defaultValue={p.promisedPaymentDate ?? ''}

@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://Kittus-MacBook-Air.local:8080/api';
+  process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.201:8080/api';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 

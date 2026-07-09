@@ -17,14 +17,14 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://3.21.196.51:8080/api"
+        "EXPO_PUBLIC_API_URL": "http://3.21.196.51/api"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://3.21.196.51:8080/api"
+        "EXPO_PUBLIC_API_URL": "http://3.21.196.51/api"
       }
     }
   }
