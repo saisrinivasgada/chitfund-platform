@@ -9,6 +9,7 @@ import {
   getPayoutsByChit, getDraws,
   getCollectionsReport, getMembersReport, getPayoutsReport,
   getWalletBalance, getWalletTransactions,
+  listStaff,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -313,7 +314,7 @@ function ChitPaymentSection({ memberId, chit }) {
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 function OverviewTab() {
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: members = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
   const { data: wallet } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance });
   const { data: thisMonthBatches = [] } = useQuery({
     queryKey: ['batches-this-month'],
@@ -396,7 +397,7 @@ function MemberReportTab() {
   const [memberId, setMemberId] = useState('');
   const queryClient = useQueryClient();
 
-  const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
 
   const { data: memberDetail, isLoading: loadingMember } = useQuery({
     queryKey: ['member-detail', memberId],
@@ -682,7 +683,8 @@ function ChitReportTab() {
     queryFn: () => getChits({ size: 200 }),
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],       queryFn: listStaff });
 
   const { data: chit } = useQuery({
     queryKey: ['chit', chitId],
@@ -722,7 +724,8 @@ function ChitReportTab() {
 
   const payoutsData = payoutsReport.length > 0 ? payoutsReport : payoutsByChit;
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
-  const resolveMember = (p) => memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId ?? '—';
+  const staffMap  = Object.fromEntries(staffList.map((s) => [String(s.id), s.fullName ?? s.username]));
+  const resolveMember = (p) => resolveUUID(p.memberId, memberMap, {}, staffMap) || p.memberName || '—';
 
   const drawMap = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
   const collectionRows = collectionsReport.length > 0
@@ -752,6 +755,8 @@ function ChitReportTab() {
   const totalDisbursed   = payoutsData
     .filter((p) => p.status === 'DISBURSED')
     .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+  const totalWithheld    = payoutsData.reduce((s, p) => s + Number(p.discountAmount ?? 0), 0);
+  const profitLoss       = totalCollected - totalDisbursed;
 
   function handlePrint() {
     if (!chit) return;
@@ -771,9 +776,17 @@ function ChitReportTab() {
       <div class="summary">
         <div class="summary-item"><p class="lbl">Total Draws</p><p class="val">${draws.length}</p></div>
         <div class="summary-item"><p class="lbl">Expected</p><p class="val">${fmt(totalExpected)}</p></div>
-        <div class="summary-item"><p class="lbl">Collected</p><p class="val">${fmt(totalCollected)}</p></div>
-        <div class="summary-item"><p class="lbl">Outstanding</p><p class="val">${fmt(totalOutstanding)}</p></div>
-        <div class="summary-item"><p class="lbl">Total Disbursed</p><p class="val">${fmt(totalDisbursed)}</p></div>
+        <div class="summary-item"><p class="lbl">Collected</p><p class="val" style="color:#166534">${fmt(totalCollected)}</p></div>
+        <div class="summary-item"><p class="lbl">Outstanding</p><p class="val" style="color:#991b1b">${fmt(totalOutstanding)}</p></div>
+        <div class="summary-item"><p class="lbl">Disbursed Payouts</p><p class="val" style="color:#1d4ed8">${fmt(totalDisbursed)}</p></div>
+        <div class="summary-item"><p class="lbl">Withheld Instmts</p><p class="val" style="color:#92400e">${fmt(totalWithheld)}</p></div>
+      </div>
+      <div style="margin:12px 0;padding:12px 16px;background:${profitLoss >= 0 ? '#f0fdf4' : '#fef2f2'};border:2px solid ${profitLoss >= 0 ? '#16a34a' : '#dc2626'};border-radius:8px;display:flex;align-items:center;gap:32px">
+        <div><p style="font-size:11px;color:#6b7280;margin:0">Total Collected</p><p style="font-size:16px;font-weight:700;color:#166534;margin:0">${fmt(totalCollected)}</p></div>
+        <div style="font-size:20px;color:#9ca3af">−</div>
+        <div><p style="font-size:11px;color:#6b7280;margin:0">Disbursed Payouts</p><p style="font-size:16px;font-weight:700;color:#1d4ed8;margin:0">${fmt(totalDisbursed)}</p></div>
+        <div style="font-size:20px;color:#9ca3af">=</div>
+        <div><p style="font-size:11px;color:#6b7280;margin:0">${profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p><p style="font-size:20px;font-weight:800;color:${profitLoss >= 0 ? '#16a34a' : '#dc2626'};margin:0">${profitLoss >= 0 ? '+' : ''}${fmt(profitLoss)}</p></div>
       </div>
     `;
 
@@ -887,7 +900,31 @@ function ChitReportTab() {
             { label: 'Total Collected', value: totalCollected > 0 ? fmt(totalCollected) : '—', color: 'text-green-700' },
             { label: 'Outstanding', value: totalOutstanding > 0 ? fmt(totalOutstanding) : '—', color: totalOutstanding > 0 ? 'text-red-600' : 'text-gray-800' },
             { label: 'Disbursed Payouts', value: fmt(totalDisbursed), color: 'text-blue-700' },
+            { label: 'Withheld Instmts', value: fmt(totalWithheld), color: 'text-amber-700' },
           ]} />
+
+          {/* Profit / Loss card */}
+          <div className={`rounded-xl border-2 p-5 ${profitLoss >= 0 ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'}`}>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Financial Summary</p>
+            <div className="flex flex-wrap items-center gap-3 md:gap-5">
+              <div className="flex-1 min-w-[120px]">
+                <p className="text-xs text-gray-500">Total Collected</p>
+                <p className="text-xl font-bold text-green-700">{fmt(totalCollected)}</p>
+              </div>
+              <span className="text-2xl text-gray-400 font-light">−</span>
+              <div className="flex-1 min-w-[120px]">
+                <p className="text-xs text-gray-500">Disbursed Payouts</p>
+                <p className="text-xl font-bold text-blue-700">{fmt(totalDisbursed)}</p>
+              </div>
+              <span className="text-2xl text-gray-400 font-light">=</span>
+              <div className="flex-1 min-w-[140px] bg-white rounded-lg px-4 py-3 border border-gray-200">
+                <p className="text-xs text-gray-500">{profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p>
+                <p className={`text-2xl font-extrabold ${profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {profitLoss >= 0 ? '+' : ''}{fmt(profitLoss)}
+                </p>
+              </div>
+            </div>
+          </div>
 
           {/* Draw-wise Collections */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1027,7 +1064,7 @@ function PaymentsTab() {
   const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
   const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
 
@@ -1191,10 +1228,12 @@ function PayoutsTab() {
   const [filterStatus, setFilterStatus] = useState('');
   const nav = useNavigate();
 
-  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],       queryFn: listStaff });
   const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
+  const staffMap  = Object.fromEntries(staffList.map((s) => [String(s.id), s.fullName ?? s.username]));
 
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['all-payouts-tab', from, to, filterChit],
@@ -1225,8 +1264,8 @@ function PayoutsTab() {
         <tbody>
           ${filtered.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
-            <td>${chitMap[String(p.chitId)] ?? p.chitName ?? p.chitId ?? '—'}</td>
-            <td>${memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId ?? '—'}</td>
+            <td>${resolveUUID(p.chitId, {}, chitMap, {})}</td>
+            <td>${resolveUUID(p.memberId, memberMap, {}, staffMap)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
             <td>${p.notes ?? p.cancellationReason ?? p.voidReason ?? '—'}</td>
@@ -1293,10 +1332,10 @@ function PayoutsTab() {
                   <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="px-3 py-2.5 font-semibold text-gray-700">#{p.monthNumber ?? '—'}</td>
                     <td className="px-3 py-2.5">
-                      <ChitLink id={p.chitId} name={chitMap[String(p.chitId)] ?? p.chitName ?? p.chitId} />
+                      <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
                     </td>
                     <td className="px-3 py-2.5">
-                      <MemberLink id={p.memberId} name={memberMap[String(p.memberId)] ?? p.memberName ?? p.memberId} />
+                      <MemberLink id={p.memberId} name={resolveUUID(p.memberId, memberMap, {}, staffMap)} />
                     </td>
                     <td className="px-3 py-2.5">{fmt(p.winningAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1330,6 +1369,28 @@ function PayoutsTab() {
   );
 }
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function resolveDescription(text, memberMap, chitMap, staffMap = {}) {
+  if (!text) return '—';
+  return text.replace(UUID_RE, (uuid) => {
+    const key = uuid.toLowerCase();
+    if (memberMap[key]) return memberMap[key];
+    if (chitMap[key])   return chitMap[key];
+    if (staffMap[key])  return `⚙ ${staffMap[key]}`;
+    return uuid;
+  });
+}
+
+function resolveUUID(uuid, memberMap, chitMap, staffMap = {}) {
+  if (!uuid) return '—';
+  const key = String(uuid).toLowerCase();
+  if (memberMap[key]) return memberMap[key];
+  if (chitMap[key])   return chitMap[key];
+  if (staffMap[key])  return `⚙ ${staffMap[key]}`;
+  return String(uuid);
+}
+
 // ─── Treasury Tab ─────────────────────────────────────────────────────────────
 function TreasuryTab() {
   const [from, setFrom]           = useState('');
@@ -1344,6 +1405,13 @@ function TreasuryTab() {
     queryKey: ['wallet-transactions'],
     queryFn: getWalletTransactions,
   });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: chits = [] }      = useQuery({ queryKey: ['chits'],   queryFn: () => getChits({ size: 200 }) });
+  const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
+
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id).toLowerCase(), m.fullName ?? m.username]));
+  const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id).toLowerCase(), c.name]));
+  const staffMap  = Object.fromEntries(staffList.map((s) => [String(s.id).toLowerCase(), s.fullName ?? s.username]));
 
   function onPreset(range) {
     setFrom(range.from);
@@ -1381,19 +1449,20 @@ function TreasuryTab() {
       </div>
       <h2>Transaction History</h2>
       <table>
-        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Description</th><th>Balance After</th></tr></thead>
+        <thead><tr><th>Date</th><th>Account</th><th>Direction</th><th>Category</th><th>Amount</th><th>Description</th></tr></thead>
         <tbody>
           ${filtered.map((t) => `<tr>
             <td>${fmtDate(t.createdAt ?? t.transactionDate)}</td>
-            <td>${t.type ?? t.transactionType ?? '—'}</td>
-            <td style="color:${Number(t.amount ?? 0) >= 0 ? '#166534' : '#991b1b'};font-weight:bold">
-              ${Number(t.amount ?? 0) >= 0 ? '+' : ''}${fmt(t.amount)}
+            <td>${t.accountType ?? '—'}</td>
+            <td style="color:${t.entryType === 'IN' ? '#166534' : '#991b1b'};font-weight:bold">${t.entryType ?? '—'}</td>
+            <td>${t.category ?? '—'}</td>
+            <td style="color:${t.entryType === 'IN' ? '#166534' : '#991b1b'};font-weight:bold">
+              ${t.entryType === 'IN' ? '+' : '-'}${fmt(t.amount)}
             </td>
-            <td>${t.description ?? t.notes ?? '—'}</td>
-            <td>${t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}</td>
+            <td>${resolveDescription(t.description ?? t.notes, memberMap, chitMap, staffMap)}</td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="2">Total (${filtered.length})</td><td style="color:#166534;font-weight:bold">+${fmt(inflows)}</td><td style="color:#991b1b;font-weight:bold">-${fmt(outflows)}</td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="4">Total (${filtered.length})</td><td style="color:#166534;font-weight:bold">+${fmt(inflows)} / <span style="color:#991b1b">-${fmt(outflows)}</span></td><td></td></tr></tfoot>
       </table>
     `);
   }
@@ -1429,42 +1498,40 @@ function TreasuryTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Date', 'Type', 'Amount', 'Description', 'Balance After'].map((h) => (
+                  {['Date', 'Account', 'Direction', 'Category', 'Amount', 'Description'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((t, i) => {
-                  const amt = Number(t.amount ?? 0);
-                  return (
-                    <tr key={t.id ?? i} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
-                      <td className="px-4 py-2.5 text-xs">
-                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                          {t.type ?? t.transactionType ?? '—'}
-                        </span>
-                      </td>
-                      <td className={`px-4 py-2.5 font-bold ${amt >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {amt >= 0 ? '+' : ''}{fmt(t.amount)}
-                      </td>
-                      <td className="px-4 py-2.5 text-gray-700">{t.description ?? t.notes ?? '—'}</td>
-                      <td className="px-4 py-2.5 font-semibold text-gray-700">
-                        {t.balanceAfter != null ? fmt(t.balanceAfter) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filtered.map((t, i) => (
+                  <tr key={t.id ?? i} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t.accountType ?? '—'}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <span className={`px-2 py-0.5 rounded-full font-semibold ${t.entryType === 'IN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {t.entryType ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{t.category ?? '—'}</td>
+                    <td className={`px-4 py-2.5 font-bold ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
+                      {t.entryType === 'IN' ? '+' : '-'}{fmt(t.amount)}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-700 text-xs">{resolveDescription(t.description ?? t.notes, memberMap, chitMap, staffMap)}</td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 text-xs font-semibold">
-                  <td colSpan={2} className="px-4 py-2.5 text-gray-600">Total ({filtered.length} transactions)</td>
+                  <td colSpan={4} className="px-4 py-2.5 text-gray-600">Total ({filtered.length} transactions)</td>
                   <td className="px-4 py-2.5">
                     <span className="text-green-700">+{fmt(inflows)}</span>
                     <span className="text-gray-400 mx-1">/</span>
                     <span className="text-red-600">-{fmt(outflows)}</span>
                   </td>
-                  <td colSpan={2} />
+                  <td />
                 </tr>
               </tfoot>
             </table>
