@@ -17,6 +17,8 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
     boolean existsByChitIdAndMonthNumberAndStatusNotIn(UUID chitId, int monthNumber, java.util.List<PayoutStatus> statuses);
 
+    boolean existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(UUID chitId, int monthNumber, UUID memberId, java.util.List<PayoutStatus> statuses);
+
     Optional<Payout> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
     // Admin dashboard: all PENDING payouts — needs to disburse these

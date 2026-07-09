@@ -22,6 +22,7 @@ public class PaymentRecordResponse {
     private BigDecimal balance;
     private PaymentRecordStatus status;
     private boolean overdue;
+    private LocalDate promisedPaymentDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

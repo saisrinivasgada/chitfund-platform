@@ -54,11 +54,11 @@ public class PayoutService {
      */
     @Transactional
     public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId) {
-        if (payoutRepository.existsByChitIdAndMonthNumberAndStatusNotIn(
-                request.getChitId(), request.getMonthNumber(),
+        if (payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
+                request.getChitId(), request.getMonthNumber(), request.getMemberId(),
                 List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))) {
             throw new BusinessException(ErrorCode.PAYOUT_ALREADY_EXISTS,
-                    "An active payout already exists for chit " + request.getChitId()
+                    "An active payout already exists for this member in chit " + request.getChitId()
                     + " cycle " + request.getMonthNumber());
         }
 

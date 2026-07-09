@@ -258,6 +258,16 @@ public class PaymentController {
         return ResponseEntity.noContent().build();
     }
 
+    @PatchMapping("/records/{recordId}/promised-date")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<PaymentRecordResponse>> updatePromisedDate(
+            @PathVariable UUID recordId,
+            @RequestBody Map<String, String> body) {
+        LocalDate date = body.get("promisedPaymentDate") != null
+                ? LocalDate.parse(body.get("promisedPaymentDate")) : null;
+        return ResponseEntity.ok(ApiResponse.success(paymentService.updatePromisedDate(recordId, date)));
+    }
+
     /**
      * Internal endpoint — called by payout-service during payout creation to atomically
      * mark the winner's installment as PAYOUT_DEDUCTED without requiring a user JWT.

@@ -48,6 +48,9 @@ public class PaymentRecord {
     // Used by revertPayoutDeductions to undo across all chits in one call.
     private UUID settledByPayoutId;
 
+    // Admin note: date the member said they will pay. No financial effect — purely operational.
+    private LocalDate promisedPaymentDate;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

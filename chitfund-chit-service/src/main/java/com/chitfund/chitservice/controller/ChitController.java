@@ -2,6 +2,7 @@ package com.chitfund.chitservice.controller;
 
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
+import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.service.ChitService;
@@ -65,6 +66,14 @@ public class ChitController {
             @PathVariable UUID memberId,
             @RequestParam(required = false) ChitStatus status) {
         return ResponseEntity.ok(ApiResponse.success(chitService.listChitsForMember(memberId, status)));
+    }
+
+    @PatchMapping("/{id}/name")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ChitResponse>> updateName(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateChitNameRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(chitService.updateName(id, request), "Chit name updated"));
     }
 
     @PutMapping("/{id}/status")

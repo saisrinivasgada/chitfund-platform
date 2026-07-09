@@ -147,6 +147,7 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_payout
+      PAYMENT_SERVICE_URL: http://payment-service:8084
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 30s

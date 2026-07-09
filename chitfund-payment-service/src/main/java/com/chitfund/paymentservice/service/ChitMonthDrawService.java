@@ -313,7 +313,8 @@ public class ChitMonthDrawService {
         List<PaymentRecord> records = paymentRecordRepository
                 .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
 
-        long settled     = count(records, PaymentRecordStatus.SETTLED);
+        long settled     = count(records, PaymentRecordStatus.SETTLED)
+                         + count(records, PaymentRecordStatus.PAYOUT_DEDUCTED);
         long partial     = count(records, PaymentRecordStatus.PARTIALLY_PAID);
         long outstanding = count(records, PaymentRecordStatus.OUTSTANDING);
         long waived      = count(records, PaymentRecordStatus.WAIVED);
@@ -469,6 +470,7 @@ public class ChitMonthDrawService {
                         .overdue((r.getStatus() == PaymentRecordStatus.OUTSTANDING
                                 || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
                                 && r.getDueDate().isBefore(today))
+                        .promisedPaymentDate(r.getPromisedPaymentDate())
                         .createdAt(r.getCreatedAt())
                         .updatedAt(r.getUpdatedAt())
                         .build())

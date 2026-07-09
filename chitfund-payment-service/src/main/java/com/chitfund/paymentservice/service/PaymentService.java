@@ -354,6 +354,32 @@ public class PaymentService {
         log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", records.size(), payoutId);
     }
 
+    @Transactional
+    public PaymentRecordResponse updatePromisedDate(UUID recordId, java.time.LocalDate date) {
+        PaymentRecord record = paymentRecordRepository.findById(recordId)
+                .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("PaymentRecord", recordId));
+        record.setPromisedPaymentDate(date);
+        paymentRecordRepository.save(record);
+        LocalDate today = LocalDate.now();
+        return PaymentRecordResponse.builder()
+                .id(record.getId())
+                .chitId(record.getChitId())
+                .memberId(record.getMemberId())
+                .monthNumber(record.getMonthNumber())
+                .dueDate(record.getDueDate())
+                .amountDue(record.getAmountDue())
+                .amountPaid(record.getAmountPaid())
+                .balance(record.getAmountDue().subtract(record.getAmountPaid()))
+                .status(record.getStatus())
+                .overdue((record.getStatus() == PaymentRecordStatus.OUTSTANDING
+                        || record.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                        && record.getDueDate().isBefore(today))
+                .promisedPaymentDate(record.getPromisedPaymentDate())
+                .createdAt(record.getCreatedAt())
+                .updatedAt(record.getUpdatedAt())
+                .build();
+    }
+
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPaymentBatches(UUID memberId, UUID chitId) {
         // Primary batches: recorded directly for this chit
@@ -569,6 +595,7 @@ public class PaymentService {
                         .overdue((r.getStatus() == PaymentRecordStatus.OUTSTANDING
                                 || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
                                 && r.getDueDate().isBefore(today))
+                        .promisedPaymentDate(r.getPromisedPaymentDate())
                         .createdAt(r.getCreatedAt())
                         .updatedAt(r.getUpdatedAt())
                         .build())

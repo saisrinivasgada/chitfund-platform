@@ -9,6 +9,7 @@ import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
 import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
+import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
@@ -198,6 +199,18 @@ public class ChitService {
         enrollmentRepository.saveAll(fromSchedule);
         log.info("Chit {} activated — synced {} enrollment(s) from schedule ({} existing deactivated)",
                 chit.getId(), fromSchedule.size(), existing.size());
+    }
+
+    @Transactional
+    public ChitResponse updateName(UUID id, UpdateChitNameRequest request) {
+        Chit chit = findById(id);
+        chit.setName(request.getName().trim());
+        if (request.getDescription() != null) {
+            chit.setDescription(request.getDescription().trim().isEmpty() ? null : request.getDescription().trim());
+        }
+        chit = chitRepository.save(chit);
+        log.info("Chit {} name updated to '{}'", id, chit.getName());
+        return enrich(chit);
     }
 
     @Transactional
