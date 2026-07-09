@@ -321,7 +321,7 @@ function OverviewTab() {
         <StatCard icon={Users}       label="Active Members"  value={activeMembers}  sub={`${members.length} total`} />
         <StatCard icon={Banknote}    label="This Month"      value={fmt(thisMonthTotal)} sub={`${thisMonthBatches.length} transactions`} color="#16a34a" />
         <StatCard icon={AlertCircle} label="Pending Payouts" value={pendingPayouts.length} sub={fmt(pendingPayoutTotal)} color="#dc2626" />
-        <StatCard icon={Wallet}      label="Wallet Balance"  value={fmt(wallet?.balance ?? wallet)} color="#7c3aed" />
+        <StatCard icon={Wallet}      label="Wallet Balance"  value={fmt(wallet?.totalBalance)} sub={`Cash: ${fmt(wallet?.cashBalance)} · Bank: ${fmt(wallet?.bankBalance)}`} color="#7c3aed" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -402,6 +402,9 @@ function MemberReportTab() {
   });
 
   const member = memberDetail ?? members.find((m) => String(m.id) === String(memberId));
+  const chitNameMap = Object.fromEntries(memberChits.map((c) => [String(c.id), c.name ?? c.chitName]));
+  const chitName = (p) => chitNameMap[String(p.chitId)] ?? p.chitName ?? p.chitId ?? '—';
+
   const totalPayoutsReceived = payouts
     .filter((p) => p.status === 'DISBURSED')
     .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
@@ -430,12 +433,13 @@ function MemberReportTab() {
 
     const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
       <table>
-        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payouts.map((p) => `<tr>
-            <td>${p.chitName ?? p.chitId ?? '—'}</td>
+            <td>${chitName(p)}</td>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
+            <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -550,18 +554,24 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
-                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      {['Chit', 'Draw', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
+                          {h === 'Adjustment' ? <span title="Withheld installment deducted from payout">{h}</span> : h}
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {payouts.map((p) => (
                       <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
-                        <td className="px-3 py-2 font-medium text-gray-700">{p.chitName ?? p.chitId ?? '—'}</td>
+                        <td className="px-3 py-2 font-medium text-gray-700">{chitName(p)}</td>
                         <td className="px-3 py-2">#{p.monthNumber ?? '—'}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
-                        <td className="px-3 py-2 text-red-600">{fmt(p.discountAmount)}</td>
+                        <td className="px-3 py-2">
+                          {Number(p.discountAmount) > 0
+                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
+                            : <span className="text-gray-400">—</span>}
+                        </td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -742,19 +752,20 @@ function ChitReportTab() {
 
     const payoutsHtml = payoutsData.length === 0 ? '<p style="color:#888">No payouts</p>' : `
       <table>
-        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payoutsData.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${p.memberName ?? p.memberId ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
+            <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="4">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="5">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `;
 
@@ -906,7 +917,7 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Draw', 'Member', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -917,7 +928,11 @@ function ChitReportTab() {
                         <td className="px-3 py-2 font-semibold">#{p.monthNumber ?? '—'}</td>
                         <td className="px-3 py-2 font-medium text-gray-700">{p.memberName ?? p.memberId ?? '—'}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
-                        <td className="px-3 py-2 text-red-600">{fmt(p.discountAmount)}</td>
+                        <td className="px-3 py-2">
+                          {Number(p.discountAmount) > 0
+                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
+                            : <span className="text-gray-400">—</span>}
+                        </td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -1134,14 +1149,14 @@ function PayoutsTab() {
         <span><strong>Pending:</strong> ${fmt(pendingTotal)}</span>
       </div>
       <table>
-        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Discount</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Adjustment (withheld)</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${filtered.map((p) => `<tr>
             <td>#${p.monthNumber ?? '—'}</td>
             <td>${p.chitName ?? p.chitId ?? '—'}</td>
             <td>${p.memberName ?? p.memberId ?? '—'}</td>
             <td>${fmt(p.winningAmount)}</td>
-            <td>${fmt(p.discountAmount)}</td>
+            <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -1195,7 +1210,7 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Discount', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Adjustment', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
                     <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -1207,7 +1222,11 @@ function PayoutsTab() {
                     <td className="px-3 py-2.5 text-xs text-gray-600">{p.chitName ?? p.chitId ?? '—'}</td>
                     <td className="px-3 py-2.5 font-medium text-gray-800">{p.memberName ?? p.memberId ?? '—'}</td>
                     <td className="px-3 py-2.5">{fmt(p.winningAmount)}</td>
-                    <td className="px-3 py-2.5 text-red-600">{fmt(p.discountAmount)}</td>
+                    <td className="px-3 py-2.5">
+                      {Number(p.discountAmount) > 0
+                        ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
+                        : <span className="text-gray-400">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
                     <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1244,16 +1263,18 @@ function TreasuryTab() {
     queryFn: getWalletTransactions,
   });
 
-  const balance  = wallet?.balance ?? wallet;
+  const totalBalance = Number(wallet?.totalBalance ?? 0);
+  const cashBalance  = Number(wallet?.cashBalance ?? 0);
+  const bankBalance  = Number(wallet?.bankBalance ?? 0);
   const inflows  = transactions.filter((t) => Number(t.amount ?? 0) > 0).reduce((s, t) => s + Number(t.amount ?? 0), 0);
   const outflows = transactions.filter((t) => Number(t.amount ?? 0) < 0).reduce((s, t) => s + Math.abs(Number(t.amount ?? 0)), 0);
 
   function handlePrint() {
     openPrint('Treasury Report', `
       <div class="summary">
-        <div class="summary-item"><p class="lbl">Current Balance</p><p class="val">${fmt(balance)}</p></div>
-        <div class="summary-item"><p class="lbl">Total Inflows</p><p class="val">${fmt(inflows)}</p></div>
-        <div class="summary-item"><p class="lbl">Total Outflows</p><p class="val">${fmt(outflows)}</p></div>
+        <div class="summary-item"><p class="lbl">Total Balance</p><p class="val">${fmt(totalBalance)}</p></div>
+        <div class="summary-item"><p class="lbl">Cash</p><p class="val">${fmt(cashBalance)}</p></div>
+        <div class="summary-item"><p class="lbl">Bank</p><p class="val">${fmt(bankBalance)}</p></div>
         <div class="summary-item"><p class="lbl">Transactions</p><p class="val">${transactions.length}</p></div>
       </div>
       <h2>Transaction History</h2>
@@ -1278,10 +1299,11 @@ function TreasuryTab() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={Wallet}     label="Current Balance" value={fmt(balance)}   color="#7c3aed" />
-        <StatCard icon={TrendingUp} label="Total Inflows"   value={fmt(inflows)}   sub={`${transactions.filter((t) => Number(t.amount ?? 0) > 0).length} txns`} color="#16a34a" />
-        <StatCard icon={Banknote}   label="Total Outflows"  value={fmt(outflows)}  sub={`${transactions.filter((t) => Number(t.amount ?? 0) < 0).length} txns`} color="#dc2626" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={Wallet}     label="Total Balance"  value={fmt(totalBalance)} color="#7c3aed" />
+        <StatCard icon={Banknote}   label="Cash Balance"   value={fmt(cashBalance)}  color="#1E3A5F" />
+        <StatCard icon={TrendingUp} label="Bank Balance"   value={fmt(bankBalance)}  color="#0891b2" />
+        <StatCard icon={BarChart2}  label="Transactions"   value={transactions.length} sub={`Inflows: ${fmt(inflows)}`} />
       </div>
 
       <div className="flex justify-end">
