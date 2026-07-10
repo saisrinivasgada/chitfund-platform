@@ -336,6 +336,16 @@ public class PaymentService {
         }
         log.info("Cross-chit PAYOUT_DEDUCTED applied — chit {} member {} ₹{} for payout {}",
                 chitId, memberId, amount, payoutId);
+
+        // Auto-close any draw that is now fully settled after these deductions
+        records.stream()
+                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
+                .map(PaymentRecord::getMonthNumber)
+                .distinct()
+                .forEach(mn -> {
+                    try { chitMonthDrawService.autoCloseIfAllSettled(chitId, mn); }
+                    catch (Exception e) { log.warn("Auto-close check failed for chit {} month {} — {}", chitId, mn, e.getMessage()); }
+                });
     }
 
     /**
@@ -345,6 +355,7 @@ public class PaymentService {
     @Transactional
     public void revertPayoutDeductions(UUID payoutId) {
         List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
+        List<PaymentRecord> reverted = new java.util.ArrayList<>();
         for (PaymentRecord r : records) {
             if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
             // Re-derive how much was actually paid via cash/UPI before the payout withheld the rest.
@@ -363,8 +374,19 @@ public class PaymentService {
                     : PaymentRecordStatus.PARTIALLY_PAID);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
+            reverted.add(r);
         }
-        log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", records.size(), payoutId);
+        log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", reverted.size(), payoutId);
+
+        // Reopen any draws that were auto-closed by this payout's deductions
+        reverted.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        r -> r.getChitId().toString() + ":" + r.getMonthNumber()))
+                .forEach((key, group) -> {
+                    PaymentRecord first = group.get(0);
+                    try { chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber()); }
+                    catch (Exception e) { log.warn("Auto-reopen check failed for chit {} month {} — {}", first.getChitId(), first.getMonthNumber(), e.getMessage()); }
+                });
     }
 
     @Transactional
