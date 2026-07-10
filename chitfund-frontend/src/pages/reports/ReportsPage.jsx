@@ -256,25 +256,27 @@ function DrawDetailModal({ draw, chit, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* Close button — pinned inside top-right corner */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+        >✕</button>
         {/* Header */}
-        <div className="flex items-start gap-3 px-5 pt-5 pb-4 border-b border-gray-100">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-lg font-bold text-gray-900">Draw #{draw.monthNumber}</span>
-              {monthLabel && <span className="text-sm text-gray-500">· {monthLabel}</span>}
-              {draw.drawStatus && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${DRAW_STATUS_COLORS[draw.drawStatus] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {draw.drawStatus}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
-              {draw.dueDate  && <span>Due: <strong>{fmtDate(draw.dueDate)}</strong></span>}
-              {draw.closedAt && <span>Closed: <strong>{fmtDate(draw.closedAt)}</strong></span>}
-            </div>
+        <div className="pr-12 px-6 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-lg font-bold text-gray-900">Draw #{draw.monthNumber}</span>
+            {monthLabel && <span className="text-sm text-gray-500">· {monthLabel}</span>}
+            {draw.drawStatus && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${DRAW_STATUS_COLORS[draw.drawStatus] ?? 'bg-gray-100 text-gray-600'}`}>
+                {draw.drawStatus}
+              </span>
+            )}
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer mt-0.5">✕</button>
+          <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+            {draw.dueDate  && <span>Due: <strong>{fmtDate(draw.dueDate)}</strong></span>}
+            {draw.closedAt && <span>Closed: <strong>{fmtDate(draw.closedAt)}</strong></span>}
+          </div>
         </div>
 
         {/* Summary strip */}
