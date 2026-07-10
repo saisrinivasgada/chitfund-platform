@@ -623,7 +623,7 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
                           {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span> : h}
                         </th>
@@ -641,7 +641,6 @@ function MemberReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
-                        <td className="px-3 py-2 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -654,7 +653,7 @@ function MemberReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 text-xs font-semibold">
-                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
                       <td colSpan={3} />
@@ -1186,7 +1185,7 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -1202,7 +1201,6 @@ function ChitReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
-                        <td className="px-3 py-2 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -1215,7 +1213,7 @@ function ChitReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-100 text-xs font-semibold">
-                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
                       <td colSpan={3} />
@@ -1498,7 +1496,7 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                     <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -1519,7 +1517,6 @@ function PayoutsTab() {
                         ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-3 py-2.5 text-gray-600 text-xs max-w-[140px]">{(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? <span title={n} className="block truncate cursor-help">{n}</span> : <span className="text-gray-300">—</span>; })()}</td>
                     <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
                     <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1532,7 +1529,7 @@ function PayoutsTab() {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
-                  <td colSpan={6} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
+                  <td colSpan={5} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
                   <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                   <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
                   <td colSpan={3} />
