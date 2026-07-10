@@ -407,7 +407,14 @@ function MemberReport() {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.netPayoutAmount ?? p.disbursedAmount)}</Text>
-                    <Text style={T.xs}>{p.status}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={T.xs}>{p.status}</Text>
+                      {(Number(p.crossChitSettlement ?? 0) > 0 || Number(p.manualAdjustment ?? 0) !== 0 || Number(p.installmentSettlement ?? 0) > 0) && (
+                        <View style={{ backgroundColor: '#EEF2FF', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#4338CA' }}>+ADJ</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </View>
               </Card>
@@ -589,7 +596,14 @@ function PayoutsReport() {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.netPayoutAmount ?? p.disbursedAmount)}</Text>
-                    {p.discountAmount > 0 && <Text style={T.xs}>-{fmt(p.discountAmount)} withheld</Text>}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      {p.discountAmount > 0 && <Text style={T.xs}>-{fmt(p.discountAmount)} withheld</Text>}
+                      {(Number(p.crossChitSettlement ?? 0) > 0 || Number(p.manualAdjustment ?? 0) !== 0 || Number(p.installmentSettlement ?? 0) > 0) && (
+                        <View style={{ backgroundColor: '#EEF2FF', borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#4338CA' }}>+ADJ</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </View>
               </Card>

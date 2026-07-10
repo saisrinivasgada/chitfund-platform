@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getChit, getMembers, getMember,
@@ -19,13 +19,30 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
-  Wallet, AlertCircle, TrendingUp, FileText, ExternalLink,
+  Wallet, AlertCircle, TrendingUp, FileText, ExternalLink, Layers,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const fmt = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+function AdjCell({ p }) {
+  const cross   = Number(p.crossChitSettlement ?? 0);
+  const manual  = Number(p.manualAdjustment ?? 0);
+  const instmt  = Number(p.installmentSettlement ?? 0);
+  const hasAdj  = cross > 0 || manual !== 0 || instmt > 0;
+  if (!hasAdj) return <span className="text-gray-300">—</span>;
+  const parts = [];
+  if (cross  > 0)    parts.push(`Cross-chit: ${fmt(cross)}`);
+  if (instmt > 0)    parts.push(`Instmt: ${fmt(instmt)}`);
+  if (manual !== 0)  parts.push(`Manual: ${manual < 0 ? '-' : '+'}${fmt(Math.abs(manual))}`);
+  return (
+    <span title={parts.join(' · ')} className="inline-flex items-center gap-1 text-indigo-600 font-semibold cursor-help">
+      <Layers size={11} />✓
+    </span>
+  );
+}
 
 // Computes "MMM YYYY" for draw #N given chit start date
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -44,6 +61,23 @@ function drawLabel(startDate, monthNumber) {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStartStr = () =>
   new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+
+function useSessionState(key, defaultValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(key);
+      return saved !== null ? JSON.parse(saved) : defaultValue;
+    } catch { return defaultValue; }
+  });
+  const setAndPersist = useCallback((newVal) => {
+    setValue((prev) => {
+      const next = typeof newVal === 'function' ? newVal(prev) : newVal;
+      try { sessionStorage.setItem(key, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [key]);
+  return [value, setAndPersist];
+}
 
 const PRESETS = [
   { label: 'Today',       fn: () => ({ from: todayStr(), to: todayStr() }) },
@@ -412,7 +446,7 @@ function OverviewTab() {
 
 // ─── Member Report Tab ────────────────────────────────────────────────────────
 function MemberReportTab() {
-  const [memberId, setMemberId] = useState('');
+  const [memberId, setMemberId] = useSessionState('rpt_mr_member', '');
   const queryClient = useQueryClient();
   const nav = useNavigate();
 
@@ -623,9 +657,11 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Adj', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
-                          {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span> : h}
+                          {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span>
+                            : h === 'Adj' ? <span title="Additional adjustments (cross-chit, manual)" className="flex items-center gap-1 cursor-help"><Layers size={11} />Adj</span>
+                            : h}
                         </th>
                       ))}
                     </tr>
@@ -641,6 +677,7 @@ function MemberReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
+                        <td className="px-3 py-2"><AdjCell p={p} /></td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -653,7 +690,7 @@ function MemberReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50 text-xs font-semibold">
-                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
                       <td colSpan={3} />
@@ -700,8 +737,8 @@ function MemberReportTab() {
 
 // ─── Chit Report Tab ──────────────────────────────────────────────────────────
 function ChitReportTab() {
-  const [chitId, setChitId] = useState('');
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [chitId, setChitId] = useSessionState('rpt_cr_chit', '');
+  const [showBreakdown, setShowBreakdown] = useSessionState('rpt_cr_breakdown', false);
   const nav = useNavigate();
 
   const { data: chits = [], isLoading: loadingChits } = useQuery({
@@ -1185,8 +1222,10 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
-                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
+                          {h === 'Adj' ? <span title="Additional adjustments (cross-chit, manual)" className="flex items-center gap-1 cursor-help"><Layers size={11} />Adj</span> : h}
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -1201,6 +1240,7 @@ function ChitReportTab() {
                             ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
+                        <td className="px-3 py-2"><AdjCell p={p} /></td>
                         <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
                         <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
@@ -1213,7 +1253,7 @@ function ChitReportTab() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-100 text-xs font-semibold">
-                      <td colSpan={4} className="px-3 py-2 text-gray-600">Total Disbursed</td>
+                      <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
                       <td colSpan={3} />
@@ -1231,10 +1271,10 @@ function ChitReportTab() {
 
 // ─── Payments Tab ─────────────────────────────────────────────────────────────
 function PaymentsTab() {
-  const [from, setFrom]             = useState(monthStartStr());
-  const [to, setTo]                 = useState(todayStr());
-  const [activePreset, setPreset]   = useState('This Month');
-  const [filterChit, setFilterChit] = useState('');
+  const [from, setFrom]             = useSessionState('rpt_pmt_from', monthStartStr());
+  const [to, setTo]                 = useSessionState('rpt_pmt_to', todayStr());
+  const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'This Month');
+  const [filterChit, setFilterChit] = useSessionState('rpt_pmt_chit', '');
   const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
@@ -1395,11 +1435,11 @@ function PaymentsTab() {
 
 // ─── Payouts Tab ──────────────────────────────────────────────────────────────
 function PayoutsTab() {
-  const [from, setFrom]               = useState('');
-  const [to, setTo]                   = useState('');
-  const [activePreset, setPreset]     = useState('All Time');
-  const [filterChit, setFilterChit]   = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [from, setFrom]               = useSessionState('rpt_py_from', '');
+  const [to, setTo]                   = useSessionState('rpt_py_to', '');
+  const [activePreset, setPreset]     = useSessionState('rpt_py_preset', 'All Time');
+  const [filterChit, setFilterChit]   = useSessionState('rpt_py_chit', '');
+  const [filterStatus, setFilterStatus] = useSessionState('rpt_py_status', '');
   const nav = useNavigate();
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
@@ -1496,8 +1536,10 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
-                    <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Adj', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
+                    <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">
+                      {h === 'Adj' ? <span title="Additional adjustments (cross-chit, manual)" className="flex items-center gap-1 cursor-help"><Layers size={11} />Adj</span> : h}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -1517,6 +1559,7 @@ function PayoutsTab() {
                         ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
+                    <td className="px-3 py-2.5"><AdjCell p={p} /></td>
                     <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
                     <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
@@ -1529,7 +1572,7 @@ function PayoutsTab() {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
-                  <td colSpan={5} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
+                  <td colSpan={6} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
                   <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                   <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
                   <td colSpan={3} />
@@ -1590,9 +1633,9 @@ function resolveUUID(uuid, memberMap, chitMap, staffMap = {}) {
 
 // ─── Treasury Tab ─────────────────────────────────────────────────────────────
 function TreasuryTab() {
-  const [from, setFrom]           = useState('');
-  const [to, setTo]               = useState('');
-  const [activePreset, setPreset] = useState('All Time');
+  const [from, setFrom]           = useSessionState('rpt_tr_from', '');
+  const [to, setTo]               = useSessionState('rpt_tr_to', '');
+  const [activePreset, setPreset] = useSessionState('rpt_tr_preset', 'All Time');
 
   const { data: wallet, isLoading: loadingWallet } = useQuery({
     queryKey: ['wallet-balance'],
@@ -1745,7 +1788,9 @@ function TreasuryTab() {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ReportsPage() {
-  const [tab, setTab] = useState('Overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') || 'Overview';
+  const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
