@@ -6,11 +6,12 @@ import {
   getChitsForMember, getMemberTotalBalance,
   getPaymentHistory, getPayoutsForMember, getMemberSettlements,
   getAllPaymentBatches, getAllPayouts,
-  getPayoutsByChit, getDraws,
+  getPayoutsByChit, getDraws, getDrawPayments, getPaymentBatches,
   getCollectionsReport, getMembersReport, getPayoutsReport,
   getWalletBalance, getWalletTransactions,
   listStaff,
 } from '../../services/api';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
@@ -159,6 +160,201 @@ function MemberPickerModal({ members, value, onChange, onClose }) {
         {/* Footer count */}
         <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-400 text-right">
           {sorted.length} member{sorted.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Draw Detail Modal ────────────────────────────────────────────────────────
+const STATUS_COLORS = {
+  SETTLED: 'bg-green-100 text-green-700',
+  PAYOUT_DEDUCTED: 'bg-green-100 text-green-700',
+  WAIVED: 'bg-blue-100 text-blue-700',
+  PARTIALLY_PAID: 'bg-amber-100 text-amber-700',
+  OUTSTANDING: 'bg-red-100 text-red-700',
+  SETTLEMENT_CLEARED: 'bg-green-100 text-green-700',
+};
+const DRAW_STATUS_COLORS = {
+  CLOSED: 'bg-green-100 text-green-700',
+  OPEN: 'bg-blue-100 text-blue-700',
+  PENDING: 'bg-amber-100 text-amber-700',
+};
+
+function MemberBatches({ memberId, chitId, monthNumber }) {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
+  const { data: batches = [], isLoading } = useQuery({
+    queryKey: ['paymentBatches', chitId, memberId],
+    queryFn: () => getPaymentBatches({ memberId, chitId }),
+    enabled: !!memberId && !!chitId,
+  });
+
+  const relevant = batches.filter((b) =>
+    b.status !== 'VOIDED' &&
+    (b.allocations ?? []).some((a) => a.monthNumber === monthNumber)
+  );
+
+  if (isLoading) return <p className="text-xs text-gray-400 py-2 animate-pulse">Loading transactions…</p>;
+  if (relevant.length === 0) return <p className="text-xs text-gray-400 py-2 italic">No transactions recorded for this draw.</p>;
+
+  return (
+    <div className="space-y-2 pt-1">
+      {relevant.map((b) => {
+        const alloc = (b.allocations ?? []).filter((a) => a.monthNumber === monthNumber);
+        const allocTotal = alloc.reduce((s, a) => s + Number(a.allocatedAmount ?? 0), 0);
+        const date = b.createdAt
+          ? new Date(b.createdAt.endsWith('Z') ? b.createdAt : b.createdAt + 'Z')
+              .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '—';
+        return (
+          <div key={b.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2 text-xs">
+            <div>
+              <span className="font-semibold text-gray-800">{h(allocTotal)}</span>
+              {b.totalAmount !== allocTotal && (
+                <span className="text-gray-400 ml-1">(of {fmt(b.totalAmount)} total batch)</span>
+              )}
+              <span className="ml-2 px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-500 text-[10px]">{b.paymentMode?.replace(/_/g, ' ')}</span>
+            </div>
+            <span className="text-gray-400 whitespace-nowrap">{date}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DrawDetailModal({ draw, chit, onClose }) {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
+  const [expandedMemberId, setExpandedMemberId] = useState(null);
+
+  const { data: payments = [], isLoading } = useQuery({
+    queryKey: ['drawPayments', draw.drawId],
+    queryFn: () => getDrawPayments(draw.drawId),
+    enabled: !!draw.drawId,
+  });
+
+  const { data: allMembers = [] } = useQuery({
+    queryKey: ['members-all'],
+    queryFn: () => getMembers({ size: 1000 }),
+  });
+  const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m]));
+
+  const sorted = [...payments].sort((a, b) => {
+    const order = { OUTSTANDING: 0, PARTIALLY_PAID: 1, SETTLED: 2, PAYOUT_DEDUCTED: 3, WAIVED: 4 };
+    return (order[a.status] ?? 5) - (order[b.status] ?? 5);
+  });
+
+  const monthLabel = drawMonthLabel(chit?.startDate, draw.monthNumber);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-lg font-bold text-gray-900">Draw #{draw.monthNumber}</span>
+              {monthLabel && <span className="text-sm text-gray-500">· {monthLabel}</span>}
+              {draw.drawStatus && (
+                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${DRAW_STATUS_COLORS[draw.drawStatus] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {draw.drawStatus}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+              {draw.dueDate  && <span>Due: <strong>{fmtDate(draw.dueDate)}</strong></span>}
+              {draw.closedAt && <span>Closed: <strong>{fmtDate(draw.closedAt)}</strong></span>}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer mt-0.5">✕</button>
+        </div>
+
+        {/* Summary strip */}
+        <div className="flex gap-6 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs flex-wrap">
+          <span>Total Due: <strong>{h(draw.totalDue)}</strong></span>
+          <span className="text-green-700">Collected: <strong>{h(draw.totalCollected)}</strong></span>
+          {Number(draw.outstanding) > 0 && (
+            <span className="text-red-600">Outstanding: <strong>{h(draw.outstanding)}</strong></span>
+          )}
+          {payments.length > 0 && <span className="text-gray-400 ml-auto">{payments.length} members</span>}
+        </div>
+
+        {/* Members table */}
+        <div className="overflow-y-auto flex-1">
+          {isLoading ? (
+            <div className="py-10 text-center text-sm text-gray-400 animate-pulse">Loading members…</div>
+          ) : sorted.length === 0 ? (
+            <div className="py-10 text-center text-sm text-gray-400">No payment records for this draw.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_#e5e7eb]">
+                <tr>
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Member</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Due</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Paid</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Balance</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                  <th className="px-3 py-3 w-6" />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((p) => {
+                  const member = memberMap[String(p.memberId)];
+                  const isExpanded = expandedMemberId === p.memberId;
+                  const hasPaid = Number(p.amountPaid) > 0;
+                  return (
+                    <>
+                      <tr
+                        key={p.id}
+                        className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors"
+                        onClick={() => setExpandedMemberId(isExpanded ? null : p.memberId)}
+                      >
+                        <td className="px-5 py-3">
+                          <p className="font-medium text-gray-800">{member?.fullName ?? `Member #${String(p.memberId).slice(0, 8)}`}</p>
+                          {member?.phone && (
+                            <p className="text-xs text-gray-400">{[member.phoneCountryCode, member.phone].filter(Boolean).join(' ')}{member.city ? ` · ${member.city}` : ''}</p>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right text-gray-700 font-medium">{h(p.amountDue)}</td>
+                        <td className="px-3 py-3 text-right text-green-700 font-medium">{hasPaid ? fmt(p.amountPaid) : '—'}</td>
+                        <td className="px-3 py-3 text-right font-semibold">
+                          {Number(p.balance) > 0
+                            ? <span className="text-red-600">{h(p.balance)}</span>
+                            : <span className="text-green-600">✓</span>}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {p.status?.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-gray-400 text-xs">{isExpanded ? '▲' : '▼'}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${p.id}-txns`} className="bg-blue-50/40">
+                          <td colSpan={6} className="px-5 pb-3 pt-1">
+                            <p className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Transactions for this draw</p>
+                            <MemberBatches memberId={p.memberId} chitId={chit?.id} monthNumber={draw.monthNumber} />
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400 text-right">
+          {chit?.name} · Click a member row to see their transactions for this draw
         </div>
       </div>
     </div>
@@ -341,6 +537,8 @@ function SummaryBar({ items }) {
 
 // ─── Per-chit payment section (lazy, self-fetching) ───────────────────────────
 function ChitPaymentSection({ memberId, chit }) {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const [open, setOpen] = useState(false);
 
   const { data: history = [], isLoading } = useQuery({
@@ -372,8 +570,8 @@ function ChitPaymentSection({ memberId, chit }) {
         </div>
         {history.length > 0 && (
           <div className="flex gap-4 text-right text-xs">
-            <div><p className="text-gray-400">Paid</p><p className="font-bold text-green-700">{fmt(totalPaid)}</p></div>
-            <div><p className="text-gray-400">Balance</p><p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</p></div>
+            <div><p className="text-gray-400">Paid</p><p className="font-bold text-green-700">{h(totalPaid)}</p></div>
+            <div><p className="text-gray-400">Balance</p><p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</p></div>
           </div>
         )}
       </button>
@@ -389,15 +587,15 @@ function ChitPaymentSection({ memberId, chit }) {
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <p className="text-xs text-gray-400">Total Due</p>
-                  <p className="font-bold text-gray-800">{fmt(totalDue)}</p>
+                  <p className="font-bold text-gray-800">{h(totalDue)}</p>
                 </div>
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <p className="text-xs text-gray-400">Total Paid</p>
-                  <p className="font-bold text-green-700">{fmt(totalPaid)}</p>
+                  <p className="font-bold text-green-700">{h(totalPaid)}</p>
                 </div>
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <p className="text-xs text-gray-400">Outstanding</p>
-                  <p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</p>
+                  <p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</p>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -414,8 +612,8 @@ function ChitPaymentSection({ memberId, chit }) {
                       <tr key={r.id} className="odd:bg-white even:bg-slate-50/70">
                         <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
-                        <td className="px-3 py-2 text-gray-700">{fmt(r.amountDue)}</td>
-                        <td className="px-3 py-2 text-green-700 font-medium">{fmt(r.amountPaid)}</td>
+                        <td className="px-3 py-2 text-gray-700">{h(r.amountDue)}</td>
+                        <td className="px-3 py-2 text-green-700 font-medium">{h(r.amountPaid)}</td>
                         <td className={`px-3 py-2 font-medium ${Number(r.balance) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
                           {fmt(r.balance)}
                         </td>
@@ -433,9 +631,9 @@ function ChitPaymentSection({ memberId, chit }) {
                     <tr className="bg-gray-100 font-semibold text-xs">
                       <td className="px-3 py-2 text-gray-700">Total</td>
                       <td className="px-3 py-2" />
-                      <td className="px-3 py-2 text-gray-700">{fmt(totalDue)}</td>
-                      <td className="px-3 py-2 text-green-700">{fmt(totalPaid)}</td>
-                      <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalBal)}</td>
+                      <td className="px-3 py-2 text-gray-700">{h(totalDue)}</td>
+                      <td className="px-3 py-2 text-green-700">{h(totalPaid)}</td>
+                      <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</td>
                       <td colSpan={hasPromised ? 3 : 2} />
                     </tr>
                   </tfoot>
@@ -451,6 +649,8 @@ function ChitPaymentSection({ memberId, chit }) {
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 function OverviewTab() {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
   const { data: members = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
   const { data: wallet } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance });
@@ -484,9 +684,9 @@ function OverviewTab() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard icon={BarChart2}   label="Active Chits"    value={activeChits}    sub={`${completedChits} completed`} />
         <StatCard icon={Users}       label="Active Members"  value={activeMembers}  sub={`${members.length} total`} />
-        <StatCard icon={Banknote}    label="This Month"      value={fmt(thisMonthTotal)} sub={`${thisMonthBatches.length} transactions`} color="#16a34a" />
+        <StatCard icon={Banknote}    label="This Month"      value={h(thisMonthTotal)} sub={`${thisMonthBatches.length} transactions`} color="#16a34a" />
         <StatCard icon={AlertCircle} label="Pending Payouts" value={pendingPayouts.length} sub={fmt(pendingPayoutTotal)} color="#dc2626" />
-        <StatCard icon={Wallet}      label="Wallet Balance"  value={fmt(wallet?.totalBalance)} sub={`Cash: ${fmt(wallet?.cashBalance)} · Bank: ${fmt(wallet?.bankBalance)}`} color="#7c3aed" />
+        <StatCard icon={Wallet}      label="Wallet Balance"  value={h(wallet?.totalBalance)} sub={`Cash: ${fmt(wallet?.cashBalance)} · Bank: ${fmt(wallet?.bankBalance)}`} color="#7c3aed" />
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -502,7 +702,7 @@ function OverviewTab() {
                   <div key={mode}>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-gray-600">{mode.replace(/_/g, ' ')}</span>
-                      <span className="font-semibold">{fmt(total)} ({pct}%)</span>
+                      <span className="font-semibold">{h(total)} ({pct}%)</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full">
                       <div className="h-2 bg-[#1E3A5F] rounded-full" style={{ width: `${pct}%` }} />
@@ -516,7 +716,7 @@ function OverviewTab() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
           <h3 className="font-semibold text-gray-800 text-sm mb-3">Payout Summary (All Time)</h3>
-          <Row label="Total Disbursed" value={fmt(disbursedTotal)} />
+          <Row label="Total Disbursed" value={h(disbursedTotal)} />
           <Row label="Pending Payouts" value={`${pendingPayouts.length} · ${fmt(pendingPayoutTotal)}`} />
           <Row label="Total Payouts" value={allPayouts.length} />
           <div className="border-t border-gray-100 pt-2 space-y-1">
@@ -534,6 +734,8 @@ function OverviewTab() {
 function MemberReportTab() {
   const [memberId, setMemberId] = useSessionState('rpt_mr_member', '');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const queryClient = useQueryClient();
   const nav = useNavigate();
 
@@ -777,15 +979,15 @@ function MemberReportTab() {
                       <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
-                        <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
+                        <td className="px-3 py-2">{h(p.winningAmount)}</td>
                         <td className="px-3 py-2">
                           {Number(p.discountAmount) > 0
-                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
+                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{h(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2"><AdjCell p={p} /></td>
-                        <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
-                        <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
+                        <td className="px-3 py-2 font-semibold">{h(p.netPayoutAmount)}</td>
+                        <td className="px-3 py-2 text-green-700 font-semibold">{h(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
                           <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                         </td>
@@ -797,8 +999,8 @@ function MemberReportTab() {
                   <tfoot>
                     <tr className="bg-gray-50 text-xs font-semibold">
                       <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
-                      <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
-                      <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
+                      <td className="px-3 py-2">{h(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                      <td className="px-3 py-2 text-green-700">{h(totalPayoutsReceived)}</td>
                       <td colSpan={3} />
                     </tr>
                   </tfoot>
@@ -824,7 +1026,7 @@ function MemberReportTab() {
                     {settlements.map((s) => (
                       <tr key={s.id} className="odd:bg-white even:bg-slate-50/70">
                         <td className="px-3 py-2">{fmtDate(s.settledAt ?? s.createdAt)}</td>
-                        <td className="px-3 py-2 font-semibold">{fmt(s.totalAmount ?? s.amount)}</td>
+                        <td className="px-3 py-2 font-semibold">{h(s.totalAmount ?? s.amount)}</td>
                         <td className="px-3 py-2 text-gray-500 max-w-[200px]">
                           {s.notes ? <span title={s.notes} className="block truncate cursor-help">{s.notes}</span> : '—'}
                         </td>
@@ -845,6 +1047,9 @@ function MemberReportTab() {
 function ChitReportTab() {
   const [chitId, setChitId] = useSessionState('rpt_cr_chit', '');
   const [showBreakdown, setShowBreakdown] = useSessionState('rpt_cr_breakdown', false);
+  const [selectedDraw, setSelectedDraw] = useState(null);
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const nav = useNavigate();
 
   const { data: chits = [], isLoading: loadingChits } = useQuery({
@@ -903,6 +1108,7 @@ function ChitReportTab() {
         const draw = drawMap[mn] ?? {};
         return {
           monthNumber: mn,
+          drawId: draw.id,
           totalDue: r.totalDue ?? r.expectedAmount ?? 0,
           totalCollected: r.totalCollected ?? r.collectedAmount ?? r.totalPaid ?? 0,
           outstanding: r.outstanding ?? r.balance ?? ((r.totalDue ?? 0) - (r.totalCollected ?? r.totalPaid ?? 0)),
@@ -917,6 +1123,7 @@ function ChitReportTab() {
         const totalDue    = collected + outstanding;
         return {
           monthNumber: d.monthNumber,
+          drawId: d.id,
           totalDue:       totalDue > 0 ? totalDue : null,
           totalCollected: d.totalCollected != null ? collected : null,
           outstanding:    d.totalOutstanding != null ? outstanding : null,
@@ -1081,8 +1288,8 @@ function ChitReportTab() {
               </Badge>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6">
-              <Row label="Chit Value" value={fmt(chit.chitValue)} />
-              <Row label="Installment" value={fmt(chit.installmentAmount)} />
+              <Row label="Chit Value" value={h(chit.chitValue)} />
+              <Row label="Installment" value={h(chit.installmentAmount)} />
               <Row label="Members" value={chit.totalMembers} />
               <Row label="Start Date" value={fmtDate(chit.startDate)} />
             </div>
@@ -1106,19 +1313,19 @@ function ChitReportTab() {
               <div className="flex flex-wrap items-center gap-3 md:gap-5">
                 <div className="flex-1 min-w-[120px]">
                   <p className="text-xs text-gray-500">Total Collected</p>
-                  <p className="text-xl font-bold text-green-700">{fmt(totalCollected)}</p>
+                  <p className="text-xl font-bold text-green-700">{h(totalCollected)}</p>
                 </div>
                 <span className="text-2xl text-gray-400 font-light">−</span>
                 <div className="flex-1 min-w-[120px]">
                   <p className="text-xs text-gray-500">Disbursed Payouts</p>
-                  <p className="text-xl font-bold text-blue-700">{fmt(totalDisbursed)}</p>
+                  <p className="text-xl font-bold text-blue-700">{h(totalDisbursed)}</p>
                 </div>
                 {adminInvestment > 0 && (
                   <>
                     <span className="text-2xl text-gray-400 font-light">+</span>
                     <div className="flex-1 min-w-[120px]">
                       <p className="text-xs text-gray-500">Admin Investment</p>
-                      <p className="text-xl font-bold text-purple-700">{fmt(adminInvestment)}</p>
+                      <p className="text-xl font-bold text-purple-700">{h(adminInvestment)}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5">advance payouts to additional members</p>
                     </div>
                   </>
@@ -1198,8 +1405,8 @@ function ChitReportTab() {
                       <tfoot>
                         <tr className="bg-white/80 font-semibold text-xs border-t-2 border-gray-300">
                           <td className="px-3 py-2 text-gray-700">Total</td>
-                          <td className="px-3 py-2 text-green-700">{fmt(grandCollected)}</td>
-                          <td className="px-3 py-2 text-blue-700">{fmt(grandDisbursed)}</td>
+                          <td className="px-3 py-2 text-green-700">{h(grandCollected)}</td>
+                          <td className="px-3 py-2 text-blue-700">{h(grandDisbursed)}</td>
                           <td className={`px-3 py-2 ${grandNetFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                             {grandNetFlow >= 0 ? '+' : ''}{fmt(grandNetFlow)}
                           </td>
@@ -1228,7 +1435,7 @@ function ChitReportTab() {
                             <tr key={i} className="border-b border-purple-100">
                               <td className="px-2 py-1.5 font-semibold text-purple-700">{drawLabel(chit.startDate, d.monthNumber)}</td>
                               <td className="px-2 py-1.5 text-purple-700">{d.memberName}</td>
-                              <td className="px-2 py-1.5 font-bold text-purple-800">{fmt(d.amount)}</td>
+                              <td className="px-2 py-1.5 font-bold text-purple-800">{h(d.amount)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1257,7 +1464,12 @@ function ChitReportTab() {
                   </thead>
                   <tbody>
                     {collectionRows.map((r) => (
-                      <tr key={r.monthNumber} className="border-t border-gray-100 hover:bg-gray-50">
+                      <tr
+                        key={r.monthNumber}
+                        className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors"
+                        onClick={() => setSelectedDraw(r)}
+                        title="Click to see member-wise breakdown"
+                      >
                         <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2">{r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
@@ -1275,9 +1487,9 @@ function ChitReportTab() {
                       <tr className="bg-gray-100 text-xs font-semibold">
                         <td className="px-3 py-2 text-gray-700">Total</td>
                         <td className="px-3 py-2" />
-                        <td className="px-3 py-2">{fmt(totalExpected)}</td>
-                        <td className="px-3 py-2 text-green-700">{fmt(totalCollected)}</td>
-                        <td className={`px-3 py-2 ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOutstanding)}</td>
+                        <td className="px-3 py-2">{h(totalExpected)}</td>
+                        <td className="px-3 py-2 text-green-700">{h(totalCollected)}</td>
+                        <td className={`px-3 py-2 ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalOutstanding)}</td>
                         <td colSpan={2} />
                       </tr>
                     </tfoot>
@@ -1340,15 +1552,15 @@ function ChitReportTab() {
                       <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
-                        <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
+                        <td className="px-3 py-2">{h(p.winningAmount)}</td>
                         <td className="px-3 py-2">
                           {Number(p.discountAmount) > 0
-                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{fmt(p.discountAmount)}</span>
+                            ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold text-sm">✓</span>{h(p.discountAmount)}</span>
                             : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="px-3 py-2"><AdjCell p={p} /></td>
-                        <td className="px-3 py-2 font-semibold">{fmt(p.netPayoutAmount)}</td>
-                        <td className="px-3 py-2 text-green-700 font-semibold">{fmt(p.disbursedAmount)}</td>
+                        <td className="px-3 py-2 font-semibold">{h(p.netPayoutAmount)}</td>
+                        <td className="px-3 py-2 text-green-700 font-semibold">{h(p.disbursedAmount)}</td>
                         <td className="px-3 py-2">
                           <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                         </td>
@@ -1360,8 +1572,8 @@ function ChitReportTab() {
                   <tfoot>
                     <tr className="bg-gray-100 text-xs font-semibold">
                       <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
-                      <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
-                      <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
+                      <td className="px-3 py-2">{h(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                      <td className="px-3 py-2 text-green-700">{h(totalDisbursed)}</td>
                       <td colSpan={3} />
                     </tr>
                   </tfoot>
@@ -1370,6 +1582,14 @@ function ChitReportTab() {
             )}
           </div>
         </div>
+      )}
+
+      {selectedDraw && (
+        <DrawDetailModal
+          draw={selectedDraw}
+          chit={chit}
+          onClose={() => setSelectedDraw(null)}
+        />
       )}
     </div>
   );
@@ -1381,6 +1601,8 @@ function PaymentsTab() {
   const [to, setTo]                 = useSessionState('rpt_pmt_to', todayStr());
   const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'This Month');
   const [filterChit, setFilterChit] = useSessionState('rpt_pmt_chit', '');
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
@@ -1479,10 +1701,10 @@ function PaymentsTab() {
 
       {!isLoading && batches.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard icon={Banknote} label="Total Collected" value={fmt(totalCollected)}
+          <StatCard icon={Banknote} label="Total Collected" value={h(totalCollected)}
             sub={`${batches.length} transactions`} color="#16a34a" />
           {Object.entries(modeBreakdown).map(([mode, total]) => (
-            <StatCard key={mode} icon={DollarSign} label={mode.replace(/_/g, ' ')} value={fmt(total)}
+            <StatCard key={mode} icon={DollarSign} label={mode.replace(/_/g, ' ')} value={h(total)}
               sub={`${batches.filter((b) => b.paymentMode === mode).length} txns`} color="#7c3aed" />
           ))}
         </div>
@@ -1511,7 +1733,7 @@ function PaymentsTab() {
                     <td className="px-4 py-2.5">
                       <ChitLink id={b.chitId} name={chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId} />
                     </td>
-                    <td className="px-4 py-2.5 font-bold text-green-700">{fmt(b.amount ?? b.totalAmount)}</td>
+                    <td className="px-4 py-2.5 font-bold text-green-700">{h(b.amount ?? b.totalAmount)}</td>
                     <td className="px-4 py-2.5">
                       <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                         {b.paymentMode?.replace(/_/g, ' ') ?? '—'}
@@ -1527,7 +1749,7 @@ function PaymentsTab() {
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
                   <td colSpan={3} className="px-4 py-3 text-gray-600">Total ({batches.length} transactions)</td>
-                  <td className="px-4 py-3 text-green-700">{fmt(totalCollected)}</td>
+                  <td className="px-4 py-3 text-green-700">{h(totalCollected)}</td>
                   <td colSpan={3} />
                 </tr>
               </tfoot>
@@ -1546,6 +1768,8 @@ function PayoutsTab() {
   const [activePreset, setPreset]     = useSessionState('rpt_py_preset', 'All Time');
   const [filterChit, setFilterChit]   = useSessionState('rpt_py_chit', '');
   const [filterStatus, setFilterStatus] = useSessionState('rpt_py_status', '');
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
   const nav = useNavigate();
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
@@ -1628,8 +1852,8 @@ function PayoutsTab() {
 
       {!isLoading && payouts.length > 0 && (
         <div className="grid grid-cols-3 gap-4">
-          <StatCard icon={TrendingUp}   label="Total Disbursed"  value={fmt(disbursedTotal)} sub={`${payouts.filter((p) => p.status === 'DISBURSED').length} payouts`} color="#16a34a" />
-          <StatCard icon={AlertCircle}  label="Pending Amount"   value={fmt(pendingTotal)}   sub={`${payouts.filter((p) => p.status === 'PENDING').length} payouts`}  color="#d97706" />
+          <StatCard icon={TrendingUp}   label="Total Disbursed"  value={h(disbursedTotal)} sub={`${payouts.filter((p) => p.status === 'DISBURSED').length} payouts`} color="#16a34a" />
+          <StatCard icon={AlertCircle}  label="Pending Amount"   value={h(pendingTotal)}   sub={`${payouts.filter((p) => p.status === 'PENDING').length} payouts`}  color="#d97706" />
           <StatCard icon={BarChart2}    label="Total Payouts"    value={payouts.length}       sub={`${payouts.filter((p) => p.status === 'CANCELLED').length} cancelled`} />
         </div>
       )}
@@ -1659,15 +1883,15 @@ function PayoutsTab() {
                     <td className="px-3 py-2.5">
                       <MemberLink id={p.memberId} name={resolveUUID(p.memberId, memberMap, {}, staffMap)} />
                     </td>
-                    <td className="px-3 py-2.5">{fmt(p.winningAmount)}</td>
+                    <td className="px-3 py-2.5">{h(p.winningAmount)}</td>
                     <td className="px-3 py-2.5">
                       {Number(p.discountAmount) > 0
-                        ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{fmt(p.discountAmount)}</span>
+                        ? <span className="flex items-center gap-1 text-amber-700"><span className="text-green-600 font-bold">✓</span>{h(p.discountAmount)}</span>
                         : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-3 py-2.5"><AdjCell p={p} /></td>
-                    <td className="px-3 py-2.5 font-semibold">{fmt(p.netPayoutAmount)}</td>
-                    <td className="px-3 py-2.5 text-green-700 font-bold">{fmt(p.disbursedAmount)}</td>
+                    <td className="px-3 py-2.5 font-semibold">{h(p.netPayoutAmount)}</td>
+                    <td className="px-3 py-2.5 text-green-700 font-bold">{h(p.disbursedAmount)}</td>
                     <td className="px-3 py-2.5">
                       <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                     </td>
@@ -1679,8 +1903,8 @@ function PayoutsTab() {
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
                   <td colSpan={6} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
-                  <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
-                  <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
+                  <td className="px-3 py-3">{h(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                  <td className="px-3 py-3 text-green-700">{h(disbursedTotal)}</td>
                   <td colSpan={3} />
                 </tr>
               </tfoot>
@@ -1742,6 +1966,8 @@ function TreasuryTab() {
   const [from, setFrom]           = useSessionState('rpt_tr_from', '');
   const [to, setTo]               = useSessionState('rpt_tr_to', '');
   const [activePreset, setPreset] = useSessionState('rpt_tr_preset', 'All Time');
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
 
   const { data: wallet, isLoading: loadingWallet } = useQuery({
     queryKey: ['wallet-balance'],
@@ -1820,10 +2046,10 @@ function TreasuryTab() {
       <DateRangeBar from={from} to={to} onFrom={setFrom} onTo={setTo} active={activePreset} onPreset={onPreset} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={Wallet}     label="Total Balance"  value={fmt(totalBalance)} color="#7c3aed" />
-        <StatCard icon={Banknote}   label="Cash Balance"   value={fmt(cashBalance)}  color="#1E3A5F" />
-        <StatCard icon={TrendingUp} label="Bank Balance"   value={fmt(bankBalance)}  color="#0891b2" />
-        <StatCard icon={BarChart2}  label={`Inflows (${periodLabel})`} value={fmt(inflows)} sub={`Outflows: ${fmt(outflows)}`} color="#16a34a" />
+        <StatCard icon={Wallet}     label="Total Balance"  value={h(totalBalance)} color="#7c3aed" />
+        <StatCard icon={Banknote}   label="Cash Balance"   value={h(cashBalance)}  color="#1E3A5F" />
+        <StatCard icon={TrendingUp} label="Bank Balance"   value={h(bankBalance)}  color="#0891b2" />
+        <StatCard icon={BarChart2}  label={`Inflows (${periodLabel})`} value={h(inflows)} sub={`Outflows: ${fmt(outflows)}`} color="#16a34a" />
       </div>
 
       <div className="flex justify-end">
