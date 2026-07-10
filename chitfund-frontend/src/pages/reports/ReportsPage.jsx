@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -77,6 +77,92 @@ function useSessionState(key, defaultValue) {
     });
   }, [key]);
   return [value, setAndPersist];
+}
+
+// ─── Country code → flag ──────────────────────────────────────────────────────
+const CC_FLAGS = {
+  '+91': '🇮🇳', '+1': '🇺🇸', '+44': '🇬🇧', '+971': '🇦🇪', '+61': '🇦🇺',
+  '+65': '🇸🇬', '+60': '🇲🇾', '+966': '🇸🇦', '+974': '🇶🇦', '+968': '🇴🇲',
+  '+973': '🇧🇭', '+965': '🇰🇼', '+49': '🇩🇪', '+33': '🇫🇷', '+64': '🇳🇿',
+  '+31': '🇳🇱', '+353': '🇮🇪', '+27': '🇿🇦', '+234': '🇳🇬', '+254': '🇰🇪',
+};
+const countryFlag = (code) => CC_FLAGS[code] ?? '🌐';
+
+// ─── Member Picker Modal ──────────────────────────────────────────────────────
+function MemberPickerModal({ members, value, onChange, onClose }) {
+  const [search, setSearch] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const q = search.toLowerCase();
+  const filtered = members.filter((m) =>
+    !q ||
+    (m.fullName ?? '').toLowerCase().includes(q) ||
+    (m.phone ?? '').includes(q) ||
+    (m.city ?? '').toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-gray-100">
+          <Users size={16} className="text-[#1E3A5F]" />
+          <span className="font-semibold text-gray-800 flex-1">Select Member</span>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">✕</button>
+        </div>
+        {/* Search */}
+        <div className="px-4 py-3 border-b border-gray-100">
+          <input
+            ref={inputRef}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, phone or city…"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1E3A5F]/30 focus:border-[#1E3A5F]"
+          />
+        </div>
+        {/* List */}
+        <div className="overflow-y-auto flex-1 py-2">
+          {sorted.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-8">No members found</p>
+          ) : sorted.map((m) => {
+            const flag = countryFlag(m.phoneCountryCode ?? '+91');
+            const isSelected = String(m.id) === String(value);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => { onChange(String(m.id)); onClose(); }}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-blue-50 transition-colors cursor-pointer ${isSelected ? 'bg-[#1E3A5F]/5' : ''}`}
+              >
+                <span className="text-xl leading-none">{flag}</span>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium truncate ${isSelected ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{m.fullName ?? m.username}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {[m.phoneCountryCode, m.phone].filter(Boolean).join(' ')}
+                    {m.city ? ` · ${m.city}` : ''}
+                  </p>
+                </div>
+                {isSelected && <span className="text-[#1E3A5F] text-sm font-bold">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+        {/* Footer count */}
+        <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-400 text-right">
+          {sorted.length} member{sorted.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const PRESETS = [
@@ -325,7 +411,7 @@ function ChitPaymentSection({ memberId, chit }) {
                   </thead>
                   <tbody>
                     {history.map((r) => (
-                      <tr key={r.id} className="border-b border-gray-100 hover:bg-white">
+                      <tr key={r.id} className="odd:bg-white even:bg-slate-50/70">
                         <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2 text-gray-700">{fmt(r.amountDue)}</td>
@@ -447,6 +533,7 @@ function OverviewTab() {
 // ─── Member Report Tab ────────────────────────────────────────────────────────
 function MemberReportTab() {
   const [memberId, setMemberId] = useSessionState('rpt_mr_member', '');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const queryClient = useQueryClient();
   const nav = useNavigate();
 
@@ -584,12 +671,22 @@ function MemberReportTab() {
       <div className="flex items-end gap-3 flex-wrap">
         <div className="flex-1 max-w-xs">
           <label className="text-xs font-medium text-gray-600 mb-1 block">Select Member</label>
-          <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
-            <option value="">— choose a member —</option>
-            {sortedMembers.map((m) => (
-              <option key={m.id} value={m.id}>{m.fullName}{m.phone ? ` · ${m.phone}` : ''}</option>
-            ))}
-          </Select>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="w-full flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white hover:border-[#1E3A5F] transition-colors cursor-pointer text-left"
+          >
+            {memberId && member ? (
+              <>
+                <span className="text-lg leading-none">{countryFlag(member.phoneCountryCode ?? '+91')}</span>
+                <span className="flex-1 font-medium text-gray-800 truncate">{member.fullName}</span>
+                {member.city && <span className="text-xs text-gray-400 shrink-0">{member.city}</span>}
+              </>
+            ) : (
+              <span className="text-gray-400 flex-1">— choose a member —</span>
+            )}
+            <Users size={13} className="text-gray-400 shrink-0" />
+          </button>
         </div>
         {memberId && member && (
           <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
@@ -597,6 +694,15 @@ function MemberReportTab() {
           </button>
         )}
       </div>
+
+      {pickerOpen && (
+        <MemberPickerModal
+          members={sortedMembers}
+          value={memberId}
+          onChange={setMemberId}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       {!memberId && (
         <EmptyState icon={Users} title="Select a member" description="Choose a member to view their complete report" />
@@ -668,7 +774,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {payouts.map((p) => (
-                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
@@ -716,7 +822,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {settlements.map((s) => (
-                      <tr key={s.id} className="border-t border-gray-100">
+                      <tr key={s.id} className="odd:bg-white even:bg-slate-50/70">
                         <td className="px-3 py-2">{fmtDate(s.settledAt ?? s.createdAt)}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(s.totalAmount ?? s.amount)}</td>
                         <td className="px-3 py-2 text-gray-500 max-w-[200px]">
@@ -1231,7 +1337,7 @@ function ChitReportTab() {
                   </thead>
                   <tbody>
                     {payoutsData.map((p) => (
-                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
@@ -1397,7 +1503,7 @@ function PaymentsTab() {
               </thead>
               <tbody>
                 {batches.map((b) => (
-                  <tr key={b.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={b.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors">
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
                     <td className="px-4 py-2.5">
                       <MemberLink id={b.memberId} name={memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId} />
@@ -1545,7 +1651,7 @@ function PayoutsTab() {
               </thead>
               <tbody>
                 {filtered.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
+                  <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
                     <td className="px-3 py-2.5 font-semibold text-gray-700">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                     <td className="px-3 py-2.5">
                       <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
@@ -1745,7 +1851,7 @@ function TreasuryTab() {
               </thead>
               <tbody>
                 {filtered.map((t, i) => (
-                  <tr key={t.id ?? i} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={t.id ?? i} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors">
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
                     <td className="px-4 py-2.5 text-xs">
                       <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t.accountType ?? '—'}</span>
