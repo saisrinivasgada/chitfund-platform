@@ -15,6 +15,7 @@ import PaymentsPage, {
   HistoryTab,
 } from './pages/payments/PaymentsPage';
 import PayoutsPage from './pages/payouts/PayoutsPage';
+import PayoutDetailPage from './pages/payouts/PayoutDetailPage';
 import DrawsPage from './pages/draws/DrawsPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import MyAccountPage from './pages/admin/MyAccountPage';
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="history" element={<HistoryTab />} />
         </Route>
         <Route path="/payouts" element={<PayoutsPage />} />
+        <Route path="/payouts/:payoutId" element={<PayoutDetailPage />} />
         <Route path="/draws" element={<DrawsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/my-account" element={<MyAccountPage />} />

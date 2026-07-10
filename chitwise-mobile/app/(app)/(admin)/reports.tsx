@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Share, Alert, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Share, Alert, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import {
   getMembers, getMember, getChitsForMember, getPayoutsForMember, getMemberTotalBalance,
   getAllPaymentBatches, getAllPayouts, getWalletBalance, getWalletTransactions, getChits,
+  getPayoutById,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
 
@@ -45,6 +46,148 @@ function Pill({ label, active, onPress }: { label: string; active: boolean; onPr
     >
       <Text style={{ fontSize: 13, fontWeight: '600', color: active ? C.white : C.gray500 }}>{label}</Text>
     </TouchableOpacity>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payout Detail Modal
+// ─────────────────────────────────────────────────────────────────────────────
+function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onClose: () => void }) {
+  const { data: p, isLoading } = useQuery({
+    queryKey: ['payout-detail', payoutId],
+    queryFn: () => getPayoutById(payoutId!),
+    enabled: !!payoutId,
+  });
+
+  const STATUS_COLOR: Record<string, string> = {
+    DISBURSED: C.green, PARTIALLY_DISBURSED: '#2563EB',
+    PENDING: C.amber, CANCELLED: C.red, VOIDED: C.gray400,
+  };
+
+  function DeductionRow({ label, sub, amount, isTotal }: { label: string; sub?: string; amount: any; isTotal?: boolean }) {
+    const n = Number(amount ?? 0);
+    if (!isTotal && n === 0) return null;
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: isTotal ? '700' : '400', color: isTotal ? C.gray900 : C.gray600 }}>{label}</Text>
+          {sub ? <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{sub}</Text> : null}
+        </View>
+        <Text style={{ fontSize: 13, fontWeight: isTotal ? '700' : '500', color: isTotal ? C.navy : C.red }}>
+          {isTotal ? fmt(n) : `− ${fmt(n)}`}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={!!payoutId} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+        {/* Header */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.gray100, backgroundColor: C.white }}>
+          <TouchableOpacity onPress={onClose} style={{ marginRight: 12, padding: 4 }}>
+            <Text style={{ fontSize: 22, color: C.gray500 }}>×</Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: C.gray900, flex: 1 }}>Payout Details</Text>
+          {p && (
+            <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: `${STATUS_COLOR[p.status] ?? C.gray400}20` }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: STATUS_COLOR[p.status] ?? C.gray400 }}>{p.status}</Text>
+            </View>
+          )}
+        </View>
+
+        {isLoading || !p ? (
+          <ListLoadingScreen />
+        ) : (
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
+
+            {/* Member + Chit */}
+            <Card style={{ padding: 14 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={T.xs}>Member</Text>
+                <Text style={T.xs}>Chit · Draw</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{p.memberName ?? '—'}</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>{p.chitName ?? '—'} · #{p.monthNumber}</Text>
+              </View>
+              <Text style={[T.xs, { marginTop: 4 }]}>{fmtDate(p.createdAt)}</Text>
+            </Card>
+
+            {/* Breakdown */}
+            <Card style={{ padding: 14 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 6 }}>Payout Breakdown</Text>
+              {/* Winning amount row */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Winning Amount</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{fmt(p.winningAmount)}</Text>
+              </View>
+              {Number(p.installmentSettlement ?? 0) > 0 && (
+                <DeductionRow label="Installment Withheld" sub={`Draw #${p.monthNumber} · ${p.chitName ?? ''}`} amount={p.installmentSettlement} />
+              )}
+              {Number(p.crossChitSettlement ?? 0) > 0 && (
+                <DeductionRow label="Cross-Chit Settlement" sub="Outstanding dues from other chits" amount={p.crossChitSettlement} />
+              )}
+              {Number(p.manualAdjustment ?? 0) > 0 && (
+                <DeductionRow label="Manual Adjustment" amount={p.manualAdjustment} />
+              )}
+              {Number(p.discountAmount ?? 0) > 0 && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>Total Deductions</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: C.red }}>− {fmt(p.discountAmount)}</Text>
+                </View>
+              )}
+              {/* Net payout */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, marginTop: 4, borderTopWidth: 2, borderTopColor: C.gray200 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>Net Payout</Text>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>{fmt(p.netPayoutAmount)}</Text>
+              </View>
+            </Card>
+
+            {/* Disbursements */}
+            {(p.disbursements ?? []).length > 0 && (
+              <Card style={{ padding: 14 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>
+                  Disbursements · {fmt(p.disbursedAmount)} paid
+                </Text>
+                {(p.disbursements as any[]).map((d: any, i: number) => (
+                  <View key={d.id ?? i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: C.gray100 }}>
+                    <View>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{fmt(d.amount)}</Text>
+                      <Text style={T.xs}>{d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}</Text>
+                      {d.notes ? <Text style={[T.xs, { fontStyle: 'italic' }]}>{d.notes}</Text> : null}
+                    </View>
+                    <Text style={T.xs}>{fmtDate(d.disbursedAt)}</Text>
+                  </View>
+                ))}
+                {Number(p.remainingAmount ?? 0) > 0 && (
+                  <Text style={[T.xs, { color: C.amber, marginTop: 6 }]}>₹{Number(p.remainingAmount).toLocaleString('en-IN')} remaining</Text>
+                )}
+              </Card>
+            )}
+
+            {/* Notes */}
+            {p.notes && (
+              <Card style={{ padding: 14, backgroundColor: '#FFFBEB', borderColor: '#FDE68A', borderWidth: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E', marginBottom: 2 }}>Notes</Text>
+                <Text style={{ fontSize: 13, color: '#78350F' }}>{p.notes}</Text>
+              </Card>
+            )}
+
+            {/* Cancellation */}
+            {(p.cancellationReason || p.voidReason) && (
+              <Card style={{ padding: 14, backgroundColor: '#FEF2F2', borderColor: '#FECACA', borderWidth: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.red, marginBottom: 2 }}>
+                  {p.cancellationReason ? 'Cancellation Reason' : 'Void Reason'}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#991B1B' }}>{p.cancellationReason ?? p.voidReason}</Text>
+              </Card>
+            )}
+
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -111,6 +254,7 @@ function MemberReport() {
   const [memberId, setMemberId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [showPicker, setShowPicker] = useState(false);
+  const [selectedPayoutId, setSelectedPayoutId] = useState<string | null>(null);
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['rpt-members'], queryFn: getMembers });
   const { data: member } = useQuery({ queryKey: ['rpt-member', memberId], queryFn: () => getMember(memberId), enabled: !!memberId });
@@ -254,21 +398,24 @@ function MemberReport() {
           {(payouts as any[]).length === 0 ? (
             <Text style={[T.sm, { textAlign: 'center', paddingVertical: 12 }]}>No payouts</Text>
           ) : (payouts as any[]).map((p: any) => (
-            <Card key={p.id} style={{ marginBottom: 8, padding: 14 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={T.h3} numberOfLines={1}>{p.chitName ?? '—'} · Draw #{p.drawNumber}</Text>
-                  <Text style={T.xs}>{fmtDate(p.disbursedAt ?? p.createdAt)}</Text>
+            <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
+              <Card style={{ marginBottom: 8, padding: 14 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={T.h3} numberOfLines={1}>{p.chitName ?? '—'} · Draw #{p.drawNumber ?? p.monthNumber}</Text>
+                    <Text style={T.xs}>{fmtDate(p.disbursedAt ?? p.createdAt)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.netPayoutAmount ?? p.disbursedAmount)}</Text>
+                    <Text style={T.xs}>{p.status}</Text>
+                  </View>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.disbursedAmount)}</Text>
-                  <Text style={T.xs}>{p.status}</Text>
-                </View>
-              </View>
-            </Card>
+              </Card>
+            </TouchableOpacity>
           ))}
         </View>
       )}
+      <PayoutDetailModal payoutId={selectedPayoutId} onClose={() => setSelectedPayoutId(null)} />
     </View>
   );
 }
@@ -366,6 +513,7 @@ function PaymentsReport() {
 // ─────────────────────────────────────────────────────────────────────────────
 function PayoutsReport() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [selectedPayoutId, setSelectedPayoutId] = useState<string | null>(null);
 
   const { data: payouts = [], isLoading } = useQuery({
     queryKey: ['rpt-all-payouts'],
@@ -432,21 +580,24 @@ function PayoutsReport() {
       ) : (
         <View>
           {filtered.map((p: any) => (
-            <Card key={p.id} style={{ marginBottom: 8, padding: 12 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{p.memberName ?? '—'}</Text>
-                  <Text style={T.xs} numberOfLines={1}>{p.chitName ?? '—'} · Draw #{p.drawNumber} · {fmtDate(p.disbursedAt ?? p.createdAt)}</Text>
+            <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
+              <Card style={{ marginBottom: 8, padding: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{p.memberName ?? '—'}</Text>
+                    <Text style={T.xs} numberOfLines={1}>{p.chitName ?? '—'} · Draw #{p.drawNumber ?? p.monthNumber} · {fmtDate(p.disbursedAt ?? p.createdAt)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.netPayoutAmount ?? p.disbursedAmount)}</Text>
+                    {p.discountAmount > 0 && <Text style={T.xs}>-{fmt(p.discountAmount)} withheld</Text>}
+                  </View>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netDisbursed ?? p.disbursedAmount)}</Text>
-                  {p.discountAmount > 0 && <Text style={T.xs}>-{fmt(p.discountAmount)} withheld</Text>}
-                </View>
-              </View>
-            </Card>
+              </Card>
+            </TouchableOpacity>
           ))}
         </View>
       )}
+      <PayoutDetailModal payoutId={selectedPayoutId} onClose={() => setSelectedPayoutId(null)} />
     </View>
   );
 }

@@ -226,6 +226,8 @@ export const cancelByWorker = async (requestId: string, reason?: string) =>
 export const getAllPayouts = async (params: any = {}) =>
   unwrapList(await api.get('/payouts/all', { params }));
 export const getPendingPayouts = async () => unwrapList(await api.get('/payouts/pending'));
+export const getPayoutById = async (payoutId: string) =>
+  unwrapObj(await api.get(`/payouts/${payoutId}`));
 export const getPayoutsForMember = async (memberId: string) =>
   unwrapList(await api.get(`/payouts/member/${memberId}`));
 export const createPayout = async (body: any) => unwrapObj(await api.post('/payouts', body));

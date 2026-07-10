@@ -19,7 +19,7 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
-  Wallet, AlertCircle, TrendingUp, FileText,
+  Wallet, AlertCircle, TrendingUp, FileText, ExternalLink,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -414,6 +414,7 @@ function OverviewTab() {
 function MemberReportTab() {
   const [memberId, setMemberId] = useState('');
   const queryClient = useQueryClient();
+  const nav = useNavigate();
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
 
@@ -622,7 +623,7 @@ function MemberReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Chit', 'Draw', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">
                           {h === 'Withheld Instmt' ? <span title="Installment deducted from payout">{h}</span> : h}
                         </th>
@@ -631,7 +632,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {payouts.map((p) => (
-                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
@@ -647,6 +648,7 @@ function MemberReportTab() {
                           <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                         </td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                        <td className="px-3 py-2"><ExternalLink size={12} className="text-gray-300 hover:text-[#1E3A5F]" /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -655,7 +657,7 @@ function MemberReportTab() {
                       <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalPayoutsReceived)}</td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>
@@ -1184,14 +1186,14 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                      {['Draw', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {payoutsData.map((p) => (
-                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
+                      <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
                         <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{fmt(p.winningAmount)}</td>
@@ -1207,6 +1209,7 @@ function ChitReportTab() {
                           <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                         </td>
                         <td className="px-3 py-2 text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                        <td className="px-3 py-2"><ExternalLink size={12} className="text-gray-300 hover:text-[#1E3A5F]" /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1215,7 +1218,7 @@ function ChitReportTab() {
                       <td colSpan={5} className="px-3 py-2 text-gray-600">Total Disbursed</td>
                       <td className="px-3 py-2">{fmt(payoutsData.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                       <td className="px-3 py-2 text-green-700">{fmt(totalDisbursed)}</td>
-                      <td colSpan={2} />
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>
@@ -1495,14 +1498,14 @@ function PayoutsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date'].map((h) => (
+                  {['Draw', 'Chit', 'Member', 'Winning Amt', 'Withheld Instmt', 'Notes', 'Net Payout', 'Disbursed', 'Status', 'Date', ''].map((h) => (
                     <th key={h} className="px-3 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((p) => (
-                  <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => nav(`/payouts/${p.id}`)}>
                     <td className="px-3 py-2.5 font-semibold text-gray-700">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                     <td className="px-3 py-2.5">
                       <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
@@ -1523,6 +1526,7 @@ function PayoutsTab() {
                       <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-500">{fmtDate(p.createdAt ?? p.disbursedAt)}</td>
+                    <td className="px-3 py-2.5"><ExternalLink size={12} className="text-gray-300 hover:text-[#1E3A5F]" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -1531,7 +1535,7 @@ function PayoutsTab() {
                   <td colSpan={6} className="px-3 py-3 text-gray-600">Total ({filtered.length})</td>
                   <td className="px-3 py-3">{fmt(filtered.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
                   <td className="px-3 py-3 text-green-700">{fmt(disbursedTotal)}</td>
-                  <td colSpan={2} />
+                  <td colSpan={3} />
                 </tr>
               </tfoot>
             </table>

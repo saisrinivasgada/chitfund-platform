@@ -587,6 +587,11 @@ export const createPayout = async (body) => {
   return res.data.data;
 };
 
+export const getPayoutById = async (payoutId) => {
+  const res = await api.get(`/payouts/${payoutId}`);
+  return res.data.data;
+};
+
 export const getPayoutsByChit = async (chitId) => {
   const res = await api.get(`/payouts/chit/${chitId}`);
   return res.data.data ?? [];

@@ -30,7 +30,7 @@ import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink,
 } from 'lucide-react';
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -3553,7 +3553,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             <div className="bg-gray-50 px-4 py-2.5 flex items-center gap-2 border-b border-gray-200">
               {STATUS_ICON[payout.status]}
               <span className="text-sm font-semibold text-gray-800">Payout Record</span>
-              <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                 payout.status === 'PENDING'              ? 'bg-amber-100 text-amber-700' :
                 payout.status === 'DISBURSED'            ? 'bg-green-100 text-green-700' :
                 payout.status === 'PARTIALLY_DISBURSED'  ? 'bg-blue-100 text-blue-700' :
@@ -3561,6 +3561,15 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
                                                            'bg-gray-100 text-gray-500'}`}>
                 {payout.status === 'PARTIALLY_DISBURSED' ? 'Partial' : payout.status}
               </span>
+              <a
+                href={`/payouts/${payout.id}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto flex items-center gap-1 text-xs text-[#1E3A5F] hover:underline"
+              >
+                <ExternalLink size={11} /> Full Details
+              </a>
             </div>
             <div className="px-4 py-3 space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
