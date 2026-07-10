@@ -303,6 +303,7 @@ public class PaymentService {
                     log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
                             chitId, memberId, monthNumber, payoutId);
                 });
+        chitMonthDrawService.autoCloseIfAllSettled(chitId, monthNumber);
     }
 
     /**

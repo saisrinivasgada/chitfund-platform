@@ -3,12 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getWinners,
-  createPayout, getAllPayouts, getPendingPayouts,
+  getAllPayouts, getPendingPayouts,
   disbursePayout, cancelPayout,
-  getChitsForMember, getMemberBalance,
   getWalletBalance,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
+import PayoutCreationForm from '../../components/payout/PayoutCreationForm';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -17,7 +17,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, Wallet, ArrowRight, IndianRupee, Vault, CreditCard } from 'lucide-react';
+import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, ArrowRight, Vault, CreditCard } from 'lucide-react';
 
 const TABS = ['Create Payout', 'Pending', 'All Payouts'];
 
@@ -60,37 +60,12 @@ function TabBar({ active, onChange, tabs = TABS }) {
   );
 }
 
-// ─── Toggle Switch ─────────────────────────────────────────────────────────
-function ToggleSwitch({ on, onToggle, disabled = false }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
-        on ? 'bg-[#1E3A5F]' : 'bg-gray-300'
-      }`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ${
-          on ? 'translate-x-4' : 'translate-x-0'
-        }`}
-      />
-    </button>
-  );
-}
-
 // ─── Create Payout Tab ─────────────────────────────────────────────────────
 function CreatePayoutTab() {
   const toast = useToastContext();
   const qc = useQueryClient();
   const [chitId, setChitId] = useState('');
   const [selectedWinnerKey, setSelectedWinnerKey] = useState('');
-  const [discountAmt, setDiscountAmt] = useState('0');
-  const [notes, setNotes] = useState('');
-  const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
-  const [installmentOverride, setInstallmentOverride] = useState('');
-  const [crossChitCollect, setCrossChitCollect] = useState({}); // { [chitId]: { enabled, amount } }
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
@@ -160,137 +135,14 @@ function CreatePayoutTab() {
 
   const selectedMemberId = selectedWinner ? String(selectedWinner.memberId ?? selectedWinner.winnerId) : null;
   const selectedChit = chits.find((c) => String(c.id) === String(chitId));
-  const installmentAmount = Number(selectedChit?.installmentAmount ?? 0);
-
-  // Fetch member's other chits for cross-chit settlement
-  const { data: memberChits = [], isLoading: memberChitsLoading } = useQuery({
-    queryKey: ['chitsForMember', selectedMemberId],
-    queryFn: () => getChitsForMember(selectedMemberId),
-    enabled: !!selectedMemberId,
-  });
-
-  const otherActiveChits = memberChits.filter(
-    (c) => String(c.id) !== String(chitId) && c.status === 'ACTIVE'
-  );
-  const otherChitIdStr = otherActiveChits.map((c) => c.id).join(',');
-
-  // Fetch outstanding balances for other active chits in parallel
-  const { data: crossBalances = {}, isLoading: balancesLoading } = useQuery({
-    queryKey: ['memberCrossBalances', selectedMemberId, otherChitIdStr],
-    queryFn: async () => {
-      const entries = await Promise.all(
-        otherActiveChits.map((c) =>
-          getMemberBalance({ memberId: selectedMemberId, chitId: c.id })
-            .then((b) => [String(c.id), Number(b?.totalOutstanding ?? 0)])
-            .catch(() => [String(c.id), 0])
-        )
-      );
-      return Object.fromEntries(entries);
-    },
-    enabled: otherActiveChits.length > 0 && !!selectedMemberId,
-  });
-
-  // Fetch the winning month's actual remaining balance for the current chit.
-  // Member may have partially paid before winning — deduct only what's still owed.
-  const { data: currentChitBalance, isLoading: currentBalanceLoading } = useQuery({
-    queryKey: ['memberCurrentChitBalance', selectedMemberId, chitId],
-    queryFn: () => getMemberBalance({ memberId: selectedMemberId, chitId }),
-    enabled: !!selectedMemberId && !!chitId,
-  });
-
-  const winningMonthRemaining = (() => {
-    if (!selectedWinner || !currentChitBalance?.months) return installmentAmount;
-    const month = currentChitBalance.months.find(
-      (m) => m.monthNumber === selectedWinner.monthNumber
-    );
-    return month ? Number(month.balance ?? 0) : 0;
-  })();
-
-  // Chits with actual outstanding balance
-  const otherChitsWithBalance = otherActiveChits.filter(
-    (c) => (crossBalances[String(c.id)] ?? 0) > 0
-  );
 
   function resetWinner() {
     setSelectedWinnerKey('');
-    setDiscountAmt('0');
-    setNotes('');
-    setCollectCurrentMonth(false);
-    setInstallmentOverride('');
-    setCrossChitCollect({});
   }
 
-  function toggleCrossChit(cId) {
-    const balance = crossBalances[String(cId)] ?? 0;
-    setCrossChitCollect((prev) => {
-      const current = prev[String(cId)];
-      if (current?.enabled) {
-        return { ...prev, [String(cId)]: { enabled: false, amount: current.amount } };
-      }
-      return { ...prev, [String(cId)]: { enabled: true, amount: String(balance) } };
-    });
-  }
-
-  function setCrossAmt(cId, val) {
-    setCrossChitCollect((prev) => ({
-      ...prev,
-      [String(cId)]: { ...prev[String(cId)], amount: val },
-    }));
-  }
-
-  // ── Calculations ─────────────────────────────────────────────────────────
-  const winningAmt      = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
-  const discountNum     = Number(discountAmt) || 0;
-  const currentMonthDed = collectCurrentMonth ? (Number(installmentOverride) || 0) : 0;
-  const crossDed        = Object.entries(crossChitCollect)
-    .filter(([, v]) => v.enabled)
-    .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
-  const totalDiscount   = discountNum + currentMonthDed + crossDed;
-  const net             = Math.max(0, winningAmt - totalDiscount);
-  const isOverDeducted  = totalDiscount > winningAmt;
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const mid = selectedWinner.memberId ?? selectedWinner.winnerId;
-
-      // createPayout handles all deductions atomically in the backend with no treasury IN:
-      // - collectCurrentMonthInstallment → markPayoutDeducted (clears that specific month)
-      // - crossChitDeductions → markCrossChitDisbursementSettled per chit (FIFO, no treasury)
-      // Both use DISBURSEMENT_SETTLED status — the money is withheld from the payout, not received.
-      return await createPayout({
-        chitId,
-        memberId: mid,
-        monthNumber: selectedWinner.monthNumber,
-        winningAmount: winningAmt,
-        discountAmount: totalDiscount,
-        installmentSettlement: currentMonthDed,
-        crossChitSettlement: crossDed,
-        manualAdjustment: discountNum,
-        notes: notes || undefined,
-        collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
-        crossChitDeductions: Object.entries(crossChitCollect)
-          .filter(([, v]) => v.enabled && Number(v.amount) > 0)
-          .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) })),
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['payouts'] });
-      qc.invalidateQueries({ queryKey: ['winners-batch'] });
-      qc.invalidateQueries({ queryKey: ['memberBalance'] });
-      qc.invalidateQueries({ queryKey: ['memberCrossBalances'] });
-      qc.invalidateQueries({ queryKey: ['memberBalancesBulk'] });
-      const msg = currentMonthDed > 0 || crossDed > 0
-        ? `Payout created · ₹${totalDiscount.toLocaleString('en-IN')} collected as settlement`
-        : 'Payout created';
-      toast.success(msg);
-      resetWinner();
-      setChitId('');
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to create payout'),
-  });
+  const winningAmt = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
 
   const dropdownLoading = loadingAllWinners && activeChits.length > 0;
-  const settlementLoading = memberChitsLoading || balancesLoading || currentBalanceLoading;
 
   return (
     <div className="max-w-xl">
@@ -327,10 +179,6 @@ function CreatePayoutTab() {
               <Select value={selectedWinnerKey} onChange={(e) => {
                 const key = e.target.value;
                 setSelectedWinnerKey(key);
-                const w = unpaidWinners.find((w) => `${w.monthNumber}:${w.memberId ?? w.winnerId}` === key);
-                setDiscountAmt(String(w?.discountAmount ?? 0));
-                setCollectCurrentMonth(false);
-                setCrossChitCollect({});
               }}>
                 <option value="">— Select winner —</option>
                 {unpaidWinners.map((w) => {
@@ -360,231 +208,32 @@ function CreatePayoutTab() {
                 </p>
                 <p className="text-amber-700 text-sm mt-0.5">
                   Winning amount: <strong>₹{winningAmt.toLocaleString('en-IN')}</strong>
-                  {installmentAmount > 0 && (
-                    <span className="text-amber-600 ml-2 text-xs">(monthly installment: ₹{installmentAmount.toLocaleString('en-IN')})</span>
+                  {selectedChit?.installmentAmount > 0 && (
+                    <span className="text-amber-600 ml-2 text-xs">
+                      (monthly installment: ₹{Number(selectedChit.installmentAmount).toLocaleString('en-IN')})
+                    </span>
                   )}
                 </p>
               </div>
 
-              {/* ── Settlement Section ────────────────────────────────── */}
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
-                  <Wallet size={14} className="text-[#1E3A5F]" />
-                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Collect at Disbursement
-                  </span>
-                </div>
-
-                <div className="divide-y divide-gray-100">
-                  {/* Current month installment toggle */}
-                  {installmentAmount > 0 && (
-                    <div className="px-4 py-3">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800">
-                            Draw {selectedWinner.monthNumber} installment
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            ₹{installmentAmount.toLocaleString('en-IN')}/slot
-                            {winningMonthRemaining === 0
-                              ? <span className="text-green-600 font-medium ml-1">· already paid</span>
-                              : <span className="ml-1">· ₹{winningMonthRemaining.toLocaleString('en-IN')} outstanding</span>
-                            }
-                          </p>
-                        </div>
-                        <ToggleSwitch
-                          on={collectCurrentMonth}
-                          onToggle={() => {
-                            const next = !collectCurrentMonth;
-                            setCollectCurrentMonth(next);
-                            if (next) setInstallmentOverride(String(winningMonthRemaining || installmentAmount));
-                            else setInstallmentOverride('');
-                          }}
-                        />
-                      </div>
-                      {collectCurrentMonth && (
-                        <div className="mt-2 space-y-2">
-                          <input
-                            type="number"
-                            min="0"
-                            value={installmentOverride}
-                            onChange={(e) => setInstallmentOverride(e.target.value)}
-                            className="w-full border border-[#1E3A5F] rounded-lg px-3 py-1.5 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/30"
-                          />
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs text-gray-400">Quick set (slots):</span>
-                            {[1, 2, 3, 4].map((n) => (
-                              <button
-                                key={n}
-                                type="button"
-                                onClick={() => setInstallmentOverride(String(installmentAmount * n))}
-                                className={`px-2.5 py-1 text-xs font-bold rounded-md border transition-colors ${
-                                  Number(installmentOverride) === installmentAmount * n
-                                    ? 'border-[#1E3A5F] bg-[#EEF2F8] text-[#1E3A5F]'
-                                    : 'border-gray-300 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
-                                }`}
-                              >
-                                ×{n}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Cross-chit outstanding */}
-                  {settlementLoading && (
-                    <div className="px-4 py-3 text-xs text-gray-400 italic">
-                      Checking other chit balances…
-                    </div>
-                  )}
-
-                  {!settlementLoading && otherChitsWithBalance.length > 0 && (
-                    <>
-                      <div className="px-4 py-2 bg-gray-50">
-                        <p className="text-xs font-medium text-gray-500">Outstanding dues in other chits</p>
-                      </div>
-                      {otherChitsWithBalance.map((c) => {
-                        const balance = crossBalances[String(c.id)] ?? 0;
-                        const state = crossChitCollect[String(c.id)];
-                        const isOn = state?.enabled ?? false;
-                        const amt = state?.amount ?? String(balance);
-                        const amtNum = Math.max(0, Number(amt) || 0);
-                        const exceedsBalance = amtNum > balance;
-                        return (
-                          <div key={c.id} className="px-4 py-3 space-y-2">
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                  Outstanding: <span className="text-red-600 font-medium">₹{balance.toLocaleString('en-IN')}</span>
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className="text-xs text-gray-500">Collect now</span>
-                                <ToggleSwitch on={isOn} onToggle={() => toggleCrossChit(c.id)} />
-                              </div>
-                            </div>
-                            {isOn && (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-gray-500 w-16 flex-shrink-0">Amount (₹)</span>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    max={balance}
-                                    value={amt}
-                                    onChange={(e) => setCrossAmt(c.id, e.target.value)}
-                                    className="w-40"
-                                  />
-                                  {amtNum > 0 && !exceedsBalance && (
-                                    <span className="text-xs font-semibold text-[#1E3A5F]">−₹{amtNum.toLocaleString('en-IN')}</span>
-                                  )}
-                                </div>
-                                {exceedsBalance && (
-                                  <p className="text-xs text-red-500 flex items-center gap-1">
-                                    <AlertCircle size={11} /> Cannot exceed outstanding balance of ₹{balance.toLocaleString('en-IN')}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {!settlementLoading && otherActiveChits.length > 0 && otherChitsWithBalance.length === 0 && (
-                    <div className="px-4 py-3 text-xs text-gray-400 italic">
-                      No outstanding dues in other active chits.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Manual Adjustment ────────────────────────────────── */}
-              <FormField label="Additional Adjustment (₹)" >
-                <Input type="number" min="0" value={discountAmt}
-                  onChange={(e) => setDiscountAmt(e.target.value)}
-                  placeholder="0" />
-                <p className="text-xs text-gray-400 mt-1">Any extra deduction e.g. security deposit, commission</p>
-              </FormField>
-
-              {/* ── Payout Summary ───────────────────────────────────── */}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-gray-200">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout Breakdown</p>
-                </div>
-                <div className="px-4 py-3 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Winning amount</span>
-                    <span className="font-medium text-gray-900">₹{winningAmt.toLocaleString('en-IN')}</span>
-                  </div>
-                  {currentMonthDed > 0 && (
-                    <div className="flex justify-between text-amber-700">
-                      <span className="flex items-center gap-1">
-                        <ArrowRight size={12} /> Draw {selectedWinner.monthNumber} installment
-                      </span>
-                      <span>−₹{currentMonthDed.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                  {Object.entries(crossChitCollect)
-                    .filter(([, v]) => v.enabled && Number(v.amount) > 0)
-                    .map(([cId, v]) => {
-                      const cName = otherActiveChits.find((c) => String(c.id) === cId)?.name ?? cId;
-                      return (
-                        <div key={cId} className="flex justify-between text-amber-700">
-                          <span className="flex items-center gap-1 truncate max-w-[200px]">
-                            <ArrowRight size={12} /> {cName}
-                          </span>
-                          <span>−₹{Number(v.amount).toLocaleString('en-IN')}</span>
-                        </div>
-                      );
-                    })}
-                  {discountNum > 0 && (
-                    <div className="flex justify-between text-amber-700">
-                      <span className="flex items-center gap-1"><ArrowRight size={12} /> Adjustment</span>
-                      <span>−₹{discountNum.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                  <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
-                    <span className="text-gray-700">Net cash to member</span>
-                    <span className={net === 0 ? 'text-red-600' : 'text-green-700'}>
-                      ₹{net.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {isOverDeducted && (
-                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2.5 text-sm text-red-700">
-                  <AlertCircle size={14} />
-                  Total deductions exceed winning amount. Reduce collection amounts.
-                </div>
-              )}
-
-              {/* Notes + Submit */}
-              <FormField label="Notes (optional)">
-                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional notes…" rows={2} />
-              </FormField>
-
-              <Button
-                className="w-full"
-                loading={mutation.isPending}
-                disabled={!selectedWinner || winningAmt <= 0 || isOverDeducted || net <= 0 ||
-                  Object.entries(crossChitCollect).some(([cId, v]) => {
-                    if (!v.enabled) return false;
-                    const bal = crossBalances[String(cId)] ?? 0;
-                    return Number(v.amount) > bal;
-                  })
-                }
-                onClick={() => mutation.mutate()}
-              >
-                <Banknote size={15} />
-                Create Payout · Net ₹{net.toLocaleString('en-IN')}
-              </Button>
+              {/* Settlement + submission — shared component */}
+              <PayoutCreationForm
+                key={`${chitId}:${selectedWinnerKey}`}
+                chitId={chitId}
+                chit={selectedChit}
+                memberId={selectedMemberId}
+                monthNumber={selectedWinner.monthNumber}
+                defaultWinningAmount={selectedWinner.winningAmount}
+                defaultAdjustment={selectedWinner.discountAmount ?? 0}
+                onSuccess={() => {
+                  qc.invalidateQueries({ queryKey: ['payouts'] });
+                  qc.invalidateQueries({ queryKey: ['winners-batch'] });
+                  qc.invalidateQueries({ queryKey: ['memberBalance'] });
+                  qc.invalidateQueries({ queryKey: ['memberBalancesBulk'] });
+                  resetWinner();
+                  setChitId('');
+                }}
+              />
             </>
           );
         })()}

@@ -46,9 +46,9 @@ public class CreateChitRequest {
 
     private LocalDate startDate;
 
-    // Admin-held spot count within totalMembers
+    // Org-held spot count within totalMembers
     @Min(0)
-    private Integer adminHeldSpotsCount = 0;
+    private Integer orgHeldSpotsCount = 0;
 
     // Contribution rule
     private boolean postPayoutContributionEnabled = false;

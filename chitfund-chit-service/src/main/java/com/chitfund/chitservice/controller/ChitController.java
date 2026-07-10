@@ -1,10 +1,14 @@
 package com.chitfund.chitservice.controller;
 
 import com.chitfund.chitservice.domain.enums.ChitStatus;
+import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
+import com.chitfund.chitservice.dto.response.MonthReservationResponse;
+import com.chitfund.chitservice.mapper.ChitMapper;
+import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.dto.PagedResponse;
@@ -18,8 +22,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/chits")
@@ -27,6 +33,8 @@ import java.util.UUID;
 public class ChitController {
 
     private final ChitService chitService;
+    private final MonthReservationRepository reservationRepository;
+    private final ChitMapper chitMapper;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -108,5 +116,25 @@ public class ChitController {
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
                 chitService.softDeleteChit(id, (UUID) auth.getPrincipal()), "Chit deleted"));
+    }
+
+    @GetMapping("/org-reservations")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> getOrgReservations() {
+        LocalDate today = LocalDate.now();
+        List<MonthReservationResponse> list = reservationRepository.findAllOrgHeld()
+                .stream()
+                .map(r -> {
+                    MonthReservationResponse resp = chitMapper.toReservationResponse(r);
+                    resp.setChitName(r.getChit().getName());
+                    resp.setEligibleToRealize(
+                        r.getStatus() == ReservationStatus.RESERVED &&
+                        r.getReservationMonth() != null &&
+                        !r.getReservationMonth().isAfter(today)
+                    );
+                    return resp;
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(list));
     }
 }

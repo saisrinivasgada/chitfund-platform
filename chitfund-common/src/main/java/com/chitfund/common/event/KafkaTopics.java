@@ -23,4 +23,8 @@ public final class KafkaTopics {
     // payout-service publishes
     public static final String PAYOUT_CREATED   = "chitfund.payout.created";
     public static final String PAYOUT_DISBURSED = "chitfund.payout.disbursed";
+
+    // chit-service publishes (org-held slot lifecycle)
+    public static final String ORG_RESERVATION_CREATED = "chitfund.chit.org-reservation-created";
+    public static final String ORG_PAYOUT_REALIZED     = "chitfund.chit.org-payout-realized";
 }

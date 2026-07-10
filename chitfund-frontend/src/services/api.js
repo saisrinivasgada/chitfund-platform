@@ -299,6 +299,16 @@ export const createReservation = async ({ chitId, memberId, monthNumber }) => {
   return res.data.data;
 };
 
+export const getOrgReservations = async () => {
+  const res = await api.get('/chits/org-reservations');
+  return res.data.data ?? [];
+};
+
+export const realizeOrgPayout = async ({ chitId, reservationId }) => {
+  const res = await api.post(`/chits/${chitId}/reservations/${reservationId}/realize-org`);
+  return res.data.data;
+};
+
 // ─── Chit lifecycle actions ────────────────────────────────────────────────
 export const pauseChit = async (id) => {
   const res = await api.post(`/chits/${id}/pause`);

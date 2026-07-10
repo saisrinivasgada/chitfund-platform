@@ -33,7 +33,7 @@ public class ChitResponse {
 
     private boolean postPayoutContributionEnabled;
     private BigDecimal defaultPostPayoutContribution;
-    private Integer adminHeldSpotsCount;
+    private Integer orgHeldSpotsCount;
 
     private LocalDate startDate;
     private LocalDate endDate;

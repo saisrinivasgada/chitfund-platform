@@ -333,7 +333,7 @@ export default function AdminChitsScreen() {
         installmentAmount: n(cInstall) || null,
         startDate: cStart.trim() || null,
         monthlyDueDate: due >= 1 && due <= 28 ? due : null,
-        adminHeldSpotsCount: Math.max(0, n(cAdminSpots)),
+        orgHeldSpotsCount: Math.max(0, n(cAdminSpots)),
         postPayoutContributionEnabled: cPostPayoutEnabled,
         defaultPostPayoutContribution: cPostPayoutEnabled && cPostPayoutAmount ? n(cPostPayoutAmount) : null,
         reservationSchedule: includeSchedule && cSchedule.length > 0
@@ -557,13 +557,16 @@ export default function AdminChitsScreen() {
   });
 
   const updateSlotMut = useMutation({
-    mutationFn: ({ slot, memberId, payoutAmount }: { slot: any; memberId: string; payoutAmount: string }) =>
-      updateReservationSlot(selected.id, slot.id, {
+    mutationFn: ({ slot, memberId, payoutAmount }: { slot: any; memberId: string; payoutAmount: string }) => {
+      const isOrg = memberId === 'ORG';
+      return updateReservationSlot(selected.id, slot.id, {
         reservationMonth: slot.reservationMonth,
-        memberId: memberId || null,
+        memberId: isOrg ? null : (memberId || null),
+        orgHeld: isOrg,
         payoutAmount: payoutAmount ? Number(payoutAmount) : null,
         postPayoutContribution: slot.postPayoutContribution ?? null,
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
       setEditingSlotId(null);
@@ -1356,12 +1359,12 @@ export default function AdminChitsScreen() {
                     const isVoided = slot.status === 'VOIDED';
                     const isEditing = editingSlotId === slot.id;
                     const activeMembers = (members as any[]).filter((m: any) => m.status === 'ACTIVE').sort((a: any, b: any) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
-                    const adminHeld = selected?.adminHeldSpotsCount ?? 0;
+                    const orgHeld = selected?.orgHeldSpotsCount ?? 0;
                     const memberIdSet = new Set((members as any[]).map((m: any) => String(m.id)));
                     const allocatedAdminSlots = slotsList.filter((s: any) => s.id !== slot.id && s.memberId && !memberIdSet.has(String(s.memberId)) && s.status !== 'VOIDED').length;
                     const currentIsAdmin = slot.memberId && !memberIdSet.has(String(slot.memberId));
-                    const canShowAdmins = adminHeld > 0 && (currentIsAdmin || allocatedAdminSlots < adminHeld);
-                    const mName = slot.memberName ?? memberMap[slot.memberId] ?? (slot.memberId ? 'Unknown' : 'Unallocated');
+                    const canShowAdmins = orgHeld > 0 && (currentIsAdmin || allocatedAdminSlots < orgHeld);
+                    const mName = slot.orgHeld ? 'Organization' : (slot.memberName ?? memberMap[slot.memberId] ?? (slot.memberId ? 'Unknown' : 'Unallocated'));
                     const monthLabel = slot.reservationMonth ? (() => {
                       const [y, m] = slot.reservationMonth.split('-').map(Number);
                       if (!y || !m) return '';
@@ -1385,7 +1388,7 @@ export default function AdminChitsScreen() {
                             <TouchableOpacity
                               onPress={() => {
                                 setEditingSlotId(slot.id);
-                                setSlotEditMemberId(slot.memberId ?? '');
+                                setSlotEditMemberId(slot.orgHeld ? 'ORG' : (slot.memberId ?? ''));
                                 setSlotEditPayout(slot.payoutAmount ? String(slot.payoutAmount) : '');
                               }}
                               style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.navy + '10', borderRadius: 6 }}>
@@ -1406,6 +1409,13 @@ export default function AdminChitsScreen() {
                                     style={{ padding: 10, backgroundColor: !slotEditMemberId ? C.navy + '15' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
                                     <Text style={{ fontSize: 13, color: !slotEditMemberId ? C.navy : C.gray500, fontWeight: !slotEditMemberId ? '700' : '400' }}>
                                       Unallocated
+                                    </Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    onPress={() => setSlotEditMemberId('ORG')}
+                                    style={{ padding: 10, backgroundColor: slotEditMemberId === 'ORG' ? C.navy + '15' : '#F0F4FF', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                                    <Text style={{ fontSize: 13, color: C.navy, fontWeight: slotEditMemberId === 'ORG' ? '700' : '500' }}>
+                                      🏛 Organization
                                     </Text>
                                   </TouchableOpacity>
                                   {canShowAdmins && (staff as any[]).map((s: any) => (
@@ -1457,8 +1467,8 @@ export default function AdminChitsScreen() {
                             <View style={{ flex: 1 }}>
                               <Text style={{
                                 fontSize: 14, fontWeight: '600',
-                                color: isVoided ? C.gray400 : (slot.memberId ? C.gray900 : C.gray400),
-                                fontStyle: isVoided || !slot.memberId ? 'italic' : 'normal',
+                                color: isVoided ? C.gray400 : (slot.memberId || slot.orgHeld ? C.gray900 : C.gray400),
+                                fontStyle: isVoided || (!slot.memberId && !slot.orgHeld) ? 'italic' : 'normal',
                                 textDecorationLine: isVoided ? 'line-through' : 'none',
                               }}>{mName}</Text>
                               {slot.payoutAmount != null && (
@@ -1643,7 +1653,7 @@ export default function AdminChitsScreen() {
                       style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Admin Held Spots</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Org Held Slots</Text>
                     <TextInput value={cAdminSpots} onChangeText={setCAdminSpots} placeholder="0" keyboardType="numeric"
                       placeholderTextColor={C.gray400}
                       style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />

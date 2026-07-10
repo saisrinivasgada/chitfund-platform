@@ -24,5 +24,7 @@ public interface ChitMapper {
     MonthlyWinnerResponse toWinnerResponse(MonthlyWinner winner);
 
     @Mapping(source = "chit.id", target = "chitId")
+    @Mapping(target = "chitName", ignore = true)
+    @Mapping(target = "eligibleToRealize", ignore = true)
     MonthReservationResponse toReservationResponse(MonthReservation reservation);
 }

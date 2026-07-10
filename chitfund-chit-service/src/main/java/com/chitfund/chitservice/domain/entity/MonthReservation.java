@@ -57,6 +57,11 @@ public class MonthReservation {
     @Column(columnDefinition = "varchar(36)")
     private UUID memberId;
 
+    // true = this slot belongs to the organization (memberId stays null for org-held slots)
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean orgHeld = false;
+
     // Legacy ordinal (1-based). Kept for display; date is the source of truth.
     @Column
     private Integer monthNumber;

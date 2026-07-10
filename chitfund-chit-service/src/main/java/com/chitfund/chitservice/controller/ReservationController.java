@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -72,14 +73,24 @@ public class ReservationController {
                         .map(n -> n + 1)
                         .orElse(1);
 
-        com.chitfund.chitservice.domain.enums.ReservationStatus st =
-                request.getMemberId() != null
-                        ? com.chitfund.chitservice.domain.enums.ReservationStatus.RESERVED
-                        : com.chitfund.chitservice.domain.enums.ReservationStatus.UNALLOCATED;
+        boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
+        if (isOrg) {
+            int limit = chit.getOrgHeldSpotsCount() != null ? chit.getOrgHeldSpotsCount() : 0;
+            long current = reservationRepository.countByChitIdAndOrgHeldTrueAndStatusNot(chitId, ReservationStatus.VOIDED);
+            if (current >= limit) {
+                throw new BusinessException(ErrorCode.CHIT_AT_CAPACITY,
+                        "Org-held slot limit reached (" + limit + "). Increase the chit's org-held spots count to add more.");
+            }
+        }
+
+        ReservationStatus st = (request.getMemberId() != null || isOrg)
+                ? ReservationStatus.RESERVED
+                : ReservationStatus.UNALLOCATED;
 
         MonthReservation slot = MonthReservation.builder()
                 .chit(chit)
-                .memberId(request.getMemberId())
+                .memberId(isOrg ? null : request.getMemberId())
+                .orgHeld(isOrg)
                 .monthNumber(nextNumber)
                 .reservationMonth(request.getReservationMonth().withDayOfMonth(1))
                 .payoutAmount(request.getPayoutAmount())
@@ -111,11 +122,22 @@ public class ReservationController {
                 .payoutAmount(r.getPayoutAmount()).postPayoutContribution(r.getPostPayoutContribution())
                 .status(r.getStatus()).build();
 
-        r.setMemberId(request.getMemberId());
+        boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
+        if (isOrg && !r.isOrgHeld()) {
+            var chit = chitService.findById(chitId);
+            int limit = chit.getOrgHeldSpotsCount() != null ? chit.getOrgHeldSpotsCount() : 0;
+            long current = reservationRepository.countByChitIdAndOrgHeldTrueAndStatusNot(chitId, ReservationStatus.VOIDED);
+            if (current >= limit) {
+                throw new BusinessException(ErrorCode.CHIT_AT_CAPACITY,
+                        "Org-held slot limit reached (" + limit + "). Only " + limit + " org-held slot(s) allowed for this chit.");
+            }
+        }
+        r.setMemberId(isOrg ? null : request.getMemberId());
+        r.setOrgHeld(isOrg);
         r.setReservationMonth(request.getReservationMonth().withDayOfMonth(1));
         r.setPayoutAmount(request.getPayoutAmount());
         r.setPostPayoutContribution(request.getPostPayoutContribution());
-        r.setStatus(request.getMemberId() != null
+        r.setStatus(request.getMemberId() != null || isOrg
                 ? ReservationStatus.RESERVED : ReservationStatus.UNALLOCATED);
         r.setUpdatedBy(adminId);
 
@@ -231,9 +253,13 @@ public class ReservationController {
 
         UUID memberA = a.getMemberId();
         UUID memberB = b.getMemberId();
+        boolean orgA = a.isOrgHeld();
+        boolean orgB = b.isOrgHeld();
 
         a.setMemberId(memberB);
+        a.setOrgHeld(orgB);
         b.setMemberId(memberA);
+        b.setOrgHeld(orgA);
         a.setUpdatedBy(adminId);
         b.setUpdatedBy(adminId);
 
@@ -250,6 +276,42 @@ public class ReservationController {
                 java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()));
 
         return ResponseEntity.ok(ApiResponse.success(null, "Slots swapped"));
+    }
+
+    @PostMapping("/{reservationId}/realize-org")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<MonthReservationResponse>> realizeOrgPayout(
+            @PathVariable UUID chitId,
+            @PathVariable UUID reservationId,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        MonthReservation r = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
+
+        if (!r.isOrgHeld()) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Only org-held slots can be realized to treasury");
+        }
+        if (r.getStatus() != ReservationStatus.RESERVED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Slot is already " + r.getStatus() + " — only RESERVED slots can be realized");
+        }
+        if (r.getReservationMonth() != null && r.getReservationMonth().isAfter(LocalDate.now())) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Cannot realize payout before the draw month arrives (" + r.getReservationMonth() + ")");
+        }
+
+        r.setStatus(ReservationStatus.PROCESSED);
+        r.setUpdatedBy(adminId);
+        MonthReservation saved = reservationRepository.save(r);
+
+        auditClient.log("ORG_RESERVATION", saved.getId().toString(), chitId.toString(),
+                "ORG_PAYOUT_REALIZED", adminId.toString(), "ADMIN",
+                Map.of("status", "RESERVED"),
+                Map.of("status", "PROCESSED", "payoutAmount", String.valueOf(saved.getPayoutAmount())));
+
+        return ResponseEntity.ok(ApiResponse.success(
+                chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));
     }
 
     // Permanently deletes a slot — only allowed if it is already VOIDED.

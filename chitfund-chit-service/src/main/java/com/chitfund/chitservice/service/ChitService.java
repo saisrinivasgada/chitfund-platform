@@ -77,7 +77,7 @@ public class ChitService {
                 .endDate(endDate)
                 .postPayoutContributionEnabled(req.isPostPayoutContributionEnabled())
                 .defaultPostPayoutContribution(req.getDefaultPostPayoutContribution())
-                .adminHeldSpotsCount(req.getAdminHeldSpotsCount() != null ? req.getAdminHeldSpotsCount() : 0)
+                .orgHeldSpotsCount(req.getOrgHeldSpotsCount() != null ? req.getOrgHeldSpotsCount() : 0)
                 .createdBy(createdBy)
                 .build();
 
@@ -262,16 +262,17 @@ public class ChitService {
             Chit chit, List<ReservationSlotRequest> slots, UUID createdBy) {
         int[] counter = {1};
         List<MonthReservation> entities = slots.stream().map(slot -> {
-            // UNALLOCATED if no member set OR payout is not yet decided
-            ReservationStatus st = (slot.getMemberId() != null && slot.getPayoutAmount() != null)
+            boolean isOrg = Boolean.TRUE.equals(slot.getOrgHeld());
+            ReservationStatus st = (slot.getMemberId() != null || isOrg)
                     ? ReservationStatus.RESERVED
                     : ReservationStatus.UNALLOCATED;
             return MonthReservation.builder()
                     .chit(chit)
-                    .memberId(slot.getMemberId())
+                    .memberId(isOrg ? null : slot.getMemberId())
+                    .orgHeld(isOrg)
                     .monthNumber(counter[0]++)
                     .reservationMonth(slot.getReservationMonth().withDayOfMonth(1))
-                    .payoutAmount(slot.getPayoutAmount())       // may be null
+                    .payoutAmount(slot.getPayoutAmount())
                     .postPayoutContribution(slot.getPostPayoutContribution())
                     .status(st)
                     .createdBy(createdBy)

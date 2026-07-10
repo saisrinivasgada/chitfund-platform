@@ -15,6 +15,9 @@ public class MonthReservationResponse {
     private UUID id;
     private UUID chitId;
     private UUID memberId;
+    private boolean orgHeld;
+    private String chitName;
+    private Boolean eligibleToRealize;
     private Integer monthNumber;
     private LocalDate reservationMonth;    // actual calendar month
     private BigDecimal payoutAmount;

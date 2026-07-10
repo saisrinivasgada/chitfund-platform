@@ -80,10 +80,10 @@ public class Chit {
     @Column(precision = 15, scale = 2)
     private BigDecimal defaultPostPayoutContribution;
 
-    // ── Admin spots ───────────────────────────────────────────────────────────
+    // ── Org held spots ────────────────────────────────────────────────────────
     @Column(nullable = false)
     @Builder.Default
-    private Integer adminHeldSpotsCount = 0;
+    private Integer orgHeldSpotsCount = 0;
 
     // ── Dates ─────────────────────────────────────────────────────────────────
     @Column

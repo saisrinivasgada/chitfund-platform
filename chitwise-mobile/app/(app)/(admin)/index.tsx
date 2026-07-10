@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -11,7 +11,7 @@ import {
   getWalletBalance, getUnreadCount,
   adminCreateCashRequest, getAuditLogs,
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
-  getMe, getChitsForMember, getMemberTotalBalance,
+  getOrgReservations, realizeOrgPayout,
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -21,6 +21,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const qc = useQueryClient();
   const [showNewRequest, setShowNewRequest] = useState(false);
+  const [showOrgHoldings, setShowOrgHoldings] = useState(false);
   const [activityShowCount, setActivityShowCount] = useState(8);
   const [nrMemberId, setNrMemberId] = useState('');
   const [nrMemberSearch, setNrMemberSearch] = useState('');
@@ -44,17 +45,11 @@ export default function AdminDashboard() {
   const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
   const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
 
-  // My Participation — admin's own slots in chits
-  const { data: me } = useQuery({ queryKey: ['a-me'], queryFn: getMe });
-  const { data: myChits = [] } = useQuery({
-    queryKey: ['a-my-chits', me?.id],
-    queryFn: () => getChitsForMember(me!.id),
-    enabled: !!me?.id,
-  });
-  const { data: myBalance } = useQuery({
-    queryKey: ['a-my-balance', me?.id],
-    queryFn: () => getMemberTotalBalance(me!.id),
-    enabled: !!me?.id,
+  // Org Holdings — slots the organization holds across chits
+  const { data: orgReservations = [], refetch: refetchOrgReservations } = useQuery({
+    queryKey: ['a-org-reservations'],
+    queryFn: getOrgReservations,
+    staleTime: 60_000,
   });
 
   const newRequestMutation = useMutation({
@@ -69,7 +64,7 @@ export default function AdminDashboard() {
   });
 
   const isLoading = crLoading || chitsLoading || membersLoading;
-  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); }
+  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
@@ -173,37 +168,32 @@ export default function AdminDashboard() {
           />
         </View>
 
-        {/* My Participation — only when admin holds slots in active chits */}
-        {(myChits as any[]).length > 0 && (() => {
-          const activeMyChits = (myChits as any[]).filter((c: any) => c.status === 'ACTIVE');
-          if (activeMyChits.length === 0) return null;
-          const outstandingBalance = Number((myBalance as any)?.totalBalance ?? (myBalance as any)?.balance ?? 0);
+        {/* Org Holdings — only when org holds slots in chits */}
+        {(orgReservations as any[]).filter((r: any) => r.status === 'RESERVED').length > 0 && (() => {
+          const activeSlots = (orgReservations as any[]).filter((r: any) => r.status === 'RESERVED');
+          const pendingAmount = activeSlots.reduce((s: number, r: any) => s + Number(r.payoutAmount ?? 0), 0);
           return (
             <TouchableOpacity
               activeOpacity={0.85}
-              onPress={() => router.push('/(app)/(admin)/chits')}
+              onPress={() => setShowOrgHoldings(true)}
               style={{
-                backgroundColor: '#FFFBEB', borderRadius: 16, padding: 16, marginBottom: 16,
-                borderWidth: 1.5, borderColor: '#FCD34D',
-                shadowColor: '#F59E0B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
+                backgroundColor: C.navy50, borderRadius: 16, padding: 16, marginBottom: 16,
+                borderWidth: 1.5, borderColor: C.navy + '40',
+                shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 4,
               }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E', letterSpacing: 1, marginBottom: 4 }}>MY PARTICIPATION</Text>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#78350F' }}>
-                    Holding slots in {activeMyChits.length} active chit{activeMyChits.length > 1 ? 's' : ''}
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, letterSpacing: 1, marginBottom: 4 }}>ORG HOLDINGS</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
+                    {activeSlots.length} active slot{activeSlots.length > 1 ? 's' : ''} across chits
                   </Text>
-                  {outstandingBalance !== 0 ? (
-                    <Text style={{ fontSize: 13, color: outstandingBalance > 0 ? '#DC2626' : '#059669', fontWeight: '600', marginTop: 2 }}>
-                      {outstandingBalance > 0
-                        ? `₹${outstandingBalance.toLocaleString('en-IN')} outstanding`
-                        : `₹${Math.abs(outstandingBalance).toLocaleString('en-IN')} credit`}
+                  {pendingAmount > 0 && (
+                    <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600', marginTop: 2 }}>
+                      ₹{pendingAmount.toLocaleString('en-IN')} pending realization
                     </Text>
-                  ) : (
-                    <Text style={{ fontSize: 13, color: '#059669', fontWeight: '600', marginTop: 2 }}>All dues clear ✓</Text>
                   )}
                 </View>
-                <Text style={{ fontSize: 20, marginLeft: 12 }}>🏷️</Text>
+                <Text style={{ fontSize: 20, marginLeft: 12 }}>🏛️</Text>
               </View>
             </TouchableOpacity>
           );
@@ -398,6 +388,153 @@ export default function AdminDashboard() {
 
       <NotificationsModal visible={showNotifs} onClose={() => setShowNotifs(false)} />
 
+      {/* ── Org Holdings Modal ──────────────────────────────────────────────── */}
+      <OrgHoldingsModal
+        visible={showOrgHoldings}
+        onClose={() => setShowOrgHoldings(false)}
+        reservations={orgReservations as any[]}
+        onRealized={() => { refetchOrgReservations(); setShowOrgHoldings(false); }}
+      />
+
     </SafeAreaView>
+  );
+}
+
+// ── Org Holdings Modal ────────────────────────────────────────────────────────
+function OrgHoldingsModal({ visible, onClose, reservations, onRealized }: {
+  visible: boolean;
+  onClose: () => void;
+  reservations: any[];
+  onRealized: () => void;
+}) {
+  const qc = useQueryClient();
+
+  const realizeMut = useMutation({
+    mutationFn: ({ chitId, reservationId }: { chitId: string; reservationId: string }) =>
+      realizeOrgPayout(chitId, reservationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['a-org-reservations'] });
+      toast.saved('Payout realized to treasury');
+      onRealized();
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to realize payout'),
+  });
+
+  const active   = reservations.filter((r) => r.status === 'RESERVED');
+  const realized = reservations.filter((r) => r.status === 'PROCESSED');
+
+  function SlotCard({ r }: { r: any }) {
+    const canRealize = r.status === 'RESERVED' && r.eligibleToRealize === true;
+    return (
+      <View style={{
+        backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10,
+        borderWidth: 1.5, borderColor: r.status === 'PROCESSED' ? C.gray200 : C.navy + '30',
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>
+              {r.chitName ?? `Chit #${String(r.chitId ?? '').slice(0, 8)}`}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+              Draw #{r.monthNumber}{r.reservationMonth ? ` · ${new Date(r.reservationMonth).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}` : ''}
+            </Text>
+          </View>
+          <View style={{
+            paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+            backgroundColor: r.status === 'PROCESSED' ? '#F0FDF4' : C.navy50,
+          }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: r.status === 'PROCESSED' ? '#16A34A' : C.navy }}>
+              {r.status === 'PROCESSED' ? 'Realized' : 'Active'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+          <View>
+            <Text style={{ fontSize: 11, color: C.gray500 }}>Payout Amount</Text>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
+              ₹{Number(r.payoutAmount ?? 0).toLocaleString('en-IN')}
+            </Text>
+          </View>
+          {canRealize && (
+            <TouchableOpacity
+              onPress={() =>
+                Alert.alert(
+                  'Realize to Treasury',
+                  `Realize ₹${Number(r.payoutAmount ?? 0).toLocaleString('en-IN')} to treasury for Draw #${r.monthNumber}?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Realize', onPress: () => realizeMut.mutate({ chitId: r.chitId, reservationId: r.id }) },
+                  ],
+                )
+              }
+              disabled={realizeMut.isPending}
+              style={{
+                backgroundColor: C.navy, paddingHorizontal: 14, paddingVertical: 8,
+                borderRadius: 10, opacity: realizeMut.isPending ? 0.6 : 1,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>
+                {realizeMut.isPending ? 'Processing…' : 'Realize to Treasury'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {r.status === 'PROCESSED' && r.updatedAt && (
+            <Text style={{ fontSize: 11, color: C.gray400 }}>
+              {new Date(r.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+          <View>
+            <Text style={T.h2}>Organization Holdings</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
+              Slots held by the organization across chits
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onClose} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
+            <Text style={{ fontSize: 16 }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          {reservations.length === 0 ? (
+            <View style={{ alignItems: 'center', paddingVertical: 48 }}>
+              <Text style={{ fontSize: 32, marginBottom: 12 }}>🏛️</Text>
+              <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700 }}>No org holdings yet</Text>
+              <Text style={{ fontSize: 13, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
+                Create an org-held slot in the chit schedule to get started.
+              </Text>
+            </View>
+          ) : (
+            <>
+              {active.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 10 }}>
+                    ACTIVE · {active.length} SLOT{active.length > 1 ? 'S' : ''}
+                  </Text>
+                  {active.map((r) => <SlotCard key={r.id} r={r} />)}
+                </>
+              )}
+              {realized.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginTop: 8, marginBottom: 10 }}>
+                    REALIZED · {realized.length}
+                  </Text>
+                  {realized.map((r) => <SlotCard key={r.id} r={r} />)}
+                </>
+              )}
+            </>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }

@@ -95,7 +95,7 @@ function CreateChitModal({ onClose }) {
   const [basic, setBasic] = useState({
     name: '', description: '', chitValue: '', numberOfMembers: '',
     installmentAmount: '',
-    startDate: new Date().toISOString().slice(0, 10), monthlyDueDate: '', adminHeldSpotsCount: '0',
+    startDate: new Date().toISOString().slice(0, 10), monthlyDueDate: '', orgHeldSpotsCount: '0',
   });
 
   // Contribution rule
@@ -196,7 +196,7 @@ function CreateChitModal({ onClose }) {
       installmentAmount: Number(basic.installmentAmount),
       startDate: basic.startDate || null,
       monthlyDueDate: basic.monthlyDueDate ? Number(basic.monthlyDueDate) : null,
-      adminHeldSpotsCount: Number(basic.adminHeldSpotsCount) || 0,
+      orgHeldSpotsCount: Number(basic.orgHeldSpotsCount) || 0,
       postPayoutContributionEnabled: contrib.enabled,
       defaultPostPayoutContribution: contrib.enabled && contrib.amount ? Number(contrib.amount) : null,
       winnerSelectionMode: chitType,
@@ -320,9 +320,9 @@ function CreateChitModal({ onClose }) {
                 <Input type="number" min="1" placeholder="10000" value={basic.installmentAmount}
                   onChange={(e) => setBasicField('installmentAmount', e.target.value)} required />
               </FormField>
-              <FormField label="Admin Held Spots">
-                <Input type="number" min="0" placeholder="0" value={basic.adminHeldSpotsCount}
-                  onChange={(e) => setBasicField('adminHeldSpotsCount', e.target.value)} />
+              <FormField label="Org Held Slots">
+                <Input type="number" min="0" placeholder="0" value={basic.orgHeldSpotsCount}
+                  onChange={(e) => setBasicField('orgHeldSpotsCount', e.target.value)} />
               </FormField>
             </div>
           </div>
@@ -508,13 +508,13 @@ function CreateChitModal({ onClose }) {
                           </td>
                           <td className="px-3 py-2">
                             {(() => {
-                              const adminHeld = Number(basic.adminHeldSpotsCount) || 0;
+                              const orgHeld = Number(basic.orgHeldSpotsCount) || 0;
                               const memberIdSet = new Set(members.map((m) => String(m.id)));
                               const allocatedAdminSlots = schedule.filter(
                                 (s, si) => si !== i && s.memberId && !memberIdSet.has(s.memberId)
                               ).length;
                               const currentIsAdmin = row.memberId && !memberIdSet.has(row.memberId);
-                              const canShowAdmins = adminHeld > 0 && (currentIsAdmin || allocatedAdminSlots < adminHeld);
+                              const canShowAdmins = orgHeld > 0 && (currentIsAdmin || allocatedAdminSlots < orgHeld);
                               return (
                                 <Select value={row.memberId}
                                   onChange={(e) => setScheduleRow(i, 'memberId', e.target.value)}

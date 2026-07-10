@@ -29,6 +29,8 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
 
     long countByChitIdAndStatusNot(UUID chitId, ReservationStatus status);
 
+    long countByChitIdAndOrgHeldTrueAndStatusNot(UUID chitId, ReservationStatus status);
+
     // Max ordinal across ALL slots (including voided) — used to assign the next slot number
     @Query("SELECT MAX(r.monthNumber) FROM MonthReservation r WHERE r.chit.id = :chitId")
     Optional<Integer> findMaxMonthNumberByChitId(@Param("chitId") UUID chitId);
@@ -36,4 +38,8 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     // All future (not yet processed/voided) slots from a given ordinal onward — used to shift after a skip
     @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.monthNumber >= :fromMonth AND r.status IN :statuses ORDER BY r.monthNumber ASC")
     List<MonthReservation> findShiftableFromMonth(@Param("chitId") UUID chitId, @Param("fromMonth") int fromMonth, @Param("statuses") List<ReservationStatus> statuses);
+
+    // All org-held slots across all chits (excludes VOIDED)
+    @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit WHERE r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
+    List<MonthReservation> findAllOrgHeld();
 }

@@ -2,6 +2,7 @@ package com.chitfund.auditservice.kafka;
 
 import com.chitfund.common.event.*;
 import com.chitfund.auditservice.dto.AuditLogRequest;
+import java.math.BigDecimal;
 import com.chitfund.auditservice.service.AuditService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -128,6 +129,41 @@ public class AuditEventConsumer {
             ));
         } catch (Exception e) {
             log.error("Failed to audit PAYOUT_DISBURSED: {}", e.getMessage(), e);
+        }
+    }
+
+    @KafkaListener(topics = KafkaTopics.ORG_RESERVATION_CREATED, groupId = "audit-service")
+    public void onOrgReservationCreated(String payload) {
+        try {
+            OrgReservationCreatedEvent event = objectMapper.readValue(payload, OrgReservationCreatedEvent.class);
+            auditService.record(new AuditLogRequest(
+                    "chit-service", "ORG_RESERVATION", event.reservationId(),
+                    event.chitId(), "ORG_RESERVATION_CREATED",
+                    event.createdBy(), "ROLE_ADMIN", null,
+                    null,
+                    "{\"monthNumber\":" + event.monthNumber()
+                            + ",\"payoutAmount\":" + event.payoutAmount() + "}",
+                    null
+            ));
+        } catch (Exception e) {
+            log.error("Failed to audit ORG_RESERVATION_CREATED: {}", e.getMessage(), e);
+        }
+    }
+
+    @KafkaListener(topics = KafkaTopics.ORG_PAYOUT_REALIZED, groupId = "audit-service")
+    public void onOrgPayoutRealized(String payload) {
+        try {
+            OrgPayoutRealizedEvent event = objectMapper.readValue(payload, OrgPayoutRealizedEvent.class);
+            auditService.record(new AuditLogRequest(
+                    "chit-service", "ORG_RESERVATION", event.reservationId(),
+                    event.chitId(), "ORG_PAYOUT_REALIZED",
+                    event.realizedBy(), "ROLE_ADMIN", null,
+                    "{\"status\":\"RESERVED\"}",
+                    "{\"status\":\"PROCESSED\",\"payoutAmount\":" + event.payoutAmount() + "}",
+                    null
+            ));
+        } catch (Exception e) {
+            log.error("Failed to audit ORG_PAYOUT_REALIZED: {}", e.getMessage(), e);
         }
     }
 }

@@ -480,14 +480,13 @@ function MemberReportTab() {
 
     const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
       <table>
-        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payouts.map((p) => { const pdl = drawMonthLabel(chitStartMap[String(p.chitId)], p.monthNumber); return `<tr>
             <td>${chitName(p)}</td>
             <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
@@ -500,12 +499,11 @@ function MemberReportTab() {
     const settlementsHtml = settlements.length === 0 ? '' : `
       <h2>Settlements</h2>
       <table>
-        <thead><tr><th>Date</th><th>Amount</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Date</th><th>Amount</th></tr></thead>
         <tbody>
           ${settlements.map((s) => `<tr>
             <td>${fmtDate(s.settledAt ?? s.createdAt)}</td>
             <td>${fmt(s.totalAmount ?? s.amount)}</td>
-            <td>${s.notes ?? '—'}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -683,7 +681,9 @@ function MemberReportTab() {
                       <tr key={s.id} className="border-t border-gray-100">
                         <td className="px-3 py-2">{fmtDate(s.settledAt ?? s.createdAt)}</td>
                         <td className="px-3 py-2 font-semibold">{fmt(s.totalAmount ?? s.amount)}</td>
-                        <td className="px-3 py-2 text-gray-500">{s.notes ?? '—'}</td>
+                        <td className="px-3 py-2 text-gray-500 max-w-[200px]">
+                          {s.notes ? <span title={s.notes} className="block truncate cursor-help">{s.notes}</span> : '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -700,6 +700,7 @@ function MemberReportTab() {
 // ─── Chit Report Tab ──────────────────────────────────────────────────────────
 function ChitReportTab() {
   const [chitId, setChitId] = useState('');
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const nav = useNavigate();
 
   const { data: chits = [], isLoading: loadingChits } = useQuery({
@@ -753,13 +754,19 @@ function ChitReportTab() {
 
   const drawMap = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
   const collectionRows = collectionsReport.length > 0
-    ? collectionsReport.map((r) => ({
-        monthNumber: r.monthNumber ?? r.drawNumber ?? r.month,
-        totalDue: r.totalDue ?? r.expectedAmount ?? 0,
-        totalCollected: r.totalCollected ?? r.collectedAmount ?? r.totalPaid ?? 0,
-        outstanding: r.outstanding ?? r.balance ?? ((r.totalDue ?? 0) - (r.totalCollected ?? r.totalPaid ?? 0)),
-        drawStatus: r.drawStatus ?? drawMap[r.monthNumber ?? r.month]?.status ?? '—',
-      }))
+    ? collectionsReport.map((r) => {
+        const mn = r.monthNumber ?? r.drawNumber ?? r.month;
+        const draw = drawMap[mn] ?? {};
+        return {
+          monthNumber: mn,
+          totalDue: r.totalDue ?? r.expectedAmount ?? 0,
+          totalCollected: r.totalCollected ?? r.collectedAmount ?? r.totalPaid ?? 0,
+          outstanding: r.outstanding ?? r.balance ?? ((r.totalDue ?? 0) - (r.totalCollected ?? r.totalPaid ?? 0)),
+          drawStatus: r.drawStatus ?? draw.status ?? '—',
+          dueDate: draw.dueDate,
+          closedAt: draw.closedAt,
+        };
+      })
     : draws.map((d) => {
         const collected   = Number(d.totalCollected ?? 0);
         const outstanding = Number(d.totalOutstanding ?? 0);
@@ -770,6 +777,8 @@ function ChitReportTab() {
           totalCollected: d.totalCollected != null ? collected : null,
           outstanding:    d.totalOutstanding != null ? outstanding : null,
           drawStatus: d.status,
+          dueDate: d.dueDate,
+          closedAt: d.closedAt,
         };
       });
 
@@ -780,7 +789,23 @@ function ChitReportTab() {
     .filter((p) => p.status === 'DISBURSED')
     .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
   const totalWithheld    = payoutsData.reduce((s, p) => s + Number(p.discountAmount ?? 0), 0);
-  const profitLoss       = totalCollected - totalDisbursed;
+
+  // Draws where admin paid additional members: grouped by monthNumber, extras beyond 1 = admin investment.
+  // Exclude VOIDED and CANCELLED payouts — those draws are no longer active.
+  const payoutsByDraw = payoutsData
+    .filter((p) => p.status === 'DISBURSED' || p.status === 'PARTIALLY_DISBURSED')
+    .reduce((acc, p) => {
+      const mn = p.monthNumber ?? 0;
+      if (!acc[mn]) acc[mn] = [];
+      acc[mn].push(p);
+      return acc;
+    }, {});
+  const adminInvestment = Object.values(payoutsByDraw).reduce((s, group) => {
+    if (group.length <= 1) return s;
+    return s + group.slice(1).reduce((sub, p) => sub + Number(p.disbursedAmount ?? 0), 0);
+  }, 0);
+
+  const profitLoss = totalCollected - totalDisbursed + adminInvestment;
 
   function handlePrint() {
     if (!chit) return;
@@ -805,10 +830,11 @@ function ChitReportTab() {
         <div class="summary-item"><p class="lbl">Disbursed Payouts</p><p class="val" style="color:#1d4ed8">${fmt(totalDisbursed)}</p></div>
         <div class="summary-item"><p class="lbl">Withheld Instmts</p><p class="val" style="color:#92400e">${fmt(totalWithheld)}</p></div>
       </div>
-      <div style="margin:12px 0;padding:12px 16px;background:${profitLoss >= 0 ? '#f0fdf4' : '#fef2f2'};border:2px solid ${profitLoss >= 0 ? '#16a34a' : '#dc2626'};border-radius:8px;display:flex;align-items:center;gap:32px">
+      <div style="margin:12px 0;padding:12px 16px;background:${profitLoss >= 0 ? '#f0fdf4' : '#fef2f2'};border:2px solid ${profitLoss >= 0 ? '#16a34a' : '#dc2626'};border-radius:8px;display:flex;align-items:center;gap:32px;flex-wrap:wrap">
         <div><p style="font-size:11px;color:#6b7280;margin:0">Total Collected</p><p style="font-size:16px;font-weight:700;color:#166534;margin:0">${fmt(totalCollected)}</p></div>
         <div style="font-size:20px;color:#9ca3af">−</div>
         <div><p style="font-size:11px;color:#6b7280;margin:0">Disbursed Payouts</p><p style="font-size:16px;font-weight:700;color:#1d4ed8;margin:0">${fmt(totalDisbursed)}</p></div>
+        ${adminInvestment > 0 ? `<div style="font-size:20px;color:#9ca3af">+</div><div><p style="font-size:11px;color:#6b7280;margin:0">Admin Investment</p><p style="font-size:16px;font-weight:700;color:#7c3aed;margin:0">${fmt(adminInvestment)}</p><p style="font-size:10px;color:#9ca3af;margin:0">advance to additional members</p></div>` : ''}
         <div style="font-size:20px;color:#9ca3af">=</div>
         <div><p style="font-size:11px;color:#6b7280;margin:0">${profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p><p style="font-size:20px;font-weight:800;color:${profitLoss >= 0 ? '#16a34a' : '#dc2626'};margin:0">${profitLoss >= 0 ? '+' : ''}${fmt(profitLoss)}</p></div>
       </div>
@@ -816,17 +842,19 @@ function ChitReportTab() {
 
     const collectionsHtml = collectionRows.length === 0 ? '<p style="color:#888">No draw data</p>' : `
       <table>
-        <thead><tr><th>Draw</th><th>Total Due</th><th>Collected</th><th>Outstanding</th><th>Status</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Due Date</th><th>Total Due</th><th>Collected</th><th>Outstanding</th><th>Status</th><th>Closed Date</th></tr></thead>
         <tbody>
           ${collectionRows.map((r) => { const cdl = drawMonthLabel(chit.startDate, r.monthNumber); return `<tr>
             <td>#${r.monthNumber}${cdl ? ` (${cdl})` : ''}</td>
+            <td>${fmtDate(r.dueDate)}</td>
             <td>${r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
             <td>${r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
             <td>${r.outstanding != null ? fmt(r.outstanding) : '—'}</td>
             <td>${r.drawStatus}</td>
+            <td>${r.closedAt ? fmtDate(r.closedAt) : '—'}</td>
           </tr>`; }).join('')}
         </tbody>
-        <tfoot><tr><td>Total</td><td>${fmt(totalExpected)}</td><td>${fmt(totalCollected)}</td><td>${fmt(totalOutstanding)}</td><td></td></tr></tfoot>
+        <tfoot><tr><td>Total</td><td></td><td>${fmt(totalExpected)}</td><td>${fmt(totalCollected)}</td><td>${fmt(totalOutstanding)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `;
 
@@ -845,21 +873,20 @@ function ChitReportTab() {
 
     const payoutsHtml = payoutsData.length === 0 ? '<p style="color:#888">No payouts</p>' : `
       <table>
-        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${payoutsData.map((p) => { const pdl = drawMonthLabel(chit.startDate, p.monthNumber); return `<tr>
             <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
             <td>${resolveMember(p)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
           </tr>`; }).join('')}
         </tbody>
-        <tfoot><tr><td colspan="6">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="5">Total Disbursed</td><td>${fmt(totalDisbursed)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `;
 
@@ -925,29 +952,148 @@ function ChitReportTab() {
             { label: 'Outstanding', value: totalOutstanding > 0 ? fmt(totalOutstanding) : '—', color: totalOutstanding > 0 ? 'text-red-600' : 'text-gray-800' },
             { label: 'Disbursed Payouts', value: fmt(totalDisbursed), color: 'text-blue-700' },
             { label: 'Withheld Instmts', value: fmt(totalWithheld), color: 'text-amber-700' },
+            ...(adminInvestment > 0 ? [{ label: 'Admin Investment', value: fmt(adminInvestment), color: 'text-purple-700' }] : []),
           ]} />
 
           {/* Profit / Loss card */}
-          <div className={`rounded-xl border-2 p-5 ${profitLoss >= 0 ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'}`}>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Financial Summary</p>
-            <div className="flex flex-wrap items-center gap-3 md:gap-5">
-              <div className="flex-1 min-w-[120px]">
-                <p className="text-xs text-gray-500">Total Collected</p>
-                <p className="text-xl font-bold text-green-700">{fmt(totalCollected)}</p>
+          <div className={`rounded-xl border-2 ${profitLoss >= 0 ? 'bg-green-50 border-green-400' : 'bg-red-50 border-red-400'}`}>
+            <div className="p-5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Financial Summary</p>
+              <div className="flex flex-wrap items-center gap-3 md:gap-5">
+                <div className="flex-1 min-w-[120px]">
+                  <p className="text-xs text-gray-500">Total Collected</p>
+                  <p className="text-xl font-bold text-green-700">{fmt(totalCollected)}</p>
+                </div>
+                <span className="text-2xl text-gray-400 font-light">−</span>
+                <div className="flex-1 min-w-[120px]">
+                  <p className="text-xs text-gray-500">Disbursed Payouts</p>
+                  <p className="text-xl font-bold text-blue-700">{fmt(totalDisbursed)}</p>
+                </div>
+                {adminInvestment > 0 && (
+                  <>
+                    <span className="text-2xl text-gray-400 font-light">+</span>
+                    <div className="flex-1 min-w-[120px]">
+                      <p className="text-xs text-gray-500">Admin Investment</p>
+                      <p className="text-xl font-bold text-purple-700">{fmt(adminInvestment)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">advance payouts to additional members</p>
+                    </div>
+                  </>
+                )}
+                <span className="text-2xl text-gray-400 font-light">=</span>
+                <div className="flex-1 min-w-[140px] bg-white rounded-lg px-4 py-3 border border-gray-200">
+                  <p className="text-xs text-gray-500">{profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p>
+                  <p className={`text-2xl font-extrabold ${profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {profitLoss >= 0 ? '+' : ''}{fmt(profitLoss)}
+                  </p>
+                </div>
               </div>
-              <span className="text-2xl text-gray-400 font-light">−</span>
-              <div className="flex-1 min-w-[120px]">
-                <p className="text-xs text-gray-500">Disbursed Payouts</p>
-                <p className="text-xl font-bold text-blue-700">{fmt(totalDisbursed)}</p>
-              </div>
-              <span className="text-2xl text-gray-400 font-light">=</span>
-              <div className="flex-1 min-w-[140px] bg-white rounded-lg px-4 py-3 border border-gray-200">
-                <p className="text-xs text-gray-500">{profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p>
-                <p className={`text-2xl font-extrabold ${profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {profitLoss >= 0 ? '+' : ''}{fmt(profitLoss)}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowBreakdown((v) => !v)}
+                className="mt-4 flex items-center gap-1.5 text-xs font-medium text-[#1E3A5F] hover:underline"
+              >
+                {showBreakdown ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                {showBreakdown ? 'Hide' : 'View'} Draw-wise Breakdown
+              </button>
             </div>
+
+            {showBreakdown && (() => {
+              // Per-draw disbursed amounts
+              const disbursedByDraw = payoutsData
+                .filter((p) => p.status === 'DISBURSED' || p.status === 'PARTIALLY_DISBURSED')
+                .reduce((acc, p) => {
+                  const mn = p.monthNumber ?? 0;
+                  acc[mn] = (acc[mn] ?? 0) + Number(p.disbursedAmount ?? 0);
+                  return acc;
+                }, {});
+
+              // Admin investment details: draws with >1 active payout → extras are investments
+              const adminInvestDetails = [];
+              Object.entries(payoutsByDraw).forEach(([mn, group]) => {
+                if (group.length <= 1) return;
+                group.slice(1).forEach((p) => {
+                  adminInvestDetails.push({
+                    monthNumber: Number(mn),
+                    memberName: resolveUUID(p.memberId, memberMap, {}, staffMap),
+                    amount: Number(p.disbursedAmount ?? 0),
+                  });
+                });
+              });
+
+              const grandCollected  = collectionRows.reduce((s, r) => s + Number(r.totalCollected ?? 0), 0);
+              const grandDisbursed  = Object.values(disbursedByDraw).reduce((s, v) => s + v, 0);
+              const grandNetFlow    = grandCollected - grandDisbursed;
+
+              return (
+                <div className="border-t border-white/60 px-5 pb-5">
+                  <div className="overflow-x-auto mt-4">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-white/70 border-b border-gray-200">
+                          {['Draw', 'Collected', 'Disbursed', 'Net Retained'].map((h) => (
+                            <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {collectionRows.map((r) => {
+                          const disbursed = disbursedByDraw[r.monthNumber] ?? 0;
+                          const netFlow   = Number(r.totalCollected ?? 0) - disbursed;
+                          return (
+                            <tr key={r.monthNumber} className="border-b border-white/50 hover:bg-white/50">
+                              <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
+                              <td className="px-3 py-2 text-green-700 font-medium">{r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
+                              <td className="px-3 py-2 text-blue-700 font-medium">{disbursed > 0 ? fmt(disbursed) : '—'}</td>
+                              <td className={`px-3 py-2 font-bold ${netFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                {netFlow >= 0 ? '+' : ''}{fmt(netFlow)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-white/80 font-semibold text-xs border-t-2 border-gray-300">
+                          <td className="px-3 py-2 text-gray-700">Total</td>
+                          <td className="px-3 py-2 text-green-700">{fmt(grandCollected)}</td>
+                          <td className="px-3 py-2 text-blue-700">{fmt(grandDisbursed)}</td>
+                          <td className={`px-3 py-2 ${grandNetFlow >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                            {grandNetFlow >= 0 ? '+' : ''}{fmt(grandNetFlow)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {adminInvestDetails.length > 0 && (
+                    <div className="mt-4 rounded-lg bg-purple-50 border border-purple-200 p-3">
+                      <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />
+                        Admin Invested Funds — {fmt(adminInvestment)}
+                        <span className="font-normal text-purple-500 ml-1">(advance payouts to additional members, to be recovered)</span>
+                      </p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-purple-200">
+                            <th className="px-2 py-1.5 text-left text-purple-600 font-medium">Draw</th>
+                            <th className="px-2 py-1.5 text-left text-purple-600 font-medium">Member</th>
+                            <th className="px-2 py-1.5 text-left text-purple-600 font-medium">Amount Invested</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminInvestDetails.map((d, i) => (
+                            <tr key={i} className="border-b border-purple-100">
+                              <td className="px-2 py-1.5 font-semibold text-purple-700">{drawLabel(chit.startDate, d.monthNumber)}</td>
+                              <td className="px-2 py-1.5 text-purple-700">{d.memberName}</td>
+                              <td className="px-2 py-1.5 font-bold text-purple-800">{fmt(d.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Draw-wise Collections */}
@@ -960,7 +1106,7 @@ function ChitReportTab() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50">
-                      {['Draw', 'Total Due', 'Collected', 'Outstanding', 'Status'].map((h) => (
+                      {['Draw', 'Due Date', 'Total Due', 'Collected', 'Outstanding', 'Status', 'Closed Date'].map((h) => (
                         <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
                       ))}
                     </tr>
@@ -969,12 +1115,14 @@ function ChitReportTab() {
                     {collectionRows.map((r) => (
                       <tr key={r.monthNumber} className="border-t border-gray-100 hover:bg-gray-50">
                         <td className="px-3 py-2 font-semibold text-gray-700">{drawLabel(chit.startDate, r.monthNumber)}</td>
+                        <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2">{r.totalDue != null ? fmt(r.totalDue) : '—'}</td>
                         <td className="px-3 py-2 text-green-700 font-medium">{r.totalCollected != null ? fmt(r.totalCollected) : '—'}</td>
                         <td className={`px-3 py-2 font-medium ${Number(r.outstanding) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
                           {r.outstanding != null ? fmt(r.outstanding) : '—'}
                         </td>
                         <td className="px-3 py-2 text-gray-500 text-xs">{r.drawStatus}</td>
+                        <td className="px-3 py-2 text-gray-500">{r.closedAt ? fmtDate(r.closedAt) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -982,10 +1130,11 @@ function ChitReportTab() {
                     <tfoot>
                       <tr className="bg-gray-100 text-xs font-semibold">
                         <td className="px-3 py-2 text-gray-700">Total</td>
+                        <td className="px-3 py-2" />
                         <td className="px-3 py-2">{fmt(totalExpected)}</td>
                         <td className="px-3 py-2 text-green-700">{fmt(totalCollected)}</td>
                         <td className={`px-3 py-2 ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOutstanding)}</td>
-                        <td />
+                        <td colSpan={2} />
                       </tr>
                     </tfoot>
                   )}
@@ -1285,7 +1434,7 @@ function PayoutsTab() {
         <span><strong>Pending:</strong> ${fmt(pendingTotal)}</span>
       </div>
       <table>
-        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Notes</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
+        <thead><tr><th>Draw</th><th>Chit</th><th>Member</th><th>Winning Amt</th><th>Withheld Instmt</th><th>Net Payout</th><th>Disbursed</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
           ${filtered.map((p) => { const pdl = drawMonthLabel(chitStartMap[String(p.chitId)], p.monthNumber); return `<tr>
             <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
@@ -1293,14 +1442,13 @@ function PayoutsTab() {
             <td>${resolveUUID(p.memberId, memberMap, {}, staffMap)}</td>
             <td>${fmt(p.winningAmount)}</td>
             <td>${Number(p.discountAmount) > 0 ? `✓ ${fmt(p.discountAmount)}` : '—'}</td>
-            <td>${(() => { const n = p.notes ?? p.cancellationReason ?? p.voidReason; return n ? (n.length > 18 ? n.slice(0, 18) + '…' : n) : '—'; })()}</td>
             <td>${fmt(p.netPayoutAmount)}</td>
             <td>${fmt(p.disbursedAmount)}</td>
             <td><span class="badge ${PY_STATUS_COLOR[p.status] ?? 'gray'}">${p.status ?? '—'}</span></td>
             <td>${fmtDate(p.createdAt ?? p.disbursedAt)}</td>
           </tr>`; }).join('')}
         </tbody>
-        <tfoot><tr><td colspan="7">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="6">Total Disbursed (${filtered.length})</td><td>${fmt(disbursedTotal)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     `);
   }
@@ -1567,7 +1715,11 @@ function TreasuryTab() {
                     <td className={`px-4 py-2.5 font-bold ${t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
                       {t.entryType === 'IN' ? '+' : '-'}{fmt(t.amount)}
                     </td>
-                    <td className="px-4 py-2.5 text-gray-700 text-xs">{resolveDescriptionJsx(t.description ?? t.notes, memberMap, chitMap, staffMap)}</td>
+                    <td className="px-4 py-2.5 text-gray-700 text-xs max-w-[220px]">
+                      <span title={t.description ?? t.notes ?? ''} className="block truncate cursor-help">
+                        {resolveDescriptionJsx(t.description ?? t.notes, memberMap, chitMap, staffMap)}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

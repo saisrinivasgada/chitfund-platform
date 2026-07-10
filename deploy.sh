@@ -20,6 +20,8 @@ rsync -az --progress \
   --exclude='chitfund-reporting-service' \
   --exclude='restful-web-services' \
   --exclude='MyVibeCodingApp' \
+  --exclude='logs/' \
+  --exclude='*.log' \
   -e "ssh -i $KEY -o StrictHostKeyChecking=no" \
   . $EC2_USER@$EC2_IP:$REMOTE_DIR/
 

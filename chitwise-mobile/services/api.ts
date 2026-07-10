@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { useAuthStore } from '../store/authStore';
 
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.1.201:8080/api';
@@ -16,8 +17,8 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      SecureStore.deleteItemAsync('chitwise_token');
-      SecureStore.deleteItemAsync('chitwise_user');
+      // Clear auth state so AuthGuard redirects to login instead of showing network errors
+      useAuthStore.getState().logout();
     }
     return Promise.reject(err);
   }
@@ -151,6 +152,10 @@ export const updateReservationSlot = async (chitId: string, reservationId: strin
   unwrapObj(await api.put(`/chits/${chitId}/reservations/${reservationId}`, body));
 export const hardDeleteReservationSlot = async (chitId: string, reservationId: string) =>
   unwrapObj(await api.delete(`/chits/${chitId}/reservations/${reservationId}/permanent`));
+export const getOrgReservations = async () =>
+  unwrapList(await api.get('/chits/org-reservations'));
+export const realizeOrgPayout = async (chitId: string, reservationId: string) =>
+  unwrapObj(await api.post(`/chits/${chitId}/reservations/${reservationId}/realize-org`));
 
 // ── Payments (installments) ────────────────────────────────────────────────────
 export const collectPayment = async (body: any) => unwrapObj(await api.post('/payments/collect', body));

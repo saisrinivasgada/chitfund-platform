@@ -23,6 +23,9 @@ public class ReservationSlotRequest {
     // null = unallocated; admin assigns later
     private UUID memberId;
 
+    // true = organization holds this slot (memberId must be null)
+    private Boolean orgHeld;
+
     // null = not yet decided; admin fills it in later via the Schedule tab
     @DecimalMin(value = "0.01")
     private BigDecimal payoutAmount;

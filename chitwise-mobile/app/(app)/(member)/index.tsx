@@ -72,41 +72,41 @@ export default function MemberHomeScreen() {
 
           {/* Balance card */}
           {totalBalance != null && (
-            <View style={{ backgroundColor: C.white + '1A', borderRadius: 12, padding: 14, marginBottom: 12 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>
+            <View style={{ backgroundColor: C.white + '1A', borderRadius: 14, padding: 18, marginBottom: 16 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 1, marginBottom: 6 }}>
                 {Number(totalBalance) < 0 ? 'CREDIT BALANCE' : 'OUTSTANDING BALANCE'}
               </Text>
-              <Text style={{ fontSize: 26, fontWeight: '800',
+              <Text style={{ fontSize: 32, fontWeight: '800',
                 color: Number(totalBalance) > 0 ? C.goldLight
                   : Number(totalBalance) < 0 ? '#4ADE80'
                   : C.white }}>
                 ₹{Math.abs(Number(totalBalance)).toLocaleString('en-IN')}
               </Text>
               {Number(totalBalance) > 0 && (
-                <Text style={{ fontSize: 11, color: C.goldLight + 'CC', marginTop: 2 }}>Amount you owe</Text>
+                <Text style={{ fontSize: 12, color: C.goldLight + 'CC', marginTop: 4 }}>Amount you owe across all chits</Text>
               )}
               {Number(totalBalance) < 0 && (
-                <Text style={{ fontSize: 11, color: '#4ADE80', marginTop: 2 }}>
+                <Text style={{ fontSize: 12, color: '#4ADE80', marginTop: 4 }}>
                   Credit available — offsets your next installment
                 </Text>
               )}
               {Number(totalBalance) === 0 && (
-                <Text style={{ fontSize: 11, color: C.white + '88', marginTop: 2 }}>All paid up</Text>
+                <Text style={{ fontSize: 12, color: C.white + '88', marginTop: 4 }}>All dues cleared</Text>
               )}
             </View>
           )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>ACTIVE CHITS</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: C.white }}>{activeChits.length}</Text>
+            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>ACTIVE CHITS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{activeChits.length}</Text>
             </View>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>COMPLETED</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: C.white }}>{completedChits.length}</Text>
+            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>COMPLETED</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{completedChits.length}</Text>
             </View>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 12, padding: 12 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', marginBottom: 4 }}>PICKUPS</Text>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }}>
+            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>PICKUPS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }}>
                 {pendingReqs.length}
               </Text>
             </View>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   getChits, getMembers, getPendingPayouts, getWalletBalance,
   getActiveCashRequests, getPendingRemittance, listStaff,
-  getMe, getChitsForMember, getMemberTotalBalance,
+  getOrgReservations,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
@@ -15,7 +15,7 @@ import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
-  ArrowRight, Wallet, Truck, Clock, Calendar, BookMarked,
+  ArrowRight, Wallet, Truck, Clock, Calendar, Building2,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
@@ -179,20 +179,11 @@ export default function DashboardPage() {
 
   const staffMap = Object.fromEntries(staff.map((s) => [String(s.id), s]));
 
-  const { data: me } = useQuery({
-    queryKey: ['me'],
-    queryFn: getMe,
+  const { data: orgReservations = [] } = useQuery({
+    queryKey: ['dash-org-reservations'],
+    queryFn: getOrgReservations,
     enabled: isAdmin,
-  });
-  const { data: myChits = [] } = useQuery({
-    queryKey: ['memberChits', me?.id],
-    queryFn: () => getChitsForMember(me.id),
-    enabled: isAdmin && !!me?.id,
-  });
-  const { data: myBalance } = useQuery({
-    queryKey: ['adminBalance', me?.id],
-    queryFn: () => getMemberTotalBalance(me.id),
-    enabled: isAdmin && !!me?.id,
+    staleTime: 60_000,
   });
 
   const today = new Date().toISOString().split('T')[0];
@@ -338,41 +329,45 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── My Participation ────────────────────────────────────────────── */}
-      {isAdmin && me && myChits.length > 0 && (
-        <div>
-          <SectionHeader
-            icon={BookMarked}
-            color="#B45309"
-            title="My Participation"
-            linkLabel="View details"
-            onLink={() => navigate(`/admin/participation/${me.id}`)}
-          />
-          <button
-            type="button"
-            onClick={() => navigate(`/admin/participation/${me.id}`)}
-            className="w-full bg-white rounded-xl border border-amber-200 shadow-sm p-5 flex items-center gap-4 text-left hover:border-amber-400 hover:shadow-md transition-all cursor-pointer"
-          >
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-50">
-              <BookMarked size={20} className="text-amber-700" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900">
-                Holding slots in {myChits.length} chit{myChits.length !== 1 ? 's' : ''}
-              </p>
-              {myBalance !== undefined && (
-                <p className={`text-sm font-bold mt-0.5 ${Number(myBalance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {Number(myBalance) > 0
-                    ? `₹${Number(myBalance).toLocaleString('en-IN')} outstanding`
-                    : 'All dues clear'}
+      {/* ── Org Holdings ────────────────────────────────────────────────── */}
+      {isAdmin && orgReservations.filter((r) => r.status === 'RESERVED').length > 0 && (() => {
+        const active = orgReservations.filter((r) => r.status === 'RESERVED');
+        const pending = active.filter((r) => r.eligibleToRealize);
+        const pendingAmount = pending.reduce((s, r) => s + Number(r.payoutAmount ?? 0), 0);
+        const chitNames = [...new Set(active.map((r) => r.chitName).filter(Boolean))];
+        return (
+          <div>
+            <SectionHeader
+              icon={Building2}
+              color="#1E3A5F"
+              title="Org Holdings"
+              linkLabel="Manage slots"
+              onLink={() => navigate('/chits')}
+            />
+            <button
+              type="button"
+              onClick={() => navigate('/chits')}
+              className="w-full bg-white rounded-xl border border-[#1E3A5F]/20 shadow-sm p-5 flex items-center gap-4 text-left hover:border-[#1E3A5F]/40 hover:shadow-md transition-all cursor-pointer"
+            >
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-[#1E3A5F]/8">
+                <Building2 size={20} className="text-[#1E3A5F]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900">
+                  {active.length} active slot{active.length !== 1 ? 's' : ''} across {chitNames.length} chit{chitNames.length !== 1 ? 's' : ''}
                 </p>
-              )}
-              <p className="text-xs text-gray-400 mt-0.5">Tap to view payment history</p>
-            </div>
-            <ArrowRight size={16} className="text-amber-600 flex-shrink-0" />
-          </button>
-        </div>
-      )}
+                {pendingAmount > 0 && (
+                  <p className="text-sm font-bold mt-0.5 text-amber-600">
+                    ₹{pendingAmount.toLocaleString('en-IN')} pending realization
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 mt-0.5">Click to view chit schedules</p>
+              </div>
+              <ArrowRight size={16} className="text-[#1E3A5F] flex-shrink-0" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Recent Activity ──────────────────────────────────────────────── */}
       <div>
