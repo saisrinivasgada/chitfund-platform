@@ -9,7 +9,7 @@ import {
   getPayoutsByChit, getDraws, getDrawPayments, getPaymentBatches,
   getCollectionsReport, getMembersReport, getPayoutsReport,
   getWalletBalance, getWalletTransactions,
-  listStaff,
+  listStaff, getPayoutById,
 } from '../../services/api';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import Button from '../../components/ui/Button';
@@ -21,12 +21,19 @@ import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
   Wallet, AlertCircle, TrendingUp, FileText, ExternalLink, Layers,
+  User, Building2, Hash, Calendar, IndianRupee, CheckCircle, Clock, XCircle, CreditCard,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const fmt = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const fmtDateTime = (d) => {
+  if (!d) return '—';
+  const dt = new Date(d.endsWith('Z') ? d : d + 'Z');
+  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    + ' · ' + dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+};
 
 function AdjCell({ p }) {
   const cross   = Number(p.crossChitSettlement ?? 0);
@@ -357,6 +364,228 @@ function DrawDetailModal({ draw, chit, onClose }) {
 
         <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400 text-right">
           {chit?.name} · Click a member row to see their transactions for this draw
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PAYOUT_STATUS_CONFIG = {
+  PENDING:             { label: 'Pending',             Icon: Clock,        bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
+  PARTIALLY_DISBURSED: { label: 'Partially Disbursed', Icon: AlertCircle,  bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200' },
+  DISBURSED:           { label: 'Disbursed',           Icon: CheckCircle,  bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200' },
+  CANCELLED:           { label: 'Cancelled',           Icon: XCircle,      bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200' },
+  VOIDED:              { label: 'Voided',              Icon: XCircle,      bg: 'bg-gray-50',   text: 'text-gray-700',   border: 'border-gray-200' },
+};
+const DISBURSE_ICON = { CASH: Banknote, UPI: CreditCard, BANK: Building2, NEFT: Building2, RTGS: Building2, IMPS: Building2, BANK_TRANSFER: Building2 };
+
+function PayoutDeductionRow({ label, amount, sub, highlight }) {
+  if (!amount || Number(amount) === 0) return null;
+  return (
+    <div className={`flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 ${highlight ? 'font-semibold' : ''}`}>
+      <div>
+        <p className={`text-sm ${highlight ? 'text-gray-900' : 'text-gray-600'}`}>{label}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+      </div>
+      <p className={`text-sm tabular-nums ${highlight ? 'text-gray-900' : 'text-red-600'}`}>
+        {highlight ? fmt(amount) : `− ${fmt(amount)}`}
+      </p>
+    </div>
+  );
+}
+
+function PayoutDetailModal({ payoutId, onClose }) {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const { data: payout, isLoading } = useQuery({
+    queryKey: ['payout', payoutId],
+    queryFn:  () => getPayoutById(payoutId),
+    enabled:  !!payoutId,
+  });
+  const { data: member } = useQuery({
+    queryKey: ['member', payout?.memberId],
+    queryFn:  () => getMember(payout.memberId),
+    enabled:  !!payout?.memberId,
+  });
+  const { data: chit } = useQuery({
+    queryKey: ['chit', payout?.chitId],
+    queryFn:  () => getChit(payout.chitId),
+    enabled:  !!payout?.chitId,
+  });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const nameMap = Object.fromEntries([
+    ...staff.map((s) => [String(s.id), s.fullName ?? s.username]),
+    ...allMembers.map((m) => [String(m.id), m.fullName ?? m.username]),
+  ]);
+
+  const status = payout ? (PAYOUT_STATUS_CONFIG[payout.status] ?? PAYOUT_STATUS_CONFIG.PENDING) : null;
+  const disbursements = payout?.disbursements ?? [];
+  const hasDeductions = payout && Number(payout.discountAmount ?? 0) > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* Close */}
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
+
+        {/* Header */}
+        <div className="pl-6 pr-12 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+          {isLoading || !payout ? (
+            <div className="h-6 w-40 bg-gray-100 rounded animate-pulse" />
+          ) : (
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Payout — Draw #{payout.monthNumber}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(payout.createdAt)}</p>
+              </div>
+              {status && (
+                <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${status.bg} ${status.text} ${status.border}`}>
+                  <status.Icon size={11} />{status.label}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          {isLoading ? (
+            <div className="space-y-3 animate-pulse">
+              {[80, 160, 200].map((h, i) => <div key={i} className="bg-gray-100 rounded-xl" style={{ height: h }} />)}
+            </div>
+          ) : !payout ? (
+            <p className="text-center text-sm text-gray-400 py-10">Payout not found.</p>
+          ) : (
+            <>
+              {/* Member + Chit + Draw */}
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                {[
+                  { Icon: User,      label: 'Winner', value: member?.fullName ?? '…' },
+                  { Icon: Building2, label: 'Chit',   value: chit?.name ?? '…' },
+                  { Icon: Hash,      label: 'Draw',   value: `#${payout.monthNumber}` },
+                ].map(({ Icon, label, value }) => (
+                  <div key={label} className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-8 h-8 rounded-lg bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
+                      <Icon size={14} className="text-[#1E3A5F]" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">{label}</p>
+                      <p className="text-sm font-semibold text-gray-900">{value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Breakdown */}
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+                  <IndianRupee size={14} className="text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-700">Payout Breakdown</h3>
+                </div>
+                <div className="px-4">
+                  <PayoutDeductionRow label="Winning Amount" amount={payout.winningAmount} highlight />
+                  {hasDeductions && (
+                    <>
+                      <PayoutDeductionRow label="Installment Withheld" amount={payout.installmentSettlement} sub={`Draw #${payout.monthNumber} · ${chit?.name ?? ''}`} />
+                      <PayoutDeductionRow label="Cross-Chit Settlement" amount={payout.crossChitSettlement} sub="Outstanding dues from other chits" />
+                      <PayoutDeductionRow label="Manual Adjustment" amount={payout.manualAdjustment} />
+                      <div className="flex items-center justify-between py-3 border-t border-gray-200 mt-1">
+                        <p className="text-xs text-gray-400">Total Deductions</p>
+                        <p className="text-xs font-semibold text-red-600">− {h(payout.discountAmount)}</p>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex items-center justify-between py-3 border-t border-gray-200 bg-gray-50 -mx-4 px-4">
+                    <p className="text-sm font-bold text-gray-900">Net Payout</p>
+                    <p className="text-base font-bold text-[#1E3A5F]">{h(payout.netPayoutAmount)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Disbursements */}
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Banknote size={14} className="text-gray-400" />
+                    <h3 className="text-sm font-semibold text-gray-700">Disbursements</h3>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">Disbursed:</span>
+                    <span className="font-semibold text-green-700">{h(payout.disbursedAmount)}</span>
+                    {Number(payout.remainingAmount ?? 0) > 0 && (
+                      <span className="text-amber-600">· {fmt(payout.remainingAmount)} pending</span>
+                    )}
+                  </div>
+                </div>
+                {disbursements.length === 0 ? (
+                  <p className="px-4 py-4 text-xs text-gray-400 text-center">No disbursements yet</p>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {disbursements.map((d, i) => {
+                      const ModeIcon = DISBURSE_ICON[d.mode] ?? Banknote;
+                      return (
+                        <div key={d.id ?? i} className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                            <ModeIcon size={14} className="text-green-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900">{h(d.amount)}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
+                              {d.disbursedBy ? ` · by ${nameMap[String(d.disbursedBy)] ?? 'Admin'}` : ''}
+                            </p>
+                            {d.notes && <p className="text-xs text-gray-500 mt-0.5 italic">{d.notes}</p>}
+                          </div>
+                          <p className="text-xs text-gray-400 flex-shrink-0">{fmtDate(d.disbursedAt)}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              {payout.notes && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-xs text-amber-700 font-semibold mb-0.5">Notes</p>
+                  <p className="text-sm text-amber-900">{payout.notes}</p>
+                </div>
+              )}
+
+              {/* Cancellation / void */}
+              {(payout.cancellationReason || payout.voidReason) && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <p className="text-xs text-red-700 font-semibold mb-0.5">
+                    {payout.cancellationReason ? 'Cancellation Reason' : 'Void Reason'}
+                  </p>
+                  <p className="text-sm text-red-900">{payout.cancellationReason ?? payout.voidReason}</p>
+                  <p className="text-xs text-red-400 mt-1">
+                    {fmtDateTime(payout.cancelledAt ?? payout.voidedAt)}
+                    {(payout.cancelledBy ?? payout.voidedBy)
+                      ? ` · by ${nameMap[String(payout.cancelledBy ?? payout.voidedBy)] ?? 'Admin'}`
+                      : ''}
+                  </p>
+                </div>
+              )}
+
+              {/* Created by */}
+              <div className="flex items-center gap-2 px-1 pb-2">
+                <Calendar size={12} className="text-gray-300" />
+                <p className="text-xs text-gray-400">
+                  Created {fmtDateTime(payout.createdAt)}
+                  {payout.createdBy ? ` · by ${nameMap[String(payout.createdBy)] ?? 'Admin'}` : ''}
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -736,10 +965,10 @@ function OverviewTab() {
 function MemberReportTab() {
   const [memberId, setMemberId] = useSessionState('rpt_mr_member', '');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedPayoutId, setSelectedPayoutId] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
   const queryClient = useQueryClient();
-  const nav = useNavigate();
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
 
@@ -978,7 +1207,7 @@ function MemberReportTab() {
                   </thead>
                   <tbody>
                     {payouts.map((p) => (
-                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                         <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
                         <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                         <td className="px-3 py-2">{h(p.winningAmount)}</td>
@@ -1041,6 +1270,12 @@ function MemberReportTab() {
           )}
         </div>
       )}
+      {selectedPayoutId && (
+        <PayoutDetailModal
+          payoutId={selectedPayoutId}
+          onClose={() => setSelectedPayoutId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1050,9 +1285,9 @@ function ChitReportTab() {
   const [chitId, setChitId] = useSessionState('rpt_cr_chit', '');
   const [showBreakdown, setShowBreakdown] = useSessionState('rpt_cr_breakdown', false);
   const [selectedDraw, setSelectedDraw] = useState(null);
+  const [selectedPayoutId, setSelectedPayoutId] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
-  const nav = useNavigate();
 
   const { data: chits = [], isLoading: loadingChits } = useQuery({
     queryKey: ['chits'],
@@ -1551,7 +1786,7 @@ function ChitReportTab() {
                   </thead>
                   <tbody>
                     {payoutsData.map((p) => (
-                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
+                      <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                         <td className="px-3 py-2 font-semibold">{drawLabel(chit.startDate, p.monthNumber)}</td>
                         <td className="px-3 py-2"><MemberLink id={p.memberId} name={resolveMember(p)} /></td>
                         <td className="px-3 py-2">{h(p.winningAmount)}</td>
@@ -1591,6 +1826,12 @@ function ChitReportTab() {
           draw={selectedDraw}
           chit={chit}
           onClose={() => setSelectedDraw(null)}
+        />
+      )}
+      {selectedPayoutId && (
+        <PayoutDetailModal
+          payoutId={selectedPayoutId}
+          onClose={() => setSelectedPayoutId(null)}
         />
       )}
     </div>
@@ -1770,9 +2011,9 @@ function PayoutsTab() {
   const [activePreset, setPreset]     = useSessionState('rpt_py_preset', 'All Time');
   const [filterChit, setFilterChit]   = useSessionState('rpt_py_chit', '');
   const [filterStatus, setFilterStatus] = useSessionState('rpt_py_status', '');
+  const [selectedPayoutId, setSelectedPayoutId] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
-  const nav = useNavigate();
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
@@ -1877,7 +2118,7 @@ function PayoutsTab() {
               </thead>
               <tbody>
                 {filtered.map((p) => (
-                  <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => nav(`/payouts/${p.id}`)}>
+                  <tr key={p.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => setSelectedPayoutId(p.id)}>
                     <td className="px-3 py-2.5 font-semibold text-gray-700">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
                     <td className="px-3 py-2.5">
                       <ChitLink id={p.chitId} name={resolveUUID(p.chitId, {}, chitMap, {})} />
@@ -1913,6 +2154,12 @@ function PayoutsTab() {
             </table>
           </div>
         </div>
+      )}
+      {selectedPayoutId && (
+        <PayoutDetailModal
+          payoutId={selectedPayoutId}
+          onClose={() => setSelectedPayoutId(null)}
+        />
       )}
     </div>
   );
