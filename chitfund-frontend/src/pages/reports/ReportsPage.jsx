@@ -2422,12 +2422,12 @@ function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} />
       <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
         style={{ maxHeight: '90vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: heroBg }}>
               {heroIcon}
@@ -2449,7 +2449,7 @@ function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 
         {/* Amount hero */}
         <div
-          className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
+          className="px-8 py-6 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
           style={{ backgroundColor: isTransfer ? '#FAF5FF' : isIn ? '#F0FDF4' : '#FFF5F5' }}
         >
           <div>
@@ -2486,13 +2486,13 @@ function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto px-6 py-5 space-y-3">
+        <div className="overflow-y-auto px-8 py-6 space-y-3">
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
               <FileText size={14} className="text-gray-400" />
               <span className="text-sm font-semibold text-gray-700">Details</span>
             </div>
-            <div className="px-5">
+            <div className="px-6">
               {tx.category && (
                 <div className="flex items-start gap-4 py-4 border-b border-gray-100">
                   <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
@@ -2553,7 +2553,7 @@ function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+        <div className="px-8 py-5 border-t border-gray-100 flex-shrink-0">
           <button
             onClick={onClose}
             className="w-full py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
