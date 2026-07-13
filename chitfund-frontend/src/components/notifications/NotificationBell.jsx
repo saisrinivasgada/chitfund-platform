@@ -77,6 +77,7 @@ export default function NotificationBell() {
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ['notif-unread'],
     queryFn: getUnreadCount,
+    refetchInterval: 60_000, // fallback poll — WebSocket provides instant updates when available
   });
 
   useNotifSocket(useCallback(() => {

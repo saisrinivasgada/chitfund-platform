@@ -17,6 +17,7 @@ public class InAppNotificationResponse {
     private String message;
     private String type;
     private Map<String, String> metadata;
+    private String link;
     private boolean read;
     private LocalDateTime createdAt;
 
@@ -38,6 +39,7 @@ public class InAppNotificationResponse {
                 .message(n.getMessage())
                 .type(n.getType())
                 .metadata(meta)
+                .link(n.getLink())
                 .read(n.isRead())
                 .createdAt(n.getCreatedAt())
                 .build();

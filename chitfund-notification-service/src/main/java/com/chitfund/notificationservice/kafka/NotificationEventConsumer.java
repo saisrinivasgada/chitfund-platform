@@ -54,7 +54,8 @@ public class NotificationEventConsumer {
                     amtFormatted + " due for month " + event.monthNumber() + " — " + chitLabel,
                     "PAYMENT_DUE",
                     Map.of("chitId", event.chitId(), "amount", event.installmentAmount().toPlainString(),
-                           "monthNumber", event.monthNumber().toString())
+                           "monthNumber", event.monthNumber().toString()),
+                    "/member/chits/" + event.chitId()
                 );
             }
             broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
@@ -91,7 +92,8 @@ public class NotificationEventConsumer {
                     "Month Skipped",
                     "Month " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason,
                     "MONTH_SKIPPED",
-                    Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason)
+                    Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason),
+                    "/member/chits/" + event.chitId()
                 );
             }
             broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
@@ -130,7 +132,8 @@ public class NotificationEventConsumer {
                 "CASH_COLLECTED",
                 Map.of("memberId", event.memberId(), "chitId", event.chitId(),
                        "amount", event.amount().toPlainString(),
-                       "workerId", event.collectedByUserId())
+                       "workerId", event.collectedByUserId()),
+                "/member?tab=requests"
             );
             broadcaster.broadcast("CASH_REQUESTS_UPDATED");
             broadcaster.broadcast("PAYMENTS_UPDATED");
@@ -168,7 +171,8 @@ public class NotificationEventConsumer {
                 amtFormatted + " payment recorded. " + remaining,
                 "PAYMENT_RECEIVED",
                 Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                       "monthsSettled", String.valueOf(event.monthsSettled()))
+                       "monthsSettled", String.valueOf(event.monthsSettled())),
+                "/member/chits/" + event.chitId()
             );
             broadcaster.broadcast("PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
             broadcaster.broadcast("IN_APP_UPDATED");
@@ -201,7 +205,8 @@ public class NotificationEventConsumer {
                 "Congratulations! Payout of " + amtFormatted + " approved for month " + event.monthNumber(),
                 "WINNER_SELECTED",
                 Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
-                       "monthNumber", event.monthNumber().toString())
+                       "monthNumber", event.monthNumber().toString()),
+                "/member/chits/" + event.chitId()
             );
             broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
             broadcaster.broadcast("IN_APP_UPDATED");
@@ -236,7 +241,8 @@ public class NotificationEventConsumer {
                 amtFormatted + " sent via " + event.disbursementMode() + " (Ref: " + ref + ")",
                 "PAYOUT_DISBURSED",
                 Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
-                       "mode", event.disbursementMode(), "reference", ref)
+                       "mode", event.disbursementMode(), "reference", ref),
+                "/member/chits/" + event.chitId()
             );
             broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
             broadcaster.broadcast("TREASURY_UPDATED");
@@ -258,7 +264,8 @@ public class NotificationEventConsumer {
                 "Profile Updated",
                 "Your referral has been updated by an admin. Referred by: " + newValue,
                 "PROFILE_UPDATED",
-                Map.of("fieldChanged", fieldLabel, "newValue", newValue)
+                Map.of("fieldChanged", fieldLabel, "newValue", newValue),
+                "/member"
             );
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {

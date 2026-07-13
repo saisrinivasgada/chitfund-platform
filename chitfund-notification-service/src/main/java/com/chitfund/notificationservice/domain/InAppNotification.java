@@ -54,6 +54,10 @@ public class InAppNotification {
     @Column(columnDefinition = "text")
     private String metadata;
 
+    /** Optional deep-link path for frontend navigation (e.g. /member/chits/{id}). */
+    @Column(length = 255)
+    private String link;
+
     @Column(nullable = false)
     private boolean isRead;
 

@@ -34,7 +34,7 @@ public class InAppNotificationService {
      * @param metadata     Key-value bag: memberId, workerId, chitId, amount, etc.
      */
     public void create(UUID recipientId, String title, String message,
-                       String type, Map<String, String> metadata) {
+                       String type, Map<String, String> metadata, String link) {
         try {
             String metaJson = metadata != null ? objectMapper.writeValueAsString(metadata) : null;
             InAppNotification n = InAppNotification.builder()
@@ -43,6 +43,7 @@ public class InAppNotificationService {
                     .message(message)
                     .type(type)
                     .metadata(metaJson)
+                    .link(link)
                     .build();
             repo.save(n);
         } catch (JsonProcessingException e) {
