@@ -87,13 +87,13 @@ function ResolvedDescription({ desc, memberMap, chitMap, navigate }) {
 // ─── Shared mini-components for the detail modal ──────────────────────────
 function TxInfoRow({ icon: Icon, label, value, valueClass = '' }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
-      <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center mt-0.5">
-        <Icon size={15} className="text-gray-400" />
+    <div className="flex items-start gap-4 py-4 border-b border-gray-100 last:border-0">
+      <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+        <Icon size={16} className="text-gray-400" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-0.5">{label}</p>
-        <p className={`text-sm font-medium text-gray-800 break-words leading-snug ${valueClass}`}>{value}</p>
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">{label}</p>
+        <p className={`text-sm font-medium text-gray-800 break-words leading-relaxed ${valueClass}`}>{value}</p>
       </div>
     </div>
   );
@@ -102,11 +102,11 @@ function TxInfoRow({ icon: Icon, label, value, valueClass = '' }) {
 function TxSection({ title, icon: Icon, children }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
         <Icon size={14} className="text-gray-400" />
         <span className="text-sm font-semibold text-gray-700">{title}</span>
       </div>
-      <div className="px-4">{children}</div>
+      <div className="px-5">{children}</div>
     </div>
   );
 }

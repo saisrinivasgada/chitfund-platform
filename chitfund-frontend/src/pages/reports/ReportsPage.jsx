@@ -20,8 +20,9 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
-  Wallet, AlertCircle, TrendingUp, FileText, ExternalLink, Layers,
+  Wallet, AlertCircle, TrendingUp, TrendingDown, FileText, ExternalLink, Layers,
   User, Building2, Hash, Calendar, IndianRupee, CheckCircle, Clock, XCircle, CreditCard,
+  ArrowLeftRight, Tag, X,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -2399,6 +2400,172 @@ function resolveUUID(uuid, memberMap, chitMap, staffMap = {}) {
   return String(uuid);
 }
 
+// ─── Treasury Detail Modal ────────────────────────────────────────────────────
+function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const isTransfer = tx.category === 'TRANSFER';
+  const isIn = tx.entryType === 'IN';
+
+  const heroIcon = isTransfer
+    ? <ArrowLeftRight size={16} style={{ color: '#7C3AED' }} />
+    : isIn
+      ? <TrendingUp size={16} style={{ color: '#16A34A' }} />
+      : <TrendingDown size={16} style={{ color: '#DC2626' }} />;
+  const heroBg = isTransfer ? '#F5F3FF' : isIn ? '#DCFCE7' : '#FEE2E2';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }} />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col"
+        style={{ maxHeight: '90vh' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: heroBg }}>
+              {heroIcon}
+            </div>
+            <div>
+              <h3 className="text-base font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
+                Transaction Details
+              </h3>
+              <p className="text-xs text-gray-400">{tx.category ?? 'Manual entry'}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        {/* Amount hero */}
+        <div
+          className="px-6 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
+          style={{ backgroundColor: isTransfer ? '#FAF5FF' : isIn ? '#F0FDF4' : '#FFF5F5' }}
+        >
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider mb-1"
+              style={{ color: isTransfer ? '#6D28D9' : isIn ? '#166534' : '#991B1B' }}>
+              {isTransfer ? 'Transfer Amount' : isIn ? 'Amount Received' : 'Amount Paid Out'}
+            </p>
+            <p className={`text-4xl font-bold ${isTransfer ? 'text-purple-700' : isIn ? 'text-green-700' : 'text-red-600'}`}>
+              {isIn ? '+' : '−'}{fmt(tx.amount)}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            {isTransfer ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-purple-50 text-purple-700 border-purple-200">
+                <ArrowLeftRight size={11} /> Transfer
+              </span>
+            ) : (
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                isIn ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
+              }`}>
+                {isIn ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                {isIn ? 'Money In' : 'Money Out'}
+              </span>
+            )}
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              tx.accountType === 'CASH'
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : 'bg-blue-50 text-blue-700 border-blue-200'
+            }`}>
+              {tx.accountType === 'CASH' ? <Banknote size={11} /> : <CreditCard size={11} />}
+              {tx.accountType ?? '—'}
+            </span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto px-6 py-5 space-y-3">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+              <FileText size={14} className="text-gray-400" />
+              <span className="text-sm font-semibold text-gray-700">Details</span>
+            </div>
+            <div className="px-5">
+              {tx.category && (
+                <div className="flex items-start gap-4 py-4 border-b border-gray-100">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+                    <Tag size={16} className="text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Category</p>
+                    <p className="text-sm font-medium text-gray-800">{tx.category}</p>
+                  </div>
+                </div>
+              )}
+              {(tx.description ?? tx.notes) && (
+                <div className="flex items-start gap-4 py-4 border-b border-gray-100">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+                    <FileText size={16} className="text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Description</p>
+                    <p className="text-sm font-medium text-gray-800 break-words leading-relaxed">
+                      {resolveDescriptionJsx(tx.description ?? tx.notes, memberMap, chitMap, staffMap)}
+                    </p>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-start gap-4 py-4 border-b border-gray-100">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+                  <Calendar size={16} className="text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Date & Time</p>
+                  <p className="text-sm font-medium text-gray-800">{fmtDateTime(tx.createdAt ?? tx.transactionDate)}</p>
+                </div>
+              </div>
+              {tx.createdBy && (
+                <div className="flex items-start gap-4 py-4 border-b border-gray-100">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+                    <User size={16} className="text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Recorded By</p>
+                    <p className="text-sm font-medium text-gray-800">{staffMap[String(tx.createdBy).toLowerCase()] ?? 'Admin'}</p>
+                  </div>
+                </div>
+              )}
+              {tx.id && (
+                <div className="flex items-start gap-4 py-4">
+                  <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
+                    <Hash size={16} className="text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Reference ID</p>
+                    <p className="text-sm font-mono text-gray-500">{String(tx.id).slice(0, 8)}…</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Treasury Tab ─────────────────────────────────────────────────────────────
 function TreasuryTab() {
   const [from, setFrom]           = useSessionState('rpt_tr_from', '');
@@ -2554,52 +2721,15 @@ function TreasuryTab() {
         </div>
       )}
 
-      {selectedTxn && (() => {
-        const t = selectedTxn;
-        const isIn = t.entryType === 'IN';
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedTxn(null)}>
-            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSelectedTxn(null)} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
-
-              <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 28, paddingRight: 52 }}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-gray-900">Treasury Entry</h2>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                    {isIn ? 'IN' : 'OUT'}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">{fmtDateTime(t.createdAt ?? t.transactionDate)}</p>
-              </div>
-
-              <div className="overflow-y-auto flex-1 py-3" style={{ paddingLeft: 28, paddingRight: 28 }}>
-                {/* Amount */}
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Amount</span>
-                  <span className={`text-2xl font-bold ${isIn ? 'text-green-700' : 'text-red-600'}`}>
-                    {isIn ? '+' : '-'}{fmt(t.amount)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Account</span>
-                  <span className="text-sm font-semibold text-gray-800">{t.accountType ?? '—'}</span>
-                </div>
-                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Category</span>
-                  <span className="text-sm font-semibold text-gray-800">{t.category ?? '—'}</span>
-                </div>
-                {/* Full description */}
-                <div className="py-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Description</p>
-                  <p className="text-sm text-gray-800 leading-relaxed">
-                    {resolveDescriptionJsx(t.description ?? t.notes, memberMap, chitMap, staffMap)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {selectedTxn && (
+        <TreasuryDetailModal
+          tx={selectedTxn}
+          memberMap={memberMap}
+          chitMap={chitMap}
+          staffMap={staffMap}
+          onClose={() => setSelectedTxn(null)}
+        />
+      )}
     </div>
   );
 }
