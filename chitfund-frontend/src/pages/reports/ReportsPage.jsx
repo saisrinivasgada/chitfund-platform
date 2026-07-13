@@ -9,7 +9,7 @@ import {
   getPayoutsByChit, getDraws, getDrawPayments, getPaymentBatches,
   getCollectionsReport, getMembersReport, getPayoutsReport,
   getWalletBalance, getWalletTransactions,
-  listStaff, getPayoutById,
+  listStaff, getPayoutById, getPaymentBatchById,
 } from '../../services/api';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import Button from '../../components/ui/Button';
@@ -632,6 +632,166 @@ const PMT_STATUS_COLOR = {
 const PY_STATUS_COLOR = { DISBURSED: 'green', PENDING: 'yellow', CANCELLED: 'red', VOIDED: 'gray' };
 
 const TABS = ['Overview', 'Member Report', 'Chit Report', 'Payments', 'Payouts', 'Treasury'];
+
+// ─── Payment Detail Modal ─────────────────────────────────────────────────────
+const BATCH_STATUS_CFG = {
+  COMPLETED:           { label: 'Completed',           bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200' },
+  AWAITING_REMITTANCE: { label: 'Awaiting Remittance', bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
+  VOIDED:              { label: 'Voided',               bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200' },
+};
+const PMODE_ICON = { CASH: Banknote, UPI: CreditCard, BANK_TRANSFER: Building2 };
+
+function PaymentDetailModal({ batchId, onClose }) {
+  const { hidden } = useHiddenAmounts();
+  const h = (n) => hidden ? '••••' : fmt(n);
+
+  useEffect(() => {
+    const fn = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', fn);
+    return () => document.removeEventListener('keydown', fn);
+  }, [onClose]);
+
+  const { data: batch, isLoading } = useQuery({
+    queryKey: ['batch', batchId],
+    queryFn:  () => getPaymentBatchById(batchId),
+    enabled:  !!batchId,
+  });
+  const { data: member } = useQuery({
+    queryKey: ['member', batch?.memberId],
+    queryFn:  () => getMember(batch.memberId),
+    enabled:  !!batch?.memberId,
+  });
+  const { data: chit } = useQuery({
+    queryKey: ['chit', batch?.chitId],
+    queryFn:  () => getChit(batch.chitId),
+    enabled:  !!batch?.chitId,
+  });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const nameMap = Object.fromEntries([
+    ...staff.map((s) => [String(s.id), s.fullName ?? s.username]),
+    ...allMembers.map((m) => [String(m.id), m.fullName ?? m.username]),
+  ]);
+  const resolveName = (id) => (id ? (nameMap[String(id)] ?? 'Admin') : '—');
+
+  const statusCfg = batch ? (BATCH_STATUS_CFG[batch.status] ?? BATCH_STATUS_CFG.COMPLETED) : null;
+  const ModeIcon = batch ? (PMODE_ICON[batch.paymentMode] ?? CreditCard) : CreditCard;
+  const allocations = batch?.allocations ?? [];
+
+  function DRow({ label, value, valueClass = '' }) {
+    return (
+      <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+        <span className="text-sm text-gray-500">{label}</span>
+        <span className={`text-sm font-semibold text-gray-900 text-right ${valueClass}`}>{value}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
+
+        {/* Header */}
+        <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 28, paddingRight: 52 }}>
+          {isLoading || !batch ? (
+            <div className="h-6 w-36 bg-gray-100 rounded animate-pulse" />
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-bold text-gray-900">Payment — {member?.fullName ?? '…'}</h2>
+                {statusCfg && (
+                  <span className={`px-2.5 py-1 rounded-full border text-xs font-semibold ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
+                    {statusCfg.label}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">{fmtDateTime(batch.collectedAt ?? batch.createdAt)}</p>
+            </>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 py-3" style={{ paddingLeft: 28, paddingRight: 28 }}>
+          {isLoading ? (
+            <div className="space-y-3 animate-pulse py-4">
+              {[40, 40, 40, 40].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded" />)}
+            </div>
+          ) : !batch ? (
+            <p className="text-center text-sm text-gray-400 py-10">Transaction not found.</p>
+          ) : (
+            <>
+              {/* Amount hero */}
+              <div className="flex items-center justify-between py-3 mb-1">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">Total Amount</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-0.5">{h(batch.totalAmount)}</p>
+                </div>
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700">
+                  <ModeIcon size={14} className="text-gray-500" />
+                  {batch.paymentMode?.replace('_', ' ') ?? '—'}
+                </span>
+              </div>
+
+              {/* Member & Chit */}
+              <div className="border-t border-gray-100">
+                <DRow label="Member" value={member?.fullName ?? resolveName(batch.memberId)} />
+                <DRow label="Chit" value={chit?.name ?? '…'} />
+                {allocations.length > 0 && (
+                  <DRow label="Draw(s) Paid" value={allocations.map((a) => `#${a.monthNumber}`).join(', ')} />
+                )}
+              </div>
+
+              {/* Draw breakdown if multiple */}
+              {allocations.length > 1 && (
+                <div className="mt-1 mb-2">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Installment Breakdown</p>
+                  {allocations.map((a) => (
+                    <div key={a.monthNumber} className="flex items-center justify-between py-2 border-b border-gray-50" style={{ paddingLeft: 12 }}>
+                      <div>
+                        <p className="text-xs font-medium text-gray-700">Draw #{a.monthNumber}</p>
+                        {chit?.startDate && <p className="text-xs text-gray-400">{drawMonthLabel(chit.startDate, a.monthNumber)}</p>}
+                      </div>
+                      <p className="text-xs font-semibold text-gray-800">{h(a.allocatedAmount)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Collection */}
+              <div className="border-t border-gray-100 mt-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-3 pb-1">Collection</p>
+                <DRow label="Recorded By" value={resolveName(batch.recordedBy ?? batch.collectedBy)} />
+                <DRow label="Collected At" value={fmtDateTime(batch.collectedAt ?? batch.createdAt)} />
+                {batch.status === 'COMPLETED' && batch.remittedBy && (
+                  <DRow label="Remitted By" value={resolveName(batch.remittedBy)} />
+                )}
+              </div>
+
+              {/* Void details */}
+              {batch.status === 'VOIDED' && (
+                <div className="border-t border-red-100 mt-1 bg-red-50 rounded-xl px-4 py-3 mt-2">
+                  <p className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-1">Void Details</p>
+                  <DRow label="Voided By" value={resolveName(batch.voidedBy)} />
+                  <DRow label="Voided At" value={fmtDateTime(batch.voidedAt)} />
+                  {batch.voidReason && <DRow label="Reason" value={batch.voidReason} valueClass="text-red-700" />}
+                </div>
+              )}
+
+              {/* Notes */}
+              {batch.notes && (
+                <div className="border-t border-gray-100 mt-1 pt-3 pb-2">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Notes</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{batch.notes}</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Print CSS ────────────────────────────────────────────────────────────────
 const PRINT_CSS = `
@@ -1864,9 +2024,9 @@ function PaymentsTab() {
   const [to, setTo]                 = useSessionState('rpt_pmt_to', todayStr());
   const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'This Month');
   const [filterChit, setFilterChit] = useSessionState('rpt_pmt_chit', '');
+  const [selectedBatchId, setSelectedBatchId] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
-  const nav = useNavigate();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
@@ -1990,7 +2150,7 @@ function PaymentsTab() {
               </thead>
               <tbody>
                 {batches.map((b) => (
-                  <tr key={b.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => nav(`/transactions/${b.id}`)}>
+                  <tr key={b.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => setSelectedBatchId(b.id)}>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
                     <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <MemberLink id={b.memberId} name={memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId} />
@@ -2024,6 +2184,10 @@ function PaymentsTab() {
             </table>
           </div>
         </div>
+      )}
+
+      {selectedBatchId && (
+        <PaymentDetailModal batchId={selectedBatchId} onClose={() => setSelectedBatchId(null)} />
       )}
     </div>
   );
