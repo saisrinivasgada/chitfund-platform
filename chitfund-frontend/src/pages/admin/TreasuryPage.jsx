@@ -131,10 +131,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer"
-          style={{ backgroundColor: '#EFF4FA', color: '#1E3A5F' }}
-          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1E3A5F'; e.currentTarget.style.color = '#fff'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#EFF4FA'; e.currentTarget.style.color = '#1E3A5F'; }}
+          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
         >✕</button>
 
         {/* Header */}
