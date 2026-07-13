@@ -12,26 +12,27 @@ import { Input } from '../ui/FormField';
 function SignOutModal({ onConfirm, onClose }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm px-8 py-8" onClick={(e) => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm" style={{ padding: 40 }} onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
           className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
         >✕</button>
-        <div className="flex flex-col items-center text-center pt-2">
-          <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5" style={{ backgroundColor: '#FEE2E2' }}>
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center justify-center rounded-2xl" style={{ width: 56, height: 56, backgroundColor: '#FEE2E2', marginBottom: 20 }}>
             <LogOut size={24} style={{ color: '#DC2626' }} />
           </div>
-          <h3 className="text-base font-bold text-gray-900 mb-2" style={{ fontFamily: 'Merriweather, serif' }}>Sign out?</h3>
-          <p className="text-sm text-gray-500 mb-8">You'll need to sign in again to access your account.</p>
-          <div className="flex gap-4 w-full">
+          <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif', marginBottom: 8 }}>Sign out?</h3>
+          <p className="text-sm text-gray-500" style={{ marginBottom: 32 }}>You'll need to sign in again to access your account.</p>
+          <div className="flex w-full" style={{ gap: 16 }}>
             <button
               onClick={onClose}
-              className="flex-1 py-3 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
+              className="flex-1 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
+              style={{ paddingTop: 14, paddingBottom: 14 }}
             >Cancel</button>
             <button
               onClick={onConfirm}
-              className="flex-1 py-3 text-sm font-medium text-white rounded-xl transition-colors cursor-pointer"
-              style={{ backgroundColor: '#DC2626' }}
+              className="flex-1 text-sm font-medium text-white rounded-xl cursor-pointer"
+              style={{ paddingTop: 14, paddingBottom: 14, backgroundColor: '#DC2626' }}
               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#B91C1C')}
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#DC2626')}
             >Sign out</button>
