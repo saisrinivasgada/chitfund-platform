@@ -2152,10 +2152,10 @@ function PaymentsTab() {
                 {batches.map((b) => (
                   <tr key={b.id} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => setSelectedBatchId(b.id)}>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(b.collectedAt ?? b.createdAt)}</td>
-                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-2.5">
                       <MemberLink id={b.memberId} name={memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId} />
                     </td>
-                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-2.5">
                       <ChitLink id={b.chitId} name={chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId} />
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-600">
