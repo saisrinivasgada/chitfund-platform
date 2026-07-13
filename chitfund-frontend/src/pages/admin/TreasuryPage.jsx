@@ -116,129 +116,90 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
   const isTransfer = tx.category === 'TRANSFER';
   const isIn = tx.entryType === 'IN';
 
-  const heroIcon = isTransfer
-    ? <ArrowLeftRight size={16} style={{ color: '#7C3AED' }} />
-    : isIn
-      ? <TrendingUp size={16} style={{ color: '#16A34A' }} />
-      : <TrendingDown size={16} style={{ color: '#DC2626' }} />;
-
-  const heroBg = isTransfer ? '#F5F3FF' : isIn ? '#DCFCE7' : '#FEE2E2';
+  function DRow({ label, value, valueClass = '' }) {
+    return (
+      <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+        <span className="text-sm text-gray-500">{label}</span>
+        <span className={`text-sm font-semibold text-gray-900 text-right ${valueClass}`}>{value}</span>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="absolute inset-0"
-        style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
-      />
-      <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
-        style={{ maxHeight: '90vh' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: heroBg }}
-            >
-              {heroIcon}
-            </div>
-            <div>
-              <h3 className="text-base font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
-                Transaction Details
-              </h3>
-              <p className="text-xs text-gray-400">{tx.category ?? 'Manual entry'}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors text-gray-400 hover:text-gray-600"
-          >
-            <X size={15} />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-colors cursor-pointer"
+          style={{ backgroundColor: '#EFF4FA', color: '#1E3A5F' }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1E3A5F'; e.currentTarget.style.color = '#fff'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#EFF4FA'; e.currentTarget.style.color = '#1E3A5F'; }}
+        >✕</button>
 
-        {/* Amount hero */}
-        <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between flex-shrink-0"
-          style={{ backgroundColor: isTransfer ? '#FAF5FF' : isIn ? '#F0FDF4' : '#FFF5F5' }}>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider mb-1"
-              style={{ color: isTransfer ? '#6D28D9' : isIn ? '#166534' : '#991B1B' }}>
-              {isTransfer ? 'Transfer Amount' : isIn ? 'Amount Received' : 'Amount Paid Out'}
-            </p>
-            <p className={`text-4xl font-bold ${isTransfer ? 'text-purple-700' : isIn ? 'text-green-700' : 'text-red-600'}`}>
-              {isIn ? '+' : '−'}₹{Number(tx.amount).toLocaleString('en-IN')}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
+        {/* Header */}
+        <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 28, paddingRight: 52 }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base font-bold text-gray-900">
+              Treasury — {isTransfer ? 'Transfer' : isIn ? 'Money In' : 'Money Out'}
+            </h2>
             {isTransfer ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-purple-50 text-purple-700 border-purple-200">
-                <ArrowLeftRight size={11} /> Transfer
-              </span>
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">TRANSFER</span>
             ) : (
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                isIn ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'
-              }`}>
-                {isIn ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                {isIn ? 'Money In' : 'Money Out'}
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                {tx.entryType}
               </span>
             )}
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            {new Date(tx.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+          </p>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 py-3" style={{ paddingLeft: 28, paddingRight: 28 }}>
+          {/* Amount hero */}
+          <div className="flex items-center justify-between py-3 mb-1">
+            <div>
+              <p className="text-xs text-gray-400 uppercase tracking-wider">Amount</p>
+              <p className={`text-3xl font-bold mt-0.5 ${isTransfer ? 'text-purple-700' : isIn ? 'text-green-700' : 'text-red-600'}`}>
+                {isIn ? '+' : '−'}₹{Number(tx.amount).toLocaleString('en-IN')}
+              </p>
+            </div>
+            <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${
               tx.accountType === 'CASH'
                 ? 'bg-amber-50 text-amber-700 border-amber-200'
                 : 'bg-blue-50 text-blue-700 border-blue-200'
             }`}>
-              {tx.accountType === 'CASH' ? <Banknote size={11} /> : <CreditCard size={11} />}
               {tx.accountType}
             </span>
           </div>
-        </div>
 
-        {/* Body */}
-        <div className="overflow-y-auto px-8 py-6 space-y-3">
-          <TxSection title="Details" icon={FileText}>
-            {tx.category && <TxInfoRow icon={Tag} label="Category" value={tx.category} />}
+          {/* Core details */}
+          <div className="border-t border-gray-100">
+            {tx.category && <DRow label="Category" value={tx.category} />}
             {tx.description && (
-              <TxInfoRow icon={FileText} label="Description"
-                value={<ResolvedDescription desc={tx.description} memberMap={memberMap} chitMap={chitMap} navigate={navigate} />} />
+              <div className="py-3 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</p>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  <ResolvedDescription desc={tx.description} memberMap={memberMap} chitMap={chitMap} navigate={navigate} />
+                </p>
+              </div>
             )}
-            <TxInfoRow
-              icon={Calendar}
-              label="Date & Time"
-              value={new Date(tx.createdAt).toLocaleString('en-IN', {
-                day: 'numeric', month: 'short', year: 'numeric',
-                hour: '2-digit', minute: '2-digit', hour12: true,
-              })}
-            />
-            {tx.createdBy && (
-              <TxInfoRow
-                icon={User}
-                label="Recorded By"
-                value={staffMap[tx.createdBy] ?? 'Admin'}
-              />
-            )}
-            {tx.id && (
-              <TxInfoRow
-                icon={Hash}
-                label="Reference ID"
-                value={<span className="font-mono text-xs text-gray-500">{String(tx.id).slice(0, 8)}…</span>}
-              />
-            )}
-          </TxSection>
-        </div>
+          </div>
 
-        {/* Footer */}
-        <div className="px-8 py-5 border-t border-gray-100 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="w-full py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
-          >
-            Close
-          </button>
+          {/* Meta */}
+          <div className="border-t border-gray-100 mt-1">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-3 pb-1">Details</p>
+            <DRow label="Date & Time" value={new Date(tx.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} />
+            {tx.createdBy && <DRow label="Recorded By" value={staffMap[tx.createdBy] ?? 'Admin'} />}
+            {tx.id && (
+              <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                <span className="text-sm text-gray-500">Reference ID</span>
+                <span className="text-xs font-mono text-gray-400">{String(tx.id).slice(0, 8)}…</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
