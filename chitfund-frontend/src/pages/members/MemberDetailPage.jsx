@@ -1158,7 +1158,22 @@ export default function MemberDetailPage() {
   });
 
   const changeRefMutation = useMutation({
-    mutationFn: ({ referredById }) => updateMember({ id, referredById: referredById ?? null }),
+    mutationFn: ({ referredById }) => updateMember({
+      id,
+      fullName: member.fullName,
+      phone: member.phone,
+      phoneCountryCode: member.phoneCountryCode,
+      email: member.email ?? null,
+      address: member.address ?? null,
+      city: member.city ?? null,
+      aadhaarLast4: member.aadhaarLast4 ?? null,
+      panNumber: member.panNumber ?? null,
+      bankName: member.bankName ?? null,
+      bankAccountNumber: member.bankAccountNumber ?? null,
+      bankIfsc: member.bankIfsc ?? null,
+      notes: member.notes ?? null,
+      referredById: referredById ?? null,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['member', id] });
       toast.success('Referral updated');
