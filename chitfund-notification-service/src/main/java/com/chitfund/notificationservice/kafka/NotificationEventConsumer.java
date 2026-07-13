@@ -6,34 +6,14 @@ import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Consumes all payment and payout events and dispatches notifications.
- *
- * WHY String payload + manual ObjectMapper instead of typed @KafkaListener?
- * With Spring's JsonDeserializer and type headers, Spring resolves the type automatically.
- * But when you have 6 topics with 6 different types in one class, you'd need a separate
- * ConsumerFactory per type. String + manual deserialization is more explicit and easier
- * to reason about — you always know exactly what you're doing with the bytes.
- *
- * WHY groupId = "notification-service"?
- * Each service has its own consumer group. Kafka delivers each event to ONE consumer
- * within a group. Since all notification-service instances share the same group,
- * load is balanced across them. reporting-service has its own group so it also gets
- * every event independently — fan-out at the consumer-group level.
- *
- * WHY @KafkaListener per topic method (not one method for all topics)?
- * Each event has a different type and different notification logic. A single dispatcher
- * would be a massive switch statement — harder to read and extend. One method per topic
- * follows the Open/Closed principle: adding a new topic = adding a new method.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -44,7 +24,7 @@ public class NotificationEventConsumer {
     private final ObjectMapper objectMapper;
     private final WebSocketBroadcaster broadcaster;
 
-    @KafkaListener(topics = KafkaTopics.MONTH_OPENED, groupId = "notification-service")
+    @SqsListener(SqsQueues.MONTH_OPENED)
     public void onMonthOpened(String payload) {
         try {
             ChitMonthOpenedEvent event = objectMapper.readValue(payload, ChitMonthOpenedEvent.class);
@@ -84,7 +64,7 @@ public class NotificationEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.MONTH_SKIPPED, groupId = "notification-service")
+    @SqsListener(SqsQueues.MONTH_SKIPPED)
     public void onMonthSkipped(String payload) {
         try {
             ChitMonthSkippedEvent event = objectMapper.readValue(payload, ChitMonthSkippedEvent.class);
@@ -121,7 +101,7 @@ public class NotificationEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.CASH_COLLECTED, groupId = "notification-service")
+    @SqsListener(SqsQueues.CASH_COLLECTED)
     public void onCashCollected(String payload) {
         try {
             CashCollectedEvent event = objectMapper.readValue(payload, CashCollectedEvent.class);
@@ -143,7 +123,6 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            // In-app: notify worker (recipientId = collectedByUserId — a real userId)
             inAppService.create(
                 UUID.fromString(event.collectedByUserId()),
                 "Cash Collected",
@@ -161,7 +140,7 @@ public class NotificationEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYMENT_COMPLETED, groupId = "notification-service")
+    @SqsListener(SqsQueues.PAYMENT_COMPLETED)
     public void onPaymentCompleted(String payload) {
         try {
             PaymentCompletedEvent event = objectMapper.readValue(payload, PaymentCompletedEvent.class);
@@ -183,7 +162,6 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            // In-app: notify member (recipientId = memberId — frontend resolves via member profile)
             inAppService.create(
                 UUID.fromString(event.memberId()),
                 "Payment Received",
@@ -199,7 +177,7 @@ public class NotificationEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYOUT_CREATED, groupId = "notification-service")
+    @SqsListener(SqsQueues.PAYOUT_CREATED)
     public void onPayoutCreated(String payload) {
         try {
             PayoutCreatedEvent event = objectMapper.readValue(payload, PayoutCreatedEvent.class);
@@ -232,7 +210,7 @@ public class NotificationEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYOUT_DISBURSED, groupId = "notification-service")
+    @SqsListener(SqsQueues.PAYOUT_DISBURSED)
     public void onPayoutDisbursed(String payload) {
         try {
             PayoutDisbursedEvent event = objectMapper.readValue(payload, PayoutDisbursedEvent.class);
@@ -265,6 +243,26 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
+        }
+    }
+
+    @SqsListener(SqsQueues.MEMBER_UPDATED)
+    public void onMemberUpdated(String payload) {
+        try {
+            MemberUpdatedEvent event = objectMapper.readValue(payload, MemberUpdatedEvent.class);
+            String newValue = event.newReferredByName() != null ? event.newReferredByName() : "None";
+            String fieldLabel = "Referred by";
+
+            inAppService.create(
+                UUID.fromString(event.memberId()),
+                "Profile Updated",
+                "Your referral has been updated by an admin. Referred by: " + newValue,
+                "PROFILE_UPDATED",
+                Map.of("fieldChanged", fieldLabel, "newValue", newValue)
+            );
+            broadcaster.broadcast("IN_APP_UPDATED");
+        } catch (Exception e) {
+            log.error("Failed to process MEMBER_UPDATED event: {}", e.getMessage(), e);
         }
     }
 

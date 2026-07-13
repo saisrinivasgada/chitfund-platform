@@ -16,7 +16,6 @@ rsync -az --progress \
   --exclude='*/target/' \
   --exclude='node_modules' \
   --exclude='chitfund-frontend/node_modules' \
-  --exclude='chitfund-audit-service' \
   --exclude='chitfund-reporting-service' \
   --exclude='restful-web-services' \
   --exclude='MyVibeCodingApp' \

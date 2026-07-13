@@ -19,6 +19,13 @@ public final class SqsQueues {
     public static final String PAYMENT_COMPLETED = "chitfund-payment-completed";
 
     // payout-service publishes
-    public static final String PAYOUT_CREATED    = "chitfund-payout-created";
-    public static final String PAYOUT_DISBURSED  = "chitfund-payout-disbursed";
+    public static final String PAYOUT_CREATED          = "chitfund-payout-created";
+    public static final String PAYOUT_DISBURSED        = "chitfund-payout-disbursed";
+
+    // chit-service publishes
+    public static final String ORG_RESERVATION_CREATED = "chitfund-org-reservation-created";
+    public static final String ORG_PAYOUT_REALIZED     = "chitfund-org-payout-realized";
+
+    // member-service publishes
+    public static final String MEMBER_UPDATED          = "chitfund-member-updated";
 }

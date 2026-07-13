@@ -1,5 +1,6 @@
 package com.chitfund.memberservice.service;
 
+import com.chitfund.common.event.MemberUpdatedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.memberservice.domain.Member;
@@ -10,6 +11,7 @@ import com.chitfund.memberservice.dto.request.UpdateMemberProfileRequest;
 import com.chitfund.memberservice.dto.request.UpdateMemberRequest;
 import com.chitfund.memberservice.dto.request.UpdateStatusRequest;
 import com.chitfund.memberservice.dto.response.MemberResponse;
+import com.chitfund.memberservice.messaging.MemberEventPublisher;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +21,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -28,6 +32,7 @@ import java.util.UUID;
 public class MemberService {
 
     private final MemberRepository memberRepository;
+    private final MemberEventPublisher memberEventPublisher;
 
     @Transactional
     public MemberResponse createMember(CreateMemberRequest request, UUID adminId) {
@@ -117,10 +122,10 @@ public class MemberService {
     }
 
     @Transactional
-    public MemberResponse updateMember(UUID id, UpdateMemberRequest request) {
+    public MemberResponse updateMember(UUID id, UpdateMemberRequest request, UUID actorId) {
         Member member = findOrThrow(id);
 
-        member.setFullName(request.getFullName());
+        if (request.getFullName() != null) member.setFullName(request.getFullName());
 
         if (request.getPhone() != null && !request.getPhone().equals(member.getPhone())) {
             if (memberRepository.existsByPhoneAndDeletedAtIsNull(request.getPhone())) {
@@ -140,13 +145,36 @@ public class MemberService {
         member.setBankAccountNumber(request.getBankAccountNumber());
         member.setBankIfsc(request.getBankIfsc());
         member.setNotes(request.getNotes());
-        if (request.getReferredById() != null && !memberRepository.existsById(request.getReferredById())) {
+
+        UUID oldReferredById = member.getReferredById();
+        UUID newReferredById = request.getReferredById();
+        if (newReferredById != null && !memberRepository.existsById(newReferredById)) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
-        member.setReferredById(request.getReferredById());
+        member.setReferredById(newReferredById);
 
         memberRepository.save(member);
-        log.info("Member {} updated", id);
+        log.info("Member {} updated by {}", id, actorId);
+
+        if (!Objects.equals(oldReferredById, newReferredById)) {
+            String prevName = oldReferredById != null
+                    ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null)
+                    : null;
+            String newName = newReferredById != null
+                    ? memberRepository.findById(newReferredById).map(Member::getFullName).orElse(null)
+                    : null;
+            memberEventPublisher.publish(new MemberUpdatedEvent(
+                    id.toString(),
+                    "referredById",
+                    oldReferredById != null ? oldReferredById.toString() : null,
+                    newReferredById != null ? newReferredById.toString() : null,
+                    prevName,
+                    newName,
+                    actorId != null ? actorId.toString() : null,
+                    Instant.now()
+            ));
+        }
+
         return toResponse(member);
     }
 

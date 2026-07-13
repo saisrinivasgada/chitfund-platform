@@ -99,8 +99,10 @@ public class MemberController {
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> updateMember(
             @PathVariable UUID id,
-            @Valid @RequestBody UpdateMemberRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(memberService.updateMember(id, request)));
+            @Valid @RequestBody UpdateMemberRequest request,
+            Authentication auth) {
+        UUID actorId = auth != null ? (UUID) auth.getPrincipal() : null;
+        return ResponseEntity.ok(ApiResponse.success(memberService.updateMember(id, request, actorId)));
     }
 
     /**

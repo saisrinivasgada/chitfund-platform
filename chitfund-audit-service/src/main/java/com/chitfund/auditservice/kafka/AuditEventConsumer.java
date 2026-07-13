@@ -2,22 +2,21 @@ package com.chitfund.auditservice.kafka;
 
 import com.chitfund.common.event.*;
 import com.chitfund.auditservice.dto.AuditLogRequest;
-import java.math.BigDecimal;
 import com.chitfund.auditservice.service.AuditService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumes every platform event and writes an immutable audit record.
+ * Consumes platform events from SQS and writes immutable audit records.
  *
- * WHY audit-service listens to ALL topics?
- * It is the system of record for "what happened and who did it."
- * Every state change in the platform should be auditable.
- * Having all events flow through one consumer makes compliance reporting trivial —
- * query audit_logs and you have a complete cross-service timeline.
+ * WHY SQS instead of Kafka?
+ * All event producers (payment-service, payout-service, member-service) publish
+ * to AWS SQS. Kafka was the original plan but was replaced by SQS to avoid
+ * running a Kafka broker on the EC2 instance. SQS is managed, serverless, and
+ * free-tier friendly for this workload.
  */
 @Component
 @RequiredArgsConstructor
@@ -27,7 +26,7 @@ public class AuditEventConsumer {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
-    @KafkaListener(topics = KafkaTopics.MONTH_OPENED, groupId = "audit-service")
+    @SqsListener(SqsQueues.MONTH_OPENED)
     public void onMonthOpened(String payload) {
         try {
             ChitMonthOpenedEvent event = objectMapper.readValue(payload, ChitMonthOpenedEvent.class);
@@ -44,7 +43,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.MONTH_SKIPPED, groupId = "audit-service")
+    @SqsListener(SqsQueues.MONTH_SKIPPED)
     public void onMonthSkipped(String payload) {
         try {
             ChitMonthSkippedEvent event = objectMapper.readValue(payload, ChitMonthSkippedEvent.class);
@@ -61,7 +60,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.CASH_COLLECTED, groupId = "audit-service")
+    @SqsListener(SqsQueues.CASH_COLLECTED)
     public void onCashCollected(String payload) {
         try {
             CashCollectedEvent event = objectMapper.readValue(payload, CashCollectedEvent.class);
@@ -78,7 +77,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYMENT_COMPLETED, groupId = "audit-service")
+    @SqsListener(SqsQueues.PAYMENT_COMPLETED)
     public void onPaymentCompleted(String payload) {
         try {
             PaymentCompletedEvent event = objectMapper.readValue(payload, PaymentCompletedEvent.class);
@@ -96,7 +95,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYOUT_CREATED, groupId = "audit-service")
+    @SqsListener(SqsQueues.PAYOUT_CREATED)
     public void onPayoutCreated(String payload) {
         try {
             PayoutCreatedEvent event = objectMapper.readValue(payload, PayoutCreatedEvent.class);
@@ -114,7 +113,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.PAYOUT_DISBURSED, groupId = "audit-service")
+    @SqsListener(SqsQueues.PAYOUT_DISBURSED)
     public void onPayoutDisbursed(String payload) {
         try {
             PayoutDisbursedEvent event = objectMapper.readValue(payload, PayoutDisbursedEvent.class);
@@ -132,7 +131,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.ORG_RESERVATION_CREATED, groupId = "audit-service")
+    @SqsListener(SqsQueues.ORG_RESERVATION_CREATED)
     public void onOrgReservationCreated(String payload) {
         try {
             OrgReservationCreatedEvent event = objectMapper.readValue(payload, OrgReservationCreatedEvent.class);
@@ -150,7 +149,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @KafkaListener(topics = KafkaTopics.ORG_PAYOUT_REALIZED, groupId = "audit-service")
+    @SqsListener(SqsQueues.ORG_PAYOUT_REALIZED)
     public void onOrgPayoutRealized(String payload) {
         try {
             OrgPayoutRealizedEvent event = objectMapper.readValue(payload, OrgPayoutRealizedEvent.class);
@@ -164,6 +163,31 @@ public class AuditEventConsumer {
             ));
         } catch (Exception e) {
             log.error("Failed to audit ORG_PAYOUT_REALIZED: {}", e.getMessage(), e);
+        }
+    }
+
+    @SqsListener(SqsQueues.MEMBER_UPDATED)
+    public void onMemberUpdated(String payload) {
+        try {
+            MemberUpdatedEvent event = objectMapper.readValue(payload, MemberUpdatedEvent.class);
+            String before = event.previousReferredById() != null
+                    ? "{\"referredById\":\"" + event.previousReferredById() + "\",\"referredByName\":\""
+                            + (event.previousReferredByName() != null ? event.previousReferredByName() : "") + "\"}"
+                    : null;
+            String after = event.newReferredById() != null
+                    ? "{\"referredById\":\"" + event.newReferredById() + "\",\"referredByName\":\""
+                            + (event.newReferredByName() != null ? event.newReferredByName() : "") + "\"}"
+                    : "{\"referredById\":null}";
+            auditService.record(new AuditLogRequest(
+                    "member-service", "MEMBER", event.memberId(),
+                    null, "PROFILE_UPDATED",
+                    event.updatedBy(), "ROLE_ADMIN", null,
+                    before,
+                    after,
+                    "{\"fieldChanged\":\"" + event.fieldChanged() + "\"}"
+            ));
+        } catch (Exception e) {
+            log.error("Failed to audit MEMBER_UPDATED: {}", e.getMessage(), e);
         }
     }
 }

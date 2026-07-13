@@ -6,5 +6,6 @@ public enum NotificationEventType {
     MONTH_SKIPPED,        // admin skipped a month — all members + workers notified
     WINNER_SELECTED,      // winner announced — notify the winner
     PAYOUT_DISBURSED,     // money transferred to winner — send receipt
-    CASH_COLLECTED        // worker collected cash — alert admin to remit
+    CASH_COLLECTED,       // worker collected cash — alert admin to remit
+    PROFILE_UPDATED       // admin updated a member's profile field
 }

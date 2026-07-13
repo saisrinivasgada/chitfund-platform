@@ -53,6 +53,11 @@ public enum NotificationTemplate {
         // Params: workerName, memberName, amount, chitName
         "Alert: {workerName} collected Rs.{amount} cash from {memberName} for chit '{chitName}'. " +
         "Please collect and remit at day end."
+    ),
+
+    PROFILE_UPDATED(
+        // Params: fieldChanged, newValue
+        "Your profile has been updated by an admin. {fieldChanged} is now set to: {newValue}."
     );
 
     private final String template;
@@ -77,6 +82,7 @@ public enum NotificationTemplate {
             case WINNER_SELECTED  -> WINNER_SELECTED;
             case PAYOUT_DISBURSED -> PAYOUT_DISBURSED;
             case CASH_COLLECTED   -> CASH_COLLECTED;
+            case PROFILE_UPDATED  -> PROFILE_UPDATED;
         };
     }
 }
