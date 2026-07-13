@@ -9,6 +9,39 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 
+function SignOutModal({ onConfirm, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
+        >✕</button>
+        <div className="flex flex-col items-center text-center pt-2">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: '#FEE2E2' }}>
+            <LogOut size={22} style={{ color: '#DC2626' }} />
+          </div>
+          <h3 className="text-base font-bold text-gray-900 mb-1" style={{ fontFamily: 'Merriweather, serif' }}>Sign out?</h3>
+          <p className="text-sm text-gray-500 mb-6">You'll need to sign in again to access your account.</p>
+          <div className="flex gap-3 w-full">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer"
+            >Cancel</button>
+            <button
+              onClick={onConfirm}
+              className="flex-1 py-2.5 text-sm font-medium text-white rounded-xl transition-colors cursor-pointer"
+              style={{ backgroundColor: '#DC2626' }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#B91C1C')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#DC2626')}
+            >Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SwitchRoleModal({ phone, altRole, altLabel, onClose }) {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -104,6 +137,7 @@ const ROLE_LABELS = {
 export default function MemberPortalLayout() {
   const { isAuthenticated, user, logout } = useAuth();
   const [showSwitch, setShowSwitch] = useState(false);
+  const [showSignOut, setShowSignOut] = useState(false);
 
   const { data: me } = useQuery({
     queryKey: ['myUserAccount'],
@@ -177,9 +211,7 @@ export default function MemberPortalLayout() {
               </span>
             </div>
             <button
-              onClick={() => {
-                if (window.confirm('Are you sure you want to sign out?')) logout();
-              }}
+              onClick={() => setShowSignOut(true)}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
             >
               <LogOut size={15} />
@@ -199,6 +231,12 @@ export default function MemberPortalLayout() {
           altRole={altRole}
           altLabel={altLabel}
           onClose={() => setShowSwitch(false)}
+        />
+      )}
+      {showSignOut && (
+        <SignOutModal
+          onConfirm={logout}
+          onClose={() => setShowSignOut(false)}
         />
       )}
     </div>

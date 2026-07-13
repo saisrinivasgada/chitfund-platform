@@ -169,9 +169,11 @@ function MobileLoginForm({ onSuccess }) {
           <p className="text-sm text-red-600">{error}</p>
         </div>
       )}
-      <Button type="submit" loading={loading} className="w-full">
-        Sign in
-      </Button>
+      <div className="pt-4">
+        <Button type="submit" loading={loading} className="w-full">
+          Sign in
+        </Button>
+      </div>
     </form>
   );
 }
@@ -356,7 +358,9 @@ export default function LoginPage() {
                   <p className="text-sm text-red-600">{error}</p>
                 </div>
               )}
-              <Button type="submit" loading={loading} className="w-full">Sign in</Button>
+              <div className="pt-4">
+                <Button type="submit" loading={loading} className="w-full">Sign in</Button>
+              </div>
               <button type="button" onClick={() => setShowForgot((v) => !v)}
                 className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors pt-1 cursor-pointer">
                 Forgot password?
