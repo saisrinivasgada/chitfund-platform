@@ -492,9 +492,10 @@ function PaymentsReport() {
       `Total Records: ${(batches as any[]).length}`,
       `Total Amount: ${fmt(total)}`,
       '',
-      ...(batches as any[]).slice(0, 50).map((b: any) =>
-        `• ${fmtDate(b.collectedAt ?? b.createdAt)} | ${b.memberName ?? '—'} | ${b.chitName ?? '—'} | ${fmt(b.totalAmount)} [${b.status}]`
-      ),
+      ...(batches as any[]).slice(0, 50).map((b: any) => {
+        const draws = (b.allocations ?? []).map((a: any) => `#${a.monthNumber}`).join(', ');
+        return `• ${fmtDate(b.collectedAt ?? b.createdAt)} | ${b.memberName ?? '—'} | ${b.chitName ?? '—'}${draws ? ` (${draws})` : ''} | ${fmt(b.totalAmount)} [${b.status}]`;
+      }),
     ];
     await Share.share({ message: lines.join('\n') });
   };
@@ -534,22 +535,26 @@ function PaymentsReport() {
         <EmptyState title="No payments" message="No payment records found for the selected period." />
       ) : (
         <View>
-          {(batches as any[]).map((b: any) => (
-            <Card key={b.id} style={{ marginBottom: 8, padding: 12 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
-                    {b.memberName ?? '—'}
-                  </Text>
-                  <Text style={T.xs} numberOfLines={1}>{b.chitName ?? '—'} · {fmtDate(b.collectedAt ?? b.createdAt)}</Text>
+          {(batches as any[]).map((b: any) => {
+            const draws = (b.allocations ?? []).map((a: any) => `#${a.monthNumber}`).join(', ');
+            return (
+              <Card key={b.id} style={{ marginBottom: 8, padding: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                      {b.memberName ?? '—'}
+                    </Text>
+                    <Text style={T.xs} numberOfLines={1}>{b.chitName ?? '—'} · {fmtDate(b.collectedAt ?? b.createdAt)}</Text>
+                    {draws ? <Text style={{ fontSize: 11, color: C.navy, marginTop: 2 }}>Draw {draws}</Text> : null}
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: PMT_STATUS_COLOR[b.status] ?? C.gray700 }}>{fmt(b.totalAmount)}</Text>
+                    <Text style={T.xs}>{b.status}</Text>
+                  </View>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: PMT_STATUS_COLOR[b.status] ?? C.gray700 }}>{fmt(b.totalAmount)}</Text>
-                  <Text style={T.xs}>{b.status}</Text>
-                </View>
-              </View>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </View>
       )}
     </View>

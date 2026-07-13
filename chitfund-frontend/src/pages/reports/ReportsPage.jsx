@@ -1895,8 +1895,9 @@ function PaymentsTab() {
     downloadCSV(
       batches.map((b) => ({
         Date: fmtDate(b.collectedAt ?? b.createdAt),
-        Member: b.memberName ?? b.memberId ?? '',
-        Chit: b.chitName ?? b.chitId ?? '',
+        Member: memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId ?? '',
+        Chit: chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId ?? '',
+        'Draw(s)': (b.allocations ?? []).map((a) => `#${a.monthNumber}`).join(', '),
         Amount: b.amount ?? b.totalAmount ?? 0,
         PaymentMode: b.paymentMode ?? '',
         Collector: b.collectorName ?? '',
@@ -1922,19 +1923,20 @@ function PaymentsTab() {
       <table><thead><tr><th>Mode</th><th>Amount</th></tr></thead><tbody>${modeRows}</tbody></table>
       <h2>All Transactions</h2>
       <table>
-        <thead><tr><th>Date</th><th>Member</th><th>Chit</th><th>Amount</th><th>Mode</th><th>Collector</th><th>Status</th></tr></thead>
+        <thead><tr><th>Date</th><th>Member</th><th>Chit</th><th>Draw(s)</th><th>Amount</th><th>Mode</th><th>Collector</th><th>Status</th></tr></thead>
         <tbody>
           ${batches.map((b) => `<tr>
             <td>${fmtDate(b.collectedAt ?? b.createdAt)}</td>
             <td>${memberMap[String(b.memberId)] ?? b.memberName ?? b.memberId ?? '—'}</td>
             <td>${chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId ?? '—'}</td>
+            <td>${(b.allocations ?? []).map((a) => '#' + a.monthNumber).join(', ') || '—'}</td>
             <td>${fmt(b.amount ?? b.totalAmount)}</td>
             <td>${b.paymentMode ?? '—'}</td>
             <td>${b.collectorName ?? '—'}</td>
             <td>${b.status ?? '—'}</td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr><td colspan="3">Total (${batches.length})</td><td>${fmt(totalCollected)}</td><td colspan="3"></td></tr></tfoot>
+        <tfoot><tr><td colspan="4">Total (${batches.length})</td><td>${fmt(totalCollected)}</td><td colspan="3"></td></tr></tfoot>
       </table>
     `);
   }
@@ -1981,7 +1983,7 @@ function PaymentsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Date', 'Member', 'Chit', 'Amount', 'Mode', 'Collector', 'Status'].map((h) => (
+                  {['Date', 'Member', 'Chit', 'Draw(s)', 'Amount', 'Mode', 'Collector', 'Status'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs text-gray-500 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -1995,6 +1997,9 @@ function PaymentsTab() {
                     </td>
                     <td className="px-4 py-2.5">
                       <ChitLink id={b.chitId} name={chitMap[String(b.chitId)] ?? b.chitName ?? b.chitId} />
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-gray-600">
+                      {(b.allocations ?? []).map((a) => `#${a.monthNumber}`).join(', ') || '—'}
                     </td>
                     <td className="px-4 py-2.5 font-bold text-green-700">{h(b.amount ?? b.totalAmount)}</td>
                     <td className="px-4 py-2.5">
@@ -2011,7 +2016,7 @@ function PaymentsTab() {
               </tbody>
               <tfoot>
                 <tr className="bg-gray-50 font-bold text-sm">
-                  <td colSpan={3} className="px-4 py-3 text-gray-600">Total ({batches.length} transactions)</td>
+                  <td colSpan={4} className="px-4 py-3 text-gray-600">Total ({batches.length} transactions)</td>
                   <td className="px-4 py-3 text-green-700">{h(totalCollected)}</td>
                   <td colSpan={3} />
                 </tr>
