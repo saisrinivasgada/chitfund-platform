@@ -251,6 +251,7 @@ function AddStaffModal({ onClose }) {
         )}
 
         {/* Name + Phone */}
+        <div className="pt-2 border-t border-gray-100"></div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
