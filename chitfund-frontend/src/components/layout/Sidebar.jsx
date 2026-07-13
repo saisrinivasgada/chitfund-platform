@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
@@ -685,11 +686,12 @@ export default function Sidebar({ open = false, onClose }) {
           onClose={() => setShowSwitch(false)}
         />
       )}
-      {showSignOut && (
+      {showSignOut && createPortal(
         <SignOutModal
           onConfirm={logout}
           onClose={() => setShowSignOut(false)}
-        />
+        />,
+        document.body
       )}
     </aside>
   );
