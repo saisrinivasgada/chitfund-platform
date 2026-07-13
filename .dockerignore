@@ -4,7 +4,6 @@
 **/*.iml
 **/node_modules/
 chitfund-frontend/
-chitfund-audit-service/
 chitfund-reporting-service/
 restful-web-services/
 MyVibeCodingApp/
