@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.event.CashRequestEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -16,6 +17,7 @@ import com.chitfund.paymentservice.dto.response.CashRequestResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.client.UserServiceClient;
+import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.CashPaymentRequestRepository;
 import com.chitfund.paymentservice.repository.CashRequestAuditLogRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +42,7 @@ public class CashRequestService {
     private final NotificationService notificationService;
     private final MemberServiceClient memberServiceClient;
     private final UserServiceClient userServiceClient;
+    private final PaymentEventPublisher eventPublisher;
 
     // ─── Audit helper ────────────────────────────────────────────────────────
 
@@ -83,6 +87,8 @@ public class CashRequestService {
                 "New Cash Pickup Request",
                 "A member has requested a cash pickup. Review and assign a worker.",
                 "CASH_REQUEST", saved.getId(), "/payments");
+
+        publishCashRequestEvent("CREATED", saved, memberServiceClient.getMemberName(memberId), null);
 
         return toResponse(saved);
     }
@@ -138,6 +144,9 @@ public class CashRequestService {
                         : "A cash pickup has been scheduled for you. A worker will be assigned soon.",
                 "CASH_REQUEST", saved.getId(), "/member");
 
+        String memberNameForEvent = memberServiceClient.getMemberName(memberId);
+        publishCashRequestEvent(workerId != null ? "ASSIGNED" : "CREATED", saved, memberNameForEvent, workerName);
+
         return toResponse(saved);
     }
 
@@ -179,6 +188,8 @@ public class CashRequestService {
                     "Cash Request Assigned", "Manager assigned a worker to a cash pickup request.",
                     "CASH_REQUEST", requestId, "/payments");
         }
+
+        publishCashRequestEvent("ASSIGNED", saved, memberName, workerName);
 
         return toResponse(saved);
     }
@@ -242,6 +253,9 @@ public class CashRequestService {
                 "Cash Picked Up — Ready to Collect",
                 "A worker has picked up cash from a member. Please confirm receipt to credit the member's account.",
                 "CASH_REQUEST", requestId, "/payments");
+
+        String memberName = memberServiceClient.getMemberName(req.getMemberId());
+        publishCashRequestEvent("PICKED_UP", saved, memberName, wName);
 
         return toResponse(saved);
     }
@@ -324,6 +338,11 @@ public class CashRequestService {
                     "Admin confirmed your cash handover. Task complete.",
                     "CASH_REQUEST", requestId, "/tasks");
         }
+
+        String mName = memberServiceClient.getMemberName(req.getMemberId());
+        String wName = req.getAssignedWorkerId() != null
+                ? userServiceClient.getUserName(req.getAssignedWorkerId()) : null;
+        publishCashRequestEvent("COLLECTED", req, mName, wName);
 
         return batch;
     }
@@ -544,5 +563,25 @@ public class CashRequestService {
                 .reason(log.getReason())
                 .performedAt(log.getPerformedAt())
                 .build();
+    }
+
+    private void publishCashRequestEvent(String eventType, CashPaymentRequest req,
+                                          String memberName, String workerName) {
+        try {
+            String memberUserId = memberServiceClient.getMemberUserId(req.getMemberId());
+            eventPublisher.publish(new CashRequestEvent(
+                    req.getId().toString(),
+                    eventType,
+                    req.getMemberId().toString(),
+                    memberUserId,
+                    req.getAssignedWorkerId() != null ? req.getAssignedWorkerId().toString() : null,
+                    req.getRequestedAmount(),
+                    memberName,
+                    workerName,
+                    Instant.now()
+            ));
+        } catch (Exception e) {
+            log.warn("Failed to publish cash request event {}: {}", eventType, e.getMessage());
+        }
     }
 }

@@ -104,6 +104,15 @@ public class MemberServiceClient {
     }
 
     /**
+     * Returns the userId (user account UUID) linked to a member profile.
+     * Returns null if the member has no app account or on any error.
+     */
+    public String getMemberUserId(UUID memberId) {
+        Map<String, String> result = batchGetUserIds(List.of(memberId));
+        return result.getOrDefault(memberId.toString(), null);
+    }
+
+    /**
      * Batch-resolves member profile IDs → user IDs for notification delivery.
      * Returns empty map on any error (notifications are best-effort, never block the main flow).
      */

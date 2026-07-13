@@ -44,6 +44,10 @@ public class PaymentEventPublisher {
         send(SqsQueues.PAYMENT_COMPLETED, event);
     }
 
+    public void publish(CashRequestEvent event) {
+        send(SqsQueues.CASH_REQUEST_EVENT, event);
+    }
+
     // WHY CompletableFuture.runAsync()?
     // sqsTemplate.send() blocks until AWS SQS responds. If the queue doesn't exist
     // or IAM credentials aren't set up, the AWS SDK retries with backoff for 30-60s

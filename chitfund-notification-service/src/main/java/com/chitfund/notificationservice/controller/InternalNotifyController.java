@@ -1,9 +1,11 @@
 package com.chitfund.notificationservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
+import com.chitfund.notificationservice.service.InAppNotificationService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import jakarta.validation.Valid;
@@ -15,19 +17,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Internal endpoints — called by other microservices, not by the frontend.
- *
- * WHY /internal prefix?
- * - Clearly signals these are service-to-service endpoints, not user-facing
- * - In production, an API gateway or load balancer blocks /internal/** from the public internet
- * - The X-Internal-Key header provides application-level auth on top of network restrictions
- *
- * WHY not JWT here?
- * - Other services are not users — they don't have user JWT tokens
- * - A shared service API key is the standard pattern for internal service calls
- *   (before graduating to mTLS or a service mesh like Istio)
  */
 @RestController
 @RequestMapping("/internal/notify")
@@ -36,13 +30,14 @@ import java.util.List;
 public class InternalNotifyController {
 
     private final NotificationService notificationService;
-    private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
+    private final InAppNotificationService inAppService;
     private final WebSocketBroadcaster broadcaster;
+    private final MemberServiceClient memberServiceClient;
 
     @Value("${notification.internal-key}")
     private String internalKey;
 
-    private static final java.util.Map<String, String> NOTIF_TYPE_TO_WS_EVENT = java.util.Map.of(
+    private static final Map<String, String> NOTIF_TYPE_TO_WS_EVENT = Map.of(
         "CASH_REQUEST_SUBMITTED", "CASH_REQUESTS_UPDATED",
         "CASH_REQUEST_ASSIGNED",  "CASH_REQUESTS_UPDATED",
         "CASH_REQUEST_UPDATED",   "CASH_REQUESTS_UPDATED",
@@ -53,10 +48,6 @@ public class InternalNotifyController {
         "PAYOUT_DISBURSED",       "PAYOUTS_UPDATED"
     );
 
-    /**
-     * Single notification — payment reminder, winner announcement, payout receipt.
-     * Header: X-Internal-Key: <shared secret>
-     */
     @PostMapping
     public ResponseEntity<ApiResponse<NotificationResponse>> notify(
             @RequestHeader("X-Internal-Key") String key,
@@ -66,21 +57,17 @@ public class InternalNotifyController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
         }
-
         return ResponseEntity.ok(ApiResponse.success(notificationService.send(request)));
     }
 
     /**
-     * In-app notification — push to a specific user's notification feed.
-     * Called by member-service, payment-service, etc. when they need to push
-     * rich in-app notifications with metadata.
-     *
-     * Body: { recipientId, title, message, type, metadata:{key:value,...} }
+     * In-app notification for a specific user (recipientId = user account UUID).
+     * Now also accepts an optional "link" field for deep-linking from the bell.
      */
     @PostMapping("/in-app")
     public ResponseEntity<ApiResponse<Void>> inAppNotify(
             @RequestHeader("X-Internal-Key") String key,
-            @RequestBody java.util.Map<String, Object> body) {
+            @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -88,14 +75,15 @@ public class InternalNotifyController {
         }
 
         try {
-            java.util.UUID recipientId = java.util.UUID.fromString((String) body.get("recipientId"));
-            String title    = (String) body.getOrDefault("title", "");
-            String message  = (String) body.getOrDefault("message", "");
-            String type     = (String) body.getOrDefault("type", "GENERAL");
+            UUID recipientId = UUID.fromString((String) body.get("recipientId"));
+            String title   = (String) body.getOrDefault("title", "");
+            String message = (String) body.getOrDefault("message", "");
+            String type    = (String) body.getOrDefault("type", "GENERAL");
+            String link    = (String) body.getOrDefault("link", null);
             @SuppressWarnings("unchecked")
-            java.util.Map<String, String> meta =
-                (java.util.Map<String, String>) body.getOrDefault("metadata", java.util.Map.of());
-            inAppService.create(recipientId, title, message, type, meta);
+            Map<String, String> meta = (Map<String, String>) body.getOrDefault("metadata", Map.of());
+
+            inAppService.create(recipientId, title, message, type, meta, link);
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
             if (wsEvent != null) broadcaster.broadcast(wsEvent);
             broadcaster.broadcast("IN_APP_UPDATED");
@@ -107,9 +95,57 @@ public class InternalNotifyController {
     }
 
     /**
-     * Bulk notification — month skipped (all members + workers get same message).
-     * Processes each recipient independently so one failure doesn't block others.
+     * Bulk in-app notifications by member profile IDs.
+     * Resolves memberIds → userIds internally so callers (chit-service) don't need
+     * to know user account UUIDs — they just pass member profile IDs.
+     *
+     * Body: { memberIds: ["uuid",...], title, message, type, metadata, link }
      */
+    @PostMapping("/in-app/bulk-by-member-ids")
+    public ResponseEntity<ApiResponse<Void>> inAppBulkByMemberIds(
+            @RequestHeader("X-Internal-Key") String key,
+            @RequestBody Map<String, Object> body) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+
+        try {
+            @SuppressWarnings("unchecked")
+            List<String> memberIds = (List<String>) body.get("memberIds");
+            String title   = (String) body.getOrDefault("title", "");
+            String message = (String) body.getOrDefault("message", "");
+            String type    = (String) body.getOrDefault("type", "GENERAL");
+            String link    = (String) body.getOrDefault("link", null);
+            @SuppressWarnings("unchecked")
+            Map<String, String> meta = (Map<String, String>) body.getOrDefault("metadata", Map.of());
+
+            if (memberIds == null || memberIds.isEmpty()) {
+                return ResponseEntity.ok(ApiResponse.success(null));
+            }
+
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(memberIds);
+            int count = 0;
+            for (String memberId : memberIds) {
+                String userId = userIdMap.get(memberId);
+                if (userId != null) {
+                    inAppService.create(UUID.fromString(userId), title, message, type, meta, link);
+                    count++;
+                }
+            }
+            log.info("Bulk in-app by member IDs: {} recipients out of {} member IDs", count, memberIds.size());
+
+            String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
+            if (wsEvent != null) broadcaster.broadcast(wsEvent);
+            broadcaster.broadcast("IN_APP_UPDATED");
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (Exception e) {
+            log.error("Failed to create bulk in-app notifications: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("GENERAL_400", "Bad request"));
+        }
+    }
+
     @PostMapping("/bulk")
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> notifyBulk(
             @RequestHeader("X-Internal-Key") String key,
@@ -123,7 +159,6 @@ public class InternalNotifyController {
         List<NotificationResponse> results = notificationService.sendBulk(request);
         log.info("Bulk notification sent: {} recipients, event={}",
                 results.size(), request.getEventType());
-
         return ResponseEntity.ok(ApiResponse.success(results));
     }
 }

@@ -45,6 +45,7 @@ app:
   member-service-url: ${MEMBER_SERVICE_URL:http://localhost:8083}
   chit-service-url: ${CHIT_SERVICE_URL:http://localhost:8082}
   payout-service-url: ${PAYOUT_SERVICE_URL:http://localhost:8085}
+  notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
 
 whatsapp:
   enabled: ${WHATSAPP_ENABLED:false}

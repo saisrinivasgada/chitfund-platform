@@ -28,4 +28,7 @@ public final class SqsQueues {
 
     // member-service publishes
     public static final String MEMBER_UPDATED          = "chitfund-member-updated";
+
+    // payment-service publishes (cash request lifecycle)
+    public static final String CASH_REQUEST_EVENT      = "chitfund-cash-request-event";
 }

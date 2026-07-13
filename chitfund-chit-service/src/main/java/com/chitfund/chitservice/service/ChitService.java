@@ -168,6 +168,9 @@ public class ChitService {
             List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chit.getId())
                     .stream().distinct().map(UUID::toString).toList();
             if (!memberIds.isEmpty()) {
+                // In-app bell notification via notification-service (resolves memberId → userId)
+                notificationClient.notifyUsersInApp(memberIds, type, title, message, "/member/chits/" + chit.getId());
+                // Legacy payment-service channel (role-based push, kept for existing admin tooling)
                 notificationClient.notifyUsers(memberIds, type, title, message,
                         "CHIT", chit.getId().toString(), "/member");
             }

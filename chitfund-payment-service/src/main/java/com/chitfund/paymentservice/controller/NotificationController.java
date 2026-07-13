@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.paymentservice.client.NotificationServiceClient;
 import com.chitfund.paymentservice.dto.request.CreateNotifRequest;
 import com.chitfund.paymentservice.dto.response.NotificationResponse;
 import com.chitfund.paymentservice.service.NotificationService;
@@ -22,6 +23,7 @@ public class NotificationController {
 
     private final NotificationService notificationService;
     private final WhatsAppService whatsAppService;
+    private final NotificationServiceClient notificationServiceClient;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -72,6 +74,8 @@ public class NotificationController {
                 "Payment Reminder",
                 msg,
                 null, null, "/member");
+        // Also push to the in-app bell via notification-service
+        notificationServiceClient.createInApp(userId, "Payment Reminder", msg, "PAYMENT_REMINDER", "/member");
         return ResponseEntity.ok(ApiResponse.success(null, "Reminder sent"));
     }
 

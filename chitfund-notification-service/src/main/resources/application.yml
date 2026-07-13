@@ -37,6 +37,12 @@ server:
 jwt:
   secret: ${JWT_SECRET:chitfund-super-secret-key-that-is-at-least-256-bits-long-for-hs256-algorithm}
 
+app:
+  internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
+  member-service-url: ${MEMBER_SERVICE_URL:http://localhost:8083}
+  user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
+  chit-service-url: ${CHIT_SERVICE_URL:http://localhost:8082}
+
 # Internal service key — other services include this as X-Internal-Key header
 # when calling /internal/notify endpoints (no JWT needed for service-to-service calls)
 notification:

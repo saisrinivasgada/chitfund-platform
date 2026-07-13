@@ -104,6 +104,7 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_chit
       PAYMENT_SERVICE_URL: http://payment-service:8084
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
@@ -126,6 +127,7 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_payment
       MEMBER_SERVICE_URL: http://member-service:8083
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
@@ -173,6 +175,9 @@ services:
       DB_NAME: chitfund_notification
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       NOTIFICATION_SENDER_MODE: ${NOTIFICATION_SENDER_MODE:-LOGGING}
+      MEMBER_SERVICE_URL: http://member-service:8083
+      USER_SERVICE_URL: http://user-service:8081
+      CHIT_SERVICE_URL: http://chit-service:8082
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
       interval: 30s

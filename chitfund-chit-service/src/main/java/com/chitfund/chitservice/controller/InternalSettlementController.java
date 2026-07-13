@@ -155,4 +155,22 @@ public class InternalSettlementController {
             return ResponseEntity.ok(ApiResponse.success("Skipped — " + e.getMessage()));
         }
     }
+
+    /**
+     * Returns active member profile IDs for a chit.
+     * Used by notification-service to fan out draw-result notifications to all members.
+     */
+    @GetMapping("/chits/{chitId}/member-ids")
+    public ResponseEntity<?> getActiveMemberIds(
+            @PathVariable UUID chitId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chitId)
+                .stream().distinct().map(UUID::toString).toList();
+        return ResponseEntity.ok(ApiResponse.success(memberIds));
+    }
 }
