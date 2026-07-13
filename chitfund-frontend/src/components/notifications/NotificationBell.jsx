@@ -8,6 +8,7 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from '../../services/api';
+import { useNotifSocket } from '../../hooks/useNotifSocket';
 
 function timeAgo(iso) {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -76,8 +77,12 @@ export default function NotificationBell() {
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ['notif-unread'],
     queryFn: getUnreadCount,
-    refetchInterval: 30_000,
   });
+
+  useNotifSocket(useCallback(() => {
+    qc.invalidateQueries({ queryKey: ['notif-unread'] });
+    qc.invalidateQueries({ queryKey: ['notifications'] });
+  }, [qc]));
 
   const { data: notifications = [], isLoading } = useQuery({
     queryKey: ['notifications'],
