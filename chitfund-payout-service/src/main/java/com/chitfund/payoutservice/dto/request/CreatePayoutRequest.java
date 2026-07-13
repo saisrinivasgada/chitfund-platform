@@ -35,6 +35,9 @@ public class CreatePayoutRequest {
     private BigDecimal crossChitSettlement;
     private BigDecimal manualAdjustment;
 
+    // Per-draw breakdown of installmentSettlement (e.g. [{month:3,amount:5000},{month:2,amount:5000}])
+    private List<InstallmentMonthBreakdownDto> installmentMonthBreakdown;
+
     private String notes;
 
     // When true, marks winner's installment for this chit+month as PAYOUT_DEDUCTED atomically

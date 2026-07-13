@@ -20,6 +20,7 @@ import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
+import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.PaymentAllocationRepository;
@@ -52,6 +53,7 @@ public class PaymentService {
     private final PaymentAllocationRepository allocationRepository;
     private final PaymentEventPublisher eventPublisher;
     private final MemberServiceClient memberServiceClient;
+    private final ChitServiceClient chitServiceClient;
     private final AdminWalletService adminWalletService;
     private final NotificationService notificationService;
     private final MemberCreditService memberCreditService;
@@ -268,12 +270,33 @@ public class PaymentService {
         if (wasCompleted) {
             AccountType accountType = batch.getPaymentMode() == PaymentMode.CASH
                     ? AccountType.CASH : AccountType.BANK;
+
+            // Build a human-readable description: "Reversal of payment — Vineeth · gold · Draw #3 — <reason>"
+            String memberName = memberServiceClient.getMemberName(batch.getMemberId());
+            String chitName = "";
+            if (batch.getChitId() != null) {
+                ChitServiceClient.ChitDto chit = chitServiceClient.getChit(batch.getChitId());
+                if (chit != null && chit.getName() != null) chitName = chit.getName();
+            }
+            String drawPart = allocations.stream()
+                    .map(a -> "Draw #" + a.getMonthNumber())
+                    .distinct()
+                    .sorted()
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("");
+            StringBuilder descBuilder = new StringBuilder("Reversal of payment");
+            if (!memberName.isBlank()) descBuilder.append(" — ").append(memberName);
+            if (!chitName.isBlank()) descBuilder.append(" · ").append(chitName);
+            if (!drawPart.isBlank()) descBuilder.append(" · ").append(drawPart);
+            if (request.getReason() != null && !request.getReason().isBlank())
+                descBuilder.append(" — ").append(request.getReason());
+
             AdminWalletEntryRequest debit = new AdminWalletEntryRequest();
             debit.setAccountType(accountType);
             debit.setEntryType(WalletEntryType.OUT);
             debit.setAmount(batch.getTotalAmount());
             debit.setCategory("PAYMENT_VOID");
-            debit.setDescription("Reversal of payment batch " + batchId + " — " + request.getReason());
+            debit.setDescription(descBuilder.toString());
             adminWalletService.addEntry(debit, adminId);
         }
 

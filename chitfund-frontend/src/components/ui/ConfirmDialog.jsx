@@ -73,8 +73,8 @@ export function ConfirmDialog({
   return (
     <DialogShell onClose={onClose}>
       <div
-        className="rounded-t-2xl sm:rounded-t-2xl px-5 sm:px-6 py-5 flex items-start gap-4"
-        style={{ backgroundColor: cfg.iconBg }}
+        className="rounded-t-2xl sm:rounded-t-2xl flex items-start gap-4"
+        style={{ backgroundColor: cfg.iconBg, paddingLeft: 20, paddingRight: 20, paddingTop: 20, paddingBottom: 20 }}
       >
         <div
           className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -94,10 +94,10 @@ export function ConfirmDialog({
       </div>
 
       {children && (
-        <div className="px-5 sm:px-6 pt-4">{children}</div>
+        <div style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 16 }}>{children}</div>
       )}
 
-      <div className="px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 20 }}>
         <Button variant="muted" onClick={onClose} disabled={loading} size="md">
           Cancel
         </Button>
@@ -133,7 +133,7 @@ export function DestructiveDialog({
 
   return (
     <DialogShell onClose={onClose}>
-      <div className="rounded-t-2xl px-5 sm:px-6 py-5 flex items-start gap-4 bg-red-50">
+      <div className="rounded-t-2xl flex items-start gap-4 bg-red-50" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 20, paddingBottom: 20 }}>
         <div
           className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-white"
           style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
@@ -151,7 +151,7 @@ export function DestructiveDialog({
         </div>
       </div>
 
-      <div className="px-5 sm:px-6 pt-5 pb-2">
+      <div style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 20, paddingBottom: 8 }}>
         <FormField label={`Type "${confirmWord}" to confirm`} required>
           <Input
             value={typed}
@@ -162,7 +162,7 @@ export function DestructiveDialog({
         </FormField>
       </div>
 
-      <div className="px-5 sm:px-6 py-4 sm:py-5 flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 20 }}>
         <Button variant="muted" onClick={onClose} disabled={loading} size="md">
           Cancel
         </Button>

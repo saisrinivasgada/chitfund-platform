@@ -1114,6 +1114,7 @@ function PayoutsTab() {
   const [cpCollectCurrentMonth, setCpCollectCurrentMonth] = useState(false);
   const [cpInstallmentAmt, setCpInstallmentAmt] = useState('');
   const [cpCrossChitCollect, setCpCrossChitCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
+  const [cpSameChitOtherCollect, setCpSameChitOtherCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
   const [cpDiscount, setCpDiscount] = useState('0');
   const [cpNotes, setCpNotes] = useState('');
 
@@ -1246,6 +1247,14 @@ function PayoutsTab() {
     (c: any) => ((cpCrossBalances as any)[String(c.id)] ?? 0) > 0
   );
 
+  // ── Same-chit other outstanding months ───────────────────────────────────
+  const sameChitOtherMonths = (() => {
+    if (!selectedWinner || !(cpCurrentBalance as any)?.months) return [];
+    return ((cpCurrentBalance as any).months as any[]).filter(
+      (m: any) => m.monthNumber !== selectedWinner.monthNumber && Number(m.balance ?? 0) > 0
+    );
+  })();
+
   // ── Calculations ──────────────────────────────────────────────────────────
   const winningAmt = selectedWinner ? Number(selectedWinner.winningAmount ?? 0) : 0;
   const discountNum = Number(cpDiscount) || 0;
@@ -1253,7 +1262,10 @@ function PayoutsTab() {
   const crossDed = Object.entries(cpCrossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
-  const totalDeductions = discountNum + currentMonthDed + crossDed;
+  const sameChitDed = Object.entries(cpSameChitOtherCollect)
+    .filter(([, v]) => v.enabled)
+    .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
+  const totalDeductions = discountNum + currentMonthDed + sameChitDed + crossDed;
   const netPayout = Math.max(0, winningAmt - totalDeductions);
   const isOverDeducted = totalDeductions > winningAmt;
   const settlementLoading = cpMemberChitsLoading || cpCurrentBalanceLoading || cpCrossBalancesLoading;
@@ -1264,6 +1276,7 @@ function PayoutsTab() {
     setCpCollectCurrentMonth(false);
     setCpInstallmentAmt('');
     setCpCrossChitCollect({});
+    setCpSameChitOtherCollect({});
     setCpDiscount('0');
     setCpNotes('');
   }
@@ -1280,17 +1293,25 @@ function PayoutsTab() {
   const createMut = useMutation({
     mutationFn: () => {
       const mid = selectedWinner.memberId ?? selectedWinner.winnerId;
+      const totalInstDed = currentMonthDed + sameChitDed;
+      const instBreakdown = [
+        ...(cpCollectCurrentMonth && currentMonthDed > 0 ? [{ month: selectedWinner.monthNumber, amount: currentMonthDed }] : []),
+        ...Object.entries(cpSameChitOtherCollect)
+          .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+          .map(([mNum, v]) => ({ month: Number(mNum), amount: Number(v.amount) })),
+      ].sort((a, b) => a.month - b.month);
       return createPayout({
         chitId: cpChitId,
         memberId: mid,
         monthNumber: selectedWinner.monthNumber,
         winningAmount: winningAmt,
         discountAmount: totalDeductions,
-        installmentSettlement: currentMonthDed,
-        crossChitSettlement: crossDed,
+        installmentSettlement: totalInstDed || undefined,
+        crossChitSettlement: crossDed || undefined,
         manualAdjustment: discountNum,
         notes: cpNotes || undefined,
         collectCurrentMonthInstallment: cpCollectCurrentMonth && installmentAmount > 0,
+        installmentMonthBreakdown: instBreakdown.length > 0 ? instBreakdown : undefined,
         crossChitDeductions: Object.entries(cpCrossChitCollect)
           .filter(([, v]) => v.enabled && Number(v.amount) > 0)
           .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) })),
@@ -1303,7 +1324,7 @@ function PayoutsTab() {
       qc.invalidateQueries({ queryKey: ['m-cp-winners'] });
       setShowCreate(false);
       resetCreateForm();
-      const msg = currentMonthDed > 0 || crossDed > 0
+      const msg = currentMonthDed > 0 || sameChitDed > 0 || crossDed > 0
         ? `Payout created · ₹${totalDeductions.toLocaleString('en-IN')} withheld as settlement`
         : 'Payout created — disburse when ready';
       toast.created(msg);
@@ -1623,6 +1644,55 @@ function PayoutsTab() {
                           </Text>
                         )}
 
+                        {/* Same-chit other outstanding months */}
+                        {sameChitOtherMonths.length > 0 && (
+                          <>
+                            <Divider />
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginTop: 10, marginBottom: 8 }}>
+                              Other outstanding months in this chit
+                            </Text>
+                            {sameChitOtherMonths.map((m: any) => {
+                              const mKey = String(m.monthNumber);
+                              const bal = Number(m.balance ?? 0);
+                              const state = cpSameChitOtherCollect[mKey];
+                              return (
+                                <View key={mKey} style={{ marginBottom: 12 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <View style={{ flex: 1, marginRight: 12 }}>
+                                      <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '500' }}>Draw {m.monthNumber} installment</Text>
+                                      <Text style={{ fontSize: 11, color: C.red, marginTop: 2 }}>
+                                        Outstanding: ₹{bal.toLocaleString('en-IN')}
+                                      </Text>
+                                    </View>
+                                    <Switch
+                                      value={state?.enabled ?? false}
+                                      onValueChange={(v) => {
+                                        setCpSameChitOtherCollect((prev) => {
+                                          const cur = prev[mKey];
+                                          if (cur?.enabled) return { ...prev, [mKey]: { enabled: false, amount: cur.amount } };
+                                          return { ...prev, [mKey]: { enabled: true, amount: String(bal) } };
+                                        });
+                                      }}
+                                      trackColor={{ false: C.gray300, true: C.navy }}
+                                      thumbColor={C.white}
+                                    />
+                                  </View>
+                                  {state?.enabled && (
+                                    <TextInput
+                                      value={state.amount}
+                                      onChangeText={(v) => setCpSameChitOtherCollect((prev) => ({ ...prev, [mKey]: { ...prev[mKey], amount: v } }))}
+                                      keyboardType="numeric"
+                                      placeholder="Amount to collect"
+                                      placeholderTextColor={C.gray400}
+                                      style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 8, padding: 10, fontSize: 14, color: C.gray900, marginTop: 8 }}
+                                    />
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </>
+                        )}
+
                         {/* Cross-chit outstanding dues */}
                         {cpOtherChitsWithBalance.length > 0 && (
                           <>
@@ -1694,6 +1764,16 @@ function PayoutsTab() {
                         <Text style={{ fontSize: 12, color: C.red }}>−₹{currentMonthDed.toLocaleString('en-IN')}</Text>
                       </View>
                     )}
+                    {Object.entries(cpSameChitOtherCollect)
+                      .filter(([, v]) => v.enabled)
+                      .map(([mNum, v]) => (
+                        <View key={mNum} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: C.gray500 }}>− Draw {mNum} installment</Text>
+                          <Text style={{ fontSize: 12, color: C.red }}>
+                            −₹{Number(v.amount || 0).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      ))}
                     {Object.entries(cpCrossChitCollect)
                       .filter(([, v]) => v.enabled)
                       .map(([cId, v]) => (

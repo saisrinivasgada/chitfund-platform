@@ -13,6 +13,7 @@ import com.chitfund.payoutservice.domain.enums.PayoutStatus;
 import com.chitfund.payoutservice.dto.request.CancelPayoutRequest;
 import com.chitfund.payoutservice.dto.request.CreatePayoutRequest;
 import com.chitfund.payoutservice.dto.request.DisburseRequest;
+import com.chitfund.payoutservice.dto.request.InstallmentMonthBreakdownDto;
 import com.chitfund.payoutservice.dto.response.PayoutDisbursementResponse;
 import com.chitfund.payoutservice.dto.response.PayoutResponse;
 import com.chitfund.payoutservice.kafka.PayoutEventPublisher;
@@ -79,6 +80,13 @@ public class PayoutService {
                 .discountAmount(request.getDiscountAmount())
                 .netPayoutAmount(netAmount)
                 .installmentSettlement(request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero)
+                .installmentSettlementMonths(
+                        request.getInstallmentMonthBreakdown() != null && !request.getInstallmentMonthBreakdown().isEmpty()
+                        ? request.getInstallmentMonthBreakdown().stream()
+                                .sorted(java.util.Comparator.comparingInt(InstallmentMonthBreakdownDto::getMonth))
+                                .map(b -> b.getMonth() + ":" + b.getAmount().stripTrailingZeros().toPlainString())
+                                .collect(java.util.stream.Collectors.joining(","))
+                        : null)
                 .crossChitSettlement(request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero)
                 .manualAdjustment(request.getManualAdjustment() != null ? request.getManualAdjustment() : zero)
                 .notes(request.getNotes())
@@ -365,6 +373,7 @@ public class PayoutService {
                 .discountAmount(p.getDiscountAmount())
                 .netPayoutAmount(p.getNetPayoutAmount())
                 .installmentSettlement(p.getInstallmentSettlement())
+                .installmentSettlementMonths(p.getInstallmentSettlementMonths())
                 .crossChitSettlement(p.getCrossChitSettlement())
                 .manualAdjustment(p.getManualAdjustment())
                 .disbursedAmount(disbursed)

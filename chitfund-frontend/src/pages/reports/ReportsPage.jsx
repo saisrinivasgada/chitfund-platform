@@ -122,25 +122,26 @@ function MemberPickerModal({ members, value, onChange, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-gray-100">
+        <div className="flex items-center gap-3 border-b border-gray-100" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 12 }}>
           <Users size={16} className="text-[#1E3A5F]" />
           <span className="font-semibold text-gray-800 flex-1">Select Member</span>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">✕</button>
         </div>
         {/* Search */}
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="border-b border-gray-100" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 12, paddingBottom: 12 }}>
           <input
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, phone or city…"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#1E3A5F]/30 focus:border-[#1E3A5F]"
+            className="w-full border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:border-[#1E3A5F]"
+            style={{ paddingLeft: 12, paddingRight: 12, paddingTop: 8, paddingBottom: 8 }}
           />
         </div>
         {/* List */}
-        <div className="overflow-y-auto flex-1 py-2">
+        <div className="overflow-y-auto flex-1" style={{ paddingTop: 8, paddingBottom: 8 }}>
           {sorted.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-8">No members found</p>
+            <p className="text-center text-sm text-gray-400" style={{ paddingTop: 32, paddingBottom: 32 }}>No members found</p>
           ) : sorted.map((m) => {
             const flag = countryFlag(m.phoneCountryCode ?? '+91');
             const isSelected = String(m.id) === String(value);
@@ -149,23 +150,24 @@ function MemberPickerModal({ members, value, onChange, onClose }) {
                 key={m.id}
                 type="button"
                 onClick={() => { onChange(String(m.id)); onClose(); }}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-blue-50 transition-colors cursor-pointer ${isSelected ? 'bg-[#1E3A5F]/5' : ''}`}
+                className={`w-full flex items-center gap-3 text-left transition-colors cursor-pointer ${isSelected ? '' : 'hover:bg-blue-50'}`}
+                style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 10, paddingBottom: 10, backgroundColor: isSelected ? 'rgba(30,58,95,0.05)' : undefined }}
               >
                 <span className="text-xl leading-none">{flag}</span>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium truncate ${isSelected ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{m.fullName ?? m.username}</p>
+                  <p className="text-sm font-medium truncate" style={{ color: isSelected ? '#1E3A5F' : '#1f2937' }}>{m.fullName ?? m.username}</p>
                   <p className="text-xs text-gray-400 truncate">
                     {[m.phoneCountryCode, m.phone].filter(Boolean).join(' ')}
                     {m.city ? ` · ${m.city}` : ''}
                   </p>
                 </div>
-                {isSelected && <span className="text-[#1E3A5F] text-sm font-bold">✓</span>}
+                {isSelected && <span className="text-sm font-bold" style={{ color: '#1E3A5F' }}>✓</span>}
               </button>
             );
           })}
         </div>
         {/* Footer count */}
-        <div className="px-4 py-2.5 border-t border-gray-100 text-xs text-gray-400 text-right">
+        <div className="border-t border-gray-100 text-xs text-gray-400 text-right" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 10, paddingBottom: 10 }}>
           {sorted.length} member{sorted.length !== 1 ? 's' : ''}
         </div>
       </div>
@@ -215,15 +217,15 @@ function MemberBatches({ memberId, chitId, monthNumber }) {
               .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
           : '—';
         return (
-          <div key={b.id} className="flex items-start justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2 text-xs">
-            <div>
-              <span className="font-semibold text-gray-800">{h(allocTotal)}</span>
+          <div key={b.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, paddingLeft: 12, paddingRight: 12, paddingTop: 8, paddingBottom: 8, fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, color: '#1f2937' }}>{h(allocTotal)}</span>
               {b.totalAmount !== allocTotal && (
-                <span className="text-gray-400 ml-1">(of {fmt(b.totalAmount)} total batch)</span>
+                <span style={{ color: '#9ca3af' }}>(of {fmt(b.totalAmount)} total batch)</span>
               )}
-              <span className="ml-2 px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-500 text-[10px]">{b.paymentMode?.replace(/_/g, ' ')}</span>
+              <span style={{ marginLeft: 4, padding: '1px 6px', borderRadius: 4, backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', color: '#6b7280', fontSize: 10 }}>{b.paymentMode?.replace(/_/g, ' ')}</span>
             </div>
-            <span className="text-gray-400 whitespace-nowrap">{date}</span>
+            <span style={{ color: '#9ca3af', whiteSpace: 'nowrap' }}>{date}</span>
           </div>
         );
       })}
@@ -262,15 +264,15 @@ function DrawDetailModal({ draw, chit, onClose }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col max-h-[98vh]" onClick={(e) => e.stopPropagation()}>
         {/* Close button — pinned inside top-right corner */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
         >✕</button>
         {/* Header */}
-        <div className="pr-12 px-6 pt-5 pb-4 border-b border-gray-100">
+        <div className="border-b border-gray-100" style={{ paddingLeft: 24, paddingRight: 56, paddingTop: 20, paddingBottom: 16 }}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-lg font-bold text-gray-900">Draw #{draw.monthNumber}</span>
             {monthLabel && <span className="text-sm text-gray-500">· {monthLabel}</span>}
@@ -287,7 +289,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
         </div>
 
         {/* Summary strip */}
-        <div className="flex gap-6 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs flex-wrap">
+        <div className="flex gap-6 py-3 bg-gray-50 border-b border-gray-100 text-xs flex-wrap" style={{ paddingLeft: 24, paddingRight: 32 }}>
           <span>Total Due: <strong>{h(draw.totalDue)}</strong></span>
           <span className="text-green-700">Collected: <strong>{h(draw.totalCollected)}</strong></span>
           {Number(draw.outstanding) > 0 && (
@@ -306,12 +308,12 @@ function DrawDetailModal({ draw, chit, onClose }) {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_#e5e7eb]">
                 <tr>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Member</th>
+                  <th className="py-3 text-left text-xs font-semibold text-gray-500 uppercase" style={{ paddingLeft: 24, paddingRight: 12 }}>Member</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Due</th>
                   <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Paid</th>
-                  <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Balance</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
-                  <th className="px-3 py-3 w-6" />
+                  <th className="py-3 text-right text-xs font-semibold text-gray-500 uppercase" style={{ minWidth: 96, paddingLeft: 12, paddingRight: 16, whiteSpace: 'nowrap' }}>Balance</th>
+                  <th className="py-3 text-left text-xs font-semibold text-gray-500 uppercase" style={{ minWidth: 144, paddingLeft: 16, paddingRight: 16, whiteSpace: 'nowrap' }}>Status</th>
+                  <th className="py-3 w-8" style={{ paddingLeft: 12, paddingRight: 24 }} />
                 </tr>
               </thead>
               <tbody>
@@ -326,7 +328,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
                         className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 cursor-pointer transition-colors"
                         onClick={() => setExpandedMemberId(isExpanded ? null : p.memberId)}
                       >
-                        <td className="px-5 py-3">
+                        <td className="py-3" style={{ paddingLeft: 24, paddingRight: 12 }}>
                           <p className="font-medium text-gray-800">{member?.fullName ?? `Member #${String(p.memberId).slice(0, 8)}`}</p>
                           {member?.phone && (
                             <p className="text-xs text-gray-400">{[member.phoneCountryCode, member.phone].filter(Boolean).join(' ')}{member.city ? ` · ${member.city}` : ''}</p>
@@ -339,17 +341,17 @@ function DrawDetailModal({ draw, chit, onClose }) {
                             ? <span className="text-red-600">{h(p.balance)}</span>
                             : <span className="text-green-600">✓</span>}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-4 py-3 w-32">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[p.status] ?? 'bg-gray-100 text-gray-600'}`}>
                             {p.status?.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-gray-400 text-xs">{isExpanded ? '▲' : '▼'}</td>
+                        <td className="py-3 text-gray-400 text-xs" style={{ paddingLeft: 12, paddingRight: 24 }}>{isExpanded ? '▲' : '▼'}</td>
                       </tr>
                       {isExpanded && (
-                        <tr key={`${p.id}-txns`} className="bg-blue-50/40">
-                          <td colSpan={6} className="px-5 pb-3 pt-1">
-                            <p className="text-xs font-semibold text-gray-500 uppercase mb-1.5">Transactions for this draw</p>
+                        <tr key={`${p.id}-txns`}>
+                          <td colSpan={6} style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 12, paddingBottom: 16, borderTop: '1px solid #e5e7eb', backgroundColor: '#f8fafc' }}>
+                            <p className="text-xs font-semibold text-gray-500 uppercase" style={{ marginBottom: 8 }}>Transactions for this draw</p>
                             <MemberBatches memberId={p.memberId} chitId={chit?.id} monthNumber={draw.monthNumber} />
                           </td>
                         </tr>
@@ -362,7 +364,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400 text-right">
+        <div className="py-3 border-t border-gray-100 text-xs text-gray-400 text-right" style={{ paddingLeft: 20, paddingRight: 32 }}>
           {chit?.name} · Click a member row to see their transactions for this draw
         </div>
       </div>
@@ -431,92 +433,114 @@ function PayoutDetailModal({ payoutId, onClose }) {
   const hasDeductions = payout && Number(payout.discountAmount ?? 0) > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[98vh]" onClick={(e) => e.stopPropagation()}>
         {/* Close */}
         <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
 
         {/* Header */}
-        <div className="pl-6 pr-12 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 32, paddingRight: 56 }}>
           {isLoading || !payout ? (
             <div className="h-6 w-40 bg-gray-100 rounded animate-pulse" />
           ) : (
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-gray-900">Payout — Draw #{payout.monthNumber}</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(payout.createdAt)}</p>
+                {status && (
+                  <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${status.bg} ${status.text} ${status.border}`}>
+                    <status.Icon size={11} />{status.label}
+                  </span>
+                )}
               </div>
-              {status && (
-                <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${status.bg} ${status.text} ${status.border}`}>
-                  <status.Icon size={11} />{status.label}
-                </span>
-              )}
-            </div>
+              <p className="text-xs text-gray-400 mt-1">{fmtDateTime(payout.createdAt)}</p>
+            </>
           )}
         </div>
 
         {/* Scrollable body */}
-        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+        <div className="overflow-y-auto flex-1 py-4 space-y-0" style={{ paddingLeft: 32, paddingRight: 32 }}>
           {isLoading ? (
-            <div className="space-y-3 animate-pulse">
-              {[80, 160, 200].map((h, i) => <div key={i} className="bg-gray-100 rounded-xl" style={{ height: h }} />)}
+            <div className="space-y-3 animate-pulse py-4">
+              {[40, 40, 40].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded" />)}
             </div>
           ) : !payout ? (
             <p className="text-center text-sm text-gray-400 py-10">Payout not found.</p>
           ) : (
             <>
-              {/* Member + Chit + Draw */}
-              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-                {[
-                  { Icon: User,      label: 'Winner', value: member?.fullName ?? '…' },
-                  { Icon: Building2, label: 'Chit',   value: chit?.name ?? '…' },
-                  { Icon: Hash,      label: 'Draw',   value: `#${payout.monthNumber}` },
-                ].map(({ Icon, label, value }) => (
-                  <div key={label} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-8 h-8 rounded-lg bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
-                      <Icon size={14} className="text-[#1E3A5F]" />
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400">{label}</p>
-                      <p className="text-sm font-semibold text-gray-900">{value}</p>
-                    </div>
+              {/* Info rows */}
+              <div className="py-1">
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Winner</span>
+                  <span className="text-sm font-semibold text-gray-900">{member?.fullName ?? '…'}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Chit</span>
+                  <span className="text-sm font-semibold text-gray-900">{chit?.name ?? '…'}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Draw</span>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-gray-900">#{payout.monthNumber}</p>
+                    {drawMonthLabel(chit?.startDate, payout.monthNumber) && (
+                      <p className="text-xs text-gray-400">{drawMonthLabel(chit?.startDate, payout.monthNumber)}</p>
+                    )}
                   </div>
-                ))}
+                </div>
               </div>
 
               {/* Breakdown */}
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-                  <IndianRupee size={14} className="text-gray-400" />
-                  <h3 className="text-sm font-semibold text-gray-700">Payout Breakdown</h3>
+              <div className="pt-4 pb-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Payout Breakdown</p>
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-800 font-semibold">Winning Amount</span>
+                  <span className="text-sm font-semibold text-gray-900">{h(payout.winningAmount)}</span>
                 </div>
-                <div className="px-4">
-                  <PayoutDeductionRow label="Winning Amount" amount={payout.winningAmount} highlight />
-                  {hasDeductions && (
-                    <>
-                      <PayoutDeductionRow label="Installment Withheld" amount={payout.installmentSettlement} sub={`Draw #${payout.monthNumber} · ${chit?.name ?? ''}`} />
-                      <PayoutDeductionRow label="Cross-Chit Settlement" amount={payout.crossChitSettlement} sub="Outstanding dues from other chits" />
-                      <PayoutDeductionRow label="Manual Adjustment" amount={payout.manualAdjustment} />
-                      <div className="flex items-center justify-between py-3 border-t border-gray-200 mt-1">
-                        <p className="text-xs text-gray-400">Total Deductions</p>
-                        <p className="text-xs font-semibold text-red-600">− {h(payout.discountAmount)}</p>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex items-center justify-between py-3 border-t border-gray-200 bg-gray-50 -mx-4 px-4">
-                    <p className="text-sm font-bold text-gray-900">Net Payout</p>
-                    <p className="text-base font-bold text-[#1E3A5F]">{h(payout.netPayoutAmount)}</p>
-                  </div>
+                {hasDeductions && (
+                  <>
+                    {Number(payout.installmentSettlement ?? 0) > 0 && (() => {
+                      const breakdown = payout.installmentSettlementMonths
+                        ? payout.installmentSettlementMonths.split(',').map((pair) => {
+                            const [m, a] = pair.split(':');
+                            return { month: Number(m), amount: Number(a) };
+                          })
+                        : null;
+                      const multiDraw = breakdown && breakdown.length > 1;
+                      return (
+                        <div className="border-b border-gray-100">
+                          <div className="flex items-center justify-between py-2.5">
+                            <p className="text-sm text-gray-600">Installment Withheld</p>
+                            <p className="text-sm tabular-nums text-red-600">− {h(payout.installmentSettlement)}</p>
+                          </div>
+                          {breakdown && breakdown.map(({ month, amount }) => (
+                            <div key={month} className="flex items-center justify-between" style={{ paddingLeft: 16, paddingBottom: 10 }}>
+                              <div>
+                                <p className="text-xs font-medium text-gray-700">Draw #{month}</p>
+                                <p className="text-xs text-gray-400">{drawMonthLabel(chit?.startDate, month)}</p>
+                              </div>
+                              <p className="text-xs tabular-nums text-red-500">− {h(amount)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    <PayoutDeductionRow label="Cross-Chit Settlement" amount={payout.crossChitSettlement} sub="Outstanding dues from other chits" />
+                    <PayoutDeductionRow label="Manual Adjustment" amount={payout.manualAdjustment} />
+                    <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                      <span className="text-xs text-gray-400">Total Deductions</span>
+                      <span className="text-xs font-semibold text-red-600">− {h(payout.discountAmount)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex items-center justify-between py-3 mt-1 bg-gray-50" style={{ marginLeft: -32, marginRight: -32, paddingLeft: 32, paddingRight: 32 }}>
+                  <span className="text-sm font-bold text-gray-900">Net Payout</span>
+                  <span className="text-base font-bold text-[#1E3A5F]">{h(payout.netPayoutAmount)}</span>
                 </div>
               </div>
 
               {/* Disbursements */}
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Banknote size={14} className="text-gray-400" />
-                    <h3 className="text-sm font-semibold text-gray-700">Disbursements</h3>
-                  </div>
+              <div className="pt-4 pb-1">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Disbursements</p>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-gray-400">Disbursed:</span>
                     <span className="font-semibold text-green-700">{h(payout.disbursedAmount)}</span>
@@ -526,48 +550,44 @@ function PayoutDetailModal({ payoutId, onClose }) {
                   </div>
                 </div>
                 {disbursements.length === 0 ? (
-                  <p className="px-4 py-4 text-xs text-gray-400 text-center">No disbursements yet</p>
-                ) : (
-                  <div className="divide-y divide-gray-100">
-                    {disbursements.map((d, i) => {
-                      const ModeIcon = DISBURSE_ICON[d.mode] ?? Banknote;
-                      return (
-                        <div key={d.id ?? i} className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
-                            <ModeIcon size={14} className="text-green-600" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-900">{h(d.amount)}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">
-                              {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
-                              {d.disbursedBy ? ` · by ${nameMap[String(d.disbursedBy)] ?? 'Admin'}` : ''}
-                            </p>
-                            {d.notes && <p className="text-xs text-gray-500 mt-0.5 italic">{d.notes}</p>}
-                          </div>
-                          <p className="text-xs text-gray-400 flex-shrink-0">{fmtDate(d.disbursedAt)}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                  <p className="py-3 text-xs text-gray-400">No disbursements yet</p>
+                ) : disbursements.map((d, i) => {
+                  const ModeIcon = DISBURSE_ICON[d.mode] ?? Banknote;
+                  return (
+                    <div key={d.id ?? i} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                      <div className="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                        <ModeIcon size={13} className="text-green-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{h(d.amount)}</p>
+                        <p className="text-xs text-gray-400">
+                          {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
+                          {d.disbursedBy ? ` · by ${nameMap[String(d.disbursedBy)] ?? 'Admin'}` : ''}
+                        </p>
+                        {d.notes && <p className="text-xs text-gray-500 italic">{d.notes}</p>}
+                      </div>
+                      <p className="text-xs text-gray-400 flex-shrink-0">{fmtDate(d.disbursedAt)}</p>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Notes */}
               {payout.notes && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                  <p className="text-xs text-amber-700 font-semibold mb-0.5">Notes</p>
-                  <p className="text-sm text-amber-900">{payout.notes}</p>
+                <div className="pt-3 pb-2 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-amber-600 mb-0.5">Notes</p>
+                  <p className="text-sm text-gray-700">{payout.notes}</p>
                 </div>
               )}
 
               {/* Cancellation / void */}
               {(payout.cancellationReason || payout.voidReason) && (
-                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-                  <p className="text-xs text-red-700 font-semibold mb-0.5">
+                <div className="pt-3 pb-2 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-red-500 mb-0.5">
                     {payout.cancellationReason ? 'Cancellation Reason' : 'Void Reason'}
                   </p>
-                  <p className="text-sm text-red-900">{payout.cancellationReason ?? payout.voidReason}</p>
-                  <p className="text-xs text-red-400 mt-1">
+                  <p className="text-sm text-gray-700">{payout.cancellationReason ?? payout.voidReason}</p>
+                  <p className="text-xs text-gray-400 mt-1">
                     {fmtDateTime(payout.cancelledAt ?? payout.voidedAt)}
                     {(payout.cancelledBy ?? payout.voidedBy)
                       ? ` · by ${nameMap[String(payout.cancelledBy ?? payout.voidedBy)] ?? 'Admin'}`
@@ -576,9 +596,9 @@ function PayoutDetailModal({ payoutId, onClose }) {
                 </div>
               )}
 
-              {/* Created by */}
-              <div className="flex items-center gap-2 px-1 pb-2">
-                <Calendar size={12} className="text-gray-300" />
+              {/* Footer */}
+              <div className="flex items-center gap-2 pt-3 pb-4 border-t border-gray-100">
+                <Calendar size={11} className="text-gray-300" />
                 <p className="text-xs text-gray-400">
                   Created {fmtDateTime(payout.createdAt)}
                   {payout.createdBy ? ` · by ${nameMap[String(payout.createdBy)] ?? 'Admin'}` : ''}
@@ -705,7 +725,7 @@ function MemberLink({ id, name }) {
   const nav = useNavigate();
   if (!id || !name || name === id) return <span>{name ?? '—'}</span>;
   return (
-    <button type="button" onClick={() => nav(`/members/${id}`)}
+    <button type="button" onClick={(e) => { e.stopPropagation(); nav(`/members/${id}`); }}
       className="hover:underline hover:text-[#1E3A5F] cursor-pointer text-left font-medium">
       {name}
     </button>
@@ -716,7 +736,7 @@ function ChitLink({ id, name }) {
   const nav = useNavigate();
   if (!id || !name || name === id) return <span>{name ?? '—'}</span>;
   return (
-    <button type="button" onClick={() => nav(`/chits/${id}`)}
+    <button type="button" onClick={(e) => { e.stopPropagation(); nav(`/chits/${id}`); }}
       className="hover:underline hover:text-[#1E3A5F] cursor-pointer text-left font-medium">
       {name}
     </button>
@@ -1122,7 +1142,7 @@ function MemberReportTab() {
           </button>
         </div>
         {memberId && member && (
-          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
             <Printer size={15} /> Print Report
           </button>
         )}
@@ -1502,7 +1522,7 @@ function ChitReportTab() {
           </Select>
         </div>
         {chitId && chit && (
-          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
             <Printer size={15} /> Print Report
           </button>
         )}
@@ -1933,12 +1953,12 @@ function PaymentsTab() {
           </Select>
         </div>
         <div className="ml-auto flex gap-2">
-          <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
+          <button onClick={handlePrint} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
             <Printer size={14} /> Print
           </button>
-          <Button variant="outline" onClick={handleCSV} className="flex items-center gap-2 text-sm">
+          <button onClick={handleCSV} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
             <Download size={14} /> CSV
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -2088,7 +2108,7 @@ function PayoutsTab() {
             ))}
           </Select>
         </div>
-        <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
+        <button onClick={handlePrint} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
           <Printer size={14} /> Print
         </button>
       </div>
@@ -2302,7 +2322,7 @@ function TreasuryTab() {
       </div>
 
       <div className="flex justify-end">
-        <button onClick={handlePrint} className="inline-flex items-center gap-2 px-4 py-2 bg-[#1E3A5F] text-white text-sm font-medium rounded-lg shadow hover:bg-[#162d4a] active:scale-95 transition-all">
+        <button onClick={handlePrint} className="inline-flex items-center gap-2 text-white text-sm font-medium rounded-lg shadow transition-all active:scale-95" style={{ backgroundColor: '#1E3A5F', paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }} onMouseEnter={e => e.currentTarget.style.backgroundColor='#162d4a'} onMouseLeave={e => e.currentTarget.style.backgroundColor='#1E3A5F'}>
           <Printer size={14} /> Print Report
         </button>
       </div>

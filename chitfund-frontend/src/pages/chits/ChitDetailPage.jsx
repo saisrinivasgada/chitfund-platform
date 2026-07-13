@@ -782,8 +782,8 @@ function VoidSlotModal({ slot, memberName, onConfirm, onClose, loading }) {
   const monthLabel = formatMonthLabel(slot.reservationMonth, slot.monthNumber);
   return (
     <Modal title="Void Reservation Slot" onClose={onClose} size="sm">
-      <div className="space-y-4">
-        <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="bg-red-50 border border-red-100 rounded-lg" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }}>
           <p className="text-sm font-medium text-red-800">
             Voiding <strong>{monthLabel}</strong>
             {memberName ? ` — ${memberName}` : ''}
@@ -801,7 +801,7 @@ function VoidSlotModal({ slot, memberName, onConfirm, onClose, loading }) {
           />
         </FormField>
         <FormField label="Add replacement slot at">
-          <div className="flex flex-col gap-2 mt-1">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
             <label className="flex items-start gap-3 cursor-pointer group">
               <input type="radio" name="replaceAt" value="same" checked={replaceAt === 'same'}
                 onChange={() => setReplaceAt('same')}
@@ -822,7 +822,7 @@ function VoidSlotModal({ slot, memberName, onConfirm, onClose, loading }) {
             </label>
           </div>
         </FormField>
-        <div className="flex gap-3 pt-4">
+        <div className="flex gap-3" style={{ marginTop: 4 }}>
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button variant="danger" onClick={() => onConfirm({ reason, replaceAt })} disabled={!reason.trim()} loading={loading} className="flex-1">
             <XCircle size={13} /> Void Slot
@@ -983,12 +983,12 @@ function SwapSlotsModal({ chitId, slots, memberMap, onClose }) {
 
   return (
     <Modal title="Swap Reservation Slots" onClose={onClose} size="sm">
-      <div className="space-y-5">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <p className="text-sm text-gray-500">
           Select two RESERVED slots to swap their assigned members. Payout amounts stay with their original months.
         </p>
 
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <FormField label="Slot A">
             <Select value={slotAId} onChange={(e) => setSlotAId(e.target.value)}>
               <option value="">Select a slot…</option>
@@ -1021,7 +1021,7 @@ function SwapSlotsModal({ chitId, slots, memberMap, onClose }) {
         </div>
 
         {canSwap && slotA && slotB && (
-          <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 space-y-2">
+          <div className="bg-blue-50 border border-blue-100 rounded-lg" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Preview</p>
             <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center text-sm">
               <div className="text-center">
@@ -1043,7 +1043,7 @@ function SwapSlotsModal({ chitId, slots, memberMap, onClose }) {
           </div>
         )}
 
-        <div className="flex gap-3 pt-4">
+        <div className="flex gap-3" style={{ marginTop: 4 }}>
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button
             onClick={() => swapMutation.mutate()}
@@ -1389,7 +1389,7 @@ function ReservationScheduleTab({ chitId, chit }) {
                             min="0"
                             value={edit.payoutAmount}
                             onChange={(e) => updateEdit(slot, 'payoutAmount', e.target.value)}
-                            className="w-36"
+                            style={{ width: 144 }}
                           />
                         )}
                       </td>
@@ -1401,7 +1401,7 @@ function ReservationScheduleTab({ chitId, chit }) {
                             {slot.status}
                           </span>
                           {isVoided && slot.voidReason && (
-                            <span className="text-xs text-red-400 max-w-36 truncate" title={slot.voidReason}>
+                            <span className="text-xs text-red-400 truncate" style={{ maxWidth: 144 }} title={slot.voidReason}>
                               {slot.voidReason}
                             </span>
                           )}
@@ -1837,8 +1837,8 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
         {/* ── Left panel — navy context sidebar ── */}
         <div
-          className="flex-shrink-0 sm:w-52 px-6 py-6 flex flex-col gap-5 overflow-y-auto"
-          style={{ background: 'linear-gradient(160deg, #162D49 0%, #1E3A5F 60%, #243F6A 100%)' }}
+          className="flex-shrink-0 sm:w-52 flex flex-col overflow-y-auto"
+          style={{ background: 'linear-gradient(160deg, #162D49 0%, #1E3A5F 60%, #243F6A 100%)', padding: '24px 24px', gap: 20, display: 'flex', flexDirection: 'column' }}
         >
           {/* Draw number */}
           <div>
@@ -1929,7 +1929,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
         <div className="flex-1 bg-white flex flex-col min-h-0">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center justify-between border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 16 }}>
             <div>
               <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
                 {step === 1 ? 'Configure Draw' : 'Preview & Confirm'}
@@ -1947,10 +1947,10 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
           </div>
 
           {/* Scrollable body */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+          <div className="flex-1 min-h-0 overflow-y-auto" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 20 }}>
 
             {step === 1 ? (
-              <form id="open-draw-form" onSubmit={(e) => { e.preventDefault(); computePreview(); }} className="space-y-5">
+              <form id="open-draw-form" onSubmit={(e) => { e.preventDefault(); computePreview(); }} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                 {/* Due date */}
                 <FormField label="Payment Due Date" required>
@@ -1959,7 +1959,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
                 {/* Additional winners */}
                 {cyclePayoutAmount && (
-                  <div className="space-y-3">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {additionalWinners.map((aw, idx) => {
                       // RESERVED slots for this additional winner, excluding primary slot and slots already picked by earlier rows
                       const usedSlotIds = new Set(additionalWinners.filter((_, i) => i < idx).map((w) => w.slotId).filter(Boolean));
@@ -1973,14 +1973,14 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
                         : [];
                       return (
                         <div key={aw.id} className="rounded-xl border border-[#1E3A5F]/20 bg-[#F0F4FA]">
-                          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E3A5F]/10">
+                          <div className="flex items-center justify-between border-b border-[#1E3A5F]/10" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }}>
                             <p className="text-sm font-semibold text-gray-800">Additional Winner {idx + 1}</p>
                             <button type="button" onClick={() => removeWinner(aw.id)}
                               className="text-gray-400 hover:text-red-500 transition-colors">
                               <X size={14} />
                             </button>
                           </div>
-                          <div className="px-4 pb-4 pt-3 grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-2 gap-3" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 16 }}>
                             <FormField label="Member">
                               <Select value={aw.memberId}
                                 onChange={(e) => updateWinner(aw.id, { memberId: e.target.value, slotId: '' })}>
@@ -2147,7 +2147,7 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
           </div>
 
           {/* Footer buttons */}
-          <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 flex gap-3 bg-white">
+          <div className="flex-shrink-0 border-t border-gray-100 flex gap-3 bg-white" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 16, paddingBottom: 16 }}>
             {step === 1 ? (
               <>
                 <Button type="button" variant="muted" onClick={onClose} className="flex-1">Cancel</Button>
@@ -2350,8 +2350,8 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                       <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Draw</th>
                       <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Due</th>
                       <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Paid</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">Balance</th>
-                      <th className="pl-8 pr-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                      <th className="py-2.5 text-right text-xs font-semibold text-gray-500 uppercase" style={{ paddingLeft: 12, paddingRight: 12, minWidth: 80, whiteSpace: 'nowrap' }}>Balance</th>
+                      <th className="py-2.5 text-left text-xs font-semibold text-gray-500 uppercase" style={{ paddingLeft: 24, paddingRight: 12, minWidth: 120, whiteSpace: 'nowrap' }}>Status</th>
                       <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
@@ -2370,7 +2370,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                               ? <span className="text-red-600">₹{Number(r.balance).toLocaleString()}</span>
                               : <span className="text-green-600">✓</span>}
                           </td>
-                          <td className="pl-8 pr-3 py-2.5"><PaymentStatusBadge status={r.status} overdue={r.overdue} /></td>
+                          <td style={{ paddingLeft: 24, paddingRight: 12, paddingTop: 10, paddingBottom: 10 }}><PaymentStatusBadge status={r.status} overdue={r.overdue} /></td>
                           <td className="px-3 py-2.5 text-right">
                             {canCollect && (
                               <Button size="sm" onClick={() => { onCollect(r, member); onClose(); }}>
@@ -2559,8 +2559,8 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
             <th className="px-5 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Member</th>
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Due</th>
             <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Paid</th>
-            <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Balance</th>
-            <th className="pl-8 pr-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Status</th>
+            <th className="py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10" style={{ paddingLeft: 12, paddingRight: 12, minWidth: 80, whiteSpace: 'nowrap' }}>Balance</th>
+            <th className="py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10" style={{ paddingLeft: 24, paddingRight: 12, minWidth: 120, whiteSpace: 'nowrap' }}>Status</th>
             <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-50 z-10">Promised Date</th>
             <th className="px-3 py-2.5 sticky top-0 bg-gray-50 z-10" />
           </tr>
@@ -2593,7 +2593,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
                     ? <span className="text-red-600">₹{Number(p.balance).toLocaleString()}</span>
                     : <span className="text-green-600">✓</span>}
                 </td>
-                <td className="pl-8 pr-3 py-3">
+                <td style={{ paddingLeft: 24, paddingRight: 12, paddingTop: 12, paddingBottom: 12 }}>
                   <PaymentStatusBadge status={p.status} overdue={p.overdue} />
                 </td>
                 <td className="px-3 py-3">
@@ -3504,10 +3504,10 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
       onClose={onClose}
       size="lg"
     >
-      <div className="space-y-5">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* ── Winner summary ── */}
-        <div className="bg-gray-50 rounded-xl p-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+        <div className="bg-gray-50 rounded-xl text-sm" style={{ padding: 16, display: 'flex', flexWrap: 'wrap', gap: '8px 32px' }}>
           {member?.phone && (
             <span className="flex items-center gap-1.5 text-gray-500"><Phone size={13} />{member.phone}</span>
           )}
@@ -3520,7 +3520,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
         {/* ── Cross-chit dues ── */}
         {hasDues && (
-          <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-3">
+          <div className="border border-amber-200 bg-amber-50 rounded-xl" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="flex items-center gap-2">
               <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
               <span className="text-sm font-semibold text-amber-800">
@@ -3884,8 +3884,8 @@ function StatusChangeDialog({
 
         {/* Hero banner */}
         <div
-          className="pt-10 pb-8 flex flex-col items-center gap-3 text-center"
-          style={{ background: `linear-gradient(150deg, ${grad[0]} 0%, ${grad[1]} 100%)` }}
+          className="flex flex-col items-center text-center"
+          style={{ background: `linear-gradient(150deg, ${grad[0]} 0%, ${grad[1]} 100%)`, paddingTop: 40, paddingBottom: 32, gap: 12 }}
         >
           {/* Icon ring */}
           <div
@@ -3911,7 +3911,7 @@ function StatusChangeDialog({
         </div>
 
         {/* Body */}
-        <div className="px-7 pt-6 pb-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+        <div className="overflow-y-auto flex-1 min-h-0" style={{ paddingLeft: 28, paddingRight: 28, paddingTop: 24, paddingBottom: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Chit identity */}
           <div>
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Chit Fund</p>
@@ -3923,7 +3923,7 @@ function StatusChangeDialog({
 
           {/* Unallocated slots warning */}
           {hasWarning && (
-            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <div className="flex items-start bg-amber-50 border border-amber-200 rounded-xl" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12, gap: 10 }}>
               <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
               <p className="text-xs text-amber-700 leading-relaxed">
                 <span className="font-semibold">{unallocatedCount} slot{unallocatedCount > 1 ? 's' : ''}</span> still unallocated — those months will have no winner.
@@ -3949,7 +3949,7 @@ function StatusChangeDialog({
         </div>
 
         {/* Actions — full-width equal buttons */}
-        <div className="px-7 pb-7 pt-1 flex gap-3">
+        <div className="flex" style={{ paddingLeft: 28, paddingRight: 28, paddingBottom: 28, paddingTop: 4, gap: 12 }}>
           <Button variant="muted" onClick={onClose} disabled={loading} size="md" className="flex-1">
             Cancel
           </Button>

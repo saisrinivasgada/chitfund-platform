@@ -51,6 +51,10 @@ public class Payout {
     @Builder.Default
     private BigDecimal manualAdjustment = BigDecimal.ZERO;       // admin-entered extra deduction
 
+    // Comma-separated draw month numbers included in installmentSettlement, e.g. "3" or "2,3"
+    @Column(length = 100)
+    private String installmentSettlementMonths;
+
     // Computed: winningAmount - discountAmount (what winner actually receives)
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal netPayoutAmount;

@@ -6,7 +6,7 @@ import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import {
   getMembers, getMember, getChitsForMember, getPayoutsForMember, getMemberTotalBalance,
   getAllPaymentBatches, getAllPayouts, getWalletBalance, getWalletTransactions, getChits,
-  getPayoutById,
+  getPayoutById, getChit,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
 
@@ -52,11 +52,36 @@ function Pill({ label, active, onPress }: { label: string; active: boolean; onPr
 // ─────────────────────────────────────────────────────────────────────────────
 // Payout Detail Modal
 // ─────────────────────────────────────────────────────────────────────────────
+function drawMonthLabel(startDate: string | undefined, monthNumber: number): string {
+  if (!startDate) return '';
+  try {
+    const d = new Date(startDate);
+    d.setMonth(d.getMonth() + monthNumber - 1);
+    return d.toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+  } catch { return ''; }
+}
+
+function parseBreakdown(raw: string | undefined): { month: number; amount: number }[] | null {
+  if (!raw) return null;
+  try {
+    return raw.split(',').map((part) => {
+      const [m, a] = part.split(':');
+      return { month: Number(m), amount: Number(a) };
+    }).filter((x) => x.month > 0 && x.amount > 0);
+  } catch { return null; }
+}
+
 function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onClose: () => void }) {
   const { data: p, isLoading } = useQuery({
     queryKey: ['payout-detail', payoutId],
     queryFn: () => getPayoutById(payoutId!),
     enabled: !!payoutId,
+  });
+
+  const { data: chit } = useQuery({
+    queryKey: ['chit-detail', p?.chitId],
+    queryFn: () => getChit(p!.chitId),
+    enabled: !!p?.chitId,
   });
 
   const STATUS_COLOR: Record<string, string> = {
@@ -122,9 +147,25 @@ function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onC
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Winning Amount</Text>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{fmt(p.winningAmount)}</Text>
               </View>
-              {Number(p.installmentSettlement ?? 0) > 0 && (
-                <DeductionRow label="Installment Withheld" sub={`Draw #${p.monthNumber} · ${p.chitName ?? ''}`} amount={p.installmentSettlement} />
-              )}
+              {Number(p.installmentSettlement ?? 0) > 0 && (() => {
+                const breakdown = parseBreakdown(p.installmentSettlementMonths);
+                return (
+                  <>
+                    <DeductionRow label="Installment Withheld" amount={p.installmentSettlement} />
+                    {breakdown && breakdown.map(({ month, amount }) => (
+                      <View key={month} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 6, paddingLeft: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                        <View>
+                          <Text style={{ fontSize: 12, fontWeight: '500', color: C.gray700 }}>Draw #{month}</Text>
+                          {drawMonthLabel(chit?.startDate, month) ? (
+                            <Text style={{ fontSize: 11, color: C.gray400 }}>{drawMonthLabel(chit?.startDate, month)}</Text>
+                          ) : null}
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '500', color: C.red }}>− {fmt(amount)}</Text>
+                      </View>
+                    ))}
+                  </>
+                );
+              })()}
               {Number(p.crossChitSettlement ?? 0) > 0 && (
                 <DeductionRow label="Cross-Chit Settlement" sub="Outstanding dues from other chits" amount={p.crossChitSettlement} />
               )}

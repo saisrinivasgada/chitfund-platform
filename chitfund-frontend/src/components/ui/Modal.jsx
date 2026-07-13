@@ -74,7 +74,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
           className="overflow-y-auto flex-1 min-h-0"
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
-          <div className="p-[34px]">
+          <div style={{ padding: '28px 28px 24px' }}>
             {children}
           </div>
         </div>

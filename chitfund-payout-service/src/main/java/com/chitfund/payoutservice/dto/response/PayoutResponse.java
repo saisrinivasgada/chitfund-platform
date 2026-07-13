@@ -27,6 +27,7 @@ public class PayoutResponse {
 
     // Settlement breakdown
     private BigDecimal installmentSettlement;
+    private String installmentSettlementMonths;
     private BigDecimal crossChitSettlement;
     private BigDecimal manualAdjustment;
 

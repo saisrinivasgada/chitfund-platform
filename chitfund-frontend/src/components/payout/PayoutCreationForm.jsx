@@ -55,6 +55,7 @@ export default function PayoutCreationForm({
   const [collectCurrentMonth, setCollectCurrentMonth] = useState(false);
   const [installmentOverride, setInstallmentOverride] = useState('');
   const [crossChitCollect,    setCrossChitCollect]    = useState({});
+  const [sameChitOtherCollect, setSameChitOtherCollect] = useState({});
 
   // All chits this member is enrolled in
   const { data: memberChits = [] } = useQuery({
@@ -97,6 +98,10 @@ export default function PayoutCreationForm({
     (b) => String(b.chitId) === String(chitId)
   );
 
+  // Other outstanding months in THIS chit (excluding the winning draw month)
+  const sameChitOtherMonths = (currentChitBalance?.months ?? [])
+    .filter((m) => m.monthNumber !== monthNumber && Number(m.balance ?? 0) > 0);
+
   // Default to installmentAmount while loading so toggle is enabled;
   // 0 means "already paid" → toggle disabled.
   const winningMonthRemaining = (() => {
@@ -110,8 +115,11 @@ export default function PayoutCreationForm({
   const crossDed         = Object.entries(crossChitCollect)
     .filter(([, v]) => v.enabled)
     .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
+  const sameChitDed      = Object.entries(sameChitOtherCollect)
+    .filter(([, v]) => v.enabled)
+    .reduce((sum, [, v]) => sum + Math.max(0, Number(v.amount) || 0), 0);
   const manualNum        = Number(manualAdjustment) || 0;
-  const totalDiscount    = manualNum + currentMonthDed + crossDed;
+  const totalDiscount    = manualNum + currentMonthDed + crossDed + sameChitDed;
   const winNum           = Number(winningAmt) || 0;
   const net              = Math.max(0, winNum - totalDiscount);
   const isOverDeducted   = totalDiscount > winNum && winNum > 0;
@@ -132,16 +140,45 @@ export default function PayoutCreationForm({
     }));
   }
 
+  function toggleSameChitMonth(mNum) {
+    const monthData = sameChitOtherMonths.find((m) => m.monthNumber === mNum);
+    const balance = Number(monthData?.balance ?? 0);
+    setSameChitOtherCollect((prev) => {
+      const key = String(mNum);
+      const cur = prev[key];
+      if (cur?.enabled) return { ...prev, [key]: { enabled: false, amount: cur.amount } };
+      return { ...prev, [key]: { enabled: true, amount: String(balance) } };
+    });
+  }
+
+  function setSameChitAmt(mNum, val) {
+    setSameChitOtherCollect((prev) => ({
+      ...prev,
+      [String(mNum)]: { ...prev[String(mNum)], amount: val },
+    }));
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
-      // Cross-chit deductions target the oldest unpaid draw month per chit
-      const crossChitDeductions = Object.entries(crossChitCollect)
+      // Same-chit other-month deductions (FIFO-cleared by backend per chitId)
+      const sameChitDeduction = sameChitDed > 0
+        ? [{ chitId: String(chitId), amount: sameChitDed }]
+        : [];
+      // Other-chit deductions
+      const otherChitDeductions = Object.entries(crossChitCollect)
         .filter(([, v]) => v.enabled && Number(v.amount) > 0)
-        .flatMap(([xChitId]) => {
-          const xBalance       = (perChitBalances ?? []).find((b) => String(b.chitId) === String(xChitId));
-          const oldestDrawMonth = xBalance?.months?.[0]?.monthNumber;
-          return oldestDrawMonth ? [{ chitId: xChitId, monthNumber: oldestDrawMonth }] : [];
-        });
+        .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) }));
+      const allDeductions = [...sameChitDeduction, ...otherChitDeductions];
+
+      // Per-draw breakdown of installmentSettlement (month + amount)
+      const instBreakdown = [
+        ...(collectCurrentMonth && currentMonthDed > 0
+          ? [{ month: monthNumber, amount: currentMonthDed }]
+          : []),
+        ...Object.entries(sameChitOtherCollect)
+          .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+          .map(([mNum, v]) => ({ month: Number(mNum), amount: Number(v.amount) })),
+      ].sort((a, b) => a.month - b.month);
 
       return createPayout({
         chitId,
@@ -149,17 +186,19 @@ export default function PayoutCreationForm({
         monthNumber,
         winningAmount:                  winNum,
         discountAmount:                 totalDiscount,
-        installmentSettlement:          currentMonthDed || undefined,
+        installmentSettlement:          (currentMonthDed + sameChitDed) || undefined,
+        installmentMonthBreakdown:      instBreakdown.length > 0 ? instBreakdown : undefined,
         crossChitSettlement:            crossDed || undefined,
         manualAdjustment:               manualNum || undefined,
         notes:                          notes || undefined,
         collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
-        crossChitDeductions:            crossChitDeductions.length > 0 ? crossChitDeductions : undefined,
+        crossChitDeductions:            allDeductions.length > 0 ? allDeductions : undefined,
       });
     },
     onSuccess: (payout) => {
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
-      const msg = currentMonthDed > 0 || crossDed > 0
+      const anySettlement = currentMonthDed > 0 || crossDed > 0 || sameChitDed > 0;
+      const msg = anySettlement
         ? `Payout created · ₹${totalDiscount.toLocaleString('en-IN')} collected as settlement`
         : 'Payout record created — ready to disburse';
       toast.success(msg);
@@ -169,7 +208,7 @@ export default function PayoutCreationForm({
   });
 
   return (
-    <div className="space-y-4">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {editableAmount && (
         <FormField label="Winning Amount (₹)" required>
           <Input type="number" min="0" value={winningAmt}
@@ -179,7 +218,7 @@ export default function PayoutCreationForm({
 
       {/* ── Settlement Section ── */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
-        <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-2">
+        <div className="bg-gray-50 border-b border-gray-200 flex items-center gap-2" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 10, paddingBottom: 10 }}>
           <Wallet size={14} className="text-[#1E3A5F]" />
           <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
             Collect at Disbursement
@@ -189,7 +228,7 @@ export default function PayoutCreationForm({
 
           {/* Current month installment */}
           {installmentAmount > 0 && (
-            <div className="px-4 py-3">
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }}>
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800">Draw {monthNumber} installment</p>
@@ -213,7 +252,7 @@ export default function PayoutCreationForm({
                 />
               </div>
               {collectCurrentMonth && (
-                <div className="mt-2 space-y-2">
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input
                     type="number"
                     min="0"
@@ -243,15 +282,66 @@ export default function PayoutCreationForm({
             </div>
           )}
 
+          {/* Same-chit other outstanding months */}
+          {!balancesLoading && sameChitOtherMonths.length > 0 && (
+            <>
+              <div className="bg-gray-50" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }}>
+                <p className="text-xs font-medium text-gray-500">Other outstanding months in this chit</p>
+              </div>
+              {sameChitOtherMonths.map((m) => {
+                const key     = String(m.monthNumber);
+                const balance = Number(m.balance ?? 0);
+                const state   = sameChitOtherCollect[key];
+                const isOn    = state?.enabled ?? false;
+                const amt     = state?.amount ?? String(balance);
+                const amtNum  = Math.max(0, Number(amt) || 0);
+                const exceeds = amtNum > balance;
+                return (
+                  <div key={m.monthNumber} style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">Draw {m.monthNumber} installment</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Outstanding: <span className="text-red-600 font-medium">₹{balance.toLocaleString('en-IN')}</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs text-gray-500">Collect now</span>
+                        <ToggleSwitch on={isOn} onToggle={() => toggleSameChitMonth(m.monthNumber)} />
+                      </div>
+                    </div>
+                    {isOn && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-16 flex-shrink-0">Amount (₹)</span>
+                        <Input type="number" min="1" max={balance} value={amt}
+                          onChange={(e) => setSameChitAmt(m.monthNumber, e.target.value)} className="w-40" />
+                        {amtNum > 0 && !exceeds && (
+                          <span className="text-xs font-semibold text-[#1E3A5F]">
+                            −₹{amtNum.toLocaleString('en-IN')}
+                          </span>
+                        )}
+                        {exceeds && (
+                          <p className="text-xs text-red-500 flex items-center gap-1">
+                            <AlertCircle size={11} /> Max ₹{balance.toLocaleString('en-IN')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
           {/* Cross-chit outstanding dues */}
           {balancesLoading && memberChits.length > 0 && (
-            <div className="px-4 py-3 text-xs text-gray-400 italic">
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }} className="text-xs text-gray-400 italic">
               Checking other chit balances…
             </div>
           )}
           {!balancesLoading && otherChitsWithBalance.length > 0 && (
             <>
-              <div className="px-4 py-2 bg-gray-50">
+              <div className="bg-gray-50" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }}>
                 <p className="text-xs font-medium text-gray-500">Outstanding dues in other chits</p>
               </div>
               {otherChitsWithBalance.map((c) => {
@@ -262,7 +352,7 @@ export default function PayoutCreationForm({
                 const amtNum  = Math.max(0, Number(amt) || 0);
                 const exceeds = amtNum > balance;
                 return (
-                  <div key={c.id} className="px-4 py-3 space-y-2">
+                  <div key={c.id} style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
@@ -297,8 +387,8 @@ export default function PayoutCreationForm({
               })}
             </>
           )}
-          {!balancesLoading && otherChitsWithBalance.length === 0 && installmentAmount === 0 && (
-            <div className="px-4 py-3 text-xs text-gray-400 italic">
+          {!balancesLoading && otherChitsWithBalance.length === 0 && sameChitOtherMonths.length === 0 && installmentAmount === 0 && (
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }} className="text-xs text-gray-400 italic">
               No outstanding dues or installment to collect.
             </div>
           )}
@@ -315,10 +405,10 @@ export default function PayoutCreationForm({
       {/* ── Payout Breakdown ── */}
       {winNum > 0 && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-gray-200">
+          <div className="border-b border-gray-200" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 10, paddingBottom: 10 }}>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout Breakdown</p>
           </div>
-          <div className="px-4 py-3 space-y-2 text-sm">
+          <div className="text-sm" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div className="flex justify-between">
               <span className="text-gray-600">Winning amount</span>
               <span className="font-medium text-gray-900">₹{winNum.toLocaleString('en-IN')}</span>
@@ -331,6 +421,16 @@ export default function PayoutCreationForm({
                 <span>−₹{currentMonthDed.toLocaleString('en-IN')}</span>
               </div>
             )}
+            {Object.entries(sameChitOtherCollect)
+              .filter(([, v]) => v.enabled && Number(v.amount) > 0)
+              .map(([mNum, v]) => (
+                <div key={mNum} className="flex justify-between text-amber-700">
+                  <span className="flex items-center gap-1">
+                    <ArrowRight size={12} /> Draw {mNum} installment
+                  </span>
+                  <span>−₹{Number(v.amount).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
             {Object.entries(crossChitCollect)
               .filter(([, v]) => v.enabled && Number(v.amount) > 0)
               .map(([cId, v]) => {
@@ -380,6 +480,11 @@ export default function PayoutCreationForm({
           Object.entries(crossChitCollect).some(([cId, v]) => {
             if (!v.enabled) return false;
             return Number(v.amount) > (crossBalances[String(cId)] ?? 0);
+          }) ||
+          Object.entries(sameChitOtherCollect).some(([mNum, v]) => {
+            if (!v.enabled) return false;
+            const m = sameChitOtherMonths.find((mo) => String(mo.monthNumber) === mNum);
+            return Number(v.amount) > Number(m?.balance ?? 0);
           })
         }
         onClick={() => mutation.mutate()}
