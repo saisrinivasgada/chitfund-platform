@@ -539,8 +539,8 @@ function TransferModal({ onClose }) {
               Transfer Funds
             </h3>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 cursor-pointer transition-colors">
-            <X size={16} />
+          <button onClick={onClose} className="flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white">
+            <X size={14} />
           </button>
         </div>
 

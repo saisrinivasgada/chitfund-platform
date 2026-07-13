@@ -126,7 +126,7 @@ function MemberPickerModal({ members, value, onChange, onClose }) {
         <div className="flex items-center gap-3 border-b border-gray-100" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 12 }}>
           <Users size={16} className="text-[#1E3A5F]" />
           <span className="font-semibold text-gray-800 flex-1">Select Member</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none cursor-pointer">✕</button>
+          <button onClick={onClose} className="flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white">✕</button>
         </div>
         {/* Search */}
         <div className="border-b border-gray-100" style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 12, paddingBottom: 12 }}>
@@ -270,7 +270,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
         {/* Close button — pinned inside top-right corner */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+          className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white"
         >✕</button>
         {/* Header */}
         <div className="border-b border-gray-100" style={{ paddingLeft: 24, paddingRight: 56, paddingTop: 20, paddingBottom: 16 }}>
@@ -437,7 +437,7 @@ function PayoutDetailModal({ payoutId, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[98vh]" onClick={(e) => e.stopPropagation()}>
         {/* Close */}
-        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white">✕</button>
 
         {/* Header */}
         <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 32, paddingRight: 56 }}>
@@ -691,7 +691,7 @@ function PaymentDetailModal({ batchId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-[3px] bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[95vh]" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
+        <button onClick={onClose} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white">✕</button>
 
         {/* Header */}
         <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 28, paddingRight: 52 }}>

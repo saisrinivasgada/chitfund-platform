@@ -1940,9 +1940,9 @@ function OpenDrawModal({ chitId, chit, draws, onClose }) {
             </div>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer flex-shrink-0"
+              className="flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white flex-shrink-0"
             >
-              <X size={16} />
+              <X size={14} />
             </button>
           </div>
 
