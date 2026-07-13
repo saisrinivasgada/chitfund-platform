@@ -2404,6 +2404,7 @@ function TreasuryTab() {
   const [from, setFrom]           = useSessionState('rpt_tr_from', '');
   const [to, setTo]               = useSessionState('rpt_tr_to', '');
   const [activePreset, setPreset] = useSessionState('rpt_tr_preset', 'All Time');
+  const [selectedTxn, setSelectedTxn] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
 
@@ -2515,7 +2516,7 @@ function TreasuryTab() {
               </thead>
               <tbody>
                 {filtered.map((t, i) => (
-                  <tr key={t.id ?? i} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors">
+                  <tr key={t.id ?? i} className="odd:bg-white even:bg-slate-50/70 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => setSelectedTxn(t)}>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(t.createdAt ?? t.transactionDate)}</td>
                     <td className="px-4 py-2.5 text-xs">
                       <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{t.accountType ?? '—'}</span>
@@ -2552,6 +2553,53 @@ function TreasuryTab() {
           </div>
         </div>
       )}
+
+      {selectedTxn && (() => {
+        const t = selectedTxn;
+        const isIn = t.entryType === 'IN';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedTxn(null)}>
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setSelectedTxn(null)} className="absolute top-4 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer">✕</button>
+
+              <div className="pt-5 pb-4 border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 28, paddingRight: 52 }}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-gray-900">Treasury Entry</h2>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {isIn ? 'IN' : 'OUT'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">{fmtDateTime(t.createdAt ?? t.transactionDate)}</p>
+              </div>
+
+              <div className="overflow-y-auto flex-1 py-3" style={{ paddingLeft: 28, paddingRight: 28 }}>
+                {/* Amount */}
+                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Amount</span>
+                  <span className={`text-2xl font-bold ${isIn ? 'text-green-700' : 'text-red-600'}`}>
+                    {isIn ? '+' : '-'}{fmt(t.amount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Account</span>
+                  <span className="text-sm font-semibold text-gray-800">{t.accountType ?? '—'}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                  <span className="text-sm text-gray-500">Category</span>
+                  <span className="text-sm font-semibold text-gray-800">{t.category ?? '—'}</span>
+                </div>
+                {/* Full description */}
+                <div className="py-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Description</p>
+                  <p className="text-sm text-gray-800 leading-relaxed">
+                    {resolveDescriptionJsx(t.description ?? t.notes, memberMap, chitMap, staffMap)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
