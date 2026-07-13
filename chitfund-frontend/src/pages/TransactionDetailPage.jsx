@@ -391,6 +391,9 @@ export default function TransactionDetailPage() {
         {/* Chit */}
         <Card title="Chit Fund" icon={Layers}>
           <InfoRow icon={Layers} label="Name" value={chitName} />
+          {batch.allocations && batch.allocations.length > 0 && (
+            <InfoRow icon={Hash} label="Draw(s)" value={batch.allocations.map((a) => `#${a.monthNumber}`).join(', ')} />
+          )}
           {chitStatus && (
             <InfoRow icon={Hash} label="Status" value={chitStatus}
               valueClass={
@@ -409,10 +412,14 @@ export default function TransactionDetailPage() {
             <InfoRow icon={CalendarDays} label="Duration"
               value={`${chit.durationMonths} months`} />
           )}
-          {chit?.totalMembers != null && (
-            <InfoRow icon={Users} label="Members"
-              value={`${chit.enrolledCount ?? '—'} enrolled / ${chit.totalMembers} total`} />
-          )}
+          {chit?.totalMembers != null && (() => {
+            const orgCount = chit.orgHeldSpotsCount ?? 0;
+            const enrolled = chit.enrolledCount ?? '—';
+            const enrolledLabel = orgCount > 0
+              ? `${enrolled} (${orgCount} org) enrolled / ${chit.totalMembers} total`
+              : `${enrolled} enrolled / ${chit.totalMembers} total`;
+            return <InfoRow icon={Users} label="Members" value={enrolledLabel} />;
+          })()}
           {chit?.startDate && (
             <InfoRow icon={Calendar} label="Start Date" value={fmtDate(chit.startDate)} />
           )}
