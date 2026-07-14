@@ -251,7 +251,7 @@ function generatePrintHTML({ items, member, totalOwed, totalRefunded, grandTotal
     const rows = records.map((r) => {
       const bal = Number(r.balance ?? 0);
       const isPR = hasP && r.monthNumber === item.payoutMonthNumber;
-      return `<tr${isPR ? ' class="pr"' : ''}><td>Draw ${r.monthNumber}<span class="mn"> (Month ${r.monthNumber})</span></td><td>${fmtDate(r.dueDate)}</td><td class="r">${fmtAmt(r.amountDue)}</td><td class="r">${fmtAmt(r.amountPaid)}</td><td class="r ${bal > 0 ? 'owe' : bal < 0 ? 'crd' : ''}">${bal === 0 ? '—' : fmtAmt(bal)}</td><td class="c">${recLabel[r.status] ?? r.status}${isPR ? ' ← payout draw' : ''}</td></tr>`;
+      return `<tr${isPR ? ' class="pr"' : ''}><td>Draw ${r.monthNumber}<span class="mn"> (Draw ${r.monthNumber})</span></td><td>${fmtDate(r.dueDate)}</td><td class="r">${fmtAmt(r.amountDue)}</td><td class="r">${fmtAmt(r.amountPaid)}</td><td class="r ${bal > 0 ? 'owe' : bal < 0 ? 'crd' : ''}">${bal === 0 ? '—' : fmtAmt(bal)}</td><td class="c">${recLabel[r.status] ?? r.status}${isPR ? ' ← payout draw' : ''}</td></tr>`;
     }).join('');
 
     const table = records.length > 0 ? `<table><thead><tr><th>Draw</th><th>Due Date</th><th class="r">Amount Due</th><th class="r">Amount Paid</th><th class="r">Balance</th><th class="c">Status</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2"><b>Sub-total</b></td><td class="r"><b>${fmtAmt(totDue)}</b></td><td class="r"><b>${fmtAmt(totPaid)}</b></td><td class="r ${totBal > 0 ? 'owe' : totBal < 0 ? 'crd' : ''}"><b>${totBal === 0 ? '—' : fmtAmt(totBal)}</b></td><td></td></tr></tfoot></table>` : `<p class="norec">No payment records on file.</p>`;

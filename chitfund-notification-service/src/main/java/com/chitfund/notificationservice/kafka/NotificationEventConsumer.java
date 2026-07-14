@@ -65,7 +65,7 @@ public class NotificationEventConsumer {
                     inAppService.create(
                         UUID.fromString(userId),
                         "Installment Due",
-                        amtFormatted + " due for month " + event.monthNumber() + " — " + chitLabel,
+                        amtFormatted + " due for draw " + event.monthNumber() + " — " + chitLabel,
                         "PAYMENT_DUE",
                         Map.of("chitId", event.chitId(), "amount", event.installmentAmount().toPlainString(),
                                "monthNumber", event.monthNumber().toString()),
@@ -109,8 +109,8 @@ public class NotificationEventConsumer {
                 if (userId != null) {
                     inAppService.create(
                         UUID.fromString(userId),
-                        "Month Skipped",
-                        "Month " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason,
+                        "Draw Skipped",
+                        "Draw " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason,
                         "MONTH_SKIPPED",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason),
                         "/member/chits/" + event.chitId()
@@ -254,8 +254,8 @@ public class NotificationEventConsumer {
                 if (userId != null) {
                     inAppService.create(
                         UUID.fromString(userId),
-                        "Draw Result — Month " + event.monthNumber(),
-                        "Month " + event.monthNumber() + " draw is complete. Payout approved.",
+                        "Draw Result — Draw " + event.monthNumber(),
+                        "Draw " + event.monthNumber() + " is complete. Payout approved.",
                         "DRAW_RESULT",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString()),
                         "/member/chits/" + event.chitId()

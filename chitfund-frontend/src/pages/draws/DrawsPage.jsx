@@ -108,14 +108,14 @@ function Step2SelectMonth({ chit, onNext, onBack }) {
     <div className="space-y-6 max-w-sm">
       <div>
         <h3 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-          Select Month Number
+          Select Draw Number
         </h3>
         <p className="text-sm text-gray-500 mt-0.5">
-          Enter the month number for <strong>{chit.name}</strong>
+          Enter the draw number for <strong>{chit.name}</strong>
         </p>
       </div>
 
-      <FormField label="Month Number" required>
+      <FormField label="Draw Number" required>
         <Input
           type="number"
           min="1"
@@ -183,7 +183,7 @@ function Step3Draw({ chit, month, onNext, onBack }) {
       <div className="space-y-6 max-w-lg">
         <div>
           <h3 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Lottery Draw — Month {month}
+            Lottery Draw — Draw {month}
           </h3>
           <p className="text-sm text-gray-500 mt-0.5">
             {eligible.length} eligible member{eligible.length !== 1 ? 's' : ''}

@@ -1351,7 +1351,7 @@ export default function AdminChitsScreen() {
                 })()}
 
                 {slotsList.length === 0 ? (
-                  <EmptyState title="No schedule yet" message="Add reservation slots to assign members to draw months." />
+                  <EmptyState title="No schedule yet" message="Add reservation slots to assign members to draws." />
                 ) : (
                   slotsList.map((slot: any) => {
                     const slotNum = slot.slotNumber ?? slot.monthNumber ?? '?';
@@ -1571,7 +1571,7 @@ export default function AdminChitsScreen() {
                   Choose how the monthly winner is determined.
                 </Text>
                 {[
-                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw month in advance. Most common for family chits.', available: true },
+                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw in advance. Most common for family chits.', available: true },
                   { type: 'LOTTERY',     label: 'Lottery',     desc: 'Winner is randomly drawn each month. Coming soon.', available: false },
                   { type: 'AUCTION',     label: 'Auction',     desc: 'Members bid for the payout each month. Coming soon.', available: false },
                 ].map(({ type, label, desc, available }) => (
@@ -1757,7 +1757,7 @@ export default function AdminChitsScreen() {
                     { label: 'Installment', value: `₹${Number(cInstall).toLocaleString('en-IN')}` },
                     cStart && { label: 'Start Date', value: cStart },
                     cDueDate && { label: 'Due Day', value: cDueDate },
-                    Number(cAdminSpots) > 0 && { label: 'Admin Spots', value: cAdminSpots },
+                    Number(cAdminSpots) > 0 && { label: 'Org Spots', value: cAdminSpots },
                   ].filter(Boolean).map((row: any) => (
                     <View key={row.label} style={{ flexDirection: 'row', gap: 8 }}>
                       <Text style={{ fontSize: 13, color: C.gray500, width: 90 }}>{row.label}</Text>
@@ -1935,7 +1935,7 @@ export default function AdminChitsScreen() {
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>Select the member who won this draw</Text>
             <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw # (month number)</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw # (draw number)</Text>
               <TextInput value={winnerDraw} onChangeText={setWinnerDraw} keyboardType="numeric" placeholder="e.g. 3"
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
@@ -2198,7 +2198,7 @@ export default function AdminChitsScreen() {
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
               <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-                Swap two reserved slots — members exchange their scheduled draw months.
+                Swap two reserved slots — members exchange their scheduled draws.
               </Text>
               {['A', 'B'].map((label, idx) => {
                 const currentVal = idx === 0 ? swapA : swapB;
@@ -2248,9 +2248,9 @@ export default function AdminChitsScreen() {
                     onPress={() => {
                       const sA = reservedSlots.find((r: any) => r.id === swapA);
                       const sB = reservedSlots.find((r: any) => r.id === swapB);
-                      const nameA = sA ? `Month ${sA.slotNumber ?? sA.monthNumber} (${memberMap[sA.memberId] ?? 'Unknown'})` : swapA;
-                      const nameB = sB ? `Month ${sB.slotNumber ?? sB.monthNumber} (${memberMap[sB.memberId] ?? 'Unknown'})` : swapB;
-                      Alert.alert('Confirm Swap', `Swap:\n${nameA}\n↕\n${nameB}\n\nTheir draw months will be exchanged.`, [
+                      const nameA = sA ? `Draw ${sA.slotNumber ?? sA.monthNumber} (${memberMap[sA.memberId] ?? 'Unknown'})` : swapA;
+                      const nameB = sB ? `Draw ${sB.slotNumber ?? sB.monthNumber} (${memberMap[sB.memberId] ?? 'Unknown'})` : swapB;
+                      Alert.alert('Confirm Swap', `Swap:\n${nameA}\n↕\n${nameB}\n\nTheir draws will be exchanged.`, [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Swap', style: 'destructive', onPress: () => swapMut.mutate() },
                       ]);
