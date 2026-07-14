@@ -483,7 +483,7 @@ function CreateChitModal({ onClose }) {
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr className="border-b border-gray-200">
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-10">#</th>
-                      <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Month</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Draw</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout (&#8377;)</th>
                       <th className="w-8 px-2 py-2.5" />

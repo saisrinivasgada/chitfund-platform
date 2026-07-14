@@ -37,7 +37,7 @@ function StepIndicator({ steps, current }) {
   );
 }
 
-const STEPS = ['Select Chit', 'Select Month', 'Draw Winner', 'Confirm'];
+const STEPS = ['Select Chit', 'Select Draw', 'Draw Winner', 'Confirm'];
 
 // ─── Step 1: Select Chit ───────────────────────────────────────────────────
 function Step1SelectChit({ onSelect }) {
@@ -224,7 +224,7 @@ function Step3Draw({ chit, month, onNext, onBack }) {
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
             <Trophy size={28} className="text-green-500 mx-auto mb-2" />
             <p className="text-base font-bold text-green-800">
-              {getName(winner.memberId)} wins Month {month}!
+              {getName(winner.memberId)} wins Draw {month}!
             </p>
           </div>
         )}
@@ -276,7 +276,7 @@ function Step3Draw({ chit, month, onNext, onBack }) {
       <div className="space-y-6 max-w-2xl">
         <div>
           <h3 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Auction — Month {month}
+            Auction — Draw {month}
           </h3>
           <p className="text-sm text-gray-500 mt-0.5">
             Enter bid (discount) amounts. Total chit value: ₹{totalValue.toLocaleString()}
@@ -361,9 +361,9 @@ function Step3Draw({ chit, month, onNext, onBack }) {
     <div className="space-y-6 max-w-sm">
       <div>
         <h3 className="text-lg font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-          Reservation — Month {month}
+          Reservation — Draw {month}
         </h3>
-        <p className="text-sm text-gray-500 mt-0.5">Select the member who has reserved this month.</p>
+        <p className="text-sm text-gray-500 mt-0.5">Select the member who has reserved this draw.</p>
       </div>
 
       <FormField label="Reserved Member" required>
@@ -421,14 +421,14 @@ function Step4Confirm({ chit, month, winnerData, onBack, onConfirm, loading }) {
           </div>
           <div>
             <p className="text-base font-bold text-gray-900">{winnerData.winnerName}</p>
-            <p className="text-sm text-gray-500">Winner — Month {month}</p>
+            <p className="text-sm text-gray-500">Winner — Draw {month}</p>
           </div>
         </div>
 
         <div className="border-t border-gray-100 pt-4 space-y-2">
           {[
             ['Chit Fund', chit.name],
-            ['Month Number', month],
+            ['Draw Number', month],
             ['Selection Mode', chit.winnerSelectionMode],
             ['Total Chit Value', `₹${totalValue.toLocaleString()}`],
             winnerData.discountAmount
@@ -471,7 +471,7 @@ function SuccessScreen({ chit, month, winnerData, onReset }) {
         </h3>
         <p className="text-gray-500 text-sm mt-2">
           <strong>{winnerData.winnerName}</strong> has been recorded as the winner for{' '}
-          <strong>{chit.name}</strong> — Month {month}.
+          <strong>{chit.name}</strong> — Draw {month}.
         </p>
       </div>
       <Button onClick={onReset} size="lg">
@@ -556,7 +556,7 @@ export default function DrawsPage() {
             {selectedChit && step > 0 && (
               <p className="text-xs text-gray-400 mt-0.5">
                 {selectedChit.name}
-                {selectedMonth && ` — Month ${selectedMonth}`}
+                {selectedMonth && ` — Draw ${selectedMonth}`}
               </p>
             )}
           </div>

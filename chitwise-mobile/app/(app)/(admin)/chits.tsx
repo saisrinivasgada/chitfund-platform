@@ -545,7 +545,7 @@ export default function AdminChitsScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
       setShowShift(false); setShiftFrom('');
-      toast.saved('Schedule shifted forward by 1 month');
+      toast.saved('Schedule shifted forward by 1 draw');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -1772,7 +1772,7 @@ export default function AdminChitsScreen() {
             {createStep === 4 && (
               <>
                 <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
-                  Assign who receives the payout each month. Member assignment is optional — slots can be filled later from the Schedule tab.
+                  Assign who receives the payout each draw. Member assignment is optional — slots can be filled later from the Schedule tab.
                 </Text>
                 {cSchedule.length === 0 ? (
                   <View style={{ backgroundColor: C.gray50, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, borderStyle: 'dashed', padding: 24, alignItems: 'center', marginTop: 12 }}>
@@ -2043,7 +2043,7 @@ export default function AdminChitsScreen() {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Skip Draw</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
-              Skipping shifts all future reservation slots forward by 1 month.
+              Skipping shifts all future reservation slots forward by 1 draw.
             </Text>
             <View style={{ marginBottom: 16 }}>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number to Skip</Text>
@@ -2084,7 +2084,7 @@ export default function AdminChitsScreen() {
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
               <View style={{ marginBottom: 14 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Month Number *</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
                 <TextInput value={asMonth} onChangeText={setAsMonth} keyboardType="numeric"
                   placeholder={`1 – ${selected?.totalDraws ?? selected?.durationMonths ?? '?'}`}
                   placeholderTextColor={C.gray400}
@@ -2129,7 +2129,7 @@ export default function AdminChitsScreen() {
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Slot</Text>
             {vsSlot && (
               <Text style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
-                Month {vsSlot.slotNumber ?? vsSlot.monthNumber} — {memberMap[vsSlot.memberId] ?? vsSlot.memberName ?? 'Unknown'}
+                Draw {vsSlot.slotNumber ?? vsSlot.monthNumber} — {memberMap[vsSlot.memberId] ?? vsSlot.memberName ?? 'Unknown'}
               </Text>
             )}
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason (optional)</Text>
@@ -2206,7 +2206,7 @@ export default function AdminChitsScreen() {
                 const otherVal = idx === 0 ? swapB : swapA;
                 const displaySlot = reservedSlots.find((r: any) => r.id === currentVal);
                 const displayName = displaySlot
-                  ? `Month ${displaySlot.slotNumber ?? displaySlot.monthNumber} — ${memberMap[displaySlot.memberId] ?? 'Unknown'}`
+                  ? `Draw ${displaySlot.slotNumber ?? displaySlot.monthNumber} — ${memberMap[displaySlot.memberId] ?? 'Unknown'}`
                   : 'Tap to select…';
                 return (
                   <View key={label} style={{ marginBottom: 16 }}>
@@ -2224,7 +2224,7 @@ export default function AdminChitsScreen() {
                             activeOpacity={0.6}
                             style={{ padding: 13, backgroundColor: isSelected ? C.navy + '15' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
                             <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
-                              Month {slotNum} — {name}{isSelected ? '  ✓' : ''}
+                              Draw {slotNum} — {name}{isSelected ? '  ✓' : ''}
                             </Text>
                           </TouchableOpacity>
                         );
@@ -2268,22 +2268,22 @@ export default function AdminChitsScreen() {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Shift Schedule</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
-              Push all reserved slots from this month onwards forward by 1 month. Use after skipping a draw.
+              Push all reserved slots from this draw onwards forward by 1 draw. Use after skipping a draw.
             </Text>
             <View style={{ marginBottom: 20 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Shift From Month *</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Shift From Draw *</Text>
               <TextInput value={shiftFrom} onChangeText={setShiftFrom} keyboardType="numeric" placeholder="e.g. 4"
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
               <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>
-                Slots from month {shiftFrom || '?'} onwards will shift to month {shiftFrom ? Number(shiftFrom) + 1 : '?'} onwards.
+                Slots from draw {shiftFrom || '?'} onwards will shift to draw {shiftFrom ? Number(shiftFrom) + 1 : '?'} onwards.
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowShift(false); setShiftFrom(''); }} /></View>
               <View style={{ flex: 1 }}>
                 <Button label="Shift Forward" variant="danger" disabled={!shiftFrom} loading={shiftMut.isPending}
-                  onPress={() => Alert.alert('Shift Schedule', `Push all slots from month ${shiftFrom} onwards forward by 1 month?`, [
+                  onPress={() => Alert.alert('Shift Schedule', `Push all slots from draw ${shiftFrom} onwards forward by 1 draw?`, [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Shift', style: 'destructive', onPress: () => shiftMut.mutate() },
                   ])} />

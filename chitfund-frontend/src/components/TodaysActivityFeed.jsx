@@ -336,14 +336,14 @@ export default function TodaysActivityFeed() {
                   <EventRow key={`dis-${p.id}`} icon={Gift} iconColor="text-green-700" iconBg="bg-green-50"
                     label="Disbursed"
                     detail={`${n(staffMap, p.disbursedBy)} disbursed ${payAmt} to ${member}`}
-                    sub={`${chit} · Month #${p.monthNumber}${p.disbursementMode ? ` via ${MODE_LABEL[p.disbursementMode] ?? p.disbursementMode}` : ''}${p.referenceNumber ? ` · Ref: ${p.referenceNumber}` : ''}`}
+                    sub={`${chit} · Draw #${p.monthNumber}${p.disbursementMode ? ` via ${MODE_LABEL[p.disbursementMode] ?? p.disbursementMode}` : ''}${p.referenceNumber ? ` · Ref: ${p.referenceNumber}` : ''}`}
                     time={fmtTime(p.disbursedAt)} />
                 );
                 if (p.status === 'PENDING' && p.createdAt) return (
                   <EventRow key={`pend-${p.id}`} icon={Clock} iconColor="text-orange-500" iconBg="bg-orange-50"
                     label="Payout Registered"
                     detail={`${n(staffMap, p.createdBy)} registered ${payAmt} payout for ${member}`}
-                    sub={`${chit} · Month #${p.monthNumber} — awaiting disbursement`}
+                    sub={`${chit} · Draw #${p.monthNumber} — awaiting disbursement`}
                     time={fmtTime(p.createdAt)} />
                 );
                 if (p.cancelledAt) return (

@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
-                        "This month was just reserved by another member — please try a different month"));
+                        "This draw slot was just reserved by another member — please try a different draw"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

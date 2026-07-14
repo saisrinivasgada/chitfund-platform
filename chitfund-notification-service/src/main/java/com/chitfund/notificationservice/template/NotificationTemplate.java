@@ -21,25 +21,25 @@ public enum NotificationTemplate {
 
     PAYMENT_DUE(
         // Params: chitName, monthNumber, amount, dueDate
-        "Your installment of Rs.{amount} is due for chit '{chitName}' (Month {monthNumber}). " +
+        "Your installment of Rs.{amount} is due for chit '{chitName}' (Draw {monthNumber}). " +
         "Due date: {dueDate}. Please pay on time to avoid penalties."
     ),
 
     PAYMENT_RECEIVED(
         // Params: amount, chitName, monthNumber, remainingBalance
-        "Payment of Rs.{amount} received for chit '{chitName}' Month {monthNumber}. " +
+        "Payment of Rs.{amount} received for chit '{chitName}' Draw {monthNumber}. " +
         "{remainingBalance}"
     ),
 
     MONTH_SKIPPED(
         // Params: chitName, monthNumber, reason
-        "Update: Chit '{chitName}' Month {monthNumber} has been skipped. " +
-        "Reason: {reason}. Your chit continues with an extended end date. No payment required this month."
+        "Update: Chit '{chitName}' Draw {monthNumber} has been skipped. " +
+        "Reason: {reason}. Your chit continues with an extended end date. No payment required for this draw."
     ),
 
     WINNER_SELECTED(
         // Params: chitName, monthNumber, amount
-        "Congratulations! You have won chit '{chitName}' for Month {monthNumber}. " +
+        "Congratulations! You have won chit '{chitName}' for Draw {monthNumber}. " +
         "Payout amount: Rs.{amount}. Admin will contact you soon for disbursement."
     ),
 

@@ -265,7 +265,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
         {/* Winner summary */}
         <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
           <p className="text-sm font-semibold text-amber-800">{memberName}</p>
-          <p className="text-xs text-amber-700 mt-0.5">{chitName} · Month {payout.monthNumber}</p>
+          <p className="text-xs text-amber-700 mt-0.5">{chitName} · Draw {payout.monthNumber}</p>
         </div>
 
         {/* Amount breakdown */}
@@ -285,7 +285,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                   <div className="flex justify-between text-amber-700">
                     <span className="flex items-center gap-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                      Month {payout.monthNumber} installment collected
+                      Draw {payout.monthNumber} installment collected
                     </span>
                     <span>−{fmtAmt(installment)}</span>
                   </div>

@@ -48,12 +48,12 @@ public class ChitMonthDrawService {
         long realCycles = drawRepository.countByChitIdAndStatusNot(request.getChitId(), DrawStatus.SKIPPED);
         if (realCycles >= request.getMaxCycles()) {
             throw new BusinessException(ErrorCode.CHIT_CYCLES_EXHAUSTED,
-                    "All " + request.getMaxCycles() + " real cycles for this chit have already been opened. Skipped months do not count toward the total.");
+                    "All " + request.getMaxCycles() + " real cycles for this chit have already been opened. Skipped draws do not count toward the total.");
         }
 
         if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
-                    "Month " + request.getMonthNumber() + " is already open or skipped for this chit");
+                    "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
         }
 
         ChitMonthDraw cycle = ChitMonthDraw.builder()
@@ -124,7 +124,7 @@ public class ChitMonthDrawService {
     public DrawSummaryResponse skipMonth(SkipMonthRequest request, UUID adminId) {
         if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
-                    "Month " + request.getMonthNumber() + " is already open or skipped for this chit");
+                    "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
         }
 
         ChitMonthDraw cycle = ChitMonthDraw.builder()
@@ -181,7 +181,7 @@ public class ChitMonthDrawService {
 
         if (cycle.getStatus() != DrawStatus.OPEN) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Only OPEN months can be closed. Current status: " + cycle.getStatus());
+                    "Only OPEN draws can be closed. Current status: " + cycle.getStatus());
         }
 
         cycle.setStatus(DrawStatus.CLOSED);

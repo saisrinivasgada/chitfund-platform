@@ -227,7 +227,7 @@ public class ReservationController {
 
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("shifted", slots.size()),
-                slots.size() + " reservation slot(s) shifted forward by 1 month"));
+                slots.size() + " reservation slot(s) shifted forward by 1 draw"));
     }
 
     @PostMapping("/swap")

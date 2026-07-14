@@ -414,7 +414,7 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
             </p>
           </div>
         )}
-        <FormField label="Month" required>
+        <FormField label="Draw Month" required>
           <Input type="month" value={form.reservationMonth}
             onChange={(e) => !isPinned && setForm((f) => ({ ...f, reservationMonth: e.target.value }))}
             readOnly={isPinned}
@@ -495,7 +495,7 @@ function shortName(full) {
 }
 
 function formatMonthLabel(dateStr, fallbackMonth) {
-  if (!dateStr) return fallbackMonth != null ? `Month ${fallbackMonth}` : '—';
+  if (!dateStr) return fallbackMonth != null ? `Draw ${fallbackMonth}` : '—';
   const parts = dateStr.substring(0, 7).split('-');
   if (parts.length < 2) return '—';
   const [year, month] = parts.map(Number);

@@ -225,7 +225,7 @@ export default function MemberChitDetailPage() {
       {/* Month-by-month breakdown */}
       {history.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Month-by-Month</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Draw-by-Draw</h3>
           {histLoading ? (
             <div className="py-6 flex justify-center"><PageSpinner /></div>
           ) : (
@@ -254,7 +254,7 @@ export default function MemberChitDetailPage() {
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-gray-800">Month {r.monthNumber}</span>
+                          <span className="text-sm font-semibold text-gray-800">Draw {r.monthNumber}</span>
                           <span
                             className="text-xs font-medium px-2 py-0.5 rounded-full"
                             style={{ color: ms.text, backgroundColor: 'rgba(255,255,255,0.7)' }}

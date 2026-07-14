@@ -120,7 +120,7 @@ public class WinnerService {
         }
         if (winnerRepository.existsByChitIdAndMonthNumber(chitId, request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_ASSIGNED,
-                    "Month " + request.getMonthNumber() + " already has a winner assigned");
+                    "Draw " + request.getMonthNumber() + " already has a winner assigned");
         }
 
         try {
