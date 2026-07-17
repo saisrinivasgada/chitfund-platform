@@ -27,8 +27,15 @@ import {
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 const fmt = (n) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
-const fmtDate = (d) =>
-  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const fmtDate = (d) => {
+  if (!d) return '—';
+  const str = String(d);
+  // Date-only strings (YYYY-MM-DD) must be local, not UTC midnight (which shifts by timezone)
+  const dt = str.length === 10
+    ? new Date(str + 'T00:00:00')
+    : new Date(str.endsWith('Z') || str.includes('+') ? str : str + 'Z');
+  return isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 const fmtDateTime = (d) => {
   if (!d) return '—';
   const dt = new Date(d.endsWith('Z') ? d : d + 'Z');
@@ -67,9 +74,14 @@ function drawLabel(startDate, monthNumber) {
   return `#${monthNumber}${ml ? ` (${ml})` : ''}`;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const monthStartStr = () =>
-  new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const monthStartStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+};
 
 function useSessionState(key, defaultValue) {
   const [value, setValue] = useState(() => {
@@ -613,15 +625,17 @@ function PayoutDetailModal({ payoutId, onClose }) {
   );
 }
 
+const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const PRESETS = [
   { label: 'Today',       fn: () => ({ from: todayStr(), to: todayStr() }) },
-  { label: 'Last 7 days', fn: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { from: d.toISOString().slice(0, 10), to: todayStr() }; } },
+  { label: 'Last 7 days', fn: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { from: localDateStr(d), to: todayStr() }; } },
   { label: 'This Month',  fn: () => ({ from: monthStartStr(), to: todayStr() }) },
   { label: 'Last Month',  fn: () => {
     const n = new Date();
     const s = new Date(n.getFullYear(), n.getMonth() - 1, 1);
     const e = new Date(n.getFullYear(), n.getMonth(), 0);
-    return { from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) };
+    return { from: localDateStr(s), to: localDateStr(e) };
   }},
   { label: 'All Time', fn: () => ({ from: '', to: '' }) },
 ];
@@ -866,17 +880,25 @@ function StatCard({ icon: Icon, label, value, sub, color = '#1E3A5F' }) {
 
 function TabBar({ active, onChange }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
-      {TABS.map((t) => (
-        <button key={t} onClick={() => onChange(t)}
-          className={`px-5 py-2 text-sm font-semibold rounded-lg border-2 transition-colors cursor-pointer whitespace-nowrap ${
-            active === t
-              ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white'
-              : 'bg-white border-gray-200 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
-          }`}>
-          {t}
-        </button>
-      ))}
+    <div className="flex gap-2 overflow-x-auto pb-1" style={{ marginTop: 12, marginBottom: 12 }}>
+      {TABS.map((t) => {
+        const isActive = active === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className="text-sm font-semibold rounded-full cursor-pointer whitespace-nowrap transition-all"
+            style={{
+              padding: '6px 16px',
+              backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+              color: isActive ? '#ffffff' : '#374151',
+              border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+            }}
+          >
+            {t}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -908,12 +930,24 @@ function DateRangeBar({ from, to, onFrom, onTo, active, onPreset }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
       <div className="flex gap-1.5 flex-wrap">
-        {PRESETS.map((p) => (
-          <button key={p.label} onClick={() => onPreset(p.fn())}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-              active === p.label ? 'bg-[#1E3A5F] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}>{p.label}</button>
-        ))}
+        {PRESETS.map((p) => {
+          const isActive = active === p.label;
+          return (
+            <button
+              key={p.label}
+              onClick={() => onPreset(p.fn())}
+              className="text-xs font-semibold rounded-full cursor-pointer transition-all"
+              style={{
+                padding: '6px 16px',
+                backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+                color: isActive ? '#ffffff' : '#374151',
+                border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
       </div>
       <div className="flex items-center gap-2 ml-auto">
         <Filter size={13} className="text-gray-400" />
@@ -2021,9 +2055,9 @@ function ChitReportTab() {
 
 // ─── Payments Tab ─────────────────────────────────────────────────────────────
 function PaymentsTab() {
-  const [from, setFrom]             = useSessionState('rpt_pmt_from', monthStartStr());
+  const [from, setFrom]             = useSessionState('rpt_pmt_from', todayStr());
   const [to, setTo]                 = useSessionState('rpt_pmt_to', todayStr());
-  const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'This Month');
+  const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'Today');
   const [filterChit, setFilterChit] = useSessionState('rpt_pmt_chit', '');
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const { hidden } = useHiddenAmounts();
@@ -2196,9 +2230,9 @@ function PaymentsTab() {
 
 // ─── Payouts Tab ──────────────────────────────────────────────────────────────
 function PayoutsTab() {
-  const [from, setFrom]               = useSessionState('rpt_py_from', '');
-  const [to, setTo]                   = useSessionState('rpt_py_to', '');
-  const [activePreset, setPreset]     = useSessionState('rpt_py_preset', 'All Time');
+  const [from, setFrom]               = useSessionState('rpt_py_from', todayStr());
+  const [to, setTo]                   = useSessionState('rpt_py_to', todayStr());
+  const [activePreset, setPreset]     = useSessionState('rpt_py_preset', 'Today');
   const [filterChit, setFilterChit]   = useSessionState('rpt_py_chit', '');
   const [filterStatus, setFilterStatus] = useSessionState('rpt_py_status', '');
   const [selectedPayoutId, setSelectedPayoutId] = useState(null);
@@ -2500,9 +2534,9 @@ function TreasuryDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 
 // ─── Treasury Tab ─────────────────────────────────────────────────────────────
 function TreasuryTab() {
-  const [from, setFrom]           = useSessionState('rpt_tr_from', '');
-  const [to, setTo]               = useSessionState('rpt_tr_to', '');
-  const [activePreset, setPreset] = useSessionState('rpt_tr_preset', 'All Time');
+  const [from, setFrom]           = useSessionState('rpt_tr_from', todayStr());
+  const [to, setTo]               = useSessionState('rpt_tr_to', todayStr());
+  const [activePreset, setPreset] = useSessionState('rpt_tr_preset', 'Today');
   const [selectedTxn, setSelectedTxn] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
@@ -2532,7 +2566,9 @@ function TreasuryTab() {
   const filtered = transactions.filter((t) => {
     const d = t.createdAt ?? t.transactionDate;
     if (!d) return true;
-    const date = d.slice(0, 10);
+    const str = String(d);
+    const dt = new Date(str.endsWith('Z') || str.includes('+') ? str : str + 'Z');
+    const date = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
     if (from && date < from) return false;
     if (to   && date > to)   return false;
     return true;

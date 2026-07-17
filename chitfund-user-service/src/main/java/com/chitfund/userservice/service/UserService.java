@@ -88,7 +88,7 @@ public class UserService {
     }
 
     public List<UserResponse> listStaff(boolean includeDeleted) {
-        List<Role> staffRoles = List.of(Role.ADMIN, Role.MANAGER, Role.WORKER, Role.AGENT);
+        List<Role> staffRoles = List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
         List<User> users = includeDeleted
                 ? userRepository.findByRoleInAndDeletedAtIsNotNull(staffRoles)
                 : userRepository.findByRoleInAndDeletedAtIsNull(staffRoles);
@@ -124,7 +124,7 @@ public class UserService {
     @Transactional
     public UserResponse changeRole(UUID id, Role newRole) {
         if (newRole == null || newRole == Role.MEMBER) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Role must be ADMIN, MANAGER, or WORKER");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Role must be ADMIN, MANAGER, or STAFF");
         }
         User caller = (User) org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication().getPrincipal();

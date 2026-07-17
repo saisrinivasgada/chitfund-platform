@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getMyAssignedRequests, getMyRequestHistory, getMembers, getChits, getMyPendingBatches } from '../../services/api';
+import { getMyAssignedRequests, getMyRequestHistory, getMembers, getChits } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { PageSpinner } from '../../components/ui/Spinner';
 import {
-  ClipboardList, CheckCircle, IndianRupee, ArrowRight, Clock, TrendingUp,
+  ClipboardList, IndianRupee, ArrowRight, Clock, HandCoins, CheckCircle,
 } from 'lucide-react';
 
 function fmt(n) {
@@ -37,23 +37,18 @@ function StatCard({ icon: Icon, label, value, color, sub }) {
   );
 }
 
-export default function WorkerHomePage() {
+export default function StaffHomePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery({
-    queryKey: ['worker-tasks'],
+    queryKey: ['staff-tasks'],
     queryFn: getMyAssignedRequests,
   });
 
   const { data: history = [], isLoading: histLoading } = useQuery({
-    queryKey: ['worker-history'],
+    queryKey: ['staff-history'],
     queryFn: getMyRequestHistory,
-  });
-
-  const { data: pendingBatches = [] } = useQuery({
-    queryKey: ['worker-pending-batches'],
-    queryFn: getMyPendingBatches,
   });
 
   const { data: members = [] } = useQuery({
@@ -72,20 +67,27 @@ export default function WorkerHomePage() {
       return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
     })
   );
-  const chitMap   = Object.fromEntries(chits.map((c)   => [c.id, c.name ?? c.chitName ?? '—']));
+  const chitMap = Object.fromEntries(chits.map((c) => [c.id, c.name ?? c.chitName ?? '—']));
 
-  const collectedHistory = history.filter((r) => r.status === 'COLLECTED');
+  // Amount in Hand = PICKED_UP + PARTIALLY_COLLECTED requests (worker has physical cash)
+  const inHandRequests = tasks.filter((r) => r.status === 'PICKED_UP' || r.status === 'PARTIALLY_COLLECTED');
+  const amountInHand = inHandRequests.reduce((sum, r) => {
+    // For partial pickups, use collected amount; for full pickups, use requested amount
+    const amt = r.status === 'PARTIALLY_COLLECTED' ? (r.collectedAmount ?? r.requestedAmount ?? 0) : (r.requestedAmount ?? 0);
+    return sum + Number(amt);
+  }, 0);
 
-  // Today: filter history by today's date
+  // Remitted Today = COLLECTED requests updated today
   const todayStr = new Date().toDateString();
-  const collectedToday = collectedHistory.filter((r) => new Date(r.updatedAt).toDateString() === todayStr);
-  const todayAmount = collectedToday.reduce((sum, r) => sum + (r.requestedAmount ?? 0), 0);
+  const collectedHistory = history.filter((r) => r.status === 'COLLECTED');
+  const remittedToday = collectedHistory.filter((r) => new Date(r.updatedAt).toDateString() === todayStr);
+  const remittedTodayAmount = remittedToday.reduce((sum, r) => {
+    const amt = r.collectedAmount ?? r.requestedAmount ?? 0;
+    return sum + Number(amt);
+  }, 0);
 
-  // Total collected amount from history (all time)
-  const totalCollected = collectedHistory.reduce((sum, r) => sum + (r.requestedAmount ?? 0), 0);
-
-  // Amount currently with worker (pending remittance)
-  const pendingAmount = pendingBatches.reduce((sum, b) => sum + (b.totalAmount ?? 0), 0);
+  // Active tasks = ASSIGNED status only (not yet picked up)
+  const assignedTasks = tasks.filter((r) => r.status === 'ASSIGNED');
 
   if (tasksLoading || histLoading) return <PageSpinner />;
 
@@ -105,7 +107,7 @@ export default function WorkerHomePage() {
             className="text-2xl font-bold"
             style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
           >
-            {greeting()}, {user?.name ?? user?.username ?? 'Worker'}
+            {greeting()}, {user?.name ?? user?.username ?? 'Staff'}
           </h2>
           <p className="text-gray-500 text-sm mt-1">Here's your collection overview for today.</p>
         </div>
@@ -114,35 +116,28 @@ export default function WorkerHomePage() {
         </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 3 Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           icon={ClipboardList}
-          label="Active Tasks"
-          value={tasks.length}
+          label="Assigned Pickups"
+          value={assignedTasks.length}
           color="#1E3A5F"
-          sub={tasks.length === 0 ? 'All clear' : 'Pending collection'}
+          sub={assignedTasks.length === 0 ? 'All clear' : 'Pending collection'}
         />
         <StatCard
-          icon={TrendingUp}
-          label="Collected Today"
-          value={`₹${fmt(todayAmount)}`}
-          color="#16A34A"
-          sub={`${collectedToday.length} payment${collectedToday.length !== 1 ? 's' : ''} today`}
+          icon={HandCoins}
+          label="Amount in Hand"
+          value={amountInHand > 0 ? `₹${fmt(amountInHand)}` : '—'}
+          color="#7C3AED"
+          sub={inHandRequests.length > 0 ? `${inHandRequests.length} pickup${inHandRequests.length !== 1 ? 's' : ''} collected` : 'Nothing collected yet'}
         />
         <StatCard
           icon={CheckCircle}
-          label="With Admin"
-          value={pendingBatches.length > 0 ? `₹${fmt(pendingAmount)}` : '—'}
-          color="#D97706"
-          sub={pendingBatches.length > 0 ? 'Awaiting remittance' : 'All submitted'}
-        />
-        <StatCard
-          icon={IndianRupee}
-          label="All Time Total"
-          value={`₹${fmt(totalCollected)}`}
-          color="#D4A017"
-          sub={`${collectedHistory.length} collections`}
+          label="Remitted Today"
+          value={remittedTodayAmount > 0 ? `₹${fmt(remittedTodayAmount)}` : '—'}
+          color="#16A34A"
+          sub={remittedToday.length > 0 ? `${remittedToday.length} handed to admin` : 'None today'}
         />
       </div>
 
@@ -173,32 +168,48 @@ export default function WorkerHomePage() {
           {tasks.length === 0 ? (
             <p className="text-sm text-gray-400 py-8 text-center">No active tasks right now</p>
           ) : (
-            tasks.slice(0, 4).map((task) => (
-              <div
-                key={task.id}
-                className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                onClick={() => navigate('/tasks')}
-              >
+            tasks.slice(0, 4).map((task) => {
+              const isPartial = task.status === 'PARTIALLY_COLLECTED';
+              const isPickedUp = task.status === 'PICKED_UP';
+              return (
                 <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                  style={{ backgroundColor: '#1E3A5F' }}
+                  key={task.id}
+                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                  onClick={() => navigate('/tasks')}
                 >
-                  {(memberMap[task.memberId] ?? '?')[0].toUpperCase()}
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                    style={{ backgroundColor: '#1E3A5F' }}
+                  >
+                    {(memberMap[task.memberId] ?? '?')[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {memberMap[task.memberId] ?? task.memberId?.slice(0, 8) + '…'}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {chitMap[task.chitId] ?? '—'} · Assigned {fmtDate(task.assignedAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="font-semibold text-gray-900 flex items-center gap-0.5">
+                      <IndianRupee size={13} />
+                      {fmt(isPartial ? (task.collectedAmount ?? task.requestedAmount) : task.requestedAmount)}
+                    </span>
+                    {isPartial && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+                        Partial
+                      </span>
+                    )}
+                    {isPickedUp && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                        Picked Up
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {memberMap[task.memberId] ?? task.memberId?.slice(0, 8) + '…'}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {chitMap[task.chitId] ?? '—'} · Assigned {fmtDate(task.assignedAt)}
-                  </p>
-                </div>
-                <span className="font-semibold text-gray-900 flex items-center gap-0.5 flex-shrink-0">
-                  <IndianRupee size={13} />
-                  {fmt(task.requestedAmount)}
-                </span>
-              </div>
-            ))
+              );
+            })
           )}
           {tasks.length > 4 && (
             <div className="px-6 py-3 text-center">
@@ -214,7 +225,7 @@ export default function WorkerHomePage() {
         </div>
       </div>
 
-      {/* Recent Collection History */}
+      {/* Recent History */}
       {history.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -231,25 +242,28 @@ export default function WorkerHomePage() {
             </button>
           </div>
           <div className="divide-y divide-gray-50">
-            {history.slice(0, 5).map((r) => (
-              <div key={r.id} className="flex items-center gap-4 px-6 py-3.5">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {memberMap[r.memberId] ?? r.memberId?.slice(0, 8) + '…'}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {chitMap[r.chitId] ?? '—'} · {fmtDate(r.updatedAt)}
-                  </p>
+            {history.slice(0, 5).map((r) => {
+              const amt = r.collectedAmount ?? r.requestedAmount;
+              return (
+                <div key={r.id} className="flex items-center gap-4 px-6 py-3.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {memberMap[r.memberId] ?? r.memberId?.slice(0, 8) + '…'}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {chitMap[r.chitId] ?? '—'} · {fmtDate(r.updatedAt)}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-gray-700 flex items-center gap-0.5 flex-shrink-0 text-sm">
+                    <IndianRupee size={12} />
+                    {fmt(amt)}
+                  </span>
+                  <Badge variant={r.status === 'COLLECTED' ? 'success' : 'danger'}>
+                    {r.status === 'COLLECTED' ? 'Collected' : 'Cancelled'}
+                  </Badge>
                 </div>
-                <span className="font-semibold text-gray-700 flex items-center gap-0.5 flex-shrink-0 text-sm">
-                  <IndianRupee size={12} />
-                  {fmt(r.requestedAmount)}
-                </span>
-                <Badge variant={r.status === 'COLLECTED' ? 'success' : 'danger'}>
-                  {r.status === 'COLLECTED' ? 'Collected' : 'Cancelled'}
-                </Badge>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

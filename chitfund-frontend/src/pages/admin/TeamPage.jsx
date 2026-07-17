@@ -15,17 +15,17 @@ import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Phone, Mail, A
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
-  WORKER:  { label: 'Worker',  variant: 'success' },
+  STAFF:   { label: 'Staff',   variant: 'success' },
   MANAGER: { label: 'Manager', variant: 'warning' },
   AGENT:   { label: 'Agent',   variant: 'info' },
 };
 
-const INITIAL_FORM = { username: '', email: '', fullName: '', phone: '', role: 'WORKER' };
+const INITIAL_FORM = { username: '', email: '', fullName: '', phone: '', role: 'STAFF' };
 
 const ROLE_OPTIONS = [
   {
-    value: 'WORKER',
-    label: 'Worker',
+    value: 'STAFF',
+    label: 'Staff',
     desc: 'Collects cash in the field',
     icon: UserCheck,
     color: '#16A34A',
@@ -145,7 +145,7 @@ function AddStaffModal({ onClose }) {
   const [tempPass, setTempPass] = useState(null);
 
   const availableRoles = ROLE_OPTIONS.filter((r) =>
-    isManager ? r.value === 'WORKER' : true
+    isManager ? r.value === 'STAFF' : true
   );
 
   const mutation = useMutation({
@@ -249,9 +249,8 @@ function AddStaffModal({ onClose }) {
             </p>
           </div>
         )}
-
+        <br></br>
         {/* Name + Phone */}
-        <div className="pt-2 border-t border-gray-100"></div>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
@@ -279,7 +278,7 @@ function AddStaffModal({ onClose }) {
           <label className="text-sm font-medium text-gray-700">Username <span className="text-red-500">*</span></label>
           <StyledInput
             icon={AtSign}
-            placeholder="sai.worker"
+            placeholder="sai.staff"
             value={form.username}
             onChange={(e) => set('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
             required
@@ -362,7 +361,7 @@ export default function TeamPage() {
           <h1 className="text-2xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
             Team
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage admins, managers and workers</p>
+          <p className="text-sm text-gray-500 mt-1">Manage admins, managers and staff</p>
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (
@@ -377,7 +376,7 @@ export default function TeamPage() {
           {!showDeleted && (
             <Button variant="primary" size="md" onClick={() => setShowAdd(true)}>
               <Plus size={16} className="mr-1.5" />
-              Add Member
+              Add Team Member
             </Button>
           )}
         </div>
@@ -390,13 +389,14 @@ export default function TeamPage() {
           message={
             showDeleted
               ? 'No staff accounts have been deleted yet.'
-              : 'Add workers and managers to start assigning cash collection tasks.'
+              : 'Add staff and managers to start assigning cash collection tasks.'
           }
           action={!showDeleted ? 'Add first member' : undefined}
           onAction={!showDeleted ? () => setShowAdd(true) : undefined}
         />
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <br></br>
           <Table columns={['Name', 'Username', 'Role', 'Status', 'Actions']}>
             {staff.map((s) => {
               const roleCfg = ROLE_BADGE[s.role] ?? { label: s.role, variant: 'default' };

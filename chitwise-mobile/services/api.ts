@@ -66,7 +66,10 @@ export const updateMyMemberProfile = async (body: any) =>
   unwrapObj(await api.patch('/members/me/profile', body));
 
 // ── Staff ──────────────────────────────────────────────────────────────────────
-export const listStaff = async () => unwrapList(await api.get('/users/staff'));
+export const listStaff = async () => {
+  const data = unwrapList(await api.get('/users/staff'));
+  return data.map((s: any) => s.role === 'WORKER' ? { ...s, role: 'STAFF' } : s);
+};
 export const createStaff = async (body: any) => unwrapObj(await api.post('/users/staff', body));
 export const deactivateStaff = async (id: string) => unwrapObj(await api.put(`/users/staff/${id}/deactivate`));
 export const activateStaff = async (id: string) => unwrapObj(await api.put(`/users/staff/${id}/activate`));
@@ -164,6 +167,8 @@ export const getPaymentHistory = async (memberId: string, chitId: string) =>
   unwrapList(await api.get('/payments/history', { params: { memberId, chitId } }));
 export const getPaymentBatches = async (memberId?: string, chitId?: string) =>
   unwrapList(await api.get('/payments/batches', { params: { memberId, chitId } }));
+export const getPaymentBatchById = async (batchId: string) =>
+  unwrapObj(await api.get(`/payments/batches/${batchId}`));
 export const getAllPaymentBatches = async (params: any = {}) =>
   unwrapList(await api.get('/payments/batches/all', { params }));
 export const voidPaymentBatch = async (batchId: string, reason: string) =>
@@ -180,13 +185,13 @@ export const getActiveCashRequests = async () =>
   unwrapList(await api.get('/payments/requests/active'));
 export const createCashRequest = async (chitId: string, requestedAmount: number, notes?: string) =>
   unwrapObj(await api.post('/payments/requests', { chitId, requestedAmount, notes }));
-export const adminCreateCashRequest = async (memberId: string, chitId: string, requestedAmount: number, workerId?: string, notes?: string) => {
+export const adminCreateCashRequest = async (memberId: string, chitId: string, requestedAmount: number, staffId?: string, notes?: string) => {
   const params: any = { memberId };
-  if (workerId) params.workerId = workerId;
+  if (staffId) params.staffId = staffId;
   return unwrapObj(await api.post('/payments/requests/admin', { chitId, requestedAmount, notes }, { params }));
 };
-export const assignWorkerToRequest = async (requestId: string, workerId: string, adminNotes?: string) =>
-  unwrapObj(await api.patch(`/payments/requests/${requestId}/assign`, { workerId, adminNotes }));
+export const assignStaffToRequest = async (requestId: string, staffId: string, adminNotes?: string) =>
+  unwrapObj(await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes }));
 export const collectForRequest = async (requestId: string) =>
   unwrapObj(await api.post(`/payments/requests/${requestId}/collect`));
 export const voidCashPickup = async (requestId: string, reason: string) =>
@@ -196,15 +201,17 @@ export const getCashRequestAuditLog = async (requestId: string) =>
 export const cancelCashRequest = async (requestId: string, reason?: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/cancel`, null, { params: reason ? { reason } : {} }));
 export const getMyRequests = async () => unwrapList(await api.get('/payments/requests/my-requests'));
+export const getCashRequestSummary = async () => unwrapObj(await api.get('/payments/requests/summary'));
 export const getMyCashRequests = async () => unwrapList(await api.get('/payments/requests/my-requests'));
-export const getWorkerRequests = async (workerId: string) =>
-  unwrapList(await api.get(`/payments/requests/worker/${workerId}`));
+export const getStaffRequests = async (staffId: string) =>
+  unwrapList(await api.get(`/payments/requests/staff/${staffId}`));
 export const getBatchesByCollector = async (collectorId: string) =>
   unwrapList(await api.get(`/payments/batches/collector/${collectorId}`));
 export const updateCashRequest = async (requestId: string, body: {
   requestedAmount?: number | null;
-  updateWorker?: boolean;
-  workerId?: string | null;
+  notes?: string | null;
+  updateStaff?: boolean;
+  staffId?: string | null;
   adminNotes?: string | null;
   scheduledFor?: string | null;
 }) => unwrapObj(await api.patch(`/payments/requests/${requestId}`, body));
@@ -214,13 +221,17 @@ export const getTodaysPaymentBatches = async () => unwrapList(await api.get('/pa
 export const getTodaysDraws = async () => unwrapList(await api.get('/admin/draws/today'));
 export const getRecentDraws = async (days = 60) => { try { return unwrapList(await api.get('/admin/draws/recent', { params: { days } })); } catch { return []; } };
 export const getTodaysPayouts = async () => unwrapList(await api.get('/payouts/today'));
-export const getMyWorkerHistory = async () => unwrapList(await api.get('/payments/requests/mine/history'));
+export const getMyStaffHistory = async () => unwrapList(await api.get('/payments/requests/mine/history'));
 export const markPickedUp = async (requestId: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/pickup`));
 export const rescheduleRequest = async (requestId: string, scheduledFor: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/reschedule`, null, { params: { scheduledFor } }));
-export const cancelByWorker = async (requestId: string, reason?: string) =>
-  unwrapObj(await api.patch(`/payments/requests/${requestId}/cancel/worker`, null, { params: reason ? { reason } : {} }));
+export const cancelByStaff = async (requestId: string, reason?: string) =>
+  unwrapObj(await api.patch(`/payments/requests/${requestId}/cancel/staff`, null, { params: reason ? { reason } : {} }));
+export const partiallyCollectCashRequest = async (requestId: string, collectedAmount: number) =>
+  unwrapObj(await api.patch(`/payments/requests/${requestId}/partial-collect`, { collectedAmount }));
+export const memberApproveCashRequest = async (requestId: string, approved: boolean, reason?: string) =>
+  unwrapObj(await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason }));
 
 // ── Payouts ───────────────────────────────────────────────────────────────────
 export const getAllPayouts = async (params: any = {}) =>

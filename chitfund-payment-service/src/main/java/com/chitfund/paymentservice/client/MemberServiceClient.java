@@ -79,6 +79,32 @@ public class MemberServiceClient {
     }
 
     /**
+     * Reverse-resolves a user-service UUID to a member profile UUID.
+     * Returns null if no linked profile exists or on any error.
+     * Cash requests store user UUIDs; payment records store profile UUIDs — this bridges them.
+     */
+    @SuppressWarnings("unchecked")
+    public UUID getProfileIdByUserId(UUID userId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    memberServiceUrl + "/internal/members/by-user/" + userId + "/profile-id",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+
+            Map<String, Object> body = response.getBody();
+            String profileId = body != null ? (String) body.get("profileId") : null;
+            return profileId != null ? UUID.fromString(profileId) : null;
+        } catch (RestClientException e) {
+            log.warn("member-service unreachable for userId→profileId lookup userId={}: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Returns the member's full name for use in notification messages.
      * Returns empty string on any error — callers should fall back to a generic phrase.
      */

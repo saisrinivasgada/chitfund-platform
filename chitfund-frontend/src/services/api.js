@@ -90,10 +90,11 @@ export const updateMyUserProfile = async ({ fullName, username, email, phone, ph
 // ─── Staff management (ADMIN only) ────────────────────────────────────────
 export const listStaff = async ({ deleted = false } = {}) => {
   const res = await api.get('/users/staff', { params: { deleted } });
-  return res.data.data ?? [];
+  const data = res.data.data ?? [];
+  return data.map((s) => s.role === 'WORKER' ? { ...s, role: 'STAFF' } : s);
 };
 
-// role must be 'ADMIN', 'MANAGER', or 'WORKER' — requires authenticated ADMIN token
+// role must be 'ADMIN', 'MANAGER', or 'STAFF' — requires authenticated ADMIN token
 export const createStaff = async ({ username, email, fullName, phone, role }) => {
   const res = await api.post('/users/staff', {
     username,
@@ -326,8 +327,9 @@ export const deleteChit = async (id) => {
 };
 
 // ─── Payments (payment-service, strip /api) ────────────────────────────────
-export const collectPayment = async (body) => {
-  const res = await api.post('/payments/collect', body);
+export const collectPayment = async (body, idempotencyKey) => {
+  const headers = idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {};
+  const res = await api.post('/payments/collect', body, { headers });
   return res.data.data;
 };
 
@@ -351,8 +353,9 @@ export const updatePromisedDate = async ({ recordId, promisedPaymentDate }) => {
   return res.data.data;
 };
 
-export const recordPayment = async ({ chitId, memberId, amount, paymentMode, notes }) => {
-  const res = await api.post('/payments', { chitId, memberId, amount, paymentMode, notes });
+export const recordPayment = async ({ chitId, memberId, amount, paymentMode, notes, idempotencyKey }) => {
+  const headers = idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {};
+  const res = await api.post('/payments', { chitId, memberId, amount, paymentMode, notes }, { headers });
   return res.data.data;
 };
 
@@ -387,14 +390,20 @@ export const getPaymentHistory = async ({ memberId, chitId }) => {
   return res.data.data ?? [];
 };
 
-export const getAllPaymentBatches = async ({ chitId, memberId, fromDate, toDate } = {}) => {
+export const getAllPaymentBatches = async ({ chitId, memberId, fromDate, toDate, page, size = 50 } = {}) => {
   const params = {};
   if (chitId) params.chitId = chitId;
   if (memberId) params.memberId = memberId;
   if (fromDate) params.fromDate = fromDate;
   if (toDate) params.toDate = toDate;
+  if (page != null) { params.page = page; params.size = size; }
   const res = await api.get('/payments/batches/all', { params });
-  return res.data.data ?? [];
+  const data = res.data.data;
+  if (page != null) {
+    if (Array.isArray(data)) return { content: data, hasMore: false, totalElements: data.length };
+    return data ?? { content: [], hasMore: false, totalElements: 0 };
+  }
+  return Array.isArray(data) ? data : (data ?? []);
 };
 
 export const getAllPayouts = async ({ chitId, fromDate, toDate } = {}) => {
@@ -419,6 +428,11 @@ export const getMemberTotalBalance = async (memberId) => {
 export const getMemberBalanceBulk = async (memberIds) => {
   const res = await api.get('/payments/balance/bulk', { params: { memberIds: memberIds.join(',') } });
   return res.data.data ?? {};
+};
+
+export const getChitOutstandingSummary = async (chitId) => {
+  const res = await api.get('/payments/balance/chit-summary', { params: { chitId } });
+  return res.data.data ?? { totalOutstanding: 0, membersWithOutstanding: 0 };
 };
 
 export const getMemberCredit = async (memberId) => {
@@ -473,13 +487,13 @@ export const getPendingCashRequests = async () => {
   return res.data.data ?? [];
 };
 
-export const assignWorkerToRequest = async ({ requestId, workerId, adminNotes }) => {
-  const res = await api.patch(`/payments/requests/${requestId}/assign`, { workerId, adminNotes });
+export const assignStaffToRequest = async ({ requestId, staffId, adminNotes }) => {
+  const res = await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes });
   return res.data.data;
 };
 
-export const getWorkerRequests = async (workerId) => {
-  const res = await api.get(`/payments/requests/worker/${workerId}`);
+export const getStaffRequests = async (staffId) => {
+  const res = await api.get(`/payments/requests/staff/${staffId}`);
   return res.data.data ?? [];
 };
 
@@ -498,6 +512,11 @@ export const getMyCashRequests = async () => {
   return res.data.data ?? [];
 };
 
+export const getMyPaymentBatches = async () => {
+  const res = await api.get('/payments/batches/member');
+  return res.data.data ?? [];
+};
+
 export const markPickedUp = async (requestId) => {
   const res = await api.patch(`/payments/requests/${requestId}/pickup`);
   return res.data.data;
@@ -510,9 +529,9 @@ export const rescheduleRequest = async ({ requestId, scheduledFor }) => {
   return res.data.data;
 };
 
-export const workerCancelRequest = async ({ requestId, reason }) => {
+export const staffCancelRequest = async ({ requestId, reason }) => {
   const params = reason ? { reason } : {};
-  const res = await api.patch(`/payments/requests/${requestId}/cancel/worker`, null, { params });
+  const res = await api.patch(`/payments/requests/${requestId}/cancel/staff`, null, { params });
   return res.data.data;
 };
 
@@ -533,11 +552,11 @@ export const voidCashPickup = async ({ requestId, reason }) => {
   return res.data.data;
 };
 
-export const updateCashRequest = async ({ requestId, requestedAmount, updateWorker, workerId, adminNotes, scheduledFor }) => {
+export const updateCashRequest = async ({ requestId, requestedAmount, updateStaff, staffId, adminNotes, scheduledFor }) => {
   const res = await api.patch(`/payments/requests/${requestId}`, {
     requestedAmount: requestedAmount ?? null,
-    updateWorker: updateWorker ?? false,
-    workerId: workerId ?? null,
+    updateStaff: updateStaff ?? false,
+    staffId: staffId ?? null,
     adminNotes: adminNotes ?? null,
     scheduledFor: scheduledFor ?? null,
   });
@@ -549,10 +568,32 @@ export const getCashRequestAuditLog = async (requestId) => {
   return res.data.data;
 };
 
-export const adminCreateCashRequest = async ({ memberId, workerId, chitId, requestedAmount, notes }) => {
+export const adminCreateCashRequest = async ({ memberId, staffId, chitId, requestedAmount, notes, scheduledFor }) => {
   const params = { memberId };
-  if (workerId) params.workerId = workerId;
-  const res = await api.post('/payments/requests/admin', { chitId, requestedAmount, notes }, { params });
+  if (staffId) params.staffId = staffId;
+  const body = { chitId, requestedAmount, notes };
+  if (scheduledFor) body.scheduledFor = scheduledFor;
+  const res = await api.post('/payments/requests/admin', body, { params });
+  return res.data.data;
+};
+
+export const getCashRequestSummary = async () => {
+  const res = await api.get('/payments/requests/summary');
+  return res.data.data;
+};
+
+export const getCancelledCashRequests = async () => {
+  const res = await api.get('/payments/requests/cancelled');
+  return res.data.data ?? [];
+};
+
+export const partiallyCollectCashRequest = async ({ requestId, collectedAmount }) => {
+  const res = await api.patch(`/payments/requests/${requestId}/partial-collect`, { collectedAmount });
+  return res.data.data;
+};
+
+export const memberApproveCashRequest = async ({ requestId, approved, reason }) => {
+  const res = await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason });
   return res.data.data;
 };
 
@@ -708,9 +749,17 @@ export const getWalletBalance = async () => {
   return res.data.data;
 };
 
-export const getWalletTransactions = async () => {
-  const res = await api.get('/admin/wallet');
-  return res.data.data ?? [];
+export const getWalletTransactions = async ({ page, size = 50 } = {}) => {
+  const params = {};
+  if (page != null) { params.page = page; params.size = size; }
+  const res = await api.get('/admin/wallet', { params });
+  const data = res.data.data;
+  if (page != null) {
+    // Handle both old backend (returns array) and new backend (returns { content, hasMore })
+    if (Array.isArray(data)) return { content: data, hasMore: false, totalElements: data.length };
+    return data ?? { content: [], hasMore: false, totalElements: 0 };
+  }
+  return Array.isArray(data) ? data : (data ?? []);
 };
 
 export const addWalletTransaction = async (payload) => {

@@ -36,12 +36,12 @@ const DATE_PRESETS = [
 
 const ACTION_TITLE: Record<string, { title: string; color: string; subtitle?: string }> = {
   'PAYMENT_BATCH.CREATED':              { title: 'Payment Collected',              color: '#16A34A' },
-  'PAYMENT_BATCH.AWAITING_REMITTANCE':  { title: 'Cash with Worker',               color: C.amber,   subtitle: 'Picked up — worker has not remitted yet' },
-  'PAYMENT_BATCH.REMITTED':             { title: 'Remittance Complete',            color: '#16A34A', subtitle: 'Worker returned cash to admin' },
+  'PAYMENT_BATCH.AWAITING_REMITTANCE':  { title: 'Cash with Staff',                color: C.amber,   subtitle: 'Picked up — staff has not remitted yet' },
+  'PAYMENT_BATCH.REMITTED':             { title: 'Remittance Complete',            color: '#16A34A', subtitle: 'Staff returned cash to admin' },
   'PAYMENT_BATCH.VOIDED':               { title: 'Payment Voided',                 color: C.red },
   'CASH_REQUEST.CREATED':               { title: 'Cash Pickup Created',            color: C.amber },
-  'CASH_REQUEST.ASSIGNED':              { title: 'Worker Assigned',                color: '#7C3AED' },
-  'CASH_REQUEST.PICKED_UP':             { title: 'Cash Picked Up by Worker',       color: C.amber,   subtitle: 'Worker has cash — pending remittance to admin' },
+  'CASH_REQUEST.ASSIGNED':              { title: 'Staff Assigned',                 color: '#7C3AED' },
+  'CASH_REQUEST.PICKED_UP':             { title: 'Cash Picked Up by Staff',        color: C.amber,   subtitle: 'Staff has cash — pending remittance to admin' },
   'CASH_REQUEST.COLLECTED':             { title: 'Cash Collected',                 color: '#16A34A' },
   'CASH_REQUEST.VOIDED':                { title: 'Pickup Voided',                  color: C.red },
   'CASH_REQUEST.CANCELLED':             { title: 'Pickup Cancelled',               color: C.red },
@@ -172,7 +172,7 @@ function batchToItem(b: any) {
     memberId: b.memberId, chitId: b.chitId, reason: b.voidReason ?? b.notes,
     newValue: `₹${Number(b.amount ?? b.totalAmount ?? 0).toLocaleString('en-IN')}`,
     paymentMode: b.paymentMode ?? null,
-    actorRole: b.collectedBy ? 'WORKER' : 'ADMIN',
+    actorRole: b.collectedBy ? 'STAFF' : 'ADMIN',
     createdAt: b.remittedAt ?? b.collectedAt ?? b.createdAt,
   };
 }
@@ -470,8 +470,8 @@ export default function ActivityScreen() {
               chitName    ? { label: chitName,                           color: C.navy,    bg: C.navy50 }     : null,
               log.actorRole ? {
                 label: log.actorRole,
-                color: log.actorRole === 'WORKER' ? '#92400E' : log.actorRole === 'MANAGER' ? '#5B21B6' : C.navy,
-                bg:    log.actorRole === 'WORKER' ? '#FEF3C7' : log.actorRole === 'MANAGER' ? '#F5F3FF' : C.navy50,
+                color: (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#92400E' : log.actorRole === 'MANAGER' ? '#5B21B6' : C.navy,
+                bg:    (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#FEF3C7' : log.actorRole === 'MANAGER' ? '#F5F3FF' : C.navy50,
               } : null,
             ].filter(Boolean) as { label: string; color: string; bg: string }[];
 

@@ -67,7 +67,7 @@ public class AuditEventConsumer {
             auditService.record(new AuditLogRequest(
                     "payment-service", "PAYMENT_BATCH", event.batchId(),
                     event.chitId(), "CASH_COLLECTED",
-                    event.collectedByUserId(), "ROLE_WORKER", null,
+                    event.collectedByUserId(), "ROLE_STAFF", null,
                     null,
                     "{\"amount\":" + event.amount() + ",\"memberId\":\"" + event.memberId() + "\"}",
                     null
@@ -166,28 +166,7 @@ public class AuditEventConsumer {
         }
     }
 
-    @SqsListener(SqsQueues.MEMBER_UPDATED)
-    public void onMemberUpdated(String payload) {
-        try {
-            MemberUpdatedEvent event = objectMapper.readValue(payload, MemberUpdatedEvent.class);
-            String before = event.previousReferredById() != null
-                    ? "{\"referredById\":\"" + event.previousReferredById() + "\",\"referredByName\":\""
-                            + (event.previousReferredByName() != null ? event.previousReferredByName() : "") + "\"}"
-                    : null;
-            String after = event.newReferredById() != null
-                    ? "{\"referredById\":\"" + event.newReferredById() + "\",\"referredByName\":\""
-                            + (event.newReferredByName() != null ? event.newReferredByName() : "") + "\"}"
-                    : "{\"referredById\":null}";
-            auditService.record(new AuditLogRequest(
-                    "member-service", "MEMBER", event.memberId(),
-                    null, "PROFILE_UPDATED",
-                    event.updatedBy(), "ROLE_ADMIN", null,
-                    before,
-                    after,
-                    "{\"fieldChanged\":\"" + event.fieldChanged() + "\"}"
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit MEMBER_UPDATED: {}", e.getMessage(), e);
-        }
-    }
+    // MEMBER_UPDATED audit now written directly by member-service via /internal/audit HTTP call.
+    // The SQS listener is kept only for the notification-service consumer (referral change alerts).
+    // This class no longer needs to listen to MEMBER_UPDATED to avoid duplicate audit entries.
 }

@@ -124,9 +124,9 @@ export default function MemberHomeScreen() {
                   <Badge status={r.status} />
                 </View>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  {r.status === 'PENDING'   && 'Waiting for worker assignment'}
-                  {r.status === 'ASSIGNED'  && 'Worker assigned — they will visit you soon'}
-                  {r.status === 'PICKED_UP' && 'Worker collected your cash — awaiting admin confirmation'}
+                  {r.status === 'PENDING'   && 'Waiting for staff assignment'}
+                  {r.status === 'ASSIGNED'  && 'Staff assigned — they will visit you soon'}
+                  {r.status === 'PICKED_UP' && 'Staff collected your cash — awaiting admin confirmation'}
                 </Text>
                 <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Requested {fmtDate(r.requestedAt)}</Text>
               </GlassCard>

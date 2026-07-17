@@ -54,13 +54,12 @@ function NotifCard({
   // Resolve names from the maps (backend stores IDs, frontend resolves)
   const memberId = meta.memberId ?? meta.member_id;
   const chitId   = meta.chitId ?? meta.chit_id;
-  const workerId = meta.workerId ?? meta.worker_id;
+  const staffId = meta.staffId ?? meta.workerId ?? meta.worker_id;
 
   const mName = meta.memberName ?? meta.member_name ?? (memberId ? memberMap[memberId?.toLowerCase()] : null);
   const cName = meta.chitName   ?? meta.chit_name   ?? (chitId   ? chitMap[chitId?.toLowerCase()]     : null);
-  // Worker name: stored directly, or look up in memberMap if worker is also a member, else show ID truncated
-  const wName = meta.workerName ?? meta.worker_name ??
-                (workerId ? (memberMap[workerId?.toLowerCase()] ?? null) : null);
+  const wName = meta.staffName ?? meta.workerName ?? meta.worker_name ??
+                (staffId ? (memberMap[staffId?.toLowerCase()] ?? null) : null);
   const amt   = meta.amount ?? meta.requestedAmount ?? n.amount;
 
   // Build detail chips

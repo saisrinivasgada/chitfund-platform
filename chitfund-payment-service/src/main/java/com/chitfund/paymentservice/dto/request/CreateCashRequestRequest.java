@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
@@ -18,4 +19,7 @@ public class CreateCashRequestRequest {
     private BigDecimal requestedAmount;
 
     private String notes;
+
+    // Optional: admin sets a target pickup date — status becomes SCHEDULED if no staff assigned
+    private LocalDateTime scheduledFor;
 }

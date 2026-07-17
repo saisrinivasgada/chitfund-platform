@@ -36,20 +36,25 @@ import {
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 function Tabs({ tabs, active, onChange }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1">
-      {tabs.map((t) => (
-        <button
-          key={t}
-          onClick={() => onChange(t)}
-          className={`px-5 py-2 text-sm font-semibold rounded-lg border-2 transition-colors cursor-pointer whitespace-nowrap ${
-            active === t
-              ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white'
-              : 'bg-white border-gray-200 text-gray-500 hover:border-[#1E3A5F] hover:text-[#1E3A5F]'
-          }`}
-        >
-          {t}
-        </button>
-      ))}
+    <div className="flex gap-2 overflow-x-auto pb-1" style={{ marginTop: 12, marginBottom: 12 }}>
+      {tabs.map((t) => {
+        const isActive = active === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className="text-sm font-semibold rounded-full cursor-pointer whitespace-nowrap transition-all"
+            style={{
+              padding: '6px 16px',
+              backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+              color: isActive ? '#ffffff' : '#374151',
+              border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+            }}
+          >
+            {t}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2649,7 +2654,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
 // ── Collect payment modal — two tabs: settle now vs via worker ─────────────────
 function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const { user } = useAuth();
-  const isWorker = user?.role === 'WORKER';
+  const isWorker = user?.role === 'STAFF';
   const qc = useQueryClient();
   const toast = useToastContext();
   const balance = Number(paymentRecord?.balance ?? 0);
@@ -2660,7 +2665,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const [notes, setNotes]           = useState('');
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
-  const collectors = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
+  const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
 
   const isCash       = paymentMode === 'CASH';
   const viaTeam      = isCash && collectedBy !== 'SELF';
@@ -2680,14 +2685,14 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
         // The payment is NOT recorded yet; it appears in Cash Requests until the worker collects.
         return adminCreateCashRequest({
           memberId: paymentRecord.memberId,
-          workerId: collectedBy,
+          staffId: collectedBy,
           chitId,
           requestedAmount: amtNum,
           notes: notes || null,
         });
       } else {
         // Admin direct (CASH self or UPI/Bank/Cheque) → settled immediately
-        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined });
+        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
       }
     },
     onSuccess: () => {
@@ -2743,7 +2748,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
               <option value="SELF">Self — I have the cash</option>
               {collectors.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.role === 'WORKER' ? 'Worker' : 'Manager'}: {s.fullName ?? s.username}
+                  {s.role === 'STAFF' ? 'Staff' : 'Manager'}: {s.fullName ?? s.username}
                 </option>
               ))}
             </Select>

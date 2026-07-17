@@ -11,7 +11,7 @@ import {
   getWalletBalance, getUnreadCount,
   adminCreateCashRequest, getAuditLogs,
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
-  getOrgReservations, realizeOrgPayout,
+  getOrgReservations, realizeOrgPayout, getCashRequestSummary,
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -44,6 +44,7 @@ export default function AdminDashboard() {
   const { data: todayBatchesRaw = [], refetch: refetchBatches  } = useQuery({ queryKey: ['m-today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
   const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
   const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
+  const { data: cashSummary,          refetch: refetchSummary  } = useQuery({ queryKey: ['m-cash-summary'],  queryFn: getCashRequestSummary,   staleTime: 60_000 });
 
   // Org Holdings — slots the organization holds across chits
   const { data: orgReservations = [], refetch: refetchOrgReservations } = useQuery({
@@ -64,7 +65,7 @@ export default function AdminDashboard() {
   });
 
   const isLoading = crLoading || chitsLoading || membersLoading;
-  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); }
+  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
@@ -149,6 +150,26 @@ export default function AdminDashboard() {
           <StatCard glass label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />
           <StatCard glass label="New Requests" value={String(pendingRequests.length)} accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />
         </View>
+        {(cashSummary as any)?.todayCancelled > 0 && (
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+            <StatCard
+              glass
+              label="Cancelled Today"
+              value={String((cashSummary as any).todayCancelled)}
+              sub={`${(cashSummary as any).cancelled} overall`}
+              accent={C.gray400}
+              onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })}
+            />
+            <StatCard
+              glass
+              label="Collected Today"
+              value={String((cashSummary as any).todayCollected ?? 0)}
+              sub={`${(cashSummary as any).collected ?? 0} overall`}
+              accent={C.green}
+              onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } })}
+            />
+          </View>
+        )}
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
           <StatCard
             glass
@@ -229,7 +250,7 @@ export default function AdminDashboard() {
                       {memberMap[r.memberId?.toLowerCase()] ?? r.memberName ?? `Member …${r.memberId?.slice(-6)}`}
                     </Text>
                     <Amount value={r.requestedAmount} size="sm" />
-                    <Text style={{ fontSize: 11, color: C.amber }}>Awaiting worker assignment</Text>
+                    <Text style={{ fontSize: 11, color: C.amber }}>Awaiting staff assignment</Text>
                   </View>
                   <Badge status={r.status} />
                 </View>
@@ -246,7 +267,7 @@ export default function AdminDashboard() {
             id: 'b-' + b.id,
             action: b.status === 'REMITTED' ? 'REMITTED' : b.status === 'VOIDED' ? 'VOIDED' : 'COLLECTED',
             entityType: 'PAYMENT',
-            actorRole: b.collectedBy ? 'WORKER' : 'ADMIN',
+            actorRole: b.collectedBy ? 'STAFF' : 'ADMIN',
             newValue: `₹${Number(b.amount ?? b.totalAmount ?? 0).toLocaleString('en-IN')}`,
             createdAt: b.remittedAt ?? b.createdAt,
           }));

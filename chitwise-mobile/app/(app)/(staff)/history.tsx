@@ -1,21 +1,21 @@
 import { View, Text, FlatList, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMyWorkerHistory, getMembers, getChits } from '../../../services/api';
+import { getMyStaffHistory, getMembers, getChits } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const PAGE_SIZE = 25;
 
-export default function WorkerHistoryScreen() {
+export default function StaffHistoryScreen() {
   const { data: history = [], isLoading, refetch } = useQuery({
-    queryKey: ['worker-history'],
-    queryFn: getMyWorkerHistory,
+    queryKey: ['staff-history'],
+    queryFn: getMyStaffHistory,
     refetchInterval: 30_000,
     refetchOnMount: 'always',
   });
 
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
 
   const memberMap: Record<string, string> = {};

@@ -87,7 +87,7 @@ export default function AppLayout() {
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
           {/* Mobile / tablet top header — hidden on desktop */}
-          <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-white border-b border-gray-100 flex-shrink-0 z-30 shadow-sm">
+          <header className="print:hidden lg:hidden flex items-center justify-between px-4 h-14 bg-white border-b border-gray-100 flex-shrink-0 z-30 shadow-sm">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}

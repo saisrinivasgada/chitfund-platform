@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
-  getCashRequestAuditLog, assignWorkerToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
+  getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
   getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
@@ -89,7 +89,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
     }),
   ]);
-  const workers = (staff as any[]).filter((s: any) => ['WORKER', 'MANAGER'].includes(s.role));
+  const workers = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
   const workerMap = Object.fromEntries((staff as any[]).map((w: any) => [w.id, w.fullName ?? w.username ?? '—']));
 
   // Chits for the selected setup member
@@ -107,8 +107,8 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
     mutationFn: (id: string) => collectForRequest(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
-      qc.invalidateQueries({ queryKey: ['worker-history'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-history'] });
       toast.collected('Member account credited');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Collection failed — request may already be collected or cancelled.'),
@@ -131,11 +131,11 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   });
 
   const assignMut = useMutation({
-    mutationFn: ({ id, workerId, notes }: any) => assignWorkerToRequest(id, workerId, notes),
+    mutationFn: ({ id, staffId, notes }: any) => assignStaffToRequest(id, staffId, notes),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
       setAssignTarget(null); setAssignWorkerId(''); setAssignNotes('');
-      toast.assigned('Worker assigned');
+      toast.assigned('Staff assigned');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Assignment failed — please try again.'),
   });
@@ -143,8 +143,8 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   const editMut = useMutation({
     mutationFn: () => updateCashRequest(editTarget.id, {
       requestedAmount: editAmount ? Number(editAmount) : undefined,
-      updateWorker: editWorkerId !== (editTarget.assignedWorkerId ?? ''),
-      workerId: editWorkerId || null,
+      updateStaff: editWorkerId !== (editTarget.assignedStaffId ?? ''),
+      staffId: editWorkerId || null,
       adminNotes: editNotes || null,
     }),
     onSuccess: () => {
@@ -251,11 +251,11 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Details */}
-            {r.assignedWorkerId && (
+            {r.assignedStaffId && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>Worker</Text>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>Staff</Text>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.amber }}>
-                  {workerMap[r.assignedWorkerId] ?? '—'}
+                  {workerMap[r.assignedStaffId] ?? '—'}
                 </Text>
               </View>
             )}
@@ -281,14 +281,38 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             )}
             <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Requested {fmtDate(r.requestedAt)}</Text>
 
+            {/* PARTIALLY_COLLECTED → partial amount info + approval warning */}
+            {r.status === 'PARTIALLY_COLLECTED' && (
+              <>
+                <View style={{ backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#C4B5FD' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 2 }}>
+                    Partial — ₹{Number(r.collectedAmount ?? 0).toLocaleString('en-IN')} of ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#6D28D9' }}>
+                    Remaining: ₹{(Number(r.requestedAmount) - Number(r.collectedAmount ?? 0)).toLocaleString('en-IN')} needs follow-up
+                  </Text>
+                </View>
+                {r.memberApproved == null && (
+                  <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626', marginBottom: 2 }}>
+                      ⚠ Member has not approved yet
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#B91C1C' }}>
+                      Member was notified but hasn't confirmed this partial amount. Consider waiting before remitting.
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
             {/* PICKED_UP → big "Received from worker" banner */}
             {r.status === 'PICKED_UP' && (
               <View style={{ backgroundColor: '#F0FDF4', borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: '#86EFAC' }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: '#16A34A', marginBottom: 2 }}>
-                  Worker has the cash
+                  Staff has the cash
                 </Text>
                 <Text style={{ fontSize: 12, color: '#166534' }}>
-                  {workerMap[r.assignedWorkerId] ?? 'Worker'} marked this as picked up. Tap "Received" once they hand it to you.
+                  {workerMap[r.assignedStaffId] ?? 'Staff'} marked this as picked up. Tap "Received" once they hand it to you.
                 </Text>
               </View>
             )}
@@ -300,21 +324,21 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                   onPress={() => {
                     setEditTarget(r);
                     setEditAmount(r.requestedAmount != null ? String(r.requestedAmount) : '');
-                    setEditWorkerId(r.assignedWorkerId ?? '');
+                    setEditWorkerId(r.assignedStaffId ?? '');
                     setEditNotes(r.adminNotes ?? '');
                   }} />
               )}
               {r.status === 'PENDING' && (
-                <Button label="Assign Worker" variant="primary" size="sm"
+                <Button label="Assign Staff" variant="primary" size="sm"
                   onPress={() => { setAssignTarget(r); setAssignWorkerId(''); setAssignNotes(''); }} />
               )}
               {r.status === 'PICKED_UP' && (
                 <>
-                  <Button label="Received from Worker" variant="success" size="sm"
+                  <Button label="Received from Staff" variant="success" size="sm"
                     loading={collectMut.isPending}
                     onPress={() => Alert.alert(
                       'Confirm Receipt',
-                      `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${workerMap[r.assignedWorkerId] ?? 'worker'}? This credits the member's account.`,
+                      `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${workerMap[r.assignedStaffId] ?? 'staff'}? This credits the member's account.`,
                       [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Yes, Received', onPress: () => collectMut.mutate(r.id) },
@@ -324,7 +348,31 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                     onPress={() => { setVoidTarget(r); setVoidReason(''); }} />
                 </>
               )}
-              {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP') && (
+              {r.status === 'PARTIALLY_COLLECTED' && (
+                <Button
+                  label={`Remit ₹${Number(r.collectedAmount ?? r.requestedAmount).toLocaleString('en-IN')}`}
+                  variant={r.memberApproved == null ? 'outline' : 'success'}
+                  size="sm"
+                  loading={collectMut.isPending}
+                  onPress={() => {
+                    const unapproved = r.memberApproved == null;
+                    const remaining = Number(r.requestedAmount) - Number(r.collectedAmount ?? 0);
+                    Alert.alert(
+                      unapproved ? '⚠ Member Not Approved Yet' : 'Confirm Partial Receipt',
+                      (unapproved
+                        ? 'Member has NOT confirmed this partial amount yet.\n\nAre you sure you want to remit ₹'
+                        : 'Confirm you received ₹') +
+                        Number(r.collectedAmount ?? r.requestedAmount).toLocaleString('en-IN') +
+                        ` from ${workerMap[r.assignedStaffId] ?? 'staff'}? Remaining ₹${remaining.toLocaleString('en-IN')} will need follow-up.`,
+                      [
+                        { text: 'Not Yet', style: 'cancel' },
+                        { text: 'Yes, Received', onPress: () => collectMut.mutate(r.id) },
+                      ]
+                    );
+                  }}
+                />
+              )}
+              {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PARTIALLY_COLLECTED') && (
                 <Button label="Cancel" variant="ghost" size="sm"
                   onPress={() => Alert.alert('Cancel Pickup', 'Cancel this cash pickup request?', [
                     { text: 'No', style: 'cancel' },
@@ -425,9 +473,9 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               />
             </View>
 
-            {/* Step 4 — Assign Worker (optional) */}
+            {/* Step 4 — Assign Staff (optional) */}
             <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Worker</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Staff</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Optional — leave empty to assign later</Text>
               <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
                 {/* None option */}
@@ -460,14 +508,14 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 value={setupNotes}
                 onChangeText={setSetupNotes}
                 multiline
-                placeholder="Any special instructions for the worker…"
+                placeholder="Any special instructions for the staff member…"
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 72, textAlignVertical: 'top' }}
               />
             </View>
 
             <Button
-              label={setupWorkerId ? 'Create Pickup & Assign Worker' : 'Create Pickup Request'}
+              label={setupWorkerId ? 'Create Pickup & Assign Staff' : 'Create Pickup Request'}
               variant="primary"
               fullWidth
               loading={setupMut.isPending}
@@ -521,8 +569,8 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
               />
 
-              {/* Worker */}
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Assigned Worker</Text>
+              {/* Staff */}
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Assigned Staff</Text>
               <TouchableOpacity
                 onPress={() => setEditWorkerId('')}
                 style={{ padding: 12, borderRadius: 10, marginBottom: 6, borderWidth: 2,
@@ -569,7 +617,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
-              This reverts the request back to Assigned — the worker must physically re-collect and re-mark pickup.
+              This reverts the request back to Assigned — the staff member must physically re-collect and re-mark pickup.
             </Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -584,13 +632,13 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
         </View>
       </Modal>
 
-      {/* ── Assign Worker Modal ─────────────────────────────────────────────── */}
+      {/* ── Assign Staff Modal ─────────────────────────────────────────────── */}
       <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
-                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Worker</Text>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Staff</Text>
                 {assignTarget && (
                   <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
                     {memberMap[assignTarget.memberId]} · ₹{Number(assignTarget.requestedAmount).toLocaleString('en-IN')}
@@ -602,7 +650,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               </TouchableOpacity>
             </View>
             {workers.length === 0 ? (
-              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 24 }}>No workers in the team yet</Text>
+              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 24 }}>No staff members in the team yet</Text>
             ) : (
               <ScrollView style={{ maxHeight: 220, marginBottom: 12 }}>
                 {workers.map((w: any) => (
@@ -619,14 +667,14 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 ))}
               </ScrollView>
             )}
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes for worker (optional)</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes for staff (optional)</Text>
             <TextInput value={assignNotes} onChangeText={setAssignNotes} placeholder="e.g. Visit before 6 PM"
               placeholderTextColor={C.gray400}
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setAssignTarget(null)} /></View>
               <View style={{ flex: 1 }}><Button label="Assign" variant="primary" disabled={!assignWorkerId} loading={assignMut.isPending}
-                onPress={() => assignMut.mutate({ id: assignTarget.id, workerId: assignWorkerId, notes: assignNotes })} /></View>
+                onPress={() => assignMut.mutate({ id: assignTarget.id, staffId: assignWorkerId, notes: assignNotes })} /></View>
             </View>
           </View>
         </View>
@@ -727,7 +775,7 @@ function RecordPaymentTab() {
     enabled: !!memberId && !!chitId,
   });
 
-  const collectors = (staff as any[]).filter((s: any) => ['WORKER', 'MANAGER'].includes(s.role));
+  const collectors = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
   // Only show chits the member can still pay into
   const payableChits = (memberChits as any[]).filter((c: any) =>
     ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status)
@@ -746,7 +794,7 @@ function RecordPaymentTab() {
       : recordPayment({ chitId, memberId, amount: amtNum, paymentMode: mode, notes: notes || undefined }),
     onSuccess: () => {
       const msg = workerCollect
-        ? 'Recorded — awaiting remittance from worker'
+        ? 'Recorded — awaiting remittance from staff'
         : 'Payment recorded — treasury credited';
       toast.saved(msg);
       setAmount(''); setNotes(''); setCollectedBy('SELF');
@@ -786,7 +834,7 @@ function RecordPaymentTab() {
   // ── Helpers ────────────────────────────────────────────────────────────────
   const MODES = ['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'];
   const MODE_DESC: Record<string, string> = {
-    CASH:          'Physical cash — self or via worker',
+    CASH:          'Physical cash — self or via staff',
     UPI:           'UPI / PhonePe / GPay',
     BANK_TRANSFER: 'NEFT / IMPS / RTGS',
     CHEQUE:        'Cheque deposit',
@@ -803,7 +851,7 @@ function RecordPaymentTab() {
   });
 
   const submitLabel = workerCollect
-    ? 'Record Collection (via Worker)'
+    ? 'Record Collection (via Staff)'
     : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -966,7 +1014,7 @@ function RecordPaymentTab() {
 
               {/* Worker / Manager list */}
               {collectors.length === 0 ? (
-                <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 14 }}>No workers in team yet</Text>
+                <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 14 }}>No staff in team yet</Text>
               ) : (
                 <ScrollView style={{ maxHeight: 160, marginBottom: 6, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
                   {collectors.map((w: any) => (
@@ -987,9 +1035,9 @@ function RecordPaymentTab() {
               {/* Worker warning banner */}
               {workerCollect && (
                 <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 14, borderWidth: 1, borderColor: '#F59E0B' }}>
-                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Cash stays with worker</Text>
+                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Cash stays with staff</Text>
                   <Text style={{ fontSize: 11, color: '#92400E' }}>
-                    This will appear in Remittance until the worker hands the cash to you and you remit it.
+                    This will appear in Remittance until the staff member hands the cash to you and you remit it.
                   </Text>
                 </View>
               )}
@@ -1012,7 +1060,7 @@ function RecordPaymentTab() {
             loading={recordMut.isPending}
             onPress={() => {
               const workerName = workerCollect
-                ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'worker')
+                ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
                 : null;
               const confirmMsg = workerCollect
                 ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
@@ -1442,7 +1490,7 @@ function PayoutsTab() {
                 {p.disbursements.map((d: any, i: number) => (
                   <View key={d.id} style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 4 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray800 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray900 }}>
                         #{i + 1} · ₹{Number(d.amount).toLocaleString('en-IN')}
                       </Text>
                       <Text style={{ fontSize: 11, color: C.gray500 }}>{d.mode?.replace('_', ' ')}</Text>
@@ -2389,7 +2437,7 @@ function RemittanceTab() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>
-              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from worker
+              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff
             </Text>
           </View>
           {pickedUpRequests.map((r: any) => (
@@ -2397,7 +2445,7 @@ function RemittanceTab() {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{memberMap[r.memberId] ?? '—'}</Text>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  Worker: {staffMap[r.assignedWorkerId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
+                  Staff: {staffMap[r.assignedStaffId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
                 </Text>
                 {r.pickedUpAt && (
                   <Text style={{ fontSize: 11, color: '#16A34A', marginTop: 2 }}>
@@ -2412,7 +2460,7 @@ function RemittanceTab() {
                 loading={collectPickupMut.isPending}
                 onPress={() => Alert.alert(
                   'Confirm Cash Received',
-                  `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${staffMap[r.assignedWorkerId] ?? 'worker'}?\n\nMember account will be credited and treasury updated.`,
+                  `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${staffMap[r.assignedStaffId] ?? 'staff'}?\n\nMember account will be credited and treasury updated.`,
                   [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Yes, Received', onPress: () => collectPickupMut.mutate(r.id) },

@@ -34,13 +34,26 @@ public class CashPaymentRequest {
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private CashRequestStatus status;
 
-    private UUID assignedWorkerId;
+    private UUID assignedStaffId;
     private LocalDateTime assignedAt;
     private UUID assignedBy;
 
     // Set when worker marks they've physically picked up the cash from the member
     private LocalDateTime pickedUpAt;
     private UUID pickedUpBy;
+
+    // Partial collection fields
+    @Column(precision = 15, scale = 2)
+    private BigDecimal collectedAmount;
+
+    private Boolean memberApproved;
+
+    @Column(columnDefinition = "text")
+    private String memberRejectionReason;
+
+    private LocalDateTime partiallyCollectedAt;
+
+    private UUID parentRequestId;
 
     // Worker-set: deferred date when they plan to collect (set via reschedule)
     private LocalDateTime scheduledFor;

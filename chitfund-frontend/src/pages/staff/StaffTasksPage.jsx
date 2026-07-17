@@ -7,7 +7,8 @@ import {
   getMyPendingBatches,
   markPickedUp,
   rescheduleRequest,
-  workerCancelRequest,
+  staffCancelRequest,
+  partiallyCollectCashRequest,
   getMembers,
   getChits,
   listStaff,
@@ -22,7 +23,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import Modal from '../../components/ui/Modal';
 import {
   ClipboardList, CheckCircle, History, IndianRupee, Calendar, AlertCircle,
-  Clock, UserCheck, Banknote, PackageCheck, ChevronRight, X, CalendarClock,
+  Clock, UserCheck, Banknote, PackageCheck, ChevronRight, X, CalendarClock, Pencil,
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -52,8 +53,8 @@ function fmtDateTime(d) {
 // ─── Name resolvers ───────────────────────────────────────────────────────────
 function useLookupMaps() {
   const { data: members = [] } = useQuery({
-    queryKey: ['members'],
-    queryFn: () => getMembers(),
+    queryKey: ['members', 'all'],
+    queryFn: () => getMembers({ size: 500 }),
   });
   const { data: chits = [] } = useQuery({
     queryKey: ['chits'],
@@ -95,7 +96,7 @@ function CashRequestTimelineModal({ request, memberMap, chitMap, onClose }) {
       icon: UserCheck,
       color: '#D97706',
       bg: '#FEF3C7',
-      label: 'Assigned to Worker',
+      label: 'Assigned to Staff',
       sub: request.assignedAt ? `You were assigned` : 'Waiting for assignment',
       time: request.assignedAt,
       done: !!request.assignedAt,
@@ -124,8 +125,15 @@ function CashRequestTimelineModal({ request, memberMap, chitMap, onClose }) {
 
   return (
     <Modal title="Cash Pickup Trail" onClose={onClose} size="sm">
-      <div className="space-y-1 pb-2">
-        <div className="flex items-center gap-2.5 mb-4 px-1">
+      <div className="space-y-5 pb-2">
+        {/* Member info card */}
+        <div className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border border-gray-100 bg-gray-50">
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+            style={{ backgroundColor: '#1E3A5F' }}
+          >
+            {(memberMap[request.memberId] ?? '?')[0]?.toUpperCase()}
+          </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-900">
               {memberMap[request.memberId] ?? '—'}
@@ -136,39 +144,37 @@ function CashRequestTimelineModal({ request, memberMap, chitMap, onClose }) {
           </div>
         </div>
 
-        <div className="space-y-0">
+        {/* Timeline */}
+        <div>
           {timeline.map((step, i) => {
             const Icon = step.icon;
             const isLast = i === timeline.length - 1;
             return (
-              <div key={step.key} className="flex gap-3">
-                {/* Timeline spine */}
+              <div key={step.key} className="flex gap-3.5">
                 <div className="flex flex-col items-center flex-shrink-0">
                   <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                    className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                     style={{
                       backgroundColor: step.done ? step.bg : '#F3F4F6',
                       border: `2px solid ${step.done ? step.color : '#D1D5DB'}`,
                     }}
                   >
-                    <Icon size={14} style={{ color: step.done ? step.color : '#9CA3AF' }} />
+                    <Icon size={15} style={{ color: step.done ? step.color : '#9CA3AF' }} />
                   </div>
                   {!isLast && (
                     <div
-                      className="w-0.5 flex-1 my-1"
-                      style={{ backgroundColor: step.done ? step.color : '#E5E7EB', minHeight: '20px' }}
+                      className="w-0.5 flex-1 my-1.5"
+                      style={{ backgroundColor: step.done ? step.color : '#E5E7EB', minHeight: '24px' }}
                     />
                   )}
                 </div>
-
-                {/* Content */}
-                <div className={`pb-4 ${isLast ? '' : ''} min-w-0 flex-1`}>
+                <div className={`${isLast ? 'pb-1' : 'pb-5'} min-w-0 flex-1`}>
                   <p className={`text-sm font-semibold ${step.done ? 'text-gray-900' : 'text-gray-400'}`}>
                     {step.label}
                   </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{step.sub}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{step.sub}</p>
                   {step.time && (
-                    <p className="text-xs text-gray-400 mt-1 font-medium">{fmtDateTime(step.time)}</p>
+                    <p className="text-xs text-gray-400 mt-1.5 font-medium">{fmtDateTime(step.time)}</p>
                   )}
                 </div>
               </div>
@@ -177,14 +183,14 @@ function CashRequestTimelineModal({ request, memberMap, chitMap, onClose }) {
         </div>
 
         {request.notes && (
-          <div className="mt-2 px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-100">
-            <p className="text-xs text-gray-500 font-medium mb-0.5">Notes</p>
+          <div className="px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Notes</p>
             <p className="text-sm text-gray-700 italic">"{request.notes}"</p>
           </div>
         )}
         {request.adminNotes && (
-          <div className="mt-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
-            <p className="text-xs text-amber-700 font-medium mb-0.5">Admin Note</p>
+          <div className="px-4 py-3.5 rounded-xl bg-amber-50 border border-amber-100">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5">Admin Note</p>
             <p className="text-sm text-gray-700 italic">"{request.adminNotes}"</p>
           </div>
         )}
@@ -234,9 +240,11 @@ function ActiveTasksTab({ memberMap, chitMap }) {
   const [confirmPickup, setConfirmPickup] = useState(null);
   const [viewTimeline, setViewTimeline] = useState(null);
   const [deferTask, setDeferTask] = useState(null); // shows reschedule/cancel sheet
+  const [editTask, setEditTask] = useState(null);
+  const [editAmount, setEditAmount] = useState('');
 
   const { data: tasks = [], isLoading } = useQuery({
-    queryKey: ['worker-tasks'],
+    queryKey: ['staff-tasks'],
     queryFn: getMyAssignedRequests,
     refetchInterval: 30_000,
   });
@@ -251,7 +259,7 @@ function ActiveTasksTab({ memberMap, chitMap }) {
   const pickupMutation = useMutation({
     mutationFn: (requestId) => markPickedUp(requestId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
       toast.success('Marked as picked up — hand the cash to admin to complete the payment');
       setConfirmPickup(null);
     },
@@ -263,7 +271,7 @@ function ActiveTasksTab({ memberMap, chitMap }) {
   const rescheduleMutation = useMutation({
     mutationFn: ({ requestId, scheduledFor }) => rescheduleRequest({ requestId, scheduledFor }),
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
       const label = vars.label ?? 'a future date';
       toast.success(`Rescheduled to ${label} — admin has been notified`);
       setDeferTask(null);
@@ -272,20 +280,32 @@ function ActiveTasksTab({ memberMap, chitMap }) {
   });
 
   const cancelWorkerMutation = useMutation({
-    mutationFn: (requestId) => workerCancelRequest({ requestId, reason: 'Member not available' }),
+    mutationFn: (requestId) => staffCancelRequest({ requestId, reason: 'Member not available' }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
-      qc.invalidateQueries({ queryKey: ['worker-history'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-history'] });
       toast.success('Task cancelled — admin has been notified');
       setDeferTask(null);
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Cancel failed'),
   });
 
+  const editAmountMutation = useMutation({
+    mutationFn: ({ requestId, collectedAmount }) => partiallyCollectCashRequest({ requestId, collectedAmount }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      toast.success('Partial collection submitted — member has been notified to approve');
+      setEditTask(null);
+      setEditAmount('');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Update failed'),
+  });
+
   if (isLoading) return <PageSpinner />;
 
-  const assignedTasks  = tasks.filter((t) => t.status === 'ASSIGNED');
-  const pickedUpTasks  = tasks.filter((t) => t.status === 'PICKED_UP');
+  const assignedTasks           = tasks.filter((t) => t.status === 'ASSIGNED');
+  const pickedUpTasks           = tasks.filter((t) => t.status === 'PICKED_UP');
+  const partiallyCollectedTasks = tasks.filter((t) => t.status === 'PARTIALLY_COLLECTED');
 
   return (
     <div className="space-y-5">
@@ -356,12 +376,21 @@ function ActiveTasksTab({ memberMap, chitMap }) {
                   <PackageCheck size={14} className="mr-1" />
                   Mark Picked Up
                 </Button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeferTask(task); }}
-                  className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer underline-offset-2 hover:underline"
-                >
-                  Can't go today?
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditTask(task); setEditAmount(''); }}
+                    className="text-xs text-gray-400 hover:text-amber-600 transition-colors cursor-pointer underline-offset-2 hover:underline flex items-center gap-1"
+                  >
+                    <Pencil size={11} />
+                    Edit Amount
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeferTask(task); }}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer underline-offset-2 hover:underline"
+                  >
+                    Can't go today?
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -400,6 +429,45 @@ function ActiveTasksTab({ memberMap, chitMap }) {
               </div>
               <span className="bg-green-100 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-full flex-shrink-0">
                 Waiting for Admin
+              </span>
+            </div>
+          ))}
+
+          {/* PARTIALLY_COLLECTED tasks — staff submitted partial; admin will follow up on remaining */}
+          {partiallyCollectedTasks.map((task) => (
+            <div
+              key={task.id}
+              onClick={() => setViewTimeline(task)}
+              className="bg-purple-50 rounded-2xl border border-purple-200 p-5 flex items-center justify-between gap-4 flex-wrap cursor-pointer hover:border-purple-400 hover:shadow-sm transition-all"
+            >
+              <div className="flex items-start gap-4 flex-1 min-w-0">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                  style={{ backgroundColor: '#7C3AED' }}
+                >
+                  {(memberMap[task.memberId] ?? '?')[0].toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">
+                    {memberMap[task.memberId] ?? task.memberId?.slice(0, 8) + '…'}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-0.5 truncate">
+                    {chitMap[task.chitId] ?? task.chitId?.slice(0, 8) + '…'}
+                  </p>
+                  <p className="text-xs text-purple-700 mt-1 font-medium">
+                    Collected ₹{fmt(task.collectedAmount)} of ₹{fmt(task.requestedAmount)} — admin will follow up on remaining
+                  </p>
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="font-bold text-gray-900 flex items-center gap-0.5 justify-end text-lg">
+                  <IndianRupee size={15} />
+                  {fmt(task.collectedAmount ?? task.requestedAmount)}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">of ₹{fmt(task.requestedAmount)} total</p>
+              </div>
+              <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1.5 rounded-full flex-shrink-0">
+                Partial — Admin Follow-up
               </span>
             </div>
           ))}
@@ -447,25 +515,72 @@ function ActiveTasksTab({ memberMap, chitMap }) {
         </div>
       )}
 
-      {/* Defer dialog — centered */}
-      {deferTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0"
-            style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
-            onClick={() => setDeferTask(null)}
-          />
-          <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl">
-            <div className="px-5 pt-5 pb-2">
-              <p className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
-                Can't collect today?
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                {memberMap[deferTask.memberId] ?? '—'} · ₹{fmt(deferTask.requestedAmount)}
-              </p>
+      {/* Edit Amount dialog */}
+      {editTask && (
+        <Modal title="Partial Collection" onClose={() => { setEditTask(null); setEditAmount(''); }} size="sm">
+          <div className="space-y-5">
+            <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl border border-amber-200" style={{ backgroundColor: '#FFFBEB' }}>
+              <AlertCircle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">{memberMap[editTask.memberId] ?? '—'}</p>
+                <p className="text-sm text-amber-700 mt-0.5">Requested ₹{fmt(editTask.requestedAmount)} — enter the amount actually collected</p>
+              </div>
             </div>
-            <div className="px-5 pb-2 space-y-3 pt-3">
-              {/* Tomorrow */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-700">Collected Amount</label>
+              <div className="flex items-center border-2 border-amber-300 rounded-xl px-4 py-3.5 bg-amber-50 focus-within:border-amber-500 transition-colors">
+                <span className="text-gray-500 mr-2 text-base font-medium">₹</span>
+                <input
+                  type="number"
+                  className="flex-1 bg-transparent outline-none text-gray-900 font-semibold text-lg"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  placeholder="0"
+                  min="1"
+                  autoFocus
+                />
+              </div>
+              <p className="text-xs text-amber-700">The member will be notified and must approve this partial collection.</p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button variant="muted" size="md" className="flex-1" onClick={() => { setEditTask(null); setEditAmount(''); }}>
+                Cancel
+              </Button>
+              <Button
+                variant="warning"
+                size="md"
+                className="flex-1"
+                disabled={!editAmount || Number(editAmount) <= 0 || editAmountMutation.isPending}
+                loading={editAmountMutation.isPending}
+                onClick={() => editAmountMutation.mutate({ requestId: editTask.id, collectedAmount: Number(editAmount) })}
+              >
+                Submit Collection
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Defer dialog */}
+      {deferTask && (
+        <Modal title="Can't collect today?" onClose={() => setDeferTask(null)} size="sm">
+          <div className="space-y-5">
+            {/* Member info */}
+            <div className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border border-gray-100 bg-gray-50">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                style={{ backgroundColor: '#1E3A5F' }}
+              >
+                {(memberMap[deferTask.memberId] ?? '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{memberMap[deferTask.memberId] ?? '—'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">₹{fmt(deferTask.requestedAmount)}</p>
+              </div>
+            </div>
+
+            {/* Options */}
+            <div className="space-y-3">
               <button
                 type="button"
                 disabled={rescheduleMutation.isPending}
@@ -479,15 +594,16 @@ function ActiveTasksTab({ memberMap, chitMap }) {
                     label: 'tomorrow',
                   });
                 }}
-                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-[#1E3A5F] text-[#1E3A5F] font-semibold text-base hover:bg-[#EEF2F8] transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-[#1E3A5F] text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer disabled:opacity-50"
               >
-                <CalendarClock size={22} />
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#EEF2F8] flex-shrink-0">
+                  <CalendarClock size={20} style={{ color: '#1E3A5F' }} />
+                </div>
                 <div className="text-left">
-                  <p className="font-bold">Tomorrow</p>
-                  <p className="text-xs font-normal text-gray-500">I will go tomorrow</p>
+                  <p className="text-sm font-bold">Tomorrow</p>
+                  <p className="text-xs font-normal text-gray-500 mt-0.5">I will go tomorrow</p>
                 </div>
               </button>
-              {/* Next Week */}
               <button
                 type="button"
                 disabled={rescheduleMutation.isPending}
@@ -501,39 +617,33 @@ function ActiveTasksTab({ memberMap, chitMap }) {
                     label: 'next week',
                   });
                 }}
-                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-gray-200 text-gray-700 font-semibold text-base hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
               >
-                <Calendar size={22} />
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-100 flex-shrink-0">
+                  <Calendar size={20} className="text-gray-500" />
+                </div>
                 <div className="text-left">
-                  <p className="font-bold">Next Week</p>
-                  <p className="text-xs font-normal text-gray-500">I will go next week</p>
+                  <p className="text-sm font-bold">Next Week</p>
+                  <p className="text-xs font-normal text-gray-500 mt-0.5">I will go next week</p>
                 </div>
               </button>
-              {/* Cancel */}
               <button
                 type="button"
                 disabled={cancelWorkerMutation.isPending}
                 onClick={() => cancelWorkerMutation.mutate(deferTask.id)}
-                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-red-200 text-red-600 font-semibold text-base hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-red-200 text-red-600 hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-50"
               >
-                <X size={22} />
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-50 flex-shrink-0">
+                  <X size={20} className="text-red-500" />
+                </div>
                 <div className="text-left">
-                  <p className="font-bold">Cancel</p>
-                  <p className="text-xs font-normal text-gray-500">Member not available, cancel task</p>
+                  <p className="text-sm font-bold">Cancel Task</p>
+                  <p className="text-xs font-normal text-gray-500 mt-0.5">Member not available, cancel this task</p>
                 </div>
               </button>
             </div>
-            <div className="px-5 pb-6 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeferTask(null)}
-                className="w-full py-3 text-sm text-gray-400 hover:text-gray-600 cursor-pointer"
-              >
-                Go back
-              </button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {confirmPickup && (
@@ -565,7 +675,7 @@ function MyHistoryTab({ memberMap, chitMap }) {
   const [viewTimeline, setViewTimeline] = useState(null);
 
   const { data: history = [], isLoading } = useQuery({
-    queryKey: ['worker-history'],
+    queryKey: ['staff-history'],
     queryFn: getMyRequestHistory,
   });
 
@@ -633,14 +743,14 @@ function MyHistoryTab({ memberMap, chitMap }) {
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
-export default function WorkerTasksPage() {
+export default function StaffTasksPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') ?? 'tasks';
   const setTab = (t) => { const p = new URLSearchParams(searchParams); p.set('tab', t); setSearchParams(p, { replace: true }); };
   const { memberMap, chitMap } = useLookupMaps();
 
   const { data: tasks = [] } = useQuery({
-    queryKey: ['worker-tasks'],
+    queryKey: ['staff-tasks'],
     queryFn: getMyAssignedRequests,
   });
   const { data: pendingBatches = [] } = useQuery({

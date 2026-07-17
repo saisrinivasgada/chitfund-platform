@@ -54,6 +54,9 @@ public class PaymentBatch {
     @Column(columnDefinition = "text")
     private String notes;
 
+    @Column(unique = true, length = 64)
+    private String idempotencyKey;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

@@ -192,7 +192,7 @@ export default function LoginPage() {
   // Already authenticated — redirect to the right home page
   if (isAuthenticated) {
     if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;
-    const dest = user?.role === 'MEMBER' ? '/member' : user?.role === 'WORKER' ? '/tasks' : '/';
+    const dest = user?.role === 'MEMBER' ? '/member' : user?.role === 'STAFF' ? '/tasks' : '/';
     return <Navigate to={dest} replace />;
   }
 
@@ -210,7 +210,7 @@ export default function LoginPage() {
     if (mustChangePassword) {
       navigate('/change-password', { replace: true });
     } else {
-      navigate(role === 'MEMBER' ? '/member' : role === 'WORKER' ? '/tasks' : '/', { replace: true });
+      navigate(role === 'MEMBER' ? '/member' : role === 'STAFF' ? '/tasks' : '/', { replace: true });
     }
   }
 

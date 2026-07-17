@@ -7,8 +7,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
 import {
-  getMyAssignedRequests, markPickedUp, cancelByWorker,
+  getMyAssignedRequests, markPickedUp, cancelByStaff,
   getMembers, getChits, getMyPendingBatches, updateCashRequest, listStaff,
+  partiallyCollectCashRequest,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -104,6 +105,56 @@ function HoldPickupButton({ onConfirm, disabled }: { onConfirm: () => void; disa
   );
 }
 
+// ── Hold-to-Cancel Button ──────────────────────────────────────────────────────
+function HoldCancelButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
+  const [phase, setPhase] = useState<'idle' | 'holding' | 'done'>('idle');
+  const progress = useRef(new Animated.Value(0)).current;
+  const animation = useRef<Animated.CompositeAnimation | null>(null);
+
+  function startHold() {
+    if (disabled || phase !== 'idle') return;
+    setPhase('holding');
+    animation.current = Animated.timing(progress, {
+      toValue: 1, duration: 2000, easing: Easing.linear, useNativeDriver: false,
+    });
+    animation.current.start(({ finished }) => {
+      if (finished) { setPhase('done'); onConfirm(); }
+    });
+  }
+
+  function endHold() {
+    if (phase !== 'holding') return;
+    animation.current?.stop();
+    setPhase('idle');
+    Animated.timing(progress, { toValue: 0, duration: 250, useNativeDriver: false }).start();
+  }
+
+  const barWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+
+  return (
+    <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+      <Pressable
+        onPressIn={startHold}
+        onPressOut={endHold}
+        style={{
+          paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12,
+          backgroundColor: phase === 'holding' ? '#991B1B' : '#EF4444',
+          alignItems: 'center',
+          shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+        }}
+      >
+        <Text style={{ fontSize: 14, fontWeight: '800', color: C.white, letterSpacing: 1 }}>
+          {phase === 'holding' ? 'KEEP HOLDING…' : 'HOLD TO CANCEL'}
+        </Text>
+      </Pressable>
+      <View style={{ marginTop: 10, width: 140, height: 4, backgroundColor: '#FEE2E2', borderRadius: 3, overflow: 'hidden' }}>
+        <Animated.View style={{ height: '100%', width: barWidth, backgroundColor: '#EF4444', borderRadius: 3 }} />
+      </View>
+      <Text style={{ fontSize: 11, color: C.gray400, marginTop: 5 }}>Hold 2 seconds to confirm cancellation</Text>
+    </View>
+  );
+}
+
 // ── Request Timeline ───────────────────────────────────────────────────────────
 function RequestTimeline({ task }: { task: any }) {
   const steps = [
@@ -143,10 +194,12 @@ function TaskDetailModal({
   task, memberMap, chitMap, onClose,
   onPickup, pickupPending,
   onCancel, cancelPending,
+  onPartialCollect, partialCollectPending,
 }: {
   task: any; memberMap: Record<string, string>; chitMap: Record<string, string>; onClose: () => void;
   onPickup: (id: string) => void; pickupPending: boolean;
   onCancel: (id: string, reason?: string) => void; cancelPending: boolean;
+  onPartialCollect: (id: string, amount: number) => void; partialCollectPending: boolean;
 }) {
   const qc = useQueryClient();
   const [editAmount, setEditAmount] = useState(String(task.requestedAmount ?? ''));
@@ -154,12 +207,14 @@ function TaskDetailModal({
   const [editOpen, setEditOpen] = useState(false);
   const [reschedDate, setReschedDate] = useState('');
   const [reschedOpen, setReschedOpen] = useState(false);
+  const [partialOpen, setPartialOpen] = useState(false);
+  const [partialAmount, setPartialAmount] = useState('');
   const [activeTab, setActiveTab] = useState<'detail' | 'timeline'>('detail');
 
   const editMut = useMutation({
     mutationFn: () => updateCashRequest(task.id, { requestedAmount: Number(editAmount), notes: editReason || undefined }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
       setEditOpen(false);
       setEditReason('');
       toast.saved('Amount updated');
@@ -335,7 +390,7 @@ function TaskDetailModal({
                             import('../../../services/api').then(({ rescheduleRequest }) => {
                               rescheduleRequest(task.id, reschedDate)
                                 .then(() => {
-                                  qc.invalidateQueries({ queryKey: ['worker-tasks'] });
+                                  qc.invalidateQueries({ queryKey: ['staff-tasks'] });
                                   setReschedOpen(false);
                                   toast.saved('Visit scheduled');
                                 })
@@ -349,6 +404,69 @@ function TaskDetailModal({
                 </View>
               )}
 
+              {/* Partial Collection */}
+              <TouchableOpacity
+                onPress={() => setPartialOpen(v => !v)}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  backgroundColor: partialOpen ? '#F0FDFA' : C.gray50,
+                  borderRadius: 12, borderBottomLeftRadius: partialOpen ? 0 : 12, borderBottomRightRadius: partialOpen ? 0 : 12,
+                  padding: 14, marginBottom: partialOpen ? 0 : 10,
+                  borderWidth: 1.5, borderColor: partialOpen ? '#0D9488' : C.gray200,
+                }}
+              >
+                <View>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: partialOpen ? '#0D9488' : C.gray900 }}>Partial Collection</Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Collected less than the full amount?</Text>
+                </View>
+                <Text style={{ fontSize: 13, color: partialOpen ? '#0D9488' : C.navy, fontWeight: '700' }}>
+                  {partialOpen ? '▲ Close' : 'Partial →'}
+                </Text>
+              </TouchableOpacity>
+
+              {partialOpen && (
+                <View style={{
+                  backgroundColor: '#F0FDFA', padding: 14, marginBottom: 10,
+                  borderWidth: 1.5, borderTopWidth: 0, borderColor: '#0D9488',
+                  borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
+                }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#0D9488', marginBottom: 4 }}>AMOUNT COLLECTED (₹)</Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 8 }}>
+                    Member will be asked to approve or reject this partial amount.
+                  </Text>
+                  <TextInput
+                    value={partialAmount}
+                    onChangeText={setPartialAmount}
+                    keyboardType="numeric"
+                    placeholder={`Less than ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
+                    placeholderTextColor={C.gray400}
+                    style={{
+                      borderWidth: 1.5, borderColor: '#0D9488', borderRadius: 8,
+                      padding: 10, fontSize: 18, fontWeight: '700', color: C.gray900,
+                      backgroundColor: C.white, marginBottom: 10,
+                    }}
+                  />
+                  <Button
+                    label={partialCollectPending ? 'Submitting…' : 'Submit Partial Collection'}
+                    variant="primary" fullWidth loading={partialCollectPending}
+                    disabled={
+                      !partialAmount ||
+                      Number(partialAmount) <= 0 ||
+                      Number(partialAmount) >= Number(task.requestedAmount)
+                    }
+                    onPress={() => {
+                      onPartialCollect(task.id, Number(partialAmount));
+                      setPartialOpen(false);
+                      setPartialAmount('');
+                      onClose();
+                    }}
+                  />
+                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
+                    Must be less than the requested ₹{Number(task.requestedAmount).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              )}
+
               {/* Hold to Pick Up — the big button */}
               <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 16, marginBottom: 10, overflow: 'hidden' }}>
                 <View style={{ backgroundColor: C.navy, padding: 10, alignItems: 'center' }}>
@@ -357,17 +475,16 @@ function TaskDetailModal({
                 <HoldPickupButton onConfirm={() => onPickup(task.id)} disabled={pickupPending} />
               </View>
 
-              {/* Cancel */}
-              <Button
-                label="Cancel This Task"
-                variant="danger"
-                fullWidth
-                loading={cancelPending}
-                onPress={() => Alert.alert('Cancel Task', 'Cancel and notify admin?', [
-                  { text: 'No', style: 'cancel' },
-                  { text: 'Cancel Task', style: 'destructive', onPress: () => { onCancel(task.id); onClose(); } },
-                ])}
-              />
+              {/* Cancel — hold to confirm */}
+              <View style={{ borderWidth: 1.5, borderColor: '#FEE2E2', borderRadius: 16, overflow: 'hidden' }}>
+                <View style={{ backgroundColor: '#FEF2F2', padding: 10, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' + 'CC', letterSpacing: 1 }}>CANCEL THIS TASK</Text>
+                </View>
+                <HoldCancelButton
+                  onConfirm={() => { onCancel(task.id); onClose(); }}
+                  disabled={cancelPending}
+                />
+              </View>
             </>
           ) : (
             <RequestTimeline task={task} />
@@ -379,7 +496,7 @@ function TaskDetailModal({
 }
 
 // ── Main Screen ────────────────────────────────────────────────────────────────
-export default function WorkerTasksScreen() {
+export default function StaffTasksScreen() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
 
@@ -387,12 +504,12 @@ export default function WorkerTasksScreen() {
   const [page, setPage] = useState(1);
 
   const { data: tasks = [], isLoading, refetch } = useQuery({
-    queryKey: ['worker-tasks'],
+    queryKey: ['staff-tasks'],
     queryFn: getMyAssignedRequests,
     refetchInterval: 30_000,
   });
 
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
   const { data: chits = [] }   = useQuery({ queryKey: ['chits'],   queryFn: getChits });
   const { data: staff = [] }   = useQuery({ queryKey: ['staff'],   queryFn: listStaff, staleTime: 5 * 60_000 });
   const { data: pendingBatches = [] } = useQuery({
@@ -414,30 +531,42 @@ export default function WorkerTasksScreen() {
   const pickupMut = useMutation({
     mutationFn: (id: string) => markPickedUp(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
-      qc.invalidateQueries({ queryKey: ['worker-history'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-history'] });
       toast.collected('Marked as picked up — hand cash to admin');
     },
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
   });
 
   const cancelMut = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelByWorker(id, reason),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelByStaff(id, reason),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['worker-tasks'] });
-      qc.invalidateQueries({ queryKey: ['worker-history'] });
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-history'] });
       toast.cancelled('Task cancelled');
+    },
+    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
+  });
+
+  const partialMut = useMutation({
+    mutationFn: ({ id, amount }: { id: string; amount: number }) => partiallyCollectCashRequest(id, amount),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+      qc.invalidateQueries({ queryKey: ['staff-history'] });
+      toast.saved('Partial collection submitted — awaiting member approval');
     },
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
   });
 
   if (isLoading) return <LoadingScreen />;
 
-  const assigned  = (tasks as any[]).filter((t) => t.status === 'ASSIGNED');
-  const pickedUp  = (tasks as any[]).filter((t) => t.status === 'PICKED_UP');
+  const assigned           = (tasks as any[]).filter((t) => t.status === 'ASSIGNED');
+  const pickedUp           = (tasks as any[]).filter((t) => t.status === 'PICKED_UP');
+  const partiallyCollected = (tasks as any[]).filter((t) => t.status === 'PARTIALLY_COLLECTED');
 
-  // Holding amount (picked up, not yet remitted)
-  const holdingAmt = pickedUp.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
+  // Holding amount (picked up + partially collected, not yet remitted)
+  const holdingAmt = pickedUp.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0)
+    + partiallyCollected.reduce((s: number, t: any) => s + Number(t.collectedAmount ?? 0), 0);
   // Needed pickup
   const needAmt = assigned.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
   // Today's pickups (picked up today across all statuses)
@@ -465,7 +594,7 @@ export default function WorkerTasksScreen() {
               <View>
                 <Text style={T.h1}>My Tasks</Text>
                 <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-                  {user?.fullName?.split(' ')[0] ?? 'Worker'}
+                  {user?.fullName?.split(' ')[0] ?? 'Staff'}
                 </Text>
               </View>
               <ProfileAvatarButton />
@@ -483,7 +612,7 @@ export default function WorkerTasksScreen() {
                   ₹{holdingAmt.toLocaleString('en-IN')}
                 </Text>
                 <Text style={{ fontSize: 10, color: holdingAmt > 0 ? '#92400E' : C.gray400, marginTop: 2 }}>
-                  {pickedUp.length} with you
+                  {pickedUp.length + partiallyCollected.length} with you
                 </Text>
               </View>
 
@@ -548,6 +677,36 @@ export default function WorkerTasksScreen() {
               </View>
             )}
 
+            {/* Partially collected — admin will follow up on remaining */}
+            {partiallyCollected.length > 0 && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#7C3AED', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  Partial Pickup — Admin Follow-up ({partiallyCollected.length})
+                </Text>
+                {partiallyCollected.map((t: any) => (
+                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
+                          {memberMap[t.memberId] ?? `Member ${t.memberId?.slice(0, 8)}…`}
+                        </Text>
+                        {t.chitId && chitMap[t.chitId] && (
+                          <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[t.chitId]}</Text>
+                        )}
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                        <Amount value={t.collectedAmount ?? t.requestedAmount} size="sm" color="#7C3AED" />
+                        <Text style={{ fontSize: 10, color: C.gray400 }}>of ₹{Number(t.requestedAmount).toLocaleString('en-IN')}</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 11, color: '#7C3AED', marginTop: 6 }}>
+                      Partially collected — admin will follow up on remaining
+                    </Text>
+                  </Card>
+                ))}
+              </View>
+            )}
+
             {/* Pending remittance batches */}
             {(pendingBatches as any[]).length > 0 && (
               <View style={{ marginBottom: 16 }}>
@@ -573,7 +732,7 @@ export default function WorkerTasksScreen() {
                 To Collect ({assigned.length})
               </Text>
             )}
-            {assigned.length === 0 && pickedUp.length === 0 && (pendingBatches as any[]).length === 0 && (
+            {assigned.length === 0 && pickedUp.length === 0 && partiallyCollected.length === 0 && (pendingBatches as any[]).length === 0 && (
               <EmptyState title="No tasks assigned" message="Admin will assign cash pickup tasks here." />
             )}
           </>
@@ -627,6 +786,8 @@ export default function WorkerTasksScreen() {
           pickupPending={pickupMut.isPending}
           onCancel={(id, reason) => cancelMut.mutate({ id, reason })}
           cancelPending={cancelMut.isPending}
+          onPartialCollect={(id, amount) => partialMut.mutate({ id, amount })}
+          partialCollectPending={partialMut.isPending}
         />
       )}
     </SafeAreaView>

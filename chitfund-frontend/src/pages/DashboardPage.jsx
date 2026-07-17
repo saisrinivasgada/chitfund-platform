@@ -3,24 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import {
   getChits, getMembers, getPendingPayouts, getWalletBalance,
   getActiveCashRequests, getPendingRemittance, listStaff,
-  getOrgReservations,
+  getOrgReservations, getCashRequestSummary, getWinners, getAllPayouts,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import Badge, { statusBadge } from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import { DashboardSkeleton } from '../components/ui/Spinner';
-import WorkerHomePage from './worker/WorkerHomePage';
+import StaffHomePage from './staff/StaffHomePage';
 import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
   ArrowRight, Wallet, Truck, Clock, Calendar, Building2,
+  CheckCircle, XCircle, PackageCheck, AlertTriangle,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
 
-// ── Reusable section separator ──────────────────────────────────────────────
 function SectionHeader({ icon: Icon, color, title, linkLabel, onLink }) {
   return (
     <div className="flex items-center gap-3 mb-3">
@@ -42,10 +42,11 @@ function SectionHeader({ icon: Icon, color, title, linkLabel, onLink }) {
   );
 }
 
-// ── Standard stat card ───────────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, color, sub, hidden }) {
+function StatCard({ icon: Icon, label, value, color, sub, hidden, onClick }) {
+  const base = "bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4";
+  const interactive = onClick ? "cursor-pointer hover:shadow-md hover:border-gray-300 transition-all" : "";
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
+    <div className={`${base} ${interactive}`} onClick={onClick}>
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ backgroundColor: `${color}18` }}
@@ -63,16 +64,48 @@ function StatCard({ icon: Icon, label, value, color, sub, hidden }) {
   );
 }
 
-// ── Remittance card — shows amount + collector breakdown ─────────────────────
+// Clickable workflow card for cash requests
+function CashFilterCard({ icon: Icon, label, count, todayCount, color, bgColor, onClick, active }) {
+  const showToday = todayCount !== undefined;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`bg-white rounded-xl border shadow-sm p-4 flex items-center gap-3 w-full text-left transition-all cursor-pointer ${
+        active ? 'border-2 shadow-md' : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
+      }`}
+      style={active ? { borderColor: color } : {}}
+    >
+      <div
+        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: bgColor ?? `${color}18` }}
+      >
+        <Icon size={16} style={{ color }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
+        {showToday ? (
+          <>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{todayCount ?? 0}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{count ?? 0} overall</p>
+          </>
+        ) : (
+          <p className="text-xl font-bold text-gray-900 leading-tight">{count ?? 0}</p>
+        )}
+      </div>
+    </button>
+  );
+}
+
 function RemittanceCard({ batches, staffMap, hidden, onClick }) {
   const total = batches.length;
   const totalAmt = batches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
   const uniqueIds = [...new Set(batches.map((b) => String(b.collectedBy)))];
-  const workers  = uniqueIds.filter((id) => staffMap[id]?.role === 'WORKER').length;
+  const workers  = uniqueIds.filter((id) => staffMap[id]?.role === 'STAFF').length;
   const managers = uniqueIds.filter((id) => staffMap[id]?.role === 'MANAGER').length;
 
   const parts = [];
-  if (workers  > 0) parts.push(`${workers} worker${workers  !== 1 ? 's' : ''}`);
+  if (workers  > 0) parts.push(`${workers} staff${workers  !== 1 ? '' : ''}`);
   if (managers > 0) parts.push(`${managers} manager${managers !== 1 ? 's' : ''}`);
 
   return (
@@ -111,7 +144,6 @@ function RemittanceCard({ batches, staffMap, hidden, onClick }) {
   );
 }
 
-// ── Treasury balance card ────────────────────────────────────────────────────
 function TreasuryCard({ label, amount, icon: Icon, color, hidden }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
@@ -132,7 +164,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  if (user?.role === 'WORKER')  return <WorkerHomePage />;
+  if (user?.role === 'STAFF')  return <StaffHomePage />;
   if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
   const { hidden } = useHiddenAmounts();
@@ -148,6 +180,7 @@ export default function DashboardPage() {
     queryFn: () => getMembers(),
   });
 
+  // Pending Disbursement = payouts in PENDING status
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: () => getPendingPayouts(),
@@ -159,10 +192,12 @@ export default function DashboardPage() {
     enabled: isAdmin,
   });
 
-  const { data: cashRequests = [] } = useQuery({
-    queryKey: ['cashRequests', 'active'],
-    queryFn: () => getActiveCashRequests(),
+  // Cash request summary (counts per status)
+  const { data: cashSummary } = useQuery({
+    queryKey: ['cashRequests', 'summary'],
+    queryFn: getCashRequestSummary,
     enabled: isAdmin,
+    refetchInterval: 60_000,
   });
 
   const { data: remittanceBatches = [] } = useQuery({
@@ -186,11 +221,51 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
-  const today = new Date().toISOString().split('T')[0];
-  const todaysPickups = cashRequests.filter((r) => r.requestedAt?.startsWith(today));
-  const activeChits   = chits.filter((c) => c.status === 'ACTIVE');
+  // Pending Payout = winners selected but no payout created (across ALL chit statuses)
+  const eligibleChits = chits.filter((c) => c.status !== 'DRAFT');
+  const eligibleChitStr = eligibleChits.map((c) => c.id).join(',');
 
-  const showCashSection = isAdmin;
+  const { data: chitWinnersMap = {} } = useQuery({
+    queryKey: ['winners-batch-dash', eligibleChitStr],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        eligibleChits.map((c) =>
+          getWinners(c.id).then((ws) => [c.id, ws]).catch(() => [c.id, []])
+        )
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: isAdmin && eligibleChits.length > 0,
+    staleTime: 300_000,
+  });
+
+  const { data: allPayoutsForDash = [] } = useQuery({
+    queryKey: ['payouts', 'all-for-dash'],
+    queryFn: () => getAllPayouts({}),
+    enabled: isAdmin,
+    staleTime: 300_000,
+  });
+
+  const paidKeys = new Set(
+    allPayoutsForDash
+      .filter((p) => p.status !== 'CANCELLED')
+      .map((p) => `${p.chitId}:${p.monthNumber}:${String(p.memberId)}`)
+  );
+  let pendingPayoutCount = 0;
+  for (const [chitId, winners] of Object.entries(chitWinnersMap)) {
+    for (const w of winners) {
+      const mid = w.memberId ?? w.winnerId;
+      if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) {
+        pendingPayoutCount++;
+      }
+    }
+  }
+
+  const activeChits = chits.filter((c) => c.status === 'ACTIVE');
+
+  function navToCashFilter(filter) {
+    navigate(`/payments/cash-requests?filter=${filter}`);
+  }
 
   if (chitsLoading || membersLoading) return <DashboardSkeleton />;
 
@@ -220,10 +295,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── At a Glance ─────────────────────────────────────────────────── */}
+      {/* ── At a Glance (5 cards) ────────────────────────────────────────── */}
       <div>
         <SectionHeader icon={BookOpen} color="#1E3A5F" title="At a Glance" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             icon={BookOpen}
             label="Total Chits"
@@ -248,46 +323,77 @@ export default function DashboardPage() {
           />
           <StatCard
             icon={Banknote}
-            label="Pending Payouts"
+            label="Pending Payout"
+            value={pendingPayoutCount}
+            color="#7C3AED"
+            sub="winner selected, no payout"
+            hidden={false}
+            onClick={() => navigate('/payouts?tab=Pending+Payouts')}
+          />
+          <StatCard
+            icon={CheckCircle}
+            label="Pending Disbursement"
             value={pendingPayouts.length}
             color="#DC2626"
+            sub="payout created, not disbursed"
             hidden={false}
+            onClick={() => navigate('/payouts?tab=Pending')}
           />
         </div>
       </div>
 
-      {/* ── Cash Collections ────────────────────────────────────────────── */}
-      {showCashSection && (
+      {/* ── Cash Collections (workflow order) ───────────────────────────── */}
+      {isAdmin && (
         <div>
           <SectionHeader
             icon={Truck}
             color="#7C3AED"
             title="Cash Collections"
-            linkLabel="View requests"
+            linkLabel="View all"
             onLink={() => navigate('/payments/cash-requests')}
           />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              icon={Truck}
-              label="Active Cash Pickups"
-              value={cashRequests.length}
-              color="#7C3AED"
-              sub="scheduled, pending collection"
-              hidden={false}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <CashFilterCard
+              icon={Clock}
+              label="Pending"
+              count={cashSummary?.pending ?? 0}
+              color="#D97706"
+              onClick={() => navToCashFilter('PENDING')}
             />
-            <StatCard
-              icon={Calendar}
-              label="Today's Requests"
-              value={todaysPickups.length}
-              color="#0891B2"
-              sub="raised today"
-              hidden={false}
+            <CashFilterCard
+              icon={UserPlus}
+              label="Assigned"
+              count={cashSummary?.assigned ?? 0}
+              color="#2563EB"
+              onClick={() => navToCashFilter('ASSIGNED')}
+            />
+            <CashFilterCard
+              icon={PackageCheck}
+              label="Picked Up"
+              count={cashSummary?.pickedUp ?? 0}
+              color="#16A34A"
+              onClick={() => navToCashFilter('PICKED_UP')}
+            />
+            <CashFilterCard
+              icon={AlertTriangle}
+              label="Partial"
+              count={cashSummary?.partiallyCollected ?? 0}
+              color="#7C3AED"
+              onClick={() => navToCashFilter('PARTIALLY_COLLECTED')}
             />
             <RemittanceCard
               batches={remittanceBatches}
               staffMap={staffMap}
               hidden={hidden}
               onClick={() => navigate('/payments/remittance')}
+            />
+            <CashFilterCard
+              icon={XCircle}
+              label="Cancelled"
+              count={cashSummary?.cancelled ?? 0}
+              todayCount={cashSummary?.todayCancelled}
+              color="#6B7280"
+              onClick={() => navToCashFilter('CANCELLED')}
             />
           </div>
         </div>

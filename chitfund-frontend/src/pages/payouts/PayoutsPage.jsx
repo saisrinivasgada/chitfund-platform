@@ -17,9 +17,12 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, ArrowRight, Vault, CreditCard } from 'lucide-react';
+import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, ArrowRight, Vault, CreditCard, Trophy } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
-const TABS = ['Create Payout', 'Pending', 'All Payouts'];
+function utc(s) { return s ? (s.endsWith('Z') || s.includes('+') ? s : s + 'Z') : null; }
+
+const TABS = ['Create Payout', 'Pending Payouts', 'Pending Disbursement', 'All Payouts'];
 
 function fmtAmt(v) { return '₹' + Number(v ?? 0).toLocaleString('en-IN'); }
 
@@ -38,24 +41,29 @@ function PayoutStatusBadge({ status }) {
 }
 
 function TabBar({ active, onChange, tabs = TABS }) {
+  const ICON = { 'Create Payout': Banknote, 'Pending Payouts': Trophy, 'Pending Disbursement': Clock, 'Pending': Clock, 'All Payouts': List };
   return (
-    <div className="flex border-b border-gray-200 gap-1">
-      {tabs.map((t) => (
-        <button
-          key={t}
-          onClick={() => onChange(t)}
-          className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px flex items-center gap-2 ${
-            active === t
-              ? 'border-[#1E3A5F] text-[#1E3A5F]'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          {t === 'Create Payout' && <Banknote size={14} />}
-          {t === 'Pending'       && <Clock size={14} />}
-          {t === 'All Payouts'   && <List size={14} />}
-          {t}
-        </button>
-      ))}
+    <div className="flex gap-2 flex-wrap" style={{ marginTop: 12, marginBottom: 12 }}>
+      {tabs.map((t) => {
+        const Icon = ICON[t];
+        const isActive = active === t;
+        return (
+          <button
+            key={t}
+            onClick={() => onChange(t)}
+            className="flex items-center gap-1.5 text-sm font-semibold rounded-full cursor-pointer whitespace-nowrap transition-all"
+            style={{
+              padding: '6px 16px',
+              backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+              color: isActive ? '#ffffff' : '#374151',
+              border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+            }}
+          >
+            {Icon && <Icon size={14} />}
+            {t}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -66,6 +74,7 @@ function CreatePayoutTab() {
   const qc = useQueryClient();
   const [chitId, setChitId] = useState('');
   const [selectedWinnerKey, setSelectedWinnerKey] = useState('');
+  const { hidden } = useHiddenAmounts();
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
@@ -207,10 +216,10 @@ function CreatePayoutTab() {
                   Draw {selectedWinner.monthNumber} — {memberName}
                 </p>
                 <p className="text-amber-700 text-sm mt-0.5">
-                  Winning amount: <strong>₹{winningAmt.toLocaleString('en-IN')}</strong>
+                  Winning amount: <strong>{hidden ? '••••••' : `₹${winningAmt.toLocaleString('en-IN')}`}</strong>
                   {selectedChit?.installmentAmount > 0 && (
                     <span className="text-amber-600 ml-2 text-xs">
-                      (monthly installment: ₹{Number(selectedChit.installmentAmount).toLocaleString('en-IN')})
+                      (monthly installment: {hidden ? '••••••' : `₹${Number(selectedChit.installmentAmount).toLocaleString('en-IN')}`})
                     </span>
                   )}
                 </p>
@@ -252,10 +261,12 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
   const disbursed   = Number(payout.disbursedAmount ?? 0);
   const remaining   = Number(payout.remainingAmount ?? (net - disbursed));
   const hasBreakdown = installment > 0 || crossChit > 0 || manual > 0;
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
 
   function fmtDT(dt) {
     if (!dt) return '—';
-    return new Date(dt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    return new Date(utc(dt)).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
   }
 
   return (
@@ -276,7 +287,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
           <div className="px-4 py-3 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600">Winning amount</span>
-              <span className="font-medium text-gray-900">{fmtAmt(winning)}</span>
+              <span className="font-medium text-gray-900">{h(winning)}</span>
             </div>
 
             {hasBreakdown ? (
@@ -287,7 +298,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
                       Draw {payout.monthNumber} installment collected
                     </span>
-                    <span>−{fmtAmt(installment)}</span>
+                    <span>−{h(installment)}</span>
                   </div>
                 )}
                 {crossChit > 0 && (
@@ -296,7 +307,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
                       Other chit dues collected
                     </span>
-                    <span>−{fmtAmt(crossChit)}</span>
+                    <span>−{h(crossChit)}</span>
                   </div>
                 )}
                 {manual > 0 && (
@@ -305,7 +316,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
                       Manual adjustment
                     </span>
-                    <span>−{fmtAmt(manual)}</span>
+                    <span>−{h(manual)}</span>
                   </div>
                 )}
               </>
@@ -313,14 +324,14 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
               Number(payout.discountAmount ?? 0) > 0 && (
                 <div className="flex justify-between text-amber-700">
                   <span>Deduction</span>
-                  <span>−{fmtAmt(payout.discountAmount)}</span>
+                  <span>−{h(payout.discountAmount)}</span>
                 </div>
               )
             )}
 
             <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
               <span className="text-gray-700">Net promised to member</span>
-              <span className="text-green-700">{fmtAmt(net)}</span>
+              <span className="text-green-700">{h(net)}</span>
             </div>
           </div>
         </div>
@@ -338,13 +349,13 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
             {disbursed > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Disbursed so far</span>
-                <span className="font-medium text-blue-700">{fmtAmt(disbursed)}</span>
+                <span className="font-medium text-blue-700">{h(disbursed)}</span>
               </div>
             )}
             {remaining > 0 && payout.status !== 'DISBURSED' && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Remaining</span>
-                <span className="font-medium text-amber-700">{fmtAmt(remaining)}</span>
+                <span className="font-medium text-amber-700">{h(remaining)}</span>
               </div>
             )}
             {payout.disbursementMode && (
@@ -380,7 +391,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                 <div key={d.id} className="text-xs bg-white border border-gray-100 rounded-lg px-3 py-2 space-y-1">
                   <div className="flex justify-between items-center">
                     <span className="font-medium text-gray-700">
-                      #{i + 1} · ₹{Number(d.amount).toLocaleString('en-IN')}
+                      #{i + 1} · {hidden ? '••••••' : `₹${Number(d.amount).toLocaleString('en-IN')}`}
                     </span>
                     <span className="text-gray-500">{d.mode?.replace('_', ' ')}</span>
                   </div>
@@ -388,14 +399,14 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                     <div className="text-gray-400 font-mono">{d.referenceNumber}</div>
                   )}
                   <div className="text-gray-400">
-                    {new Date(d.disbursedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {new Date(utc(d.disbursedAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </div>
                   {d.notes && <div className="text-gray-400 italic">{d.notes}</div>}
                 </div>
               ))}
               {payout.status === 'PARTIALLY_DISBURSED' && (
                 <p className="text-xs text-blue-600 font-medium pt-1">
-                  ₹{Number(payout.disbursedAmount).toLocaleString('en-IN')} disbursed · ₹{Number(payout.remainingAmount).toLocaleString('en-IN')} remaining
+                  {hidden ? '••••••' : `₹${Number(payout.disbursedAmount).toLocaleString('en-IN')}`} disbursed · {hidden ? '••••••' : `₹${Number(payout.remainingAmount).toLocaleString('en-IN')}`} remaining
                 </p>
               )}
             </div>
@@ -424,6 +435,8 @@ function TreasuryBadge() {
   const total = Number(bal?.totalBalance ?? 0);
   const cash  = Number(bal?.cashBalance ?? 0);
   const bank  = Number(bal?.bankBalance ?? 0);
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
   return (
     <div className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
       <button type="button" className="flex items-center justify-center w-7 h-7 rounded-lg border border-[#B8CCE4] bg-[#EEF2F8] text-[#1E3A5F] hover:bg-[#dce6f0] transition-colors cursor-default">
@@ -435,15 +448,15 @@ function TreasuryBadge() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-white/70"><Banknote size={11} /> Cash</span>
-              <span className="font-semibold">{fmtAmt(cash)}</span>
+              <span className="font-semibold">{h(cash)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-white/70"><CreditCard size={11} /> Bank</span>
-              <span className="font-semibold">{fmtAmt(bank)}</span>
+              <span className="font-semibold">{h(bank)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-white/20 pt-1.5 mt-1">
               <span className="text-white/70">Total</span>
-              <span className="font-bold text-[#D4A017]">{fmtAmt(total)}</span>
+              <span className="font-bold text-[#D4A017]">{h(total)}</span>
             </div>
           </div>
           <div className="absolute bottom-[-5px] right-4 w-2.5 h-2.5 bg-[#1E3A5F] rotate-45" />
@@ -464,6 +477,8 @@ function DisburseModal({ payout, memberName, onClose }) {
   const crossChit         = Number(payout.crossChitSettlement ?? 0);
   const manual            = Number(payout.manualAdjustment ?? 0);
   const hasBreakdown      = installment > 0 || crossChit > 0 || manual > 0;
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
 
   const [form, setForm] = useState({
     disbursementMode: 'BANK_TRANSFER',
@@ -512,14 +527,14 @@ function DisburseModal({ payout, memberName, onClose }) {
             <div className="text-xs space-y-1">
               <div className="flex justify-between text-green-700">
                 <span>Winning amount</span>
-                <span className="font-medium">{fmtAmt(payout.winningAmount)}</span>
+                <span className="font-medium">{h(payout.winningAmount)}</span>
               </div>
               {installment > 0 && (
                 <div className="flex justify-between text-amber-700">
                   <span className="flex items-center gap-1">
                     <ArrowRight size={10} /> Installment collected at disbursement
                   </span>
-                  <span>−{fmtAmt(installment)}</span>
+                  <span>−{h(installment)}</span>
                 </div>
               )}
               {crossChit > 0 && (
@@ -527,7 +542,7 @@ function DisburseModal({ payout, memberName, onClose }) {
                   <span className="flex items-center gap-1">
                     <ArrowRight size={10} /> Cross-chit dues collected
                   </span>
-                  <span>−{fmtAmt(crossChit)}</span>
+                  <span>−{h(crossChit)}</span>
                 </div>
               )}
               {manual > 0 && (
@@ -535,19 +550,19 @@ function DisburseModal({ payout, memberName, onClose }) {
                   <span className="flex items-center gap-1">
                     <ArrowRight size={10} /> Manual adjustment
                   </span>
-                  <span>−{fmtAmt(manual)}</span>
+                  <span>−{h(manual)}</span>
                 </div>
               )}
               <div className="flex justify-between text-green-800 font-semibold border-t border-green-200 pt-1">
                 <span>Net cash to member</span>
-                <span>{fmtAmt(netAmount)}</span>
+                <span>{h(netAmount)}</span>
               </div>
             </div>
           ) : (
             <p className="text-xs text-green-700">
-              Net payout: <strong>{fmtAmt(netAmount)}</strong>
+              Net payout: <strong>{h(netAmount)}</strong>
               {Number(payout.discountAmount ?? 0) > 0 && (
-                <span className="text-amber-700 ml-1">(Win {fmtAmt(payout.winningAmount)} − {fmtAmt(payout.discountAmount)})</span>
+                <span className="text-amber-700 ml-1">(Win {h(payout.winningAmount)} − {h(payout.discountAmount)})</span>
               )}
             </p>
           )}
@@ -555,7 +570,7 @@ function DisburseModal({ payout, memberName, onClose }) {
           {alreadyDisbursed > 0 && (
             <div className="text-xs text-blue-700 border-t border-green-200 pt-1.5 flex justify-between">
               <span>Already disbursed</span>
-              <span><strong>{fmtAmt(alreadyDisbursed)}</strong> · Remaining: <strong>{fmtAmt(remainingAmount)}</strong></span>
+              <span><strong>{h(alreadyDisbursed)}</strong> · Remaining: <strong>{h(remainingAmount)}</strong></span>
             </div>
           )}
         </div>
@@ -572,7 +587,7 @@ function DisburseModal({ payout, memberName, onClose }) {
           {isPartial && amountNum > 0 && (
             <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
               <AlertCircle size={11} />
-              Partial — {fmtAmt(remainingAmount - amountNum)} will remain outstanding
+              Partial — {h(remainingAmount - amountNum)} will remain outstanding
             </p>
           )}
           {isFullRemaining && (
@@ -622,6 +637,7 @@ function CancelPayoutModal({ payout, memberName, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [reason, setReason] = useState('');
+  const { hidden } = useHiddenAmounts();
 
   const mutation = useMutation({
     mutationFn: () => cancelPayout({ id: payout.id, reason }),
@@ -637,7 +653,7 @@ function CancelPayoutModal({ payout, memberName, onClose }) {
     <Modal title="Cancel Payout" onClose={onClose} size="sm">
       <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(); }} className="space-y-4">
         <p className="text-sm text-gray-600">
-          Cancel payout of <strong>{fmtAmt(payout.netPayoutAmount ?? payout.winningAmount)}</strong> to{' '}
+          Cancel payout of <strong>{hidden ? '••••••' : fmtAmt(payout.netPayoutAmount ?? payout.winningAmount)}</strong> to{' '}
           <strong>{memberName ?? payout.memberId}</strong>?
         </p>
         <FormField label="Reason" required>
@@ -662,6 +678,151 @@ function CancelPayoutModal({ payout, memberName, onClose }) {
   );
 }
 
+// ─── Pending Payouts Tab (winner selected, no payout created) ─────────────
+function PendingPayoutsTab() {
+  const toast = useToastContext();
+  const qc = useQueryClient();
+  const [createTarget, setCreateTarget] = useState(null);
+  const { hidden } = useHiddenAmounts();
+
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
+  const eligibleChits = chits.filter((c) => c.status !== 'DRAFT');
+  const eligibleChitStr = eligibleChits.map((c) => c.id).join(',');
+
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const memberMap = Object.fromEntries(
+    allMembers.flatMap((m) => {
+      const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);
+      const entries = [[String(m.id), name]];
+      if (m.userId) entries.push([String(m.userId), name]);
+      return entries;
+    })
+  );
+
+  const { data: chitWinnersMap = {}, isLoading: loadingWinners } = useQuery({
+    queryKey: ['winners-batch', eligibleChitStr],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        eligibleChits.map((c) =>
+          getWinners(c.id).then((ws) => [c.id, ws]).catch(() => [c.id, []])
+        )
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: eligibleChits.length > 0,
+    staleTime: 120_000,
+  });
+
+  const { data: allPayouts = [] } = useQuery({
+    queryKey: ['payouts', 'all-for-create'],
+    queryFn: () => getAllPayouts({}),
+    staleTime: 60_000,
+  });
+
+  const paidKeys = new Set(
+    allPayouts
+      .filter((p) => p.status !== 'CANCELLED')
+      .map((p) => `${p.chitId}:${p.monthNumber}:${String(p.memberId)}`)
+  );
+
+  // Build flat list of unpaid winners
+  const chitMap = Object.fromEntries(chits.map((c) => [String(c.id), c]));
+  const pendingPayoutRows = [];
+  for (const [chitId, winners] of Object.entries(chitWinnersMap)) {
+    for (const w of winners) {
+      const mid = w.memberId ?? w.winnerId;
+      if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) {
+        pendingPayoutRows.push({ chitId, winner: w, chit: chitMap[chitId] });
+      }
+    }
+  }
+
+  if (loadingWinners) return <PageSpinner />;
+
+  return (
+    <div className="space-y-4">
+      {pendingPayoutRows.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <EmptyState icon={Trophy} title="No pending payouts" message="All winners have payouts created." />
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <Table columns={['Chit', 'Member', 'Draw', 'Winning Amount', 'Chit Status', 'Action']}>
+            {pendingPayoutRows.map(({ chitId, winner, chit }) => {
+              const mid = winner.memberId ?? winner.winnerId;
+              const memberName = memberMap[String(mid)] ?? String(mid).slice(0, 8);
+              return (
+                <Tr key={`${chitId}:${winner.monthNumber}:${mid}`}>
+                  <Td className="font-medium text-gray-900">{chit?.name ?? chitId?.slice(0, 8)}</Td>
+                  <Td className="font-medium text-gray-900">{memberName}</Td>
+                  <Td className="font-semibold">D{winner.monthNumber}</Td>
+                  <Td className="font-bold text-green-700">
+                    {hidden ? '••••••' : `₹${Number(winner.winningAmount ?? 0).toLocaleString('en-IN')}`}
+                  </Td>
+                  <Td>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      chit?.status === 'ACTIVE' ? 'bg-green-100 text-green-700'
+                      : chit?.status === 'COMPLETED' ? 'bg-blue-100 text-blue-700'
+                      : chit?.status === 'PAUSED' ? 'bg-amber-100 text-amber-700'
+                      : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {chit?.status ?? '—'}
+                    </span>
+                  </Td>
+                  <Td>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setCreateTarget({ chitId, winner, chit, memberId: String(mid), memberName })}
+                    >
+                      <Banknote size={13} /> Create Payout
+                    </Button>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </Table>
+        </div>
+      )}
+
+      {createTarget && (
+        <Modal title="Create Payout" onClose={() => setCreateTarget(null)} size="sm">
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <p className="font-semibold text-amber-800 text-sm">
+                Draw {createTarget.winner.monthNumber} — {createTarget.memberName}
+              </p>
+              <p className="text-amber-700 text-sm mt-0.5">
+                {createTarget.chit?.name} · Winning amount:{' '}
+                <strong>{hidden ? '••••••' : `₹${Number(createTarget.winner.winningAmount ?? 0).toLocaleString('en-IN')}`}</strong>
+              </p>
+            </div>
+            <PayoutCreationForm
+              key={`${createTarget.chitId}:${createTarget.winner.monthNumber}:${createTarget.memberId}`}
+              chitId={createTarget.chitId}
+              chit={createTarget.chit}
+              memberId={createTarget.memberId}
+              monthNumber={createTarget.winner.monthNumber}
+              defaultWinningAmount={createTarget.winner.winningAmount}
+              defaultAdjustment={createTarget.winner.discountAmount ?? 0}
+              onSuccess={() => {
+                qc.invalidateQueries({ queryKey: ['payouts'] });
+                qc.invalidateQueries({ queryKey: ['winners-batch'] });
+                qc.invalidateQueries({ queryKey: ['winners-batch-dash'] });
+                setCreateTarget(null);
+                toast.success('Payout created successfully');
+              }}
+            />
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── Pending Disbursement Tab (payouts created, not yet disbursed) ─────────
+// (alias for existing PendingTab, keeping the same logic)
+
 // ─── Pending Tab ───────────────────────────────────────────────────────────
 function PendingTab() {
   const { user } = useAuth();
@@ -669,6 +830,8 @@ function PendingTab() {
   const [disburseTarget, setDisburseTarget] = useState(null);
   const [cancelTarget, setCancelTarget]     = useState(null);
   const [detailTarget, setDetailTarget]     = useState(null);
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
 
   const { data: pending = [], isLoading } = useQuery({
     queryKey: ['payouts', 'pending'],
@@ -706,12 +869,12 @@ function PendingTab() {
                   <Td className="font-medium text-gray-900">{chitInfo?.name ?? p.chitId?.toString().slice(0, 8)}</Td>
                   <Td className="font-medium text-gray-900">{mName}</Td>
                   <Td className="font-semibold">D{p.monthNumber}</Td>
-                  <Td className="font-bold text-green-700">{fmtAmt(p.netPayoutAmount ?? p.winningAmount)}</Td>
+                  <Td className="font-bold text-green-700">{h(p.netPayoutAmount ?? p.winningAmount)}</Td>
                   <Td className="text-blue-700 font-medium">
-                    {isPartial ? fmtAmt(p.disbursedAmount) : '—'}
+                    {isPartial ? h(p.disbursedAmount) : '—'}
                   </Td>
                   <Td className="text-amber-700 font-medium">
-                    {isPartial ? fmtAmt(p.remainingAmount) : fmtAmt(p.netPayoutAmount ?? p.winningAmount)}
+                    {isPartial ? h(p.remainingAmount) : h(p.netPayoutAmount ?? p.winningAmount)}
                   </Td>
                   <Td><PayoutStatusBadge status={p.status} /></Td>
                   <Td>
@@ -764,6 +927,8 @@ function PendingTab() {
 function AllPayoutsTab() {
   const [chitId, setChitId] = useState('');
   const [detailTarget, setDetailTarget] = useState(null);
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const memberMap = Object.fromEntries(
@@ -815,16 +980,16 @@ function AllPayoutsTab() {
                   <Td className="text-gray-600 text-xs">{chitName}</Td>
                   <Td className="font-semibold">D{p.monthNumber}</Td>
                   <Td className="font-medium text-gray-900">{mName}</Td>
-                  <Td className="font-semibold text-green-700">{fmtAmt(p.netPayoutAmount ?? p.winningAmount)}</Td>
+                  <Td className="font-semibold text-green-700">{h(p.netPayoutAmount ?? p.winningAmount)}</Td>
                   <Td className="text-blue-700">
-                    {alreadyDisbursed > 0 ? fmtAmt(alreadyDisbursed) : '—'}
+                    {alreadyDisbursed > 0 ? h(alreadyDisbursed) : '—'}
                   </Td>
                   <Td className="text-amber-700">
-                    {p.status === 'PARTIALLY_DISBURSED' ? fmtAmt(remaining) : '—'}
+                    {p.status === 'PARTIALLY_DISBURSED' ? h(remaining) : '—'}
                   </Td>
                   <Td>{p.disbursementMode ?? '—'}</Td>
                   <Td><PayoutStatusBadge status={p.status} /></Td>
-                  <Td>{p.disbursedAt ? new Date(p.disbursedAt).toLocaleDateString('en-IN') : '—'}</Td>
+                  <Td>{p.disbursedAt ? new Date(utc(p.disbursedAt)).toLocaleDateString('en-IN') : '—'}</Td>
                 </Tr>
               );
             })}
@@ -848,8 +1013,10 @@ function AllPayoutsTab() {
 export default function PayoutsPage() {
   const { user } = useAuth();
   const isManager = user?.role === 'MANAGER';
-  const tabs = isManager ? ['Pending', 'All Payouts'] : TABS;
-  const defaultTab = isManager ? 'Pending' : 'Create Payout';
+  const tabs = isManager
+    ? ['Pending Disbursement', 'All Payouts']
+    : TABS;
+  const defaultTab = isManager ? 'Pending Disbursement' : 'Create Payout';
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   const activeTab = (rawTab && tabs.includes(rawTab)) ? rawTab : defaultTab;
@@ -865,9 +1032,10 @@ export default function PayoutsPage() {
       </div>
       <div className="space-y-5">
         <TabBar active={activeTab} onChange={setActiveTab} tabs={tabs} />
-        {activeTab === 'Create Payout' && <CreatePayoutTab />}
-        {activeTab === 'Pending'       && <PendingTab />}
-        {activeTab === 'All Payouts'   && <AllPayoutsTab />}
+        {activeTab === 'Create Payout'       && <CreatePayoutTab />}
+        {activeTab === 'Pending Payouts'      && <PendingPayoutsTab />}
+        {activeTab === 'Pending Disbursement' && <PendingTab />}
+        {activeTab === 'All Payouts'          && <AllPayoutsTab />}
       </div>
     </div>
   );

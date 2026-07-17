@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getUserById,
   resetMemberPassword,
-  getWorkerRequests,
+  getStaffRequests,
   getBatchesByCollector,
   getChit,
   softDeleteStaff,
@@ -38,10 +38,11 @@ import {
   PackageCheck,
   ChevronRight,
 } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
-  WORKER:  { label: 'Worker',  variant: 'success' },
+  STAFF:   { label: 'Staff',   variant: 'success' },
   MANAGER: { label: 'Manager', variant: 'warning' },
   AGENT:   { label: 'Agent',   variant: 'info' },
 };
@@ -72,6 +73,7 @@ function fmtDateTime(d) {
 }
 
 function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) {
+  const { hidden } = useHiddenAmounts();
   const steps = [
     {
       icon: Clock,
@@ -86,8 +88,8 @@ function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) 
       icon: UserCheck,
       color: '#D97706',
       bg: '#FEF3C7',
-      label: 'Assigned to Worker',
-      sub: workerName ? `Assigned to ${workerName}` : 'Assigned to worker',
+      label: 'Assigned to Staff',
+      sub: workerName ? `Assigned to ${workerName}` : 'Assigned to staff',
       time: request.assignedAt,
       done: !!request.assignedAt,
     },
@@ -97,8 +99,8 @@ function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) 
       bg: '#F0FDF4',
       label: 'Picked Up from Member',
       sub: request.pickedUpAt
-        ? `${workerName ?? 'Worker'} confirmed physical pickup`
-        : 'Worker has not yet marked as picked up',
+        ? `${workerName ?? 'Staff'} confirmed physical pickup`
+        : 'Staff has not yet marked as picked up',
       time: request.pickedUpAt,
       done: !!request.pickedUpAt,
     },
@@ -136,7 +138,7 @@ function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) 
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              <ChitCell chitId={request.chitId} /> · ₹{fmt(request.requestedAmount)}
+              <ChitCell chitId={request.chitId} /> · {hidden ? '••••••' : `₹${fmt(request.requestedAmount)}`}
             </p>
           </div>
         </div>
@@ -257,7 +259,7 @@ function ChangeRoleModal({ staff, onClose }) {
         </div>
         <FormField label="New Role" required>
           <Select value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="WORKER">Worker — field cash collector</option>
+            <option value="STAFF">Staff — field cash collector</option>
             <option value="MANAGER">Manager — operations, no system edits</option>
             <option value="ADMIN">Admin — full platform access</option>
           </Select>
@@ -317,19 +319,20 @@ export default function StaffDetailPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showChangeRole, setShowChangeRole] = useState(false);
-  const [tempCreds, setTempCreds] = useState(null); // { username, tempPassword }
+  const [tempCreds, setTempCreds] = useState(null);
   const [trailRequest, setTrailRequest] = useState(null);
+  const { hidden } = useHiddenAmounts();
 
   const { data: staff, isLoading } = useQuery({
     queryKey: ['staff-detail', id],
     queryFn: () => getUserById(id),
   });
 
-  const isCollector = staff?.role === 'WORKER' || staff?.role === 'MANAGER';
+  const isCollector = staff?.role === 'STAFF' || staff?.role === 'MANAGER';
 
   const { data: requests = [], isLoading: requestsLoading } = useQuery({
-    queryKey: ['worker-requests', id],
-    queryFn: () => getWorkerRequests(id),
+    queryKey: ['staff-requests', id],
+    queryFn: () => getStaffRequests(id),
     enabled: isCollector,
   });
 
@@ -513,7 +516,7 @@ export default function StaffDetailPage() {
           </div>
           <div className={`rounded-2xl border p-5 ${totalCashPending > 0 ? 'bg-[#EEF2F8] border-[#1E3A5F]/30' : 'bg-gray-50 border-gray-200'}`}>
             <p className={`text-2xl font-extrabold truncate ${totalCashPending > 0 ? 'text-[#1E3A5F]' : 'text-gray-300'}`}>
-              ₹{fmt(totalCashPending) ?? '0'}
+              {hidden ? '••••••' : `₹${fmt(totalCashPending) ?? '0'}`}
             </p>
             <p className={`text-xs font-semibold mt-1 ${totalCashPending > 0 ? 'text-[#1E3A5F]' : 'text-gray-400'}`}>Cash to Remit</p>
             <p className="text-xs text-gray-400 mt-0.5">Total outstanding cash with this person</p>

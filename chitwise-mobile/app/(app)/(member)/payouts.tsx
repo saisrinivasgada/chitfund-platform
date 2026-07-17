@@ -24,8 +24,17 @@ const PAYOUT_STATUS_LABEL: Record<string, string> = {
   DISBURSEMENT_SETTLED: 'Settled',
 };
 
+const FILTER_CHIPS = [
+  { key: 'ALL',                label: 'All' },
+  { key: 'PENDING',            label: 'Pending' },
+  { key: 'PARTIALLY_DISBURSED',label: 'Partial' },
+  { key: 'DISBURSED',          label: 'Disbursed' },
+  { key: 'CANCELLED',          label: 'Cancelled' },
+];
+
 export default function MemberPayoutsScreen() {
   const [detail, setDetail] = useState<any>(null);
+  const [filter, setFilter] = useState('ALL');
 
   const { data: memberProfile, isLoading: profileLoading } = useQuery({
     queryKey: ['member-profile-me'],
@@ -56,22 +65,58 @@ export default function MemberPayoutsScreen() {
     return (order[a.status] ?? 9) - (order[b.status] ?? 9);
   });
 
+  const counts: Record<string, number> = { ALL: sorted.length };
+  FILTER_CHIPS.forEach((f) => {
+    if (f.key !== 'ALL') counts[f.key] = sorted.filter((p) => p.status === f.key).length;
+  });
+  const visibleChips = FILTER_CHIPS.filter((f) => f.key === 'ALL' || counts[f.key] > 0);
+  const visible = filter === 'ALL' ? sorted : sorted.filter((p) => p.status === filter);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
-        data={sorted}
+        data={visible}
         keyExtractor={(p: any) => p.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         ListHeaderComponent={
           <View style={{ marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
               <Text style={T.h1}>My Payouts</Text>
               <ProfileAvatarButton size={34} />
             </View>
-            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-              {(payouts as any[]).length} payout{(payouts as any[]).length !== 1 ? 's' : ''} total
+            <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 14 }}>
+              {sorted.length} payout{sorted.length !== 1 ? 's' : ''} total
             </Text>
+            {/* Filter chips */}
+            {visibleChips.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', gap: 8, paddingBottom: 2 }}>
+                  {visibleChips.map((chip) => {
+                    const active = filter === chip.key;
+                    return (
+                      <TouchableOpacity
+                        key={chip.key}
+                        onPress={() => setFilter(chip.key)}
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 5,
+                          paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                          backgroundColor: active ? C.navy : C.white,
+                          borderWidth: 1.5, borderColor: active ? C.navy : C.gray300,
+                        }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: active ? C.white : C.gray700 }}>
+                          {chip.label}
+                        </Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : C.gray400 }}>
+                          {counts[chip.key]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
+            )}
           </View>
         }
         ListEmptyComponent={
@@ -176,7 +221,7 @@ export default function MemberPayoutsScreen() {
                     {(p.winningAmount && p.netPayoutAmount && p.winningAmount !== p.netPayoutAmount) && (
                       <>
                         <Row label="Gross Won" value={`₹${Number(p.winningAmount).toLocaleString('en-IN')}`} />
-                        <Row label="Discount" value={`-₹${Number(p.winningAmount - p.netPayoutAmount).toLocaleString('en-IN')}`} color={C.red} />
+                        <Row label="Withheld" value={`-₹${Number(p.winningAmount - p.netPayoutAmount).toLocaleString('en-IN')}`} color={C.red} />
                         <Row label="Net Payout" value={`₹${Number(p.netPayoutAmount).toLocaleString('en-IN')}`} color={C.green} />
                       </>
                     )}

@@ -75,6 +75,24 @@ public class InternalMemberController {
     }
 
     /**
+     * Reverse-resolve a user-service UUID back to the member profile UUID.
+     * Used by payment-service when crediting a cash request: the request stores
+     * the user UUID but payment records are keyed by member profile UUID.
+     * Returns 200 {"profileId": "..."} or 200 {} if no linked profile found.
+     */
+    @GetMapping("/by-user/{userId}/profile-id")
+    public ResponseEntity<Map<String, String>> getProfileIdByUserId(
+            @PathVariable UUID userId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        }
+        return memberRepository.findByUserId(userId)
+                .map(m -> ResponseEntity.ok(Map.of("profileId", m.getId().toString())))
+                .orElse(ResponseEntity.ok(Map.of()));
+    }
+
+    /**
      * Batch-resolve member profile IDs → user IDs for notification delivery.
      * Returns a map of { memberId → userId } for members that have an app account.
      */

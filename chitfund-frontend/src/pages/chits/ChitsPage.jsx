@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -583,6 +583,17 @@ function CreateChitModal({ onClose }) {
 // ─── Chit Card (board view) ───────────────────────────────────────────────────
 function ChitCard({ chit, onClick, isBehind }) {
   const totalAmount = chit.chitValue ?? chit.totalAmount ?? (chit.installmentAmount ?? 0) * (chit.totalMembers ?? 0);
+  const isCompleted = chit.status === 'COMPLETED';
+
+  const { data: outstanding } = useQuery({
+    queryKey: ['chit-outstanding', chit.id],
+    queryFn: () => getChitOutstandingSummary(chit.id),
+    enabled: isCompleted,
+    staleTime: 5 * 60_000,
+  });
+
+  const hasOutstanding = isCompleted && outstanding && Number(outstanding.totalOutstanding) > 0;
+
   return (
     <div
       className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-[#1E3A5F]/20 transition-all cursor-pointer group"
@@ -637,6 +648,26 @@ function ChitCard({ chit, onClick, isBehind }) {
             <dd className="font-medium text-gray-700">{chit.startDate}</dd>
           </div>
         </dl>
+
+        {/* Outstanding dues banner — only for completed chits with lingering dues */}
+        {isCompleted && hasOutstanding && (
+          <div className="mt-3 flex items-center gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-red-700">
+                ₹{Number(outstanding.totalOutstanding).toLocaleString('en-IN')} outstanding
+              </p>
+              <p className="text-xs text-red-500 mt-0.5">
+                {outstanding.membersWithOutstanding} member{outstanding.membersWithOutstanding !== 1 ? 's' : ''} with dues
+              </p>
+            </div>
+          </div>
+        )}
+        {isCompleted && outstanding && Number(outstanding.totalOutstanding) === 0 && (
+          <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+            All dues cleared
+          </div>
+        )}
 
         <div className="mt-4 pt-3 border-t border-gray-50 flex items-center justify-between">
           <span className="text-xs text-gray-400">

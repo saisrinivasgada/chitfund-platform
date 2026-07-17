@@ -92,9 +92,9 @@ public class AuthService {
         if (phone != null) {
             List<Role> sameCategory = role == Role.MEMBER
                     ? List.of(Role.MEMBER)
-                    : List.of(Role.ADMIN, Role.MANAGER, Role.WORKER, Role.AGENT);
+                    : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
             if (userRepository.existsByPhoneAndRoleInAndDeletedAtIsNull(phone, sameCategory)) {
-                String categoryLabel = role == Role.MEMBER ? "member" : "staff (worker/manager)";
+                String categoryLabel = role == Role.MEMBER ? "member" : "staff (staff/manager)";
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "A " + categoryLabel + " account with this mobile number already exists",
                         org.springframework.http.HttpStatus.CONFLICT);
@@ -288,7 +288,7 @@ public class AuthService {
                         .role(u.getRole())
                         .displayLabel(switch (u.getRole()) {
                             case MEMBER  -> "Member account";
-                            case WORKER, AGENT -> "Worker account";
+                            case STAFF, AGENT -> "Staff account";
                             case MANAGER -> "Manager account";
                             case ADMIN   -> "Admin account";
                         })

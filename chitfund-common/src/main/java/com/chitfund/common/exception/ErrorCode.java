@@ -72,6 +72,7 @@ public enum ErrorCode {
     CYCLE_HAS_PAYMENTS("PAYMENT_007", "Cycle has payments recorded — void them before deleting"),
     CYCLE_NOT_DELETABLE("PAYMENT_008", "Only OPEN cycles can be deleted"),
     CHIT_CYCLES_EXHAUSTED("PAYMENT_009", "All real cycles for this chit have already been opened"),
+    SETTLEMENT_ALREADY_EXISTS("PAYMENT_010", "An active settlement already exists for this member — complete or cancel it first"),
 
     // ─── Payout ───────────────────────────────────────────────────────────
     PAYOUT_NOT_FOUND("PAYOUT_001", "Payout record not found"),

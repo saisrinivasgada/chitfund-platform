@@ -36,10 +36,10 @@ import {
 
 const ALL_NAV = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard',   roles: ['ADMIN', 'MANAGER'] },
-  { to: '/',          icon: LayoutDashboard, label: 'Home',        roles: ['WORKER'] },
-  { to: '/tasks',     icon: ClipboardList,   label: 'My Tasks',    roles: ['WORKER'] },
+  { to: '/',          icon: LayoutDashboard, label: 'Home',        roles: ['STAFF'] },
+  { to: '/tasks',     icon: ClipboardList,   label: 'My Tasks',    roles: ['STAFF'] },
   { to: '/members',   icon: Users,           label: 'Members',     roles: ['ADMIN', 'MANAGER'] },
-  { to: '/chits',     icon: BookOpen,        label: 'Chit Funds',  roles: ['ADMIN', 'MANAGER'] },
+  { to: '/chits',     icon: BookOpen,        label: 'Chits',       roles: ['ADMIN', 'MANAGER'] },
   { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   // { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
@@ -512,8 +512,8 @@ export default function Sidebar({ open = false, onClose }) {
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
 
-  // Detect dual account for WORKER / MANAGER only
-  const isStaff = role === 'WORKER' || role === 'MANAGER' || role === 'AGENT';
+  // Detect dual account for STAFF / MANAGER only
+  const isStaff = role === 'STAFF' || role === 'MANAGER' || role === 'AGENT';
   const { data: me } = useQuery({
     queryKey: ['myUserAccount'],
     queryFn: getMe,
@@ -533,7 +533,7 @@ export default function Sidebar({ open = false, onClose }) {
     <aside
       className={[
         // ── Shared layout ──────────────────────────────────────────────
-        'flex flex-col bg-white',
+        'flex flex-col bg-white print:hidden',
 
         // ── Mobile / tablet: fixed drawer with slide transition ────────
         'fixed inset-y-0 left-0 z-50 w-72',

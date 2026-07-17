@@ -13,9 +13,9 @@ public class UpdateCashRequestRequest {
     @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
     private BigDecimal requestedAmount;
 
-    // Set to true to change the assigned worker. workerId=null means unassign.
-    private Boolean updateWorker;
-    private UUID workerId;
+    // Set to true to change the assigned staff. staffId=null means unassign.
+    private Boolean updateStaff;
+    private UUID staffId;
 
     private String adminNotes;
 

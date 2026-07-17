@@ -11,6 +11,7 @@ import com.chitfund.memberservice.dto.request.UpdateMemberProfileRequest;
 import com.chitfund.memberservice.dto.request.UpdateMemberRequest;
 import com.chitfund.memberservice.dto.request.UpdateStatusRequest;
 import com.chitfund.memberservice.dto.response.MemberResponse;
+import com.chitfund.memberservice.client.AuditClient;
 import com.chitfund.memberservice.messaging.MemberEventPublisher;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class MemberService {
 
     private final MemberRepository memberRepository;
     private final MemberEventPublisher memberEventPublisher;
+    private final AuditClient auditClient;
 
     @Transactional
     public MemberResponse createMember(CreateMemberRequest request, UUID adminId) {
@@ -125,6 +127,9 @@ public class MemberService {
     public MemberResponse updateMember(UUID id, UpdateMemberRequest request, UUID actorId) {
         Member member = findOrThrow(id);
 
+        // Snapshot before-state for audit log
+        java.util.Map<String, Object> before = profileSnapshot(member);
+
         if (request.getFullName() != null) member.setFullName(request.getFullName());
 
         if (request.getPhone() != null && !request.getPhone().equals(member.getPhone())) {
@@ -156,6 +161,12 @@ public class MemberService {
         memberRepository.save(member);
         log.info("Member {} updated by {}", id, actorId);
 
+        // Direct audit-service write (works in local dev without SQS)
+        java.util.Map<String, Object> after = profileSnapshot(member);
+        auditClient.log("MEMBER", id.toString(), "PROFILE_UPDATED",
+                actorId != null ? actorId.toString() : null, "ROLE_ADMIN", before, after);
+
+        // Still publish SQS event for referral changes (consumed by audit-service in prod for legacy path)
         if (!Objects.equals(oldReferredById, newReferredById)) {
             String prevName = oldReferredById != null
                     ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null)
@@ -176,6 +187,23 @@ public class MemberService {
         }
 
         return toResponse(member);
+    }
+
+    private java.util.Map<String, Object> profileSnapshot(Member m) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put("fullName", m.getFullName());
+        map.put("phone", m.getPhone());
+        map.put("email", m.getEmail());
+        map.put("address", m.getAddress());
+        map.put("city", m.getCity());
+        map.put("aadhaarLast4", m.getAadhaarLast4());
+        map.put("panNumber", m.getPanNumber());
+        map.put("bankName", m.getBankName());
+        map.put("bankAccountNumber", m.getBankAccountNumber());
+        map.put("bankIfsc", m.getBankIfsc());
+        map.put("referredById", m.getReferredById());
+        map.put("notes", m.getNotes());
+        return map;
     }
 
     @Transactional
@@ -228,6 +256,8 @@ public class MemberService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member profile linked to this user account"));
 
+        java.util.Map<String, Object> before = profileSnapshot(member);
+
         if (request.getFullName() != null) member.setFullName(request.getFullName());
         if (request.getPhone() != null && !request.getPhone().equals(member.getPhone())) {
             if (memberRepository.existsByPhoneAndDeletedAtIsNull(request.getPhone())) {
@@ -240,7 +270,10 @@ public class MemberService {
         if (request.getCity() != null) member.setCity(request.getCity());
         if (request.getPhoneCountryCode() != null) member.setPhoneCountryCode(request.getPhoneCountryCode());
 
-        return toResponse(memberRepository.save(member));
+        MemberResponse result = toResponse(memberRepository.save(member));
+        auditClient.log("MEMBER", member.getId().toString(), "PROFILE_UPDATED",
+                userId.toString(), "ROLE_MEMBER", before, profileSnapshot(member));
+        return result;
     }
 
     private Member findOrThrow(UUID id) {

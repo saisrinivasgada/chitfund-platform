@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -350,6 +351,9 @@ public class NotificationEventConsumer {
                 case "ASSIGNED" -> handleCashRequestAssigned(event);
                 case "PICKED_UP" -> handleCashRequestPickedUp(event);
                 case "COLLECTED" -> handleCashRequestCollected(event);
+                case "PARTIALLY_COLLECTED" -> handleCashRequestPartiallyCollected(event);
+                case "MEMBER_APPROVED" -> handleMemberApproval(event, true);
+                case "MEMBER_REJECTED" -> handleMemberApproval(event, false);
                 default -> log.warn("Unknown cash request event type: {}", event.eventType());
             }
 
@@ -380,7 +384,7 @@ public class NotificationEventConsumer {
         // Notify all admins and managers
         notifyAdminsAndManagers(
             "New Cash Pickup Request",
-            memberDisplay + " has requested a cash pickup" + amtStr + ". Assign a worker.",
+            memberDisplay + " has requested a cash pickup" + amtStr + ". Assign a staff member.",
             "CASH_REQUEST_SUBMITTED",
             Map.of("requestId", event.requestId()),
             "/payments"
@@ -388,28 +392,28 @@ public class NotificationEventConsumer {
     }
 
     private void handleCashRequestAssigned(CashRequestEvent event) {
-        String workerDisplay = event.workerName() != null && !event.workerName().isBlank()
-                ? event.workerName() : "A worker";
+        String staffDisplay = event.staffName() != null && !event.staffName().isBlank()
+                ? event.staffName() : "A staff member";
         String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
                 ? event.memberName() : "a member";
         String amtStr = event.amount() != null ? " ₹" + event.amount().toPlainString() : "";
 
-        // Notify member: worker assigned
+        // Notify member: staff assigned
         if (event.memberUserId() != null) {
             inAppService.create(
                 UUID.fromString(event.memberUserId()),
-                "Worker Assigned",
-                workerDisplay + " has been assigned to collect your cash payment" + amtStr + " and will contact you shortly.",
+                "Staff Assigned",
+                staffDisplay + " has been assigned to collect your cash payment" + amtStr + " and will contact you shortly.",
                 "CASH_REQUEST_ASSIGNED",
                 Map.of("requestId", event.requestId()),
                 "/member?tab=requests"
             );
         }
 
-        // Notify worker: new task
-        if (event.workerId() != null) {
+        // Notify staff: new task
+        if (event.staffId() != null) {
             inAppService.create(
-                UUID.fromString(event.workerId()),
+                UUID.fromString(event.staffId()),
                 "New Cash Pickup Task",
                 "You have been assigned to collect cash" + amtStr + " from " + memberDisplay + ". Check your tasks.",
                 "CASH_REQUEST_ASSIGNED",
@@ -420,8 +424,8 @@ public class NotificationEventConsumer {
     }
 
     private void handleCashRequestPickedUp(CashRequestEvent event) {
-        String workerDisplay = event.workerName() != null && !event.workerName().isBlank()
-                ? event.workerName() : "A worker";
+        String workerDisplay = event.staffName() != null && !event.staffName().isBlank()
+                ? event.staffName() : "A staff member";
         String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
                 ? event.memberName() : "a member";
         String amtStr = event.amount() != null ? " ₹" + event.amount().toPlainString() : "";
@@ -463,16 +467,94 @@ public class NotificationEventConsumer {
             );
         }
 
-        // Notify worker: task complete
-        if (event.workerId() != null) {
+        // Notify staff: task complete
+        if (event.staffId() != null) {
             inAppService.create(
-                UUID.fromString(event.workerId()),
+                UUID.fromString(event.staffId()),
                 "Collection Confirmed",
                 "Admin confirmed your cash handover of " + amtStr + ". Task complete.",
                 "CASH_COLLECTED",
                 Map.of("requestId", event.requestId()),
                 "/tasks"
             );
+        }
+    }
+
+    private void handleCashRequestPartiallyCollected(CashRequestEvent event) {
+        String workerDisplay = event.staffName() != null && !event.staffName().isBlank()
+                ? event.staffName() : "A staff member";
+        String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
+                ? event.memberName() : "a member";
+
+        BigDecimal collected = event.collectedAmount();
+        BigDecimal requested = event.amount();
+        String collectedStr = collected != null ? "₹" + collected.toPlainString() : "part";
+        String requestedStr = requested != null ? " of ₹" + requested.toPlainString() : "";
+
+        if (event.memberUserId() != null) {
+            inAppService.create(
+                UUID.fromString(event.memberUserId()),
+                "Partial Cash Pickup — Action Needed",
+                workerDisplay + " collected " + collectedStr + requestedStr + " from you. Please approve or reject on your requests page.",
+                "CASH_REQUEST_PARTIAL",
+                Map.of("requestId", event.requestId()),
+                "/member?tab=requests"
+            );
+        }
+
+        notifyAdminsAndManagers(
+            "Partial Cash Pickup Recorded",
+            workerDisplay + " collected " + collectedStr + requestedStr + " from " + memberDisplay + ". Awaiting member approval.",
+            "CASH_REQUEST_PARTIAL",
+            Map.of("requestId", event.requestId()),
+            "/payments"
+        );
+    }
+
+    private void handleMemberApproval(CashRequestEvent event, boolean approved) {
+        String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
+                ? event.memberName() : "Member";
+        BigDecimal collected = event.collectedAmount();
+        String collectedStr = collected != null ? "₹" + collected.toPlainString() : "cash";
+        String extraData = event.extraData();
+
+        if (approved) {
+            notifyAdminsAndManagers(
+                "Member Approved Partial Collection",
+                memberDisplay + " confirmed " + collectedStr + " was collected. Proceed to remit.",
+                "MEMBER_APPROVED_PARTIAL",
+                Map.of("requestId", event.requestId()),
+                "/payments"
+            );
+            if (event.staffId() != null) {
+                inAppService.create(
+                    UUID.fromString(event.staffId()),
+                    "Member Approved Your Collection",
+                    memberDisplay + " confirmed " + collectedStr + ". Admin will remit soon.",
+                    "MEMBER_APPROVED_PARTIAL",
+                    Map.of("requestId", event.requestId()),
+                    "/tasks"
+                );
+            }
+        } else {
+            String reasonStr = extraData != null && !extraData.isBlank() ? " Reason: " + extraData : "";
+            notifyAdminsAndManagers(
+                "Member Disputed Partial Collection",
+                memberDisplay + " rejected the " + collectedStr + " partial collection." + reasonStr + " Review and edit if needed.",
+                "MEMBER_REJECTED_PARTIAL",
+                Map.of("requestId", event.requestId()),
+                "/payments"
+            );
+            if (event.staffId() != null) {
+                inAppService.create(
+                    UUID.fromString(event.staffId()),
+                    "Member Disputed Your Collection",
+                    memberDisplay + " rejected the partial collection." + reasonStr,
+                    "MEMBER_REJECTED_PARTIAL",
+                    Map.of("requestId", event.requestId()),
+                    "/tasks"
+                );
+            }
         }
     }
 

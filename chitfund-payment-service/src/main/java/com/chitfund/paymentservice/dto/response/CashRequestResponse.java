@@ -16,9 +16,15 @@ public class CashRequestResponse {
     private UUID memberId;
     private UUID chitId;
     private BigDecimal requestedAmount;
+    private BigDecimal collectedAmount;
     private CashRequestStatus status;
 
-    private UUID assignedWorkerId;
+    private Boolean memberApproved;
+    private String memberRejectionReason;
+    private LocalDateTime partiallyCollectedAt;
+    private UUID parentRequestId;
+
+    private UUID assignedStaffId;
     private LocalDateTime assignedAt;
     private UUID assignedBy;
 

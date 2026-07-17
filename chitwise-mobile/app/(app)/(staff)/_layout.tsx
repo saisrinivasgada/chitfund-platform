@@ -12,7 +12,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   );
 }
 
-export default function WorkerLayout() {
+export default function StaffLayout() {
   return (
     <Tabs
       screenOptions={({ route }) => ({

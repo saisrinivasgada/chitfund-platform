@@ -5,16 +5,20 @@ import {
   ArrowLeft, CheckCircle, Clock, XCircle, Banknote, CreditCard, Building2,
   User, FileText, Calendar, Hash, Layers, AlertCircle, Receipt, AlertTriangle,
   Mail, MapPin, Phone, Copy, Check, IndianRupee, Users, CalendarDays, ShieldCheck,
+  Printer,
 } from 'lucide-react';
 import {
-  getPaymentBatchById, getMember, getChit, listStaff, getDraws,
+  getPaymentBatchById, getChit, listStaff, getDraws,
   getMembers, remitPayment, voidPaymentBatch,
   getMemberTotalBalance, getMemberBalance, getChitsForMember,
+  getMyMemberProfile,
 } from '../services/api';
 import { useToastContext } from '../components/layout/AppLayout';
+import { useAuth } from '../context/AuthContext';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 
 const STATUS_CONFIG = {
   COMPLETED:           { label: 'Completed',           icon: CheckCircle, bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200', dot: 'bg-green-500' },
@@ -106,20 +110,23 @@ export default function TransactionDetailPage() {
   const navigate    = useNavigate();
   const toast       = useToastContext();
   const qc          = useQueryClient();
+  const { user }    = useAuth();
+  const isMember    = user?.role === 'MEMBER';
   const [showRemitConfirm, setShowRemitConfirm] = useState(false);
   const [showVoidForm,    setShowVoidForm]    = useState(false);
   const [voidReason,      setVoidReason]      = useState('');
+  const { hidden } = useHiddenAmounts();
+  const h = (v) => hidden ? '••••••' : fmtAmt(v);
 
-  const { data: batch, isLoading, isError } = useQuery({
+  function handlePrintReceipt() {
+    window.print();
+  }
+
+  const { data: batch, isLoading, isError, error: batchError } = useQuery({
     queryKey: ['batch', batchId],
     queryFn:  () => getPaymentBatchById(batchId),
     enabled:  !!batchId,
-  });
-
-  const { data: member } = useQuery({
-    queryKey: ['member', batch?.memberId],
-    queryFn:  () => getMember(batch.memberId),
-    enabled:  !!batch?.memberId,
+    retry: 1,
   });
 
   const { data: chit } = useQuery({
@@ -131,30 +138,46 @@ export default function TransactionDetailPage() {
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn:  listStaff,
+    enabled:  !isMember,
   });
 
-  // Build a combined name map: staff + all members — resolves any UUID in collectedBy/remittedBy
+  // Build a combined name map: staff + all members — resolves any UUID in collectedBy/remittedBy.
+  // Cash batches store memberId as the user-service UUID (userId), not the member profile UUID,
+  // so we look up by m.userId first, then fall back to m.id for non-cash batches.
   const { data: allMembers = [] } = useQuery({
-    queryKey: ['members'],
-    queryFn:  getMembers,
+    queryKey: ['members', 'all'],
+    queryFn:  () => getMembers({ size: 500 }),
+    enabled:  !isMember,
   });
+
+  // Member users fetch their own profile to populate the Member card on the receipt
+  const { data: myProfile } = useQuery({
+    queryKey: ['myMemberProfile'],
+    queryFn:  getMyMemberProfile,
+    enabled:  isMember,
+    staleTime: 5 * 60_000,
+  });
+
+  const member = allMembers.find(m => m.userId === batch?.memberId)
+    ?? allMembers.find(m => m.id === batch?.memberId)
+    ?? null;
 
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', batch?.chitId],
     queryFn:  () => getDraws(batch.chitId),
-    enabled:  !!batch?.chitId,
+    enabled:  !!batch?.chitId && !isMember,
   });
 
-  // Member outstanding dues (cross-chit)
+  // Member outstanding dues (cross-chit) — admin only
   const { data: totalBalance } = useQuery({
     queryKey: ['memberTotalBalance', batch?.memberId],
     queryFn:  () => getMemberTotalBalance(batch.memberId),
-    enabled:  !!batch?.memberId,
+    enabled:  !!batch?.memberId && !isMember,
   });
   const { data: memberChits = [] } = useQuery({
     queryKey: ['memberChits', batch?.memberId],
     queryFn:  () => getChitsForMember(batch.memberId),
-    enabled:  !!batch?.memberId,
+    enabled:  !!batch?.memberId && !isMember,
   });
   const { data: perChitBalances } = useQuery({
     queryKey: ['memberBalancesAllChits', batch?.memberId, memberChits.map(c => c.id).join(',')],
@@ -164,7 +187,7 @@ export default function TransactionDetailPage() {
       );
       return results.map((b, i) => ({ ...b, chitName: memberChits[i].name, chitId: memberChits[i].id }));
     },
-    enabled: memberChits.length > 0 && !!batch?.memberId,
+    enabled: memberChits.length > 0 && !!batch?.memberId && !isMember,
   });
 
   // Remit mutation — mark cash as received from collector
@@ -234,31 +257,118 @@ export default function TransactionDetailPage() {
     );
   }
 
-  if (isError || !batch) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <AlertCircle size={32} className="text-red-400" />
-        <p className="text-sm text-gray-500">Transaction not found or failed to load.</p>
-        <button onClick={() => navigate(-1)} className="text-sm text-blue-600 underline cursor-pointer">Go back</button>
-      </div>
-    );
+  if (isError || (!isLoading && !batch)) {
+    const status = batchError?.response?.status;
+    navigate('/error', {
+      replace: true,
+      state: {
+        code: status === 403 ? 403 : status === 404 ? 404 : 500,
+        title: status === 403 ? 'Access Denied' : status === 404 ? 'Transaction Not Found' : 'Failed to Load',
+        message: status === 403
+          ? "You don't have permission to view this transaction."
+          : status === 404
+          ? 'This transaction does not exist or has been removed.'
+          : 'Unable to load transaction details. Please try again.',
+      },
+    });
+    return null;
   }
 
   const statusCfg   = STATUS_CONFIG[batch.status] ?? STATUS_CONFIG.COMPLETED;
   const StatusIcon  = statusCfg.icon;
   const ModeIcon    = MODE_ICON[batch.paymentMode] ?? CreditCard;
 
-  const memberAsAdmin = !member ? staff.find((s) => String(s.id) === String(batch?.memberId)) : null;
-  const memberName  = member?.fullName ?? member?.name ?? memberAsAdmin?.fullName ?? memberAsAdmin?.username ?? '—';
-  const memberPhone = member?.phone ?? member?.phoneNumber ?? null;
+  const memberAsAdmin = !member && !isMember ? staff.find((s) => String(s.id) === String(batch?.memberId)) : null;
+  const memberName = isMember
+    ? (myProfile?.fullName ?? myProfile?.name ?? user?.name ?? '—')
+    : (member?.fullName ?? member?.name ?? memberAsAdmin?.fullName ?? memberAsAdmin?.username ?? '—');
+  const memberPhone = isMember
+    ? (myProfile?.phone ?? myProfile?.phoneNumber ?? null)
+    : (member?.phone ?? member?.phoneNumber ?? null);
+  const memberPhoneCountryCode = isMember ? myProfile?.phoneCountryCode : member?.phoneCountryCode;
   const chitName    = chit?.name ?? '—';
   const chitStatus  = chit?.status ?? null;
 
   const hasDues         = totalBalance != null && Number(totalBalance) > 0;
   const duesWithBalance = perChitBalances?.filter((b) => Number(b.totalOutstanding) > 0) ?? [];
 
+  const receiptMemberName = memberName !== '—' ? memberName : (user?.name ?? '—');
+  const receiptChitValue = chit?.chitValue ? '₹' + Number(chit.chitValue).toLocaleString('en-IN') : null;
+  const receiptStartDate = chit?.startDate
+    ? new Date(chit.startDate + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    : null;
+  const receiptRows = [
+    ['Date',         fmtDateTime(batch.collectedAt ?? batch.createdAt)],
+    ['Payment Mode', batch.paymentMode?.replace(/_/g, ' ') ?? '—'],
+    ['Member',       receiptMemberName],
+    ['Chit Name',    chitName],
+    ...(receiptChitValue ? [['Chit Value', receiptChitValue]] : []),
+    ...(receiptStartDate ? [['Chit Start', receiptStartDate]] : []),
+    ...(batch.allocations?.length > 0 ? [['Draw(s)', batch.allocations.map((a) => `Draw #${a.monthNumber}`).join(', ')]] : []),
+    ...(batch.notes ? [['Notes', batch.notes]] : []),
+  ];
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
+    <>
+    {/* ── Print-only receipt (hidden on screen, shown when printing) ── */}
+    <div className="hidden print:block">
+      <div style={{ fontFamily: "'Segoe UI', Arial, sans-serif", maxWidth: '420px', margin: '0 auto', padding: '40px 32px', color: '#111827' }}>
+        {/* Brand */}
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '6px' }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="27" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/></svg>
+            <div style={{ fontSize: '26px', fontWeight: '900', color: '#1E3A5F', letterSpacing: '-0.5px' }}>ChitWise</div>
+          </div>
+          <div style={{ fontSize: '11px', color: '#9CA3AF', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Official Payment Receipt</div>
+        </div>
+        {/* Divider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+          <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
+          <div style={{ fontSize: '10px', fontWeight: '700', color: '#6B7280', letterSpacing: '2px', textTransform: 'uppercase' }}>Receipt</div>
+          <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
+        </div>
+        {/* Amount hero */}
+        <div style={{ textAlign: 'center', backgroundColor: '#F8FAFC', borderRadius: '12px', padding: '20px 16px', marginBottom: '24px', border: '1px solid #E5E7EB' }}>
+          <div style={{ fontSize: '11px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>Amount Paid</div>
+          <div style={{ fontSize: '40px', fontWeight: '800', color: '#1E3A5F', lineHeight: 1 }}>
+            ₹{Number(batch.totalAmount).toLocaleString('en-IN')}
+          </div>
+          <div style={{
+            display: 'inline-block', marginTop: '10px', padding: '4px 14px', borderRadius: '20px',
+            fontSize: '12px', fontWeight: '600',
+            backgroundColor: batch.status === 'COMPLETED' ? '#DCFCE7' : '#FEF9C3',
+            color: batch.status === 'COMPLETED' ? '#15803D' : '#92400E',
+          }}>
+            {STATUS_CONFIG[batch.status]?.label ?? batch.status}
+          </div>
+        </div>
+        {/* Details table */}
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '24px' }}>
+          <tbody>
+            {receiptRows.map(([label, value], i) => (
+              <tr key={label} style={{ borderBottom: i < receiptRows.length - 1 ? '1px solid #F3F4F6' : 'none' }}>
+                <td style={{ padding: '9px 0', color: '#6B7280', width: '38%', verticalAlign: 'top' }}>{label}</td>
+                <td style={{ padding: '9px 0', textAlign: 'right', fontWeight: '500', color: '#111827', verticalAlign: 'top' }}>{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {/* Ref ID */}
+        <div style={{ backgroundColor: '#F9FAFB', borderRadius: '8px', padding: '12px 14px', marginBottom: '28px', border: '1px solid #F3F4F6' }}>
+          <div style={{ fontSize: '10px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>Transaction Reference</div>
+          <div style={{ fontSize: '11px', fontFamily: 'monospace', color: '#374151', wordBreak: 'break-all' }}>{batch.id}</div>
+        </div>
+        {/* Footer */}
+        <div style={{ textAlign: 'center', borderTop: '1px dashed #E5E7EB', paddingTop: '20px' }}>
+          <div style={{ fontSize: '11px', color: '#9CA3AF' }}>This is a computer-generated receipt and does not require a signature.</div>
+          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E3A5F', marginTop: '10px' }}>ChitWise</div>
+          <div style={{ fontSize: '10px', color: '#D1D5DB', marginTop: '2px' }}>Chit Fund Management Platform</div>
+        </div>
+      </div>
+    </div>
+
+    {/* ── Main page content (hidden when printing) ── */}
+    <div className="print:hidden max-w-3xl mx-auto px-4 py-6 space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
         <button
@@ -271,14 +381,24 @@ export default function TransactionDetailPage() {
           <h1 className="text-lg font-bold text-gray-900">Transaction Detail</h1>
           <CopyableId value={batch.id} />
         </div>
+        {batch.status === 'COMPLETED' && (
+          <button
+            type="button"
+            onClick={handlePrintReceipt}
+            className="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer transition-colors flex-shrink-0"
+            title="Print / Save receipt"
+          >
+            <Printer size={16} className="text-gray-600" />
+          </button>
+        )}
         <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
           <StatusIcon size={12} />
           {statusCfg.label}
         </span>
       </div>
 
-      {/* Cash Collected button — only for AWAITING_REMITTANCE */}
-      {batch.status === 'AWAITING_REMITTANCE' && (
+      {/* Cash Collected button — only for AWAITING_REMITTANCE, admin only */}
+      {!isMember && batch.status === 'AWAITING_REMITTANCE' && (
         <div className={`flex items-center justify-between gap-4 rounded-xl border px-5 py-4 ${statusCfg.bg} ${statusCfg.border}`}>
           <div>
             <p className="text-sm font-semibold text-amber-800">Awaiting Cash Collection</p>
@@ -292,8 +412,8 @@ export default function TransactionDetailPage() {
         </div>
       )}
 
-      {/* Void action — for COMPLETED and AWAITING_REMITTANCE batches */}
-      {(batch.status === 'COMPLETED' || batch.status === 'AWAITING_REMITTANCE') && (
+      {/* Void action — admin only */}
+      {!isMember && (batch.status === 'COMPLETED' || batch.status === 'AWAITING_REMITTANCE') && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 space-y-3">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -337,7 +457,7 @@ export default function TransactionDetailPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-between">
         <div>
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Total Amount</p>
-          <p className="text-4xl font-bold text-gray-900">{fmtAmt(batch.totalAmount)}</p>
+          <p className="text-4xl font-bold text-gray-900">{h(batch.totalAmount)}</p>
           <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
             <Calendar size={11} />
             Recorded {fmtDateTime(batch.createdAt)}
@@ -369,21 +489,23 @@ export default function TransactionDetailPage() {
           />
           {memberPhone && (
             <InfoRow icon={Phone} label="Phone"
-              value={member?.phoneCountryCode ? `${member.phoneCountryCode} ${memberPhone}` : memberPhone} />
+              value={memberPhoneCountryCode ? `${memberPhoneCountryCode} ${memberPhone}` : memberPhone} />
           )}
-          {(member?.email ?? memberAsAdmin?.email) && (
-            <InfoRow icon={Mail} label="Email" value={member?.email ?? memberAsAdmin?.email} />
+          {(member?.email ?? myProfile?.email ?? memberAsAdmin?.email) && (
+            <InfoRow icon={Mail} label="Email" value={member?.email ?? myProfile?.email ?? memberAsAdmin?.email} />
           )}
-          {member?.city && <InfoRow icon={MapPin} label="City" value={member.city} />}
+          {(member?.city ?? myProfile?.city) && (
+            <InfoRow icon={MapPin} label="City" value={member?.city ?? myProfile?.city} />
+          )}
           {memberAsAdmin?.role && (
             <InfoRow icon={Hash} label="Role"
               value={memberAsAdmin.role.charAt(0).toUpperCase() + memberAsAdmin.role.slice(1).toLowerCase()} />
           )}
-          {member?.status && (
-            <InfoRow icon={Hash} label="Status" value={member.status}
+          {(member?.status ?? myProfile?.status) && (
+            <InfoRow icon={Hash} label="Status" value={member?.status ?? myProfile?.status}
               valueClass={
-                member.status === 'ACTIVE'      ? 'text-green-600' :
-                member.status === 'BLACKLISTED' ? 'text-red-600'   : 'text-gray-500'
+                (member?.status ?? myProfile?.status) === 'ACTIVE'      ? 'text-green-600' :
+                (member?.status ?? myProfile?.status) === 'BLACKLISTED' ? 'text-red-600'   : 'text-gray-500'
               } />
           )}
         </Card>
@@ -403,10 +525,10 @@ export default function TransactionDetailPage() {
               } />
           )}
           {chit?.chitValue && (
-            <InfoRow icon={IndianRupee} label="Chit Value" value={fmtAmt(chit.chitValue)} />
+            <InfoRow icon={IndianRupee} label="Chit Value" value={h(chit.chitValue)} />
           )}
           {chit?.installmentAmount && (
-            <InfoRow icon={Banknote} label="Monthly Installment" value={fmtAmt(chit.installmentAmount)} />
+            <InfoRow icon={Banknote} label="Monthly Installment" value={h(chit.installmentAmount)} />
           )}
           {chit?.durationMonths && (
             <InfoRow icon={CalendarDays} label="Duration"
@@ -429,13 +551,13 @@ export default function TransactionDetailPage() {
         </Card>
       </div>
 
-      {/* Member outstanding dues (cross-chit) */}
-      {hasDues && (
+      {/* Member outstanding dues (cross-chit) — admin only */}
+      {!isMember && hasDues && (
         <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
           <div className="px-5 py-3.5 border-b border-amber-100 flex items-center gap-2 bg-amber-50">
             <AlertTriangle size={15} className="text-amber-500" />
             <h3 className="text-sm font-semibold text-amber-800">
-              Member Outstanding: {fmtAmt(totalBalance)} across all chits
+              Member Outstanding: {h(totalBalance)} across all chits
             </h3>
           </div>
           <div className="px-5 divide-y divide-gray-100">
@@ -443,12 +565,12 @@ export default function TransactionDetailPage() {
               <div key={b.chitId} className="py-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700">{b.chitName}</span>
-                  <span className="text-sm font-bold text-red-600">{fmtAmt(b.totalOutstanding)}</span>
+                  <span className="text-sm font-bold text-red-600">{h(b.totalOutstanding)}</span>
                 </div>
                 {b.months?.slice(0, 3).map((m) => (
                   <div key={m.monthNumber} className="flex justify-between text-xs text-gray-400 mt-1 pl-2">
                     <span>Month {m.monthNumber}{m.dueDate ? ` · due ${new Date(m.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}</span>
-                    <span>{fmtAmt(m.balance)}</span>
+                    <span>{h(m.balance)}</span>
                   </div>
                 ))}
                 {b.months?.length > 3 && (
@@ -481,7 +603,7 @@ export default function TransactionDetailPage() {
                       {monthLabel && <p className="text-xs text-gray-400">{chitName} · {monthLabel}</p>}
                     </div>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{fmtAmt(alloc.allocatedAmount)}</span>
+                  <span className="text-sm font-semibold text-gray-900">{h(alloc.allocatedAmount)}</span>
                 </div>
               );
             })}
@@ -553,7 +675,7 @@ export default function TransactionDetailPage() {
         <ConfirmDialog
           variant="primary"
           title="Confirm Cash Received"
-          description={`Confirm you received ${fmtAmt(batch.totalAmount)} from ${resolveName(batch.collectedBy)}? This will settle the payment to the member's account.`}
+          description={`Confirm you received ${h(batch.totalAmount)} from ${resolveName(batch.collectedBy)}? This will settle the payment to the member's account.`}
           actionLabel="Cash Collected"
           loading={remitMutation.isPending}
           onConfirm={() => remitMutation.mutate()}
@@ -561,5 +683,6 @@ export default function TransactionDetailPage() {
         />
       )}
     </div>
+    </>
   );
 }

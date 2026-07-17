@@ -14,6 +14,7 @@ import com.chitfund.paymentservice.dto.request.CreateCashRequestRequest;
 import com.chitfund.paymentservice.dto.request.UpdateCashRequestRequest;
 import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
+import com.chitfund.paymentservice.dto.response.CashRequestSummaryResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.client.UserServiceClient;
@@ -25,10 +26,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -77,15 +82,15 @@ public class CashRequestService {
 
         notificationService.notifyUser(memberId, NotificationType.CASH_REQUEST_SUBMITTED,
                 "Cash Pickup Requested",
-                "Your cash pickup request has been submitted and is awaiting assignment to a worker.",
+                "Your cash pickup request has been submitted and is awaiting assignment to a staff member.",
                 "CASH_REQUEST", saved.getId(), "/payments");
         notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_SUBMITTED,
                 "New Cash Pickup Request",
-                "A member has requested a cash pickup. Review and assign a worker.",
+                "A member has requested a cash pickup. Review and assign a staff member.",
                 "CASH_REQUEST", saved.getId(), "/payments");
         notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_SUBMITTED,
                 "New Cash Pickup Request",
-                "A member has requested a cash pickup. Review and assign a worker.",
+                "A member has requested a cash pickup. Review and assign a staff member.",
                 "CASH_REQUEST", saved.getId(), "/payments");
 
         publishCashRequestEvent("CREATED", saved, memberServiceClient.getMemberName(memberId), null);
@@ -102,115 +107,125 @@ public class CashRequestService {
     public List<CashRequestResponse> getActiveRequests() {
         return requestRepository
                 .findByStatusInOrderByRequestedAtAsc(
-                        List.of(CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP))
+                        List.of(CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED,
+                                CashRequestStatus.PICKED_UP, CashRequestStatus.PARTIALLY_COLLECTED))
                 .stream().map(this::toResponse).toList();
     }
 
     @Transactional
-    public CashRequestResponse createRequestByAdmin(UUID memberId, UUID workerId, CreateCashRequestRequest dto, UUID adminId) {
-        CashRequestStatus initialStatus = workerId != null ? CashRequestStatus.ASSIGNED : CashRequestStatus.PENDING;
+    public CashRequestResponse createRequestByAdmin(UUID memberProfileId, UUID staffId, CreateCashRequestRequest dto, UUID adminId) {
+        // memberProfileId is the member-service UUID (from admin dropdown).
+        // We must store the user-service UUID as memberId so the member can find
+        // this request via /my-requests (which queries by JWT principal = user-service UUID).
+        String resolvedUserIdStr = memberServiceClient.getMemberUserId(memberProfileId);
+        UUID memberId = resolvedUserIdStr != null ? UUID.fromString(resolvedUserIdStr) : memberProfileId;
+
+        CashRequestStatus initialStatus = staffId != null ? CashRequestStatus.ASSIGNED
+                : dto.getScheduledFor() != null ? CashRequestStatus.SCHEDULED
+                : CashRequestStatus.PENDING;
         CashPaymentRequest req = CashPaymentRequest.builder()
                 .memberId(memberId)
                 .chitId(dto.getChitId())
                 .requestedAmount(dto.getRequestedAmount())
                 .status(initialStatus)
                 .notes(dto.getNotes())
-                .assignedWorkerId(workerId)
-                .assignedAt(workerId != null ? LocalDateTime.now() : null)
-                .assignedBy(workerId != null ? adminId : null)
+                .assignedStaffId(staffId)
+                .assignedAt(staffId != null ? LocalDateTime.now() : null)
+                .assignedBy(staffId != null ? adminId : null)
+                .scheduledFor(dto.getScheduledFor())
                 .build();
         CashPaymentRequest saved = requestRepository.save(req);
 
         logAudit(saved.getId(), "CREATED", null, initialStatus, adminId, "ADMIN", "Created by admin");
-        if (workerId != null) {
-            // Worker was assigned at creation time — no PENDING phase ever existed
+        if (staffId != null) {
             logAudit(saved.getId(), "ASSIGNED", null, CashRequestStatus.ASSIGNED, adminId, "ADMIN", "Assigned at creation");
         }
 
-        if (workerId != null) {
-            String memberName = memberServiceClient.getMemberName(memberId);
+        String memberName = memberServiceClient.getMemberName(memberProfileId);
+        if (staffId != null) {
             String memberDisplay = memberName.isBlank() ? "a member" : memberName;
-            notificationService.notifyUser(workerId, NotificationType.CASH_REQUEST_ASSIGNED,
+            notificationService.notifyUser(staffId, NotificationType.CASH_REQUEST_ASSIGNED,
                     "New Cash Pickup Task",
                     "You have been assigned to collect cash from " + memberDisplay + ". Check your tasks.",
                     "CASH_REQUEST", saved.getId(), "/tasks");
         }
-        String workerName = workerId != null ? userServiceClient.getUserName(workerId) : "";
-        String workerDisplay = workerName.isBlank() ? "a worker" : workerName;
+        String staffName = staffId != null ? userServiceClient.getUserName(staffId) : "";
+        String staffDisplay = staffName.isBlank() ? "a staff member" : staffName;
         notificationService.notifyUser(memberId, NotificationType.CASH_REQUEST_SUBMITTED,
                 "Cash Pickup Scheduled",
-                workerId != null
-                        ? workerDisplay + " has been assigned to collect your payment and will contact you shortly."
-                        : "A cash pickup has been scheduled for you. A worker will be assigned soon.",
+                staffId != null
+                        ? staffDisplay + " has been assigned to collect your payment and will contact you shortly."
+                        : "A cash pickup has been scheduled for you. A staff member will be assigned soon.",
                 "CASH_REQUEST", saved.getId(), "/member");
 
-        String memberNameForEvent = memberServiceClient.getMemberName(memberId);
-        publishCashRequestEvent(workerId != null ? "ASSIGNED" : "CREATED", saved, memberNameForEvent, workerName);
+        publishCashRequestEvent(staffId != null ? "ASSIGNED" : "CREATED", saved, memberName, staffName);
 
         return toResponse(saved);
     }
 
     @Transactional
-    public CashRequestResponse assignWorker(UUID requestId, AssignWorkerRequest dto, UUID assignerId, String assignerRole) {
+    public CashRequestResponse assignStaff(UUID requestId, AssignWorkerRequest dto, UUID assignerId, String assignerRole) {
         CashPaymentRequest req = findOrThrow(requestId);
-        if (req.getStatus() != CashRequestStatus.PENDING) {
+        if (req.getStatus() != CashRequestStatus.PENDING && req.getStatus() != CashRequestStatus.SCHEDULED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Request is already " + req.getStatus() + " — cannot reassign");
         }
-        req.setAssignedWorkerId(dto.getWorkerId());
+        CashRequestStatus prevStatus = req.getStatus();
+        req.setAssignedStaffId(dto.getStaffId());
         req.setAssignedAt(LocalDateTime.now());
         req.setAssignedBy(assignerId);
         req.setStatus(CashRequestStatus.ASSIGNED);
         if (dto.getAdminNotes() != null) req.setAdminNotes(dto.getAdminNotes());
         CashPaymentRequest saved = requestRepository.save(req);
 
-        logAudit(requestId, "ASSIGNED", CashRequestStatus.PENDING, CashRequestStatus.ASSIGNED, assignerId, assignerRole, dto.getAdminNotes());
+        logAudit(requestId, "ASSIGNED", prevStatus, CashRequestStatus.ASSIGNED, assignerId, assignerRole, dto.getAdminNotes());
 
         String memberName = memberServiceClient.getMemberName(req.getMemberId());
         String memberDisplay = memberName.isBlank() ? "a member" : memberName;
-        String workerName = userServiceClient.getUserName(dto.getWorkerId());
-        String workerDisplay = workerName.isBlank() ? "a worker" : workerName;
+        String staffName = userServiceClient.getUserName(dto.getStaffId());
+        String staffDisplay = staffName.isBlank() ? "a staff member" : staffName;
 
-        notificationService.notifyUser(dto.getWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+        notificationService.notifyUser(dto.getStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
                 "New Cash Pickup Task",
                 "You have been assigned to collect cash from " + memberDisplay + ". Check your tasks.",
                 "CASH_REQUEST", requestId, "/tasks");
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
-                "Worker Assigned",
-                workerDisplay + " has been assigned to your cash pickup request and will contact you shortly.",
+                "Staff Assigned",
+                staffDisplay + " has been assigned to your cash pickup request and will contact you shortly.",
                 "CASH_REQUEST", requestId, "/member");
         if ("ADMIN".equals(assignerRole)) {
             notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
-                    "Cash Request Assigned", "Admin assigned a worker to a cash pickup request.",
+                    "Cash Request Assigned", "Admin assigned a staff member to a cash pickup request.",
                     "CASH_REQUEST", requestId, "/payments");
         } else {
             notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_ASSIGNED,
-                    "Cash Request Assigned", "Manager assigned a worker to a cash pickup request.",
+                    "Cash Request Assigned", "Manager assigned a staff member to a cash pickup request.",
                     "CASH_REQUEST", requestId, "/payments");
         }
 
-        publishCashRequestEvent("ASSIGNED", saved, memberName, workerName);
+        publishCashRequestEvent("ASSIGNED", saved, memberName, staffName);
 
         return toResponse(saved);
     }
 
-    public List<CashRequestResponse> getMyAssignedRequests(UUID workerId) {
+    public List<CashRequestResponse> getMyAssignedRequests(UUID staffId) {
         return requestRepository
-                .findByAssignedWorkerIdAndStatusInOrderByAssignedAtAsc(
-                        workerId, List.of(CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP))
+                .findByAssignedStaffIdAndStatusInOrderByAssignedAtAsc(
+                        staffId, List.of(CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP,
+                                CashRequestStatus.PARTIALLY_COLLECTED))
                 .stream().map(this::toResponse).toList();
     }
 
-    public List<CashRequestResponse> getMyRequestHistory(UUID workerId) {
+    public List<CashRequestResponse> getMyRequestHistory(UUID staffId) {
         return requestRepository
-                .findByAssignedWorkerIdAndStatusInOrderByUpdatedAtDesc(
-                        workerId, List.of(CashRequestStatus.COLLECTED, CashRequestStatus.CANCELLED))
+                .findByAssignedStaffIdAndStatusInOrderByUpdatedAtDesc(
+                        staffId, List.of(CashRequestStatus.COLLECTED, CashRequestStatus.CANCELLED))
                 .stream().map(this::toResponse).toList();
     }
 
-    public List<CashRequestResponse> getWorkerRequests(UUID workerId) {
+    public List<CashRequestResponse> getStaffRequests(UUID staffId) {
         return requestRepository
-                .findByAssignedWorkerIdOrderByRequestedAtDesc(workerId)
+                .findByAssignedStaffIdOrderByRequestedAtDesc(staffId)
                 .stream().map(this::toResponse).toList();
     }
 
@@ -221,41 +236,41 @@ public class CashRequestService {
     }
 
     @Transactional
-    public CashRequestResponse markPickedUp(UUID requestId, UUID workerId) {
-        CashPaymentRequest req = findOrThrow(requestId);
+    public CashRequestResponse markPickedUp(UUID requestId, UUID staffId) {
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Request is not in ASSIGNED state — current status: " + req.getStatus());
         }
-        if (!req.getAssignedWorkerId().equals(workerId)) {
+        if (!req.getAssignedStaffId().equals(staffId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
         }
 
         req.setStatus(CashRequestStatus.PICKED_UP);
         req.setPickedUpAt(LocalDateTime.now());
-        req.setPickedUpBy(workerId);
+        req.setPickedUpBy(staffId);
         CashPaymentRequest saved = requestRepository.save(req);
 
-        logAudit(requestId, "PICKED_UP", CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP, workerId, "WORKER", null);
+        logAudit(requestId, "PICKED_UP", CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP, staffId, "STAFF", null);
 
-        String wName = userServiceClient.getUserName(workerId);
-        String wDisplay = wName.isBlank() ? "A worker" : wName;
+        String sName = userServiceClient.getUserName(staffId);
+        String sDisplay = sName.isBlank() ? "A staff member" : sName;
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
                 "Cash Picked Up",
-                wDisplay + " has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
+                sDisplay + " has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
                 "CASH_REQUEST", requestId, "/member");
         notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
                 "Cash Picked Up — Ready to Collect",
-                "A worker has picked up cash from a member. Please confirm receipt to credit the member's account.",
+                "A staff member has picked up cash from a member. Please confirm receipt to credit the member's account.",
                 "CASH_REQUEST", requestId, "/payments");
         notificationService.notifyRole("MANAGER", NotificationType.CASH_COLLECTED,
                 "Cash Picked Up — Ready to Collect",
-                "A worker has picked up cash from a member. Please confirm receipt to credit the member's account.",
+                "A staff member has picked up cash from a member. Please confirm receipt to credit the member's account.",
                 "CASH_REQUEST", requestId, "/payments");
 
         String memberName = memberServiceClient.getMemberName(req.getMemberId());
-        publishCashRequestEvent("PICKED_UP", saved, memberName, wName);
+        publishCashRequestEvent("PICKED_UP", saved, memberName, sName);
 
         return toResponse(saved);
     }
@@ -266,7 +281,7 @@ public class CashRequestService {
      */
     @Transactional
     public CashRequestResponse voidPickup(UUID requestId, UUID adminId, String adminRole, String reason) {
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.PICKED_UP) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -284,9 +299,9 @@ public class CashRequestService {
         logAudit(requestId, "PICKUP_VOIDED", CashRequestStatus.PICKED_UP, CashRequestStatus.ASSIGNED,
                 adminId, adminRole, reason);
 
-        // Notify worker: their pickup was voided, they still own the task
-        if (req.getAssignedWorkerId() != null) {
-            notificationService.notifyUser(req.getAssignedWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+        // Notify staff: their pickup was voided, they still own the task
+        if (req.getAssignedStaffId() != null) {
+            notificationService.notifyUser(req.getAssignedStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
                     "Pickup Voided by Admin",
                     "Admin has voided your cash pickup record. Please re-visit the member to collect and mark pickup again.",
                     "CASH_REQUEST", requestId, "/tasks");
@@ -303,59 +318,218 @@ public class CashRequestService {
 
     @Transactional
     public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId) {
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
-        if (req.getStatus() != CashRequestStatus.PICKED_UP) {
+        if (req.getStatus() != CashRequestStatus.PICKED_UP
+                && req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Request must be in PICKED_UP state before admin can confirm collection — current status: " + req.getStatus());
+                    "Request must be in PICKED_UP or PARTIALLY_COLLECTED state before admin can confirm collection — current status: " + req.getStatus());
         }
-        if (req.getRequestedAmount() == null) {
+
+        BigDecimal amountToCredit = req.getCollectedAmount() != null
+                ? req.getCollectedAmount()
+                : req.getRequestedAmount();
+
+        if (amountToCredit == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "No amount specified on this request — amount must be set before confirming");
         }
 
+        CashRequestStatus prevStatus = req.getStatus();
+
+        // CashPaymentRequest.memberId stores the user-service UUID, but payment records
+        // are keyed by member-service profile UUID. Resolve the profile UUID here so
+        // applyFifo can find the correct outstanding records for this draw.
+        UUID paymentMemberId = memberServiceClient.getProfileIdByUserId(req.getMemberId());
+        if (paymentMemberId == null) {
+            // memberId may already be a profile UUID (e.g. if member-service lookup failed at
+            // request creation and the raw profile UUID was stored), so fall back to it.
+            paymentMemberId = req.getMemberId();
+        }
+
         CollectCashRequest collectReq = new CollectCashRequest();
         collectReq.setChitId(req.getChitId());
-        collectReq.setMemberId(req.getMemberId());
-        collectReq.setAmount(req.getRequestedAmount());
-        collectReq.setNotes("Collected via request #" + requestId);
+        collectReq.setMemberId(paymentMemberId);
+        collectReq.setAmount(amountToCredit);
+        collectReq.setNotes("Collected via request #" + requestId
+                + (prevStatus == CashRequestStatus.PARTIALLY_COLLECTED ? " (partial)" : ""));
 
-        PaymentBatchResponse batch = paymentService.collectCash(collectReq, req.getAssignedWorkerId(), true);
+        PaymentBatchResponse batch = paymentService.collectCash(collectReq, req.getAssignedStaffId(), true, null, true);
 
         req.setStatus(CashRequestStatus.COLLECTED);
         req.setCollectedBatchId(batch.getId());
         requestRepository.save(req);
 
-        logAudit(requestId, "COLLECTED", CashRequestStatus.PICKED_UP, CashRequestStatus.COLLECTED, adminId, "ADMIN", null);
+        logAudit(requestId, "COLLECTED", prevStatus, CashRequestStatus.COLLECTED, adminId, "ADMIN",
+                prevStatus == CashRequestStatus.PARTIALLY_COLLECTED
+                        ? "Partial amount of ₹" + amountToCredit.toPlainString() + " credited" : null);
 
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_COLLECTED,
                 "Payment Confirmed",
                 "Admin has confirmed receipt of your cash payment. Your account has been credited.",
                 "CASH_REQUEST", requestId, "/member");
-        if (req.getAssignedWorkerId() != null) {
-            notificationService.notifyUser(req.getAssignedWorkerId(), NotificationType.CASH_COLLECTED,
+        if (req.getAssignedStaffId() != null) {
+            notificationService.notifyUser(req.getAssignedStaffId(), NotificationType.CASH_COLLECTED,
                     "Collection Confirmed",
                     "Admin confirmed your cash handover. Task complete.",
                     "CASH_REQUEST", requestId, "/tasks");
         }
 
         String mName = memberServiceClient.getMemberName(req.getMemberId());
-        String wName = req.getAssignedWorkerId() != null
-                ? userServiceClient.getUserName(req.getAssignedWorkerId()) : null;
-        publishCashRequestEvent("COLLECTED", req, mName, wName);
+        String sName = req.getAssignedStaffId() != null
+                ? userServiceClient.getUserName(req.getAssignedStaffId()) : null;
+        publishCashRequestEvent("COLLECTED", req, mName, sName);
 
         return batch;
     }
 
     @Transactional
-    public CashRequestResponse rescheduleRequest(UUID requestId, UUID workerId, LocalDateTime scheduledFor) {
+    public CashRequestResponse partiallyCollect(UUID requestId, BigDecimal collectedAmount, UUID staffId) {
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
+
+        if (req.getStatus() != CashRequestStatus.ASSIGNED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Request must be ASSIGNED to mark partial collection — current status: " + req.getStatus());
+        }
+        if (!req.getAssignedStaffId().equals(staffId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
+        }
+        if (req.getRequestedAmount() != null && collectedAmount.compareTo(req.getRequestedAmount()) >= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Collected amount must be less than requested amount — use regular pickup for full collection");
+        }
+
+        req.setStatus(CashRequestStatus.PARTIALLY_COLLECTED);
+        req.setCollectedAmount(collectedAmount);
+        req.setPartiallyCollectedAt(LocalDateTime.now());
+        req.setPickedUpAt(LocalDateTime.now());
+        req.setPickedUpBy(staffId);
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        logAudit(requestId, "PARTIALLY_COLLECTED", CashRequestStatus.ASSIGNED,
+                CashRequestStatus.PARTIALLY_COLLECTED, staffId, "STAFF",
+                "Collected ₹" + collectedAmount.toPlainString()
+                        + (req.getRequestedAmount() != null ? " of ₹" + req.getRequestedAmount().toPlainString() : ""));
+
+        String sName = userServiceClient.getUserName(staffId);
+        String sDisplay = sName.isBlank() ? "A staff member" : sName;
+        String requestedStr = req.getRequestedAmount() != null ? req.getRequestedAmount().toPlainString() : "requested";
+        BigDecimal remaining = req.getRequestedAmount() != null
+                ? req.getRequestedAmount().subtract(collectedAmount) : null;
+
+        notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                "Partial Cash Pickup — Approval Needed",
+                sDisplay + " collected ₹" + collectedAmount.toPlainString()
+                        + " of your ₹" + requestedStr
+                        + " request. Please approve or reject this partial collection on your account page.",
+                "CASH_REQUEST", requestId, "/member");
+        notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
+                "Partial Cash Pickup Recorded",
+                sDisplay + " collected ₹" + collectedAmount.toPlainString()
+                        + " of ₹" + requestedStr
+                        + (remaining != null ? " (₹" + remaining.toPlainString() + " remaining)" : "")
+                        + ". Awaiting member approval.",
+                "CASH_REQUEST", requestId, "/payments");
+        notificationService.notifyRole("MANAGER", NotificationType.CASH_COLLECTED,
+                "Partial Cash Pickup Recorded",
+                sDisplay + " collected ₹" + collectedAmount.toPlainString()
+                        + " of ₹" + requestedStr
+                        + (remaining != null ? " (₹" + remaining.toPlainString() + " remaining)" : "")
+                        + ". Awaiting member approval.",
+                "CASH_REQUEST", requestId, "/payments");
+
+        String mName = memberServiceClient.getMemberName(req.getMemberId());
+        publishCashRequestEvent("PARTIALLY_COLLECTED", saved, mName, sName, collectedAmount, null);
+
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public CashRequestResponse memberApprovePartial(UUID requestId, boolean approved, String reason, UUID memberId) {
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
+
+        if (req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Only PARTIALLY_COLLECTED requests can be approved/rejected by member");
+        }
+        if (!req.getMemberId().equals(memberId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "This request does not belong to you");
+        }
+
+        req.setMemberApproved(approved);
+        if (!approved && reason != null) {
+            req.setMemberRejectionReason(reason);
+        }
+        CashPaymentRequest saved = requestRepository.save(req);
+
+        logAudit(requestId, approved ? "MEMBER_APPROVED" : "MEMBER_REJECTED",
+                CashRequestStatus.PARTIALLY_COLLECTED, CashRequestStatus.PARTIALLY_COLLECTED,
+                memberId, "MEMBER", approved ? null : reason);
+
+        notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_ASSIGNED,
+                approved ? "Member Approved Partial Collection" : "Member Rejected Partial Collection",
+                approved
+                        ? "Member confirmed that ₹" + req.getCollectedAmount().toPlainString() + " was collected. Proceed to remit."
+                        : "Member disputed the partial collection. Reason: " + (reason != null ? reason : "—") + ". Review and edit amount if needed.",
+                "CASH_REQUEST", requestId, "/payments");
+        notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
+                approved ? "Member Approved Partial Collection" : "Member Rejected Partial Collection",
+                approved
+                        ? "Member confirmed that ₹" + req.getCollectedAmount().toPlainString() + " was collected. Proceed to remit."
+                        : "Member disputed the partial collection. Reason: " + (reason != null ? reason : "—") + ". Review and edit amount if needed.",
+                "CASH_REQUEST", requestId, "/payments");
+
+        if (req.getAssignedStaffId() != null) {
+            notificationService.notifyUser(req.getAssignedStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                    approved ? "Member Approved Your Collection" : "Member Disputed Your Collection",
+                    approved
+                            ? "The member confirmed the ₹" + req.getCollectedAmount().toPlainString() + " partial collection. Admin will remit soon."
+                            : "The member disputed the partial collection. Admin will review. Reason: " + (reason != null ? reason : "—"),
+                    "CASH_REQUEST", requestId, "/tasks");
+        }
+
+        String mName = memberServiceClient.getMemberName(req.getMemberId());
+        String sName = req.getAssignedStaffId() != null ? userServiceClient.getUserName(req.getAssignedStaffId()) : "";
+        publishCashRequestEvent(
+                approved ? "MEMBER_APPROVED" : "MEMBER_REJECTED",
+                saved, mName, sName,
+                req.getCollectedAmount(),
+                approved ? null : reason
+        );
+
+        return toResponse(saved);
+    }
+
+    public CashRequestSummaryResponse getSummary() {
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        return CashRequestSummaryResponse.builder()
+                .pending(requestRepository.countByStatus(CashRequestStatus.PENDING))
+                .assigned(requestRepository.countByStatus(CashRequestStatus.ASSIGNED))
+                .pickedUp(requestRepository.countByStatus(CashRequestStatus.PICKED_UP))
+                .partiallyCollected(requestRepository.countByStatus(CashRequestStatus.PARTIALLY_COLLECTED))
+                .cancelled(requestRepository.countByStatus(CashRequestStatus.CANCELLED))
+                .collected(requestRepository.countByStatus(CashRequestStatus.COLLECTED))
+                .todayCancelled(requestRepository.countByStatusAndUpdatedAtAfter(CashRequestStatus.CANCELLED, todayStart))
+                .todayCollected(requestRepository.countByStatusAndUpdatedAtAfter(CashRequestStatus.COLLECTED, todayStart))
+                .todayRequested(requestRepository.countRequestedAfter(todayStart))
+                .build();
+    }
+
+    public List<CashRequestResponse> getCancelledRequests() {
+        return requestRepository
+                .findByStatusOrderByUpdatedAtDesc(CashRequestStatus.CANCELLED)
+                .stream().map(this::toResponse).toList();
+    }
+
+    @Transactional
+    public CashRequestResponse rescheduleRequest(UUID requestId, UUID staffId, LocalDateTime scheduledFor) {
         CashPaymentRequest req = findOrThrow(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Only ASSIGNED requests can be rescheduled — current status: " + req.getStatus());
         }
-        if (!req.getAssignedWorkerId().equals(workerId)) {
+        if (!req.getAssignedStaffId().equals(staffId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
         }
 
@@ -363,44 +537,44 @@ public class CashRequestService {
         CashPaymentRequest saved = requestRepository.save(req);
 
         logAudit(requestId, "RESCHEDULED", CashRequestStatus.ASSIGNED, CashRequestStatus.ASSIGNED,
-                workerId, "WORKER", "Rescheduled to " + scheduledFor.toLocalDate());
+                staffId, "STAFF", "Rescheduled to " + scheduledFor.toLocalDate());
 
         notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_ASSIGNED,
-                "Pickup Rescheduled", "A worker rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
+                "Pickup Rescheduled", "A staff member rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
                 "CASH_REQUEST", requestId, "/payments");
         notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
-                "Pickup Rescheduled", "A worker rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
+                "Pickup Rescheduled", "A staff member rescheduled a cash pickup to " + scheduledFor.toLocalDate() + ".",
                 "CASH_REQUEST", requestId, "/payments");
 
         return toResponse(saved);
     }
 
     @Transactional
-    public CashRequestResponse cancelByWorker(UUID requestId, UUID workerId, String reason) {
+    public CashRequestResponse cancelByStaff(UUID requestId, UUID staffId, String reason) {
         CashPaymentRequest req = findOrThrow(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Only ASSIGNED requests can be cancelled by worker — current status: " + req.getStatus());
+                    "Only ASSIGNED requests can be cancelled by staff — current status: " + req.getStatus());
         }
-        if (!req.getAssignedWorkerId().equals(workerId)) {
+        if (!req.getAssignedStaffId().equals(staffId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This request is not assigned to you");
         }
 
         req.setStatus(CashRequestStatus.CANCELLED);
-        if (reason != null) req.setAdminNotes("Cancelled by worker: " + reason);
+        if (reason != null) req.setAdminNotes("Cancelled by staff: " + reason);
         CashPaymentRequest saved = requestRepository.save(req);
 
         logAudit(requestId, "CANCELLED", CashRequestStatus.ASSIGNED, CashRequestStatus.CANCELLED,
-                workerId, "WORKER", reason != null ? "Cancelled by worker: " + reason : null);
+                staffId, "STAFF", reason != null ? "Cancelled by staff: " + reason : null);
 
         notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_SUBMITTED,
-                "Pickup Cancelled by Worker",
-                "A worker cancelled a cash pickup task. The request may need to be reassigned.",
+                "Pickup Cancelled by Staff",
+                "A staff member cancelled a cash pickup task. The request may need to be reassigned.",
                 "CASH_REQUEST", requestId, "/payments");
         notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_SUBMITTED,
-                "Pickup Cancelled by Worker",
-                "A worker cancelled a cash pickup task. The request may need to be reassigned.",
+                "Pickup Cancelled by Staff",
+                "A staff member cancelled a cash pickup task. The request may need to be reassigned.",
                 "CASH_REQUEST", requestId, "/payments");
 
         return toResponse(saved);
@@ -434,20 +608,20 @@ public class CashRequestService {
                     "Cannot edit a request in " + req.getStatus() + " state");
         }
 
-        UUID oldWorkerId = req.getAssignedWorkerId();
+        UUID oldStaffId = req.getAssignedStaffId();
         boolean amountChanged = dto.getRequestedAmount() != null
                 && !dto.getRequestedAmount().equals(req.getRequestedAmount());
-        boolean workerChanged = Boolean.TRUE.equals(dto.getUpdateWorker())
-                && !java.util.Objects.equals(oldWorkerId, dto.getWorkerId());
+        boolean staffChanged = Boolean.TRUE.equals(dto.getUpdateStaff())
+                && !java.util.Objects.equals(oldStaffId, dto.getStaffId());
 
         if (dto.getRequestedAmount() != null) req.setRequestedAmount(dto.getRequestedAmount());
         if (dto.getAdminNotes() != null) req.setAdminNotes(dto.getAdminNotes());
         if (dto.getScheduledFor() != null) req.setScheduledFor(dto.getScheduledFor());
 
-        if (workerChanged) {
-            UUID newWorkerId = dto.getWorkerId();
-            req.setAssignedWorkerId(newWorkerId);
-            if (newWorkerId != null) {
+        if (staffChanged) {
+            UUID newStaffId = dto.getStaffId();
+            req.setAssignedStaffId(newStaffId);
+            if (newStaffId != null) {
                 req.setAssignedAt(LocalDateTime.now());
                 req.setAssignedBy(adminId);
                 req.setStatus(CashRequestStatus.ASSIGNED);
@@ -462,11 +636,11 @@ public class CashRequestService {
 
         StringBuilder auditReason = new StringBuilder("Admin updated");
         if (amountChanged) auditReason.append("; amount changed to ").append(dto.getRequestedAmount());
-        if (workerChanged) auditReason.append("; worker changed");
+        if (staffChanged) auditReason.append("; staff changed");
         logAudit(requestId, "UPDATED", req.getStatus(), saved.getStatus(), adminId, adminRole, auditReason.toString());
 
-        // Notify member and worker of changes
-        if (amountChanged || workerChanged) {
+        // Notify member and staff of changes
+        if (amountChanged || staffChanged) {
             String memberName = memberServiceClient.getMemberName(req.getMemberId());
             String memberDisplay = memberName.isBlank() ? "your" : memberName + "'s";
 
@@ -476,39 +650,39 @@ public class CashRequestService {
                         "Cash Pickup Updated",
                         "The amount for your cash pickup has been updated to " + amtStr + ".",
                         "CASH_REQUEST", requestId, "/member");
-                if (saved.getAssignedWorkerId() != null) {
-                    notificationService.notifyUser(saved.getAssignedWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                if (saved.getAssignedStaffId() != null) {
+                    notificationService.notifyUser(saved.getAssignedStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
                             "Pickup Amount Updated",
                             "The amount for " + memberDisplay + " cash pickup has been updated to " + amtStr + ". Please collect the revised amount.",
                             "CASH_REQUEST", requestId, "/tasks");
                 }
             }
 
-            if (workerChanged) {
-                // Notify old worker they've been removed
-                if (oldWorkerId != null) {
-                    notificationService.notifyUser(oldWorkerId, NotificationType.CASH_REQUEST_ASSIGNED,
+            if (staffChanged) {
+                // Notify old staff they've been removed
+                if (oldStaffId != null) {
+                    notificationService.notifyUser(oldStaffId, NotificationType.CASH_REQUEST_ASSIGNED,
                             "Task Reassigned",
-                            "The cash pickup for " + memberDisplay + " has been reassigned to another worker.",
+                            "The cash pickup for " + memberDisplay + " has been reassigned to another staff member.",
                             "CASH_REQUEST", requestId, "/tasks");
                 }
-                // Notify new worker
-                if (saved.getAssignedWorkerId() != null) {
-                    String wName = userServiceClient.getUserName(saved.getAssignedWorkerId());
-                    notificationService.notifyUser(saved.getAssignedWorkerId(), NotificationType.CASH_REQUEST_ASSIGNED,
+                // Notify new staff
+                if (saved.getAssignedStaffId() != null) {
+                    String sName = userServiceClient.getUserName(saved.getAssignedStaffId());
+                    notificationService.notifyUser(saved.getAssignedStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
                             "New Cash Pickup Task",
                             "You have been assigned to collect cash from " + (memberName.isBlank() ? "a member" : memberName) + ". Check your tasks.",
                             "CASH_REQUEST", requestId, "/tasks");
-                    String workerDisplay = wName.isBlank() ? "A new worker" : wName;
+                    String staffDisplay = sName.isBlank() ? "A new staff member" : sName;
                     notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
-                            "Worker Updated",
-                            workerDisplay + " has been assigned to collect your cash payment.",
+                            "Staff Updated",
+                            staffDisplay + " has been assigned to collect your cash payment.",
                             "CASH_REQUEST", requestId, "/member");
                 } else {
-                    // Worker was removed (back to pending)
+                    // Staff was removed (back to pending)
                     notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
                             "Pickup Pending",
-                            "Your cash pickup is awaiting reassignment. You'll be notified once a worker is assigned.",
+                            "Your cash pickup is awaiting reassignment. You'll be notified once a staff member is assigned.",
                             "CASH_REQUEST", requestId, "/member");
                 }
             }
@@ -530,14 +704,39 @@ public class CashRequestService {
                 .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
     }
 
+    /** Use inside @Transactional write methods — acquires a row-level lock to prevent concurrent state transitions. */
+    private CashPaymentRequest findOrThrowForWrite(UUID id) {
+        return requestRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
+    }
+
+    /** Publishes a Kafka event only after the surrounding DB transaction commits, preventing phantom events on rollback. */
+    private void publishAfterCommit(Runnable publish) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    try { publish.run(); }
+                    catch (Exception e) { log.error("Post-commit event publish failed: {}", e.getMessage()); }
+                }
+            });
+        } else {
+            publish.run();
+        }
+    }
+
     private CashRequestResponse toResponse(CashPaymentRequest r) {
         return CashRequestResponse.builder()
                 .id(r.getId())
                 .memberId(r.getMemberId())
                 .chitId(r.getChitId())
                 .requestedAmount(r.getRequestedAmount())
+                .collectedAmount(r.getCollectedAmount())
+                .memberApproved(r.getMemberApproved())
+                .memberRejectionReason(r.getMemberRejectionReason())
+                .partiallyCollectedAt(r.getPartiallyCollectedAt())
+                .parentRequestId(r.getParentRequestId())
                 .status(r.getStatus())
-                .assignedWorkerId(r.getAssignedWorkerId())
+                .assignedStaffId(r.getAssignedStaffId())
                 .assignedAt(r.getAssignedAt())
                 .assignedBy(r.getAssignedBy())
                 .pickedUpAt(r.getPickedUpAt())
@@ -566,22 +765,29 @@ public class CashRequestService {
     }
 
     private void publishCashRequestEvent(String eventType, CashPaymentRequest req,
-                                          String memberName, String workerName) {
+                                          String memberName, String staffName) {
+        publishCashRequestEvent(eventType, req, memberName, staffName, null, null);
+    }
+
+    private void publishCashRequestEvent(String eventType, CashPaymentRequest req,
+                                          String memberName, String staffName,
+                                          BigDecimal collectedAmount, String extraData) {
         try {
+            // memberId in the entity is always the user-service UUID (either self-created JWT principal,
+            // or resolved from member-service UUID in createRequestByAdmin).
+            // getMemberUserId() returns null when passed a user-service UUID (correct — it's already a userId).
+            // In that case fall back to memberId itself as the userId so the event always has a memberUserId.
             String memberUserId = memberServiceClient.getMemberUserId(req.getMemberId());
-            eventPublisher.publish(new CashRequestEvent(
-                    req.getId().toString(),
-                    eventType,
-                    req.getMemberId().toString(),
-                    memberUserId,
-                    req.getAssignedWorkerId() != null ? req.getAssignedWorkerId().toString() : null,
-                    req.getRequestedAmount(),
-                    memberName,
-                    workerName,
-                    Instant.now()
-            ));
+            if (memberUserId == null) memberUserId = req.getMemberId().toString();
+            CashRequestEvent event = new CashRequestEvent(
+                    req.getId().toString(), eventType,
+                    req.getMemberId().toString(), memberUserId,
+                    req.getAssignedStaffId() != null ? req.getAssignedStaffId().toString() : null,
+                    req.getRequestedAmount(), memberName, staffName,
+                    Instant.now(), collectedAmount, extraData);
+            publishAfterCommit(() -> eventPublisher.publish(event));
         } catch (Exception e) {
-            log.warn("Failed to publish cash request event {}: {}", eventType, e.getMessage());
+            log.warn("Failed to build cash request event {}: {}", eventType, e.getMessage());
         }
     }
 }

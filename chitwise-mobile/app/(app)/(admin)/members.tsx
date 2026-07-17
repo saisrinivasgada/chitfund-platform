@@ -131,6 +131,7 @@ export default function AdminMembersScreen() {
   const [showReferralChange, setShowReferralChange] = useState(false);
   const [newReferralId, setNewReferralId] = useState('');
   const [newReferralSearch, setNewReferralSearch] = useState('');
+  const [idCopied, setIdCopied] = useState(false);
 
   const { data: members = [], isLoading, refetch } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
 
@@ -458,9 +459,21 @@ export default function AdminMembersScreen() {
                 )}
               </View>
               {selected?.id && (
-                <Text style={{ fontSize: 10, color: C.gray400, marginTop: 3, fontFamily: 'monospace' }}>
-                  ID: {selected.id}
-                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    Clipboard.setString(selected.id);
+                    setIdCopied(true);
+                    setTimeout(() => setIdCopied(false), 2000);
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}
+                >
+                  <Text style={{ fontSize: 10, color: C.gray400, fontFamily: 'monospace' }}>
+                    ID: {selected.id}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: idCopied ? '#16A34A' : C.gray400 }}>
+                    {idCopied ? '✓ Copied' : '⎘'}
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
             <TouchableOpacity onPress={() => setShowDetail(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
@@ -643,7 +656,7 @@ export default function AdminMembersScreen() {
                           </TouchableOpacity>
                           <Button
                             label={createLoginMutation.isPending ? 'Creating…' : 'Create Login'}
-                            variant="primary" style={{ flex: 1 }}
+                            variant="primary" fullWidth
                             loading={createLoginMutation.isPending}
                             disabled={!clUsername.trim() || !clEmail.trim()}
                             onPress={() => createLoginMutation.mutate()}
@@ -943,7 +956,7 @@ export default function AdminMembersScreen() {
                       const stColor = r.status === 'PICKED_UP' ? '#16A34A' : r.status === 'ASSIGNED' ? '#2563EB' : C.amber;
                       const stBg    = r.status === 'PICKED_UP' ? '#F0FDF4' : r.status === 'ASSIGNED' ? '#EFF6FF' : '#FFFBEB';
                       const stLabel = r.status === 'PICKED_UP' ? 'Picked Up — pending admin confirm' :
-                                      r.status === 'ASSIGNED'  ? 'Assigned to worker' : 'Awaiting assignment';
+                                      r.status === 'ASSIGNED'  ? 'Assigned to staff' : 'Awaiting assignment';
                       return (
                         <View key={r.id} style={{ backgroundColor: '#FFFBEB', borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1.5, borderColor: '#FDE68A' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -954,8 +967,8 @@ export default function AdminMembersScreen() {
                               <Amount value={Number(r.requestedAmount)} size="sm" />
                             )}
                           </View>
-                          {r.workerName && (
-                            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>Worker: {r.workerName}</Text>
+                          {(r.staffName ?? r.workerName) && (
+                            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>Staff: {r.staffName ?? r.workerName}</Text>
                           )}
                           <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
                             {fmtDate(r.assignedAt ?? r.createdAt)}

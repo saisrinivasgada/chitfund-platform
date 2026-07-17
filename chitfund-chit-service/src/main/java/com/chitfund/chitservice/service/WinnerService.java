@@ -49,6 +49,10 @@ public class WinnerService {
         if (request.getMonthNumber() < 1 || request.getMonthNumber() > chit.getDurationMonths()) {
             throw new BusinessException(ErrorCode.INVALID_MONTH_NUMBER);
         }
+        if (winnerRepository.existsByChitIdAndMonthNumber(chitId, request.getMonthNumber())) {
+            throw new BusinessException(ErrorCode.INVALID_MONTH_NUMBER,
+                    "A winner has already been assigned for draw #" + request.getMonthNumber() + " — delete it first to reassign");
+        }
         // Enrolled spots per member (multi-spot members appear multiple times in the list)
         List<UUID> allMembers = enrollmentRepository.findActiveMemberIdsByChitId(chitId);
         Map<UUID, Long> spotCounts = allMembers.stream()

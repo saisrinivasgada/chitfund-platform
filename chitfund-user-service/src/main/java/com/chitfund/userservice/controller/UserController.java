@@ -145,8 +145,8 @@ public class UserController {
     }
 
     /**
-     * ADMIN can create ADMIN, MANAGER, or WORKER accounts.
-     * MANAGER can only create WORKER accounts.
+     * ADMIN can create ADMIN, MANAGER, or STAFF accounts.
+     * MANAGER can only create STAFF accounts.
      */
     @PostMapping("/staff")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
@@ -155,13 +155,13 @@ public class UserController {
             Authentication authentication) {
         if (request.getRole() == null || request.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Role must be ADMIN, MANAGER, or WORKER for staff creation");
+                    "Role must be ADMIN, MANAGER, or STAFF for staff creation");
         }
         boolean isManager = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("MANAGER"));
-        if (isManager && request.getRole() != Role.WORKER) {
+        if (isManager && request.getRole() != Role.STAFF) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
-                    "Managers can only create Worker accounts");
+                    "Managers can only create Staff accounts");
         }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(authService.register(request), "Staff account created"));

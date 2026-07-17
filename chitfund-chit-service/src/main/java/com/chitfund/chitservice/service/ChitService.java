@@ -26,6 +26,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -153,7 +155,16 @@ public class ChitService {
             sendChitStatusNotifications(chit, "CHIT_COMPLETED",
                     "Chit Completed — " + chit.getName(),
                     "Your chit '" + chit.getName() + "' has been completed. Thank you for participating!");
-            notificationClient.closeDrawsForChit(chit.getId());
+            final UUID completedChitId = chit.getId();
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() {
+                        notificationClient.closeDrawsForChit(completedChitId);
+                    }
+                });
+            } else {
+                notificationClient.closeDrawsForChit(completedChitId);
+            }
         } else if (revertingToDraft) {
             // Clear enrollments so admin can freely edit the schedule and re-activate
             List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndActiveTrue(chit.getId());

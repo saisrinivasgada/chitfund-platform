@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Outlet, Navigate, useNavigate } from 'react-router-dom';
+import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile } from '../../services/api';
@@ -8,6 +8,7 @@ import NotificationBell from '../notifications/NotificationBell';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 function SignOutModal({ onConfirm, onClose }) {
   return (
@@ -128,7 +129,7 @@ function SwitchRoleModal({ phone, altRole, altLabel, onClose }) {
 }
 
 const ROLE_LABELS = {
-  WORKER: 'Worker',
+  WORKER: 'Staff',
   MANAGER: 'Manager',
   ADMIN: 'Admin',
   AGENT: 'Agent',
@@ -139,6 +140,7 @@ export default function MemberPortalLayout() {
   const { isAuthenticated, user, logout } = useAuth();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
+  const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: me } = useQuery({
     queryKey: ['myUserAccount'],
@@ -165,10 +167,10 @@ export default function MemberPortalLayout() {
   const altLabel = altRole ? (ROLE_LABELS[altRole] ?? altRole) : null;
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F8F9FB' }}>
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F0F2F5' }}>
       {/* Top nav */}
-      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-4xl mx-auto flex items-center justify-between h-14">
+      <header className="print:hidden bg-white border-b border-gray-100 px-4 sm:px-8 sticky top-0 z-20">
+        <div className="flex items-center justify-between h-14">
           <div className="flex items-center gap-2.5">
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -185,6 +187,14 @@ export default function MemberPortalLayout() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={toggleHidden}
+              title={hidden ? 'Show amounts' : 'Hide amounts'}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
             <NotificationBell />
 
             {/* Role switch button — only shown when user has a staff account on same phone */}
@@ -200,7 +210,7 @@ export default function MemberPortalLayout() {
               </button>
             )}
 
-            <div className="flex items-center gap-2">
+            <Link to="/member/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
                 style={{ backgroundColor: '#D4A017' }}
@@ -210,7 +220,7 @@ export default function MemberPortalLayout() {
               <span className="text-sm font-medium text-gray-700 hidden sm:block">
                 {displayName}
               </span>
-            </div>
+            </Link>
             <button
               onClick={() => setShowSignOut(true)}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors px-2 py-1 rounded-lg hover:bg-red-50 cursor-pointer"
@@ -222,7 +232,7 @@ export default function MemberPortalLayout() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className="py-6 px-4 sm:px-8 w-full">
         <Outlet />
       </main>
 

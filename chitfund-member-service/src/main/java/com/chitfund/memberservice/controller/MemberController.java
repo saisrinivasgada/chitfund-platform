@@ -48,7 +48,7 @@ public class MemberController {
      * Example: GET /members?search=ravi&status=ACTIVE&page=0&size=20
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<Page<MemberResponse>>> listMembers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) MemberStatus status,
@@ -61,7 +61,7 @@ public class MemberController {
      * Workers need this to verify membership before recording a payment.
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<MemberResponse>> getMember(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(memberService.getById(id)));
     }
@@ -71,7 +71,7 @@ public class MemberController {
      * Worker types the member's number, gets their profile + outstanding balance (from payment-service).
      */
     @GetMapping("/by-phone/{phone}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<MemberResponse>> getMemberByPhone(@PathVariable String phone) {
         return ResponseEntity.ok(ApiResponse.success(memberService.getByPhone(phone)));
     }

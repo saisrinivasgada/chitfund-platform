@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
 import com.chitfund.paymentservice.dto.request.MarkPayoutDeductedRequest;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
@@ -32,25 +33,27 @@ import java.util.stream.Collectors;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final MemberServiceClient memberServiceClient;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
     /**
-     * Worker/manager collects cash from a member during their rounds.
+     * Staff/manager collects cash from a member during their rounds.
      * If the effective collector is an ADMIN (no overrideCollectedBy and caller is admin),
      * the batch completes immediately — admin doesn't remit to themselves.
-     * Otherwise creates AWAITING_REMITTANCE; admin calls /remit after receiving from the worker.
+     * Otherwise creates AWAITING_REMITTANCE; admin calls /remit after receiving from the staff.
      */
     @PostMapping("/collect")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectCash(
             @Valid @RequestBody CollectCashRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID workerId = (UUID) auth.getPrincipal();
         boolean callerIsAdmin = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        PaymentBatchResponse response = paymentService.collectCash(request, workerId, callerIsAdmin);
+        PaymentBatchResponse response = paymentService.collectCash(request, workerId, callerIsAdmin, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -62,9 +65,10 @@ public class PaymentController {
     @PreAuthorize("hasRole('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> recordPayment(
             @Valid @RequestBody RecordPaymentRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        PaymentBatchResponse response = paymentService.recordPayment(request, adminId);
+        PaymentBatchResponse response = paymentService.recordPayment(request, adminId, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -96,10 +100,23 @@ public class PaymentController {
      * Covers admin-assigned direct collections (no CashPaymentRequest was created).
      */
     @GetMapping("/batches/mine")
-    @PreAuthorize("hasRole('ROLE_WORKER') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getMyPendingBatches(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMyPendingBatches(userId)));
+    }
+
+    /**
+     * Member: all their payment batches (across all chits), newest first.
+     * Used in the member portal's Payments tab.
+     */
+    @GetMapping("/batches/member")
+    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getMyBatches(Authentication auth) {
+        UUID userId = (UUID) auth.getPrincipal();
+        UUID profileId = memberServiceClient.getProfileIdByUserId(userId);
+        UUID memberId = profileId != null ? profileId : userId;
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatchesForMember(memberId)));
     }
 
     /**
@@ -128,7 +145,7 @@ public class PaymentController {
      * Show this anywhere admin is collecting/recording a payment so they can see if credit applies.
      */
     @GetMapping("/credits/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_WORKER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<com.chitfund.paymentservice.dto.response.MemberCreditResponse>> getMemberCredit(
             @PathVariable UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberCredit(memberId)));
@@ -139,7 +156,7 @@ public class PaymentController {
      * Response: { totalOutstanding: ₹6000, months: [{month:2, balance:₹1000}, {month:3, balance:₹5000}] }
      */
     @GetMapping("/balance")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberBalanceResponse>> getMemberBalance(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId) {
@@ -151,7 +168,7 @@ public class PaymentController {
      * Used on the member detail page summary card.
      */
     @GetMapping("/balance/total")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<BigDecimal>> getMemberTotalBalance(@RequestParam UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberTotalBalance(memberId)));
     }
@@ -161,7 +178,7 @@ public class PaymentController {
      * Used on the members list page — one call instead of N. Accepts comma-separated UUIDs.
      */
     @GetMapping("/balance/bulk")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF')")
     public ResponseEntity<ApiResponse<Map<UUID, BigDecimal>>> getMemberTotalBalanceBulk(
             @RequestParam String memberIds) {
         List<UUID> ids = Arrays.stream(memberIds.split(","))
@@ -173,11 +190,21 @@ public class PaymentController {
     }
 
     /**
+     * Outstanding amount + member count for a completed chit.
+     * Used on admin chit cards to show lingering dues after chit ends.
+     */
+    @GetMapping("/balance/chit-summary")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getChitOutstandingSummary(@RequestParam UUID chitId) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getChitOutstandingSummary(chitId)));
+    }
+
+    /**
      * Full payment history for a member in a chit — all months including SETTLED and WAIVED.
      * Used in the member detail page to show a complete payment timeline.
      */
     @GetMapping("/history")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_WORKER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PaymentRecordResponse>>> getPaymentHistory(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId) {
@@ -198,14 +225,20 @@ public class PaymentController {
 
     /**
      * Admin/Manager: all batches optionally filtered by chitId and/or memberId. Newest first.
+     * Supports pagination via ?page=0&size=50 (defaults to page 0, size 50).
      */
     @GetMapping("/batches/all")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getAllBatches(
+    public ResponseEntity<?> getAllBatches(
             @RequestParam(required = false) UUID chitId,
             @RequestParam(required = false) UUID memberId,
             @RequestParam(required = false) LocalDate fromDate,
-            @RequestParam(required = false) LocalDate toDate) {
+            @RequestParam(required = false) LocalDate toDate,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "50") int size) {
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatchesPaged(chitId, memberId, fromDate, toDate, page, size)));
+        }
         return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatches(chitId, memberId, fromDate, toDate)));
     }
 
@@ -214,9 +247,20 @@ public class PaymentController {
      * Used by the Transaction Detail page.
      */
     @GetMapping("/batches/{batchId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<PaymentBatchResponse>> getBatchById(@PathVariable UUID batchId) {
-        return ResponseEntity.ok(ApiResponse.success(paymentService.getBatchById(batchId)));
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<PaymentBatchResponse>> getBatchById(
+            @PathVariable UUID batchId, Authentication auth) {
+        PaymentBatchResponse batch = paymentService.getBatchById(batchId);
+        // Members may only view their own batches
+        if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"))) {
+            UUID userId = (UUID) auth.getPrincipal();
+            UUID profileId = memberServiceClient.getProfileIdByUserId(userId);
+            UUID memberId = profileId != null ? profileId : userId;
+            if (!memberId.equals(batch.getMemberId()) && !userId.equals(batch.getMemberId())) {
+                return ResponseEntity.status(403).body(ApiResponse.error("ACCESS_DENIED", "Access denied"));
+            }
+        }
+        return ResponseEntity.ok(ApiResponse.success(batch));
     }
 
     /**

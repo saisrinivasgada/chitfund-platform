@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
 const ROLE_GROUP: Record<string, string> = {
   ADMIN:   '(admin)',
   MANAGER: '(manager)',
-  WORKER:  '(worker)',
+  STAFF:   '(staff)',
   MEMBER:  '(member)',
 };
 
@@ -72,9 +72,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (user && !user.mustChangePassword && seg[0] === '(app)') {
       // CRITICAL: enforce role↔route-group binding on every navigation.
-      // A worker must never be able to view admin screens (and vice versa).
+      // A staff member must never be able to view admin screens (and vice versa).
       const expectedGroup = ROLE_GROUP[user.role];
-      const currentGroup  = seg[1]; // e.g. '(admin)', '(worker)', '(member)', '(manager)'
+      const currentGroup  = seg[1]; // e.g. '(admin)', '(staff)', '(member)', '(manager)'
       if (expectedGroup && currentGroup && currentGroup !== expectedGroup) {
         redirectByRole(user.role, router);
       }

@@ -2,15 +2,28 @@ package com.chitfund.paymentservice.repository;
 
 import com.chitfund.paymentservice.domain.PaymentBatch;
 import com.chitfund.paymentservice.domain.enums.BatchStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+import java.util.Optional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID> {
+
+    Optional<PaymentBatch> findByIdempotencyKey(String idempotencyKey);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id")
+    Optional<PaymentBatch> findByIdForUpdate(@Param("id") UUID id);
 
     // Admin dashboard: show all cash collections waiting to be remitted
     List<PaymentBatch> findByStatusOrderByCreatedAtAsc(BatchStatus status);
@@ -23,6 +36,12 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     List<PaymentBatch> findByMemberIdOrderByCreatedAtDesc(UUID memberId);
     List<PaymentBatch> findByChitIdAndMemberIdOrderByCreatedAtDesc(UUID chitId, UUID memberId);
     List<PaymentBatch> findAllByOrderByCreatedAtDesc();
+
+    // Paginated variants for admin history
+    Page<PaymentBatch> findByChitIdOrderByCreatedAtDesc(UUID chitId, Pageable pageable);
+    Page<PaymentBatch> findByMemberIdOrderByCreatedAtDesc(UUID memberId, Pageable pageable);
+    Page<PaymentBatch> findByChitIdAndMemberIdOrderByCreatedAtDesc(UUID chitId, UUID memberId, Pageable pageable);
+    Page<PaymentBatch> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     // Worker view: AWAITING_REMITTANCE batches where they are the collector
     List<PaymentBatch> findByCollectedByAndStatusOrderByCollectedAtDesc(UUID collectedBy, BatchStatus status);
@@ -49,4 +68,16 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
             @Param("end") LocalDateTime end,
             @Param("chitId") UUID chitId,
             @Param("memberId") UUID memberId);
+
+    @Query("SELECT b FROM PaymentBatch b WHERE " +
+           "b.createdAt >= :start AND b.createdAt < :end " +
+           "AND (:chitId IS NULL OR b.chitId = :chitId) " +
+           "AND (:memberId IS NULL OR b.memberId = :memberId) " +
+           "ORDER BY b.createdAt DESC")
+    Page<PaymentBatch> findByDateRangePaged(
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId,
+            Pageable pageable);
 }

@@ -17,6 +17,9 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
     // All settlements for a member, newest first
     List<Settlement> findByMemberIdOrderBySettledAtDesc(UUID memberId);
 
+    // True if the member has any settlement not in the given terminal statuses (i.e. still active)
+    boolean existsByMemberIdAndPaymentStatusNotIn(UUID memberId, List<SettlementPaymentStatus> terminalStatuses);
+
     /**
      * Loads a Settlement with a database-level pessimistic write lock.
      *

@@ -84,3 +84,10 @@ h1, h2, h3 {
 aside {
   will-change: transform;
 }
+
+/* Print: suppress browser header/footer (URL, date) in Chrome/Edge */
+@media print {
+  @page {
+    margin: 0;
+  }
+}

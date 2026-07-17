@@ -3,9 +3,12 @@ package com.chitfund.paymentservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.paymentservice.dto.request.AssignWorkerRequest;
 import com.chitfund.paymentservice.dto.request.CreateCashRequestRequest;
+import com.chitfund.paymentservice.dto.request.MemberApprovalRequest;
+import com.chitfund.paymentservice.dto.request.PartialCollectRequest;
 import com.chitfund.paymentservice.dto.request.UpdateCashRequestRequest;
 import com.chitfund.paymentservice.dto.response.CashRequestAuditLogResponse;
 import com.chitfund.paymentservice.dto.response.CashRequestResponse;
+import com.chitfund.paymentservice.dto.response.CashRequestSummaryResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.service.CashRequestService;
 import jakarta.validation.Valid;
@@ -43,17 +46,17 @@ public class CashRequestController {
 
     /**
      * Admin/Manager creates a cash pickup on behalf of a member.
-     * workerId is optional — if provided the request is immediately assigned.
+     * staffId is optional — if provided the request is immediately assigned.
      */
     @PostMapping("/admin")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<CashRequestResponse>> createRequestByAdmin(
             @RequestParam UUID memberId,
-            @RequestParam(required = false) UUID workerId,
+            @RequestParam(required = false) UUID staffId,
             @Valid @RequestBody CreateCashRequestRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        CashRequestResponse response = cashRequestService.createRequestByAdmin(memberId, workerId, request, adminId);
+        CashRequestResponse response = cashRequestService.createRequestByAdmin(memberId, staffId, request, adminId);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -93,38 +96,38 @@ public class CashRequestController {
     }
 
     /**
-     * Admin/Manager: assign a worker to a PENDING request.
+     * Admin/Manager: assign a staff member to a PENDING request.
      */
     @PatchMapping("/{requestId}/assign")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<CashRequestResponse>> assignWorker(
+    public ResponseEntity<ApiResponse<CashRequestResponse>> assignStaff(
             @PathVariable UUID requestId,
             @Valid @RequestBody AssignWorkerRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
-        CashRequestResponse response = cashRequestService.assignWorker(requestId, request, adminId, role);
+        CashRequestResponse response = cashRequestService.assignStaff(requestId, request, adminId, role);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**
-     * Worker: see all requests assigned to them (ASSIGNED status).
+     * Staff: see all requests assigned to them (ASSIGNED status).
      */
     @GetMapping("/mine")
-    @PreAuthorize("hasRole('ROLE_WORKER')")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getMyAssignedRequests(Authentication auth) {
-        UUID workerId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getMyAssignedRequests(workerId)));
+        UUID staffId = (UUID) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getMyAssignedRequests(staffId)));
     }
 
     /**
-     * Worker: their own past requests — COLLECTED and CANCELLED.
+     * Staff: their own past requests — COLLECTED and CANCELLED.
      */
     @GetMapping("/mine/history")
-    @PreAuthorize("hasRole('ROLE_WORKER')")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getMyRequestHistory(Authentication auth) {
-        UUID workerId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getMyRequestHistory(workerId)));
+        UUID staffId = (UUID) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getMyRequestHistory(staffId)));
     }
 
     /**
@@ -138,48 +141,48 @@ public class CashRequestController {
     }
 
     /**
-     * Worker: reschedule an ASSIGNED request to a future date (e.g. "tomorrow", "next week").
+     * Staff: reschedule an ASSIGNED request to a future date (e.g. "tomorrow", "next week").
      * Status stays ASSIGNED; scheduledFor date is updated and admin is notified.
      */
     @PatchMapping("/{requestId}/reschedule")
-    @PreAuthorize("hasRole('ROLE_WORKER')")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
     public ResponseEntity<ApiResponse<CashRequestResponse>> rescheduleRequest(
             @PathVariable UUID requestId,
             @RequestParam String scheduledFor,
             Authentication auth) {
-        UUID workerId = (UUID) auth.getPrincipal();
+        UUID staffId = (UUID) auth.getPrincipal();
         LocalDateTime date = LocalDateTime.parse(scheduledFor);
-        CashRequestResponse response = cashRequestService.rescheduleRequest(requestId, workerId, date);
+        CashRequestResponse response = cashRequestService.rescheduleRequest(requestId, staffId, date);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**
-     * Worker: cancel their own ASSIGNED request (e.g. member not available).
+     * Staff: cancel their own ASSIGNED request (e.g. member not available).
      * Only before physical pickup (ASSIGNED status only).
      */
-    @PatchMapping("/{requestId}/cancel/worker")
-    @PreAuthorize("hasRole('ROLE_WORKER')")
-    public ResponseEntity<ApiResponse<CashRequestResponse>> cancelByWorker(
+    @PatchMapping("/{requestId}/cancel/staff")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> cancelByStaff(
             @PathVariable UUID requestId,
             @RequestParam(required = false) String reason,
             Authentication auth) {
-        UUID workerId = (UUID) auth.getPrincipal();
-        CashRequestResponse response = cashRequestService.cancelByWorker(requestId, workerId, reason);
+        UUID staffId = (UUID) auth.getPrincipal();
+        CashRequestResponse response = cashRequestService.cancelByStaff(requestId, staffId, reason);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     /**
-     * Worker: marks that they have physically collected the cash from the member.
+     * Staff: marks that they have physically collected the cash from the member.
      * Transitions ASSIGNED → PICKED_UP. This creates a proof-of-pickup record.
      * Admin must then confirm receipt to credit the member's account.
      */
     @PatchMapping("/{requestId}/pickup")
-    @PreAuthorize("hasRole('ROLE_WORKER')")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
     public ResponseEntity<ApiResponse<CashRequestResponse>> markPickedUp(
             @PathVariable UUID requestId,
             Authentication auth) {
-        UUID workerId = (UUID) auth.getPrincipal();
-        CashRequestResponse response = cashRequestService.markPickedUp(requestId, workerId);
+        UUID staffId = (UUID) auth.getPrincipal();
+        CashRequestResponse response = cashRequestService.markPickedUp(requestId, staffId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -199,12 +202,12 @@ public class CashRequestController {
     }
 
     /**
-     * Admin/Manager: full request history for a specific worker.
+     * Admin/Manager: full request history for a specific staff member.
      */
-    @GetMapping("/worker/{workerId}")
+    @GetMapping("/staff/{staffId}")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getWorkerRequests(@PathVariable UUID workerId) {
-        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getWorkerRequests(workerId)));
+    public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getStaffRequests(@PathVariable UUID staffId) {
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getStaffRequests(staffId)));
     }
 
     /**
@@ -245,5 +248,55 @@ public class CashRequestController {
     public ResponseEntity<ApiResponse<List<CashRequestAuditLogResponse>>> getAuditLog(
             @PathVariable UUID requestId) {
         return ResponseEntity.ok(ApiResponse.success(cashRequestService.getAuditLog(requestId)));
+    }
+
+    /**
+     * Staff: mark partial collection — collected less than the full requested amount.
+     * Transitions ASSIGNED → PARTIALLY_COLLECTED. Member must approve via /member-approve.
+     */
+    @PatchMapping("/{requestId}/partial-collect")
+    @PreAuthorize("hasRole('ROLE_STAFF')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> partiallyCollect(
+            @PathVariable UUID requestId,
+            @Valid @RequestBody PartialCollectRequest request,
+            Authentication auth) {
+        UUID staffId = (UUID) auth.getPrincipal();
+        CashRequestResponse response = cashRequestService.partiallyCollect(
+                requestId, request.getCollectedAmount(), staffId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Member: approve or reject a partial collection recorded by the worker.
+     * Only valid for PARTIALLY_COLLECTED requests belonging to this member.
+     */
+    @PatchMapping("/{requestId}/member-approve")
+    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<CashRequestResponse>> memberApprovePartial(
+            @PathVariable UUID requestId,
+            @Valid @RequestBody MemberApprovalRequest request,
+            Authentication auth) {
+        UUID memberId = (UUID) auth.getPrincipal();
+        CashRequestResponse response = cashRequestService.memberApprovePartial(
+                requestId, request.getApproved(), request.getReason(), memberId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Admin/Manager: count of requests per status — used for dashboard summary cards.
+     */
+    @GetMapping("/summary")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<CashRequestSummaryResponse>> getSummary() {
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getSummary()));
+    }
+
+    /**
+     * Admin/Manager: all cancelled cash requests, newest first.
+     */
+    @GetMapping("/cancelled")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<List<CashRequestResponse>>> getCancelledRequests() {
+        return ResponseEntity.ok(ApiResponse.success(cashRequestService.getCancelledRequests()));
     }
 }

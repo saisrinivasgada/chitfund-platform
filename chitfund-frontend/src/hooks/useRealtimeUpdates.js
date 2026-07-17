@@ -6,9 +6,13 @@ import { useQueryClient } from '@tanstack/react-query';
 const INVALIDATIONS = {
   CASH_REQUESTS_UPDATED: [
     ['cashRequests'],        // admin dashboard: ['cashRequests', 'active'] matched by prefix
+    ['myCashRequests'],      // member portal requests/overview tabs
     ['my-cash-requests'],
+    ['active-cash-requests'], // admin member detail page pending pickups section
+    ['member-requests'],      // mobile member portal requests tab
     ['pending-remittance'],
     ['today-batches'],
+    ['cashAudit'],
   ],
   PAYMENTS_UPDATED: [
     ['today-batches'],
@@ -17,6 +21,9 @@ const INVALIDATIONS = {
     ['today-payouts'],
     ['adminBalance'],        // admin dashboard: member balance after payment recorded
     ['remittance'],          // remittance pending list
+    ['drawPayments'],        // draw card rows (per-member paid amounts)
+    ['draws'],               // draw card header (settled count, totalCollected)
+    ['memberTotalBalance'],
   ],
   PAYOUTS_UPDATED: [
     ['payouts'],             // admin dashboard: ['payouts', 'pending'] matched by prefix

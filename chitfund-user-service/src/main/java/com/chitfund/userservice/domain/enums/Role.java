@@ -20,7 +20,7 @@ package com.chitfund.userservice.domain.enums;
 public enum Role {
     ADMIN,
     MANAGER,
-    WORKER,
-    AGENT,    // legacy alias — maps to the same permissions as WORKER
+    STAFF,
+    AGENT,    // legacy alias — maps to the same permissions as STAFF
     MEMBER
 }

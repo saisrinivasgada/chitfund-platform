@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, X, CheckCheck, ExternalLink } from 'lucide-react';
+import { Bell, X, CheckCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   getNotifications,
@@ -20,14 +20,15 @@ function timeAgo(iso) {
 
 function NotifItem({ n, onRead, onNavigate }) {
   const isUnread = !n.read;
+  const hasLink = !!n.link;
   return (
     <div
+      onClick={hasLink ? () => onNavigate(n) : (isUnread ? () => onRead(n.id) : undefined)}
       className={`px-4 py-3 border-b border-gray-100 last:border-0 transition-colors ${
         isUnread ? 'bg-blue-50/50 hover:bg-blue-50' : 'hover:bg-gray-50'
-      }`}
+      } ${(hasLink || isUnread) ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-start gap-3">
-        {/* Unread indicator */}
         <div className="mt-1.5 flex-shrink-0 w-2 h-2 rounded-full" style={{
           backgroundColor: isUnread ? '#1E3A5F' : 'transparent',
           border: isUnread ? 'none' : '1.5px solid #D1D5DB',
@@ -43,26 +44,15 @@ function NotifItem({ n, onRead, onNavigate }) {
           <p className="text-[11px] text-gray-400 mt-1">{timeAgo(n.createdAt)}</p>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {n.link && (
-            <button
-              onClick={() => { onNavigate(n); }}
-              className="p-1 text-gray-400 hover:text-[#1E3A5F] rounded transition-colors cursor-pointer"
-              title="Go to"
-            >
-              <ExternalLink size={13} />
-            </button>
-          )}
-          {isUnread && (
-            <button
-              onClick={() => onRead(n.id)}
-              className="p-1 text-gray-400 hover:text-green-600 rounded transition-colors cursor-pointer"
-              title="Mark read"
-            >
-              <CheckCheck size={13} />
-            </button>
-          )}
-        </div>
+        {isUnread && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRead(n.id); }}
+            className="p-1 text-gray-400 hover:text-green-600 rounded transition-colors cursor-pointer flex-shrink-0 mt-0.5"
+            title="Mark read without navigating"
+          >
+            <CheckCheck size={13} />
+          </button>
+        )}
       </div>
     </div>
   );

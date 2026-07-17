@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getWalletBalance, getWalletTransactions, addWalletTransaction, transferWallet,
@@ -13,8 +13,21 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight, HandCoins } from 'lucide-react';
-import SettlementTab from './SettlementTab';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight } from 'lucide-react';
+
+function utc(s) { return s ? (s.endsWith('Z') || s.includes('+') ? s : s + 'Z') : null; }
+function parseTs(val) {
+  if (!val) return null;
+  if (Array.isArray(val)) { const [y, mo, d, h = 0, mi = 0, s = 0] = val; return new Date(Date.UTC(y, mo - 1, d, h, mi, s)); }
+  const str = String(val);
+  if (!str.endsWith('Z') && !str.includes('+')) return new Date(str + 'Z');
+  return new Date(str);
+}
+function isToday(date) {
+  if (!date || isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+}
 
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -149,7 +162,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
             )}
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            {new Date(tx.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+            {new Date(utc(tx.createdAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
           </p>
         </div>
 
@@ -188,7 +201,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
           {/* Meta */}
           <div className="border-t border-gray-100 mt-1">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-3 pb-1">Details</p>
-            <DRow label="Date & Time" value={new Date(tx.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} />
+            <DRow label="Date & Time" value={new Date(utc(tx.createdAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })} />
             {tx.createdBy && <DRow label="Recorded By" value={staffMap[tx.createdBy] ?? 'Admin'} />}
             {tx.id && (
               <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
@@ -623,26 +636,20 @@ function TransferModal({ onClose }) {
 }
 
 const DATE_PRESETS = [
-  { label: 'Today',      days: 0  },
-  { label: 'Last 7 days', days: 7  },
+  { label: 'Today',        days: 0  },
+  { label: 'Last 7 days',  days: 7  },
   { label: 'Last 30 days', days: 30 },
-  { label: 'All time',   days: null },
+  { label: 'All time',     days: null },
 ];
 
-const TABS = [
-  { id: 'treasury', label: 'Treasury', icon: Wallet },
-  { id: 'settlement', label: 'Settlement', icon: HandCoins },
-];
 
 export default function TreasuryPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') ?? 'treasury';
-  const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
   const [showAdd, setShowAdd] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
-  const [activePreset, setActivePreset] = useState('All time');
+  const [activePreset, setActivePreset] = useState('Today');
+  const [sortAsc, setSortAsc] = useState(false);
   const [filterAccount, setFilterAccount] = useState('ALL');
   const [filterType, setFilterType] = useState('ALL');
   const { hidden } = useHiddenAmounts();
@@ -652,10 +659,34 @@ export default function TreasuryPage() {
     queryFn: getWalletBalance,
   });
 
-  const { data: transactions = [], isLoading: txLoading } = useQuery({
+  const [transactions, setTransactions] = useState([]);
+  const [txHasMore, setTxHasMore] = useState(false);
+  const [txPage, setTxPage] = useState(0);
+  const [txLoadingMore, setTxLoadingMore] = useState(false);
+
+  const { isLoading: txLoading } = useQuery({
     queryKey: ['wallet-transactions'],
-    queryFn: getWalletTransactions,
+    queryFn: async () => {
+      const result = await getWalletTransactions({ page: 0, size: 50 });
+      setTransactions(result.content ?? []);
+      setTxHasMore(result.hasMore ?? false);
+      setTxPage(0);
+      return result;
+    },
   });
+
+  async function loadMoreTx() {
+    setTxLoadingMore(true);
+    try {
+      const nextPage = txPage + 1;
+      const result = await getWalletTransactions({ page: nextPage, size: 50 });
+      setTransactions(prev => [...prev, ...(result.content ?? [])]);
+      setTxHasMore(result.hasMore ?? false);
+      setTxPage(nextPage);
+    } finally {
+      setTxLoadingMore(false);
+    }
+  }
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
@@ -694,21 +725,20 @@ export default function TreasuryPage() {
 
   // ── Filter transactions client-side ───────────────────────────────────────
   const filteredTx = useMemo(() => {
-    const preset = DATE_PRESETS.find((p) => p.label === activePreset);
-    const cutoff = preset?.days != null
-      ? new Date(Date.now() - preset.days * 86_400_000)
-      : null;
-    return transactions.filter((t) => {
-      if (cutoff && new Date(t.createdAt) < cutoff) return false;
-      if (activePreset === 'Today') {
-        const today = new Date().toDateString();
-        if (new Date(t.createdAt).toDateString() !== today) return false;
-      }
+    const cutoff = activePreset === 'Today' ? null
+      : DATE_PRESETS.find((p) => p.label === activePreset)?.days != null
+        ? new Date(Date.now() - DATE_PRESETS.find((p) => p.label === activePreset).days * 86_400_000)
+        : null;
+    const filtered = transactions.filter((t) => {
+      const tDate = parseTs(t.createdAt);
+      if (activePreset === 'Today' && !isToday(tDate)) return false;
+      if (cutoff && tDate && tDate < cutoff) return false;
       if (filterAccount !== 'ALL' && t.accountType !== filterAccount) return false;
       if (filterType !== 'ALL' && t.entryType !== filterType) return false;
       return true;
     });
-  }, [transactions, activePreset, filterAccount, filterType]);
+    return sortAsc ? [...filtered].reverse() : filtered;
+  }, [transactions, activePreset, filterAccount, filterType, sortAsc]);
 
   // ── Running balance (oldest → newest, then reverse for display) ───────────
   const txWithRunning = useMemo(() => {
@@ -731,43 +761,15 @@ export default function TreasuryPage() {
           <p className="text-sm text-gray-500 mt-0.5">Track cash and bank balances · settle member accounts</p>
         </div>
         <div className="flex items-center gap-2">
-          {activeTab === 'treasury' && (
-            <>
-              <Button variant="secondary" onClick={() => setShowTransfer(true)}>
-                <ArrowLeftRight size={15} /> Transfer
-              </Button>
-              <Button onClick={() => setShowAdd(true)}>
-                <Plus size={15} /> Record Transaction
-              </Button>
-            </>
-          )}
+          <Button variant="secondary" onClick={() => setShowTransfer(true)}>
+            <ArrowLeftRight size={15} /> Transfer
+          </Button>
+          <Button onClick={() => setShowAdd(true)}>
+            <Plus size={15} /> Record Transaction
+          </Button>
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-              activeTab === id
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <Icon size={15} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Settlement tab */}
-      {activeTab === 'settlement' && <SettlementTab />}
-
-      {/* Treasury tab content (rendered but hidden when settlement tab is active) */}
-      {activeTab === 'treasury' && (<>
 
       {balanceLoading ? (
         <PageSpinner />
@@ -791,20 +793,24 @@ export default function TreasuryPage() {
 
           {/* Date preset chips */}
           <div className="flex flex-wrap gap-2">
-            {DATE_PRESETS.map((p) => (
-              <button
-                key={p.label}
-                onClick={() => setActivePreset(p.label)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
-                  activePreset === p.label
-                    ? 'text-white border-transparent'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
-                }`}
-                style={activePreset === p.label ? { backgroundColor: '#1E3A5F', borderColor: '#1E3A5F' } : {}}
-              >
-                {p.label}
-              </button>
-            ))}
+            {DATE_PRESETS.map((p) => {
+              const isActive = activePreset === p.label;
+              return (
+                <button
+                  key={p.label}
+                  onClick={() => setActivePreset(p.label)}
+                  className="text-xs font-semibold rounded-full cursor-pointer transition-all"
+                  style={{
+                    padding: '6px 16px',
+                    backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+                    color: isActive ? '#ffffff' : '#374151',
+                    border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+                  }}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
             <div className="flex gap-2 ml-auto">
               <select
                 value={filterAccount}
@@ -833,7 +839,12 @@ export default function TreasuryPage() {
         ) : filteredTx.length === 0 ? (
           <EmptyState icon={Wallet} title="No transactions" message="No transactions match the selected filters." />
         ) : (
-          <Table columns={['Date', 'Account', 'Type', 'Category', 'Description', 'Amount', 'Balance']}>
+          <Table columns={[
+            <button type="button" onClick={() => setSortAsc((v) => !v)} className="flex items-center gap-1 cursor-pointer hover:text-gray-900 transition-colors">
+              Date {sortAsc ? '↑' : '↓'}
+            </button>,
+            'Account', 'Type', 'Category', 'Description', 'Amount', 'Balance'
+          ]}>
             {txWithRunning.map((t) => (
               <Tr
                 key={t.id}
@@ -841,7 +852,7 @@ export default function TreasuryPage() {
                 onClick={() => setSelectedTx(t)}
               >
                 <Td className="text-gray-500 text-xs whitespace-nowrap">
-                  {new Date(t.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(utc(t.createdAt)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </Td>
                 <Td>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
@@ -879,10 +890,20 @@ export default function TreasuryPage() {
             ))}
           </Table>
         )}
+        {txHasMore && (
+          <div className="flex justify-center py-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={loadMoreTx}
+              disabled={txLoadingMore}
+              className="px-5 py-2 text-sm font-semibold rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-50"
+            >
+              {txLoadingMore ? 'Loading…' : `Load more (${transactions.length} loaded)`}
+            </button>
+          </div>
+        )}
       </div>
 
-      </>)}
-      {/* End treasury tab */}
 
       {showAdd && <AddTransactionModal onClose={() => setShowAdd(false)} />}
       {showTransfer && <TransferModal onClose={() => setShowTransfer(false)} />}

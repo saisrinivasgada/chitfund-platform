@@ -5,6 +5,7 @@ import {
   Clock, XCircle, AlertCircle, CreditCard, Banknote, Minus, ChevronRight,
 } from 'lucide-react';
 import { getPayoutById, getMember, getChit, listStaff, getMembers } from '../../services/api';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 function utc(s) { return s ? (s.endsWith('Z') ? s : s + 'Z') : null; }
 function fmtAmt(v) { return '₹' + Number(v ?? 0).toLocaleString('en-IN'); }
@@ -32,8 +33,9 @@ const MODE_ICON = {
   BANK: Building2, NEFT: Building2, RTGS: Building2, IMPS: Building2, BANK_TRANSFER: Building2,
 };
 
-function DeductionRow({ label, amount, sub, highlight }) {
+function DeductionRow({ label, amount, sub, highlight, hidden }) {
   if (!amount || Number(amount) === 0) return null;
+  const display = hidden ? '••••••' : (highlight ? fmtAmt(amount) : `− ${fmtAmt(amount)}`);
   return (
     <div className={`flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 ${highlight ? 'font-semibold' : ''}`}>
       <div>
@@ -41,7 +43,7 @@ function DeductionRow({ label, amount, sub, highlight }) {
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
       <p className={`text-sm tabular-nums ${highlight ? 'text-gray-900' : 'text-red-600'}`}>
-        {highlight ? fmtAmt(amount) : `− ${fmtAmt(amount)}`}
+        {display}
       </p>
     </div>
   );
@@ -94,6 +96,7 @@ export default function PayoutDetailPage() {
   const StatusIcon = status.icon;
   const hasDeductions = Number(payout.discountAmount ?? 0) > 0;
   const disbursements = payout.disbursements ?? [];
+  const { hidden } = useHiddenAmounts();
 
   return (
     <div className="max-w-xl mx-auto p-4 space-y-4">
@@ -153,7 +156,7 @@ export default function PayoutDetailPage() {
           <h3 className="text-sm font-semibold text-gray-700">Payout Breakdown</h3>
         </div>
         <div className="px-4">
-          <DeductionRow label="Winning Amount" amount={payout.winningAmount} highlight />
+          <DeductionRow label="Winning Amount" amount={payout.winningAmount} highlight hidden={hidden} />
           {hasDeductions && (
             <>
               {Number(payout.installmentSettlement ?? 0) > 0 && (
@@ -161,6 +164,7 @@ export default function PayoutDetailPage() {
                   label="Installment Withheld"
                   amount={payout.installmentSettlement}
                   sub={`Draw #${payout.monthNumber} · ${chit?.name ?? ''}`}
+                  hidden={hidden}
                 />
               )}
               {Number(payout.crossChitSettlement ?? 0) > 0 && (
@@ -168,23 +172,25 @@ export default function PayoutDetailPage() {
                   label="Cross-Chit Settlement"
                   amount={payout.crossChitSettlement}
                   sub="Outstanding dues from other chits"
+                  hidden={hidden}
                 />
               )}
               {Number(payout.manualAdjustment ?? 0) > 0 && (
                 <DeductionRow
                   label="Manual Adjustment"
                   amount={payout.manualAdjustment}
+                  hidden={hidden}
                 />
               )}
               <div className="flex items-center justify-between py-3 border-t border-gray-200 mt-1">
                 <p className="text-xs text-gray-400">Total Deductions</p>
-                <p className="text-xs font-semibold text-red-600">− {fmtAmt(payout.discountAmount)}</p>
+                <p className="text-xs font-semibold text-red-600">{hidden ? '••••••' : `− ${fmtAmt(payout.discountAmount)}`}</p>
               </div>
             </>
           )}
           <div className="flex items-center justify-between py-3 border-t border-gray-200 bg-gray-50 -mx-4 px-4">
             <p className="text-sm font-bold text-gray-900">Net Payout</p>
-            <p className="text-base font-bold text-[#1E3A5F]">{fmtAmt(payout.netPayoutAmount)}</p>
+            <p className="text-base font-bold text-[#1E3A5F]">{hidden ? '••••••' : fmtAmt(payout.netPayoutAmount)}</p>
           </div>
         </div>
       </div>
@@ -198,9 +204,9 @@ export default function PayoutDetailPage() {
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="text-gray-400">Disbursed:</span>
-            <span className="font-semibold text-green-700">{fmtAmt(payout.disbursedAmount)}</span>
+            <span className="font-semibold text-green-700">{hidden ? '••••••' : fmtAmt(payout.disbursedAmount)}</span>
             {Number(payout.remainingAmount ?? 0) > 0 && (
-              <span className="text-amber-600">· ₹{Number(payout.remainingAmount).toLocaleString('en-IN')} pending</span>
+              <span className="text-amber-600">· {hidden ? '••••••' : `₹${Number(payout.remainingAmount).toLocaleString('en-IN')}`} pending</span>
             )}
           </div>
         </div>
@@ -216,7 +222,7 @@ export default function PayoutDetailPage() {
                     <ModeIcon size={14} className="text-green-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">{fmtAmt(d.amount)}</p>
+                    <p className="text-sm font-semibold text-gray-900">{hidden ? '••••••' : fmtAmt(d.amount)}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
                       {d.disbursedBy ? ` · by ${nameMap[String(d.disbursedBy)] ?? 'Admin'}` : ''}

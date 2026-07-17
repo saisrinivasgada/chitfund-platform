@@ -12,7 +12,7 @@ const WS_URL = __DEV__
 const INVALIDATIONS: Record<string, string[][]> = {
   CASH_REQUESTS_UPDATED: [
     ['m-cash-requests'],
-    ['worker-tasks'],
+    ['staff-tasks'],
     ['worker-pending-batches'],
   ],
   PAYMENTS_UPDATED: [
@@ -20,7 +20,7 @@ const INVALIDATIONS: Record<string, string[][]> = {
     ['m-wallet'],
     ['m-wallet-txns'],
     ['m-recent-activity'],
-    ['worker-history'],
+    ['staff-history'],
   ],
   PAYOUTS_UPDATED: [
     ['m-today-payouts'],

@@ -6,19 +6,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   listStaff, createStaff, activateStaff, deactivateStaff, changeStaffRole,
-  resetMemberPassword, getUserById, getWorkerRequests, getBatchesByCollector, getMembers,
+  resetMemberPassword, getUserById, getStaffRequests, getBatchesByCollector, getMembers,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
 
-const ROLES = ['WORKER', 'MANAGER', 'ADMIN'] as const;
+const ROLES = ['STAFF', 'MANAGER', 'ADMIN'] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_STYLE: Record<Role, { bg: string; text: string; accent: string }> = {
   ADMIN:   { bg: C.navy50,  text: C.navy,     accent: C.navy },
   MANAGER: { bg: '#F5F3FF', text: '#7C3AED',  accent: '#7C3AED' },
-  WORKER:  { bg: '#FEF3C7', text: C.amber,    accent: C.amber },
+  STAFF:   { bg: '#FEF3C7', text: C.amber,    accent: C.amber },
 };
 
 const REQUEST_STATUS: Record<string, { label: string; color: string; bg: string }> = {
@@ -41,7 +41,7 @@ export default function AdminTeamScreen() {
   const [showDetail, setShowDetail] = useState(false);
   // Role change is now inline — no separate modal
   const [showRoleInline, setShowRoleInline] = useState(false);
-  const [newRole, setNewRole] = useState<Role>('WORKER');
+  const [newRole, setNewRole] = useState<Role>('STAFF');
   const [tempPassword, setTempPassword] = useState('');
   const [pwdCopied, setPwdCopied] = useState(false);
   const [showPwdInline, setShowPwdInline] = useState(false);
@@ -50,7 +50,7 @@ export default function AdminTeamScreen() {
   const [cFullName, setCFullName] = useState('');
   const [cUsername, setCUsername] = useState('');
   const [cPassword, setCPassword] = useState('');
-  const [cRole, setCRole] = useState<Role>('WORKER');
+  const [cRole, setCRole] = useState<Role>('STAFF');
   const [cPhone, setCPhone] = useState('');
   const [cPhoneCountryCode, setCPhoneCountryCode] = useState('+91');
   const [cEmail, setCEmail] = useState('');
@@ -73,11 +73,11 @@ export default function AdminTeamScreen() {
     staleTime: 30_000,
   });
 
-  const isCollector = selected?.role === 'WORKER' || selected?.role === 'MANAGER';
+  const isCollector = selected?.role === 'STAFF' || selected?.role === 'MANAGER';
 
   const { data: workerRequests = [] } = useQuery({
-    queryKey: ['m-worker-requests', selected?.id],
-    queryFn: () => getWorkerRequests(selected!.id),
+    queryKey: ['m-staff-requests', selected?.id],
+    queryFn: () => getStaffRequests(selected!.id),
     enabled: !!selected?.id && showDetail && isCollector,
     staleTime: 30_000,
   });
@@ -107,7 +107,7 @@ export default function AdminTeamScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-staff'] });
       setShowCreate(false);
-      setCFullName(''); setCUsername(''); setCPassword(''); setCPhone(''); setCPhoneCountryCode('+91'); setCEmail(''); setCRole('WORKER');
+      setCFullName(''); setCUsername(''); setCPassword(''); setCPhone(''); setCPhoneCountryCode('+91'); setCEmail(''); setCRole('STAFF');
       toast.created('Staff member created');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -156,7 +156,7 @@ export default function AdminTeamScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const workers  = (staff as any[]).filter((s) => s.role === 'WORKER');
+  const workers  = (staff as any[]).filter((s) => s.role === 'STAFF');
   const managers = (staff as any[]).filter((s) => s.role === 'MANAGER');
   const admins   = (staff as any[]).filter((s) => s.role === 'ADMIN');
 
@@ -172,7 +172,7 @@ export default function AdminTeamScreen() {
 
   if (isLoading) return <ListLoadingScreen />;
 
-  const rs = selected ? (ROLE_STYLE[selected.role as Role] ?? ROLE_STYLE.WORKER) : ROLE_STYLE.WORKER;
+  const rs = selected ? (ROLE_STYLE[selected.role as Role] ?? ROLE_STYLE.STAFF) : ROLE_STYLE.STAFF;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -187,7 +187,7 @@ export default function AdminTeamScreen() {
               <View>
                 <Text style={T.h1}>Team</Text>
                 <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-                  {admins.length} admin · {managers.length} manager · {workers.length} workers
+                  {admins.length} admin · {managers.length} manager · {workers.length} staff
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -202,7 +202,7 @@ export default function AdminTeamScreen() {
               {[
                 { label: 'Admins', count: admins.length, style: ROLE_STYLE.ADMIN },
                 { label: 'Managers', count: managers.length, style: ROLE_STYLE.MANAGER },
-                { label: 'Workers', count: workers.length, style: ROLE_STYLE.WORKER },
+                { label: 'Staff', count: workers.length, style: ROLE_STYLE.STAFF },
               ].map((s) => (
                 <View key={s.label} style={{ flex: 1, backgroundColor: s.style.bg, borderRadius: 10, padding: 10, alignItems: 'center' }}>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: s.style.text }}>{s.count}</Text>
@@ -214,7 +214,7 @@ export default function AdminTeamScreen() {
         }
         ListEmptyComponent={<EmptyState title="No staff" message="Add staff members to manage your chit business." />}
         renderItem={({ item: s }) => {
-          const itemRs = ROLE_STYLE[s.role as Role] ?? ROLE_STYLE.WORKER;
+          const itemRs = ROLE_STYLE[s.role as Role] ?? ROLE_STYLE.STAFF;
           const isActive = s.enabled !== false && s.status !== 'INACTIVE';
           return (
             <TouchableOpacity onPress={() => openDetail(s)} activeOpacity={0.75}>

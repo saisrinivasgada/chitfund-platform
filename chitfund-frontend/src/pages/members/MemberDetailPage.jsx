@@ -22,6 +22,7 @@ import {
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
   Layers, ExternalLink, ClipboardList,
 } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function NA({ className = '' }) {
@@ -608,6 +609,7 @@ const CHIT_STATUS_STYLE = {
 
 function EnrolledChitsSection({ memberId }) {
   const navigate = useNavigate();
+  const { hidden } = useHiddenAmounts();
 
   const { data: chits = [], isLoading } = useQuery({
     queryKey: ['chitsForMember', memberId],
@@ -669,12 +671,12 @@ function EnrolledChitsSection({ memberId }) {
               <div className="text-right flex-shrink-0">
                 {chit.chitValue && (
                   <p className="text-sm font-bold text-gray-800">
-                    ₹{Number(chit.chitValue).toLocaleString('en-IN')}
+                    {hidden ? '••••••' : `₹${Number(chit.chitValue).toLocaleString('en-IN')}`}
                   </p>
                 )}
                 {chit.installmentAmount && (
                   <p className="text-xs text-gray-400">
-                    ₹{Number(chit.installmentAmount).toLocaleString('en-IN')}/mo
+                    {hidden ? '••••••' : `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}/mo`}
                   </p>
                 )}
               </div>
@@ -732,6 +734,7 @@ function BalancesSection({ memberId }) {
 }
 
 function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
+  const { hidden } = useHiddenAmounts();
   const { data: balance, isLoading: balanceLoading } = useQuery({
     queryKey: ['memberBalance', memberId, chit.id],
     queryFn: () => getMemberBalance({ memberId, chitId: chit.id }),
@@ -768,7 +771,7 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
           <span className="text-xs text-gray-400 flex-shrink-0">…</span>
         ) : outstanding > 0 ? (
           <span className="text-sm font-semibold text-red-600 flex-shrink-0">
-            ₹{outstanding.toLocaleString('en-IN')} due
+            {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due
           </span>
         ) : balance !== undefined ? (
           <span className="text-sm font-medium text-green-600 flex-shrink-0">Clear</span>
@@ -840,11 +843,11 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
                       </div>
                       <div className="text-right flex-shrink-0 min-w-[5rem]">
                         <p className="text-xs font-semibold text-gray-800">
-                          ₹{Number(r.amountPaid).toLocaleString('en-IN')}
-                          <span className="text-gray-400 font-normal"> / ₹{Number(r.amountDue).toLocaleString('en-IN')}</span>
+                          {hidden ? '••••••' : `₹${Number(r.amountPaid).toLocaleString('en-IN')}`}
+                          <span className="text-gray-400 font-normal"> / {hidden ? '••••••' : `₹${Number(r.amountDue).toLocaleString('en-IN')}`}</span>
                         </p>
                         {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
-                          <p className="text-xs text-red-500">₹{cycleOutstanding.toLocaleString('en-IN')} pending</p>
+                          <p className="text-xs text-red-500">{hidden ? '••••••' : `₹${cycleOutstanding.toLocaleString('en-IN')}`} pending</p>
                         )}
                       </div>
                     </div>
@@ -856,11 +859,11 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
                 <span className="text-xs font-semibold text-gray-500">Chit Total</span>
                 <div className="text-right">
                   <span className="text-sm font-semibold text-gray-800">
-                    ₹{totalPaid.toLocaleString('en-IN')}
-                    <span className="text-gray-400 font-normal text-xs"> paid of ₹{totalDue.toLocaleString('en-IN')}</span>
+                    {hidden ? '••••••' : `₹${totalPaid.toLocaleString('en-IN')}`}
+                    <span className="text-gray-400 font-normal text-xs"> paid of {hidden ? '••••••' : `₹${totalDue.toLocaleString('en-IN')}`}</span>
                   </span>
                   {outstanding > 0 && (
-                    <p className="text-xs text-red-600 font-semibold">₹{outstanding.toLocaleString('en-IN')} outstanding</p>
+                    <p className="text-xs text-red-600 font-semibold">{hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} outstanding</p>
                   )}
                 </div>
               </div>
@@ -970,6 +973,7 @@ function ProfileHistorySection({ memberId, flat = false }) {
 
 // ─── Payment history section ──────────────────────────────────────────────────
 function PaymentHistorySection({ memberId }) {
+  const { hidden } = useHiddenAmounts();
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['chitsForMember', memberId],
     queryFn: () => getChitsForMember(memberId),
@@ -1072,8 +1076,8 @@ function PaymentHistorySection({ memberId }) {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-semibold text-gray-900">₹{Number(r.amountPaid).toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">of ₹{Number(r.amountDue).toLocaleString()}</p>
+                  <p className="text-sm font-semibold text-gray-900">{hidden ? '••••••' : `₹${Number(r.amountPaid).toLocaleString()}`}</p>
+                  <p className="text-xs text-gray-400">of {hidden ? '••••••' : `₹${Number(r.amountDue).toLocaleString()}`}</p>
                 </div>
                 <div className="text-right flex-shrink-0 hidden sm:block">
                   <p className="text-xs text-gray-400">Due</p>
@@ -1094,6 +1098,7 @@ export default function MemberDetailPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
+  const { hidden } = useHiddenAmounts();
   const [showEdit, setShowEdit] = useState(false);
   const [showCreateLogin, setShowCreateLogin] = useState(false);
   const [showReset, setShowReset] = useState(false);
@@ -1102,6 +1107,7 @@ export default function MemberDetailPage() {
   const [showReferralEdit, setShowReferralEdit] = useState(false);
   const [refSearch, setRefSearch] = useState('');
   const [refId, setRefId] = useState('');
+  const [idCopied, setIdCopied] = useState(false);
   const toast = useToastContext();
   const qc = useQueryClient();
 
@@ -1140,7 +1146,7 @@ export default function MemberDetailPage() {
       userId: member.userId,
       phone: member.phone,
       memberName: member.fullName ?? member.name,
-      outstandingAmount: totalOutstanding > 0 ? `₹${Number(totalOutstanding).toLocaleString('en-IN')}` : '',
+      outstandingAmount: totalOutstanding > 0 ? (hidden ? '••••••' : `₹${Number(totalOutstanding).toLocaleString('en-IN')}`) : '',
       chitName: '',
     }),
     onSuccess: (res) => toast.success(res?.message ?? 'WhatsApp reminder sent.'),
@@ -1235,7 +1241,7 @@ export default function MemberDetailPage() {
                 const stLabel = r.status === 'PICKED_UP'
                   ? 'Picked up — awaiting admin confirmation'
                   : r.status === 'ASSIGNED'
-                  ? 'Assigned to worker — not yet picked up'
+                  ? 'Assigned to staff — not yet picked up'
                   : 'Pending assignment';
                 return (
                   <div key={r.id} className="flex items-center gap-2 text-xs text-amber-700">
@@ -1245,7 +1251,7 @@ export default function MemberDetailPage() {
                       'bg-amber-100 text-amber-700'
                     }`}>{stLabel}</span>
                     {r.requestedAmount != null && (
-                      <span className="font-semibold">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>
+                      <span className="font-semibold">{hidden ? '••••••' : `₹${Number(r.requestedAmount).toLocaleString('en-IN')}`}</span>
                     )}
                     {r.chitName && <span className="text-amber-600">· {r.chitName}</span>}
                   </div>
@@ -1327,7 +1333,7 @@ export default function MemberDetailPage() {
                 Number(totalOutstanding) > 0 ? (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                    ₹{Number(totalOutstanding).toLocaleString('en-IN')} outstanding
+                    {hidden ? '••••••' : `₹${Number(totalOutstanding).toLocaleString('en-IN')}`} outstanding
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-100">
@@ -1339,7 +1345,7 @@ export default function MemberDetailPage() {
               {!isDeleted && creditBalance > 0 && (
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                  ₹{creditBalance.toLocaleString('en-IN')} credit
+                  {hidden ? '••••••' : `₹${creditBalance.toLocaleString('en-IN')}`} credit
                 </span>
               )}
             </div>
@@ -1378,7 +1384,24 @@ export default function MemberDetailPage() {
               Personal Information
             </h3>
           </div>
-          <InfoRow label="Member ID" value={member.id} />
+          <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 gap-1">
+            <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0">Member ID</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-900 font-mono break-all">{member.id}</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(member.id).then(() => {
+                    setIdCopied(true);
+                    setTimeout(() => setIdCopied(false), 2000);
+                  });
+                }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors flex-shrink-0"
+                title="Copy member ID"
+              >
+                {idCopied ? <><Check size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <Copy size={13} />}
+              </button>
+            </div>
+          </div>
           <InfoRow label="Full Name" value={member.fullName} />
           <InfoRow label="Phone" value={member.phone ? phoneDisplay : null} />
           <InfoRow label="Email" value={member.email} />

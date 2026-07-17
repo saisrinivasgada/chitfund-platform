@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { useNavigate, NavLink, Outlet } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, NavLink, Outlet, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit,
   collectPayment, recordPayment, getAllPaymentBatches,
-  getActiveCashRequests, assignWorkerToRequest, cancelCashRequest, listStaff,
+  getActiveCashRequests, assignStaffToRequest, cancelCashRequest, listStaff,
   getPendingRemittance, remitPayment, voidPaymentBatch,
   adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
-  updateCashRequest,
+  updateCashRequest, getCashRequestSummary, getCancelledCashRequests,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -19,11 +19,12 @@ import FormField, { Input, Select, Textarea } from '../../components/ui/FormFiel
 import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ListSkeleton } from '../../components/ui/Spinner';
-import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle, Pencil } from 'lucide-react';
+import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
 const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
-const WORKER_TABS  = ['Record Payment'];
+const STAFF_TABS   = ['Record Payment'];
 
 const TAB_ROUTES = {
   'Record Payment': 'record',
@@ -41,20 +42,20 @@ const TAB_ICONS = {
 
 function TabBar({ tabs }) {
   return (
-    <div className="flex border-b border-gray-200 gap-1">
+    <div className="flex gap-2 flex-wrap" style={{ marginTop: 12, marginBottom: 12 }}>
       {tabs.map((t) => {
         const Icon = TAB_ICONS[t];
         return (
           <NavLink
             key={t}
             to={TAB_ROUTES[t]}
-            className={({ isActive }) =>
-              `px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer -mb-px flex items-center gap-2 ${
-                isActive
-                  ? 'border-[#1E3A5F] text-[#1E3A5F]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`
-            }
+            className="flex items-center gap-1.5 text-sm font-semibold rounded-full cursor-pointer whitespace-nowrap transition-all"
+            style={({ isActive }) => ({
+              padding: '6px 16px',
+              backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+              color: isActive ? '#ffffff' : '#374151',
+              border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+            })}
           >
             {Icon && <Icon size={14} />}
             {t}
@@ -67,14 +68,25 @@ function TabBar({ tabs }) {
 
 // ─── Cash Requests Tab ─────────────────────────────────────────────────────
 const REQ_STATUS_STYLE = {
-  PENDING:   'bg-amber-100 text-amber-700',
-  ASSIGNED:  'bg-blue-100 text-blue-700',
-  PICKED_UP: 'bg-green-100 text-green-700',
-  COLLECTED: 'bg-[#EEF2F8] text-[#1E3A5F]',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  PENDING:              'bg-amber-100 text-amber-700',
+  SCHEDULED:            'bg-sky-100 text-sky-700',
+  ASSIGNED:             'bg-blue-100 text-blue-700',
+  PICKED_UP:            'bg-green-100 text-green-700',
+  PARTIALLY_COLLECTED:  'bg-purple-100 text-purple-700',
+  COLLECTED:            'bg-[#EEF2F8] text-[#1E3A5F]',
+  CANCELLED:            'bg-gray-100 text-gray-500',
 };
 
-function utc(s) { return s ? (s.endsWith('Z') ? s : s + 'Z') : null; }
+const STATUS_FILTERS = [
+  { key: 'PENDING',             label: 'Pending',           icon: Clock,          color: '#D97706' },
+  { key: 'SCHEDULED',           label: 'Scheduled',         icon: CalendarClock,  color: '#0284C7' },
+  { key: 'ASSIGNED',            label: 'Assigned',          icon: UserCheck,      color: '#2563EB' },
+  { key: 'PICKED_UP',           label: 'Picked Up',         icon: PackageCheck,   color: '#16A34A' },
+  { key: 'PARTIALLY_COLLECTED', label: 'Partial',           icon: AlertCircle,    color: '#7C3AED' },
+  { key: 'CANCELLED',           label: 'Cancelled',         icon: XCircle,        color: '#6B7280' },
+];
+
+function utc(s) { return s ? (s.endsWith('Z') || s.includes('+') ? s : s + 'Z') : null; }
 function fmtCRDateTime(d) {
   if (!d) return null;
   const dt = new Date(utc(d));
@@ -83,16 +95,21 @@ function fmtCRDateTime(d) {
 }
 
 const AUDIT_ACTION_META = {
-  CREATED:       { icon: Clock,       color: '#1E3A5F', bg: '#EEF2F8',  label: 'Request Created' },
-  ASSIGNED:      { icon: UserCheck,   color: '#D97706', bg: '#FEF3C7',  label: 'Worker Assigned' },
-  PICKED_UP:     { icon: PackageCheck,color: '#16A34A', bg: '#F0FDF4',  label: 'Picked Up by Worker' },
-  PICKUP_VOIDED: { icon: RotateCcw,   color: '#DC2626', bg: '#FEF2F2',  label: 'Pickup Voided by Admin' },
-  COLLECTED:     { icon: Banknote,    color: '#1E3A5F', bg: '#EEF2F8',  label: 'Admin Confirmed Collection' },
-  CANCELLED:     { icon: XCircle,     color: '#6B7280', bg: '#F3F4F6',  label: 'Cancelled' },
-  RESCHEDULED:   { icon: Clock,       color: '#7C3AED', bg: '#F5F3FF',  label: 'Rescheduled' },
+  CREATED:              { icon: Clock,         color: '#1E3A5F', bg: '#EEF2F8', label: 'Request Created' },
+  ASSIGNED:             { icon: UserCheck,     color: '#D97706', bg: '#FEF3C7', label: 'Staff Assigned' },
+  PICKED_UP:            { icon: PackageCheck,  color: '#16A34A', bg: '#F0FDF4', label: 'Picked Up by Staff' },
+  PARTIALLY_COLLECTED:  { icon: AlertCircle,   color: '#7C3AED', bg: '#F5F3FF', label: 'Partial Collection Recorded' },
+  MEMBER_APPROVED:      { icon: CheckCircle,   color: '#16A34A', bg: '#F0FDF4', label: 'Member Approved Partial' },
+  MEMBER_REJECTED:      { icon: XCircle,       color: '#DC2626', bg: '#FEF2F2', label: 'Member Rejected Partial' },
+  PICKUP_VOIDED:        { icon: RotateCcw,     color: '#DC2626', bg: '#FEF2F2', label: 'Pickup Voided by Admin' },
+  COLLECTED:            { icon: Banknote,      color: '#1E3A5F', bg: '#EEF2F8', label: 'Admin Confirmed Collection' },
+  CANCELLED:            { icon: XCircle,       color: '#6B7280', bg: '#F3F4F6', label: 'Cancelled' },
+  RESCHEDULED:          { icon: Clock,         color: '#7C3AED', bg: '#F5F3FF', label: 'Rescheduled' },
+  UPDATED:              { icon: Pencil,        color: '#6B7280', bg: '#F3F4F6', label: 'Updated by Admin' },
 };
 
 function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
+  const { hidden } = useHiddenAmounts();
   const { data: auditLogs = [], isLoading } = useQuery({
     queryKey: ['cashAudit', request.id],
     queryFn: () => getCashRequestAuditLog(request.id),
@@ -111,8 +128,8 @@ function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
               {memberMap[request.memberId] ?? request.memberId?.slice(0, 8)}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              ₹{Number(request.requestedAmount).toLocaleString('en-IN')}
-              {request.assignedWorkerId && ` · ${staffMap[request.assignedWorkerId] ?? 'Worker'}`}
+              {hidden ? '••••••' : `₹${Number(request.requestedAmount).toLocaleString('en-IN')}`}
+              {request.assignedStaffId && ` · ${staffMap[request.assignedStaffId] ?? 'Staff'}`}
               {' · '}
               <span className={`font-medium ${
                 request.status === 'PICKED_UP' ? 'text-green-600'
@@ -158,7 +175,7 @@ function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
                       {entry.performedByRole && (
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                           entry.performedByRole === 'ADMIN' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
-                          : entry.performedByRole === 'WORKER' ? 'bg-amber-100 text-amber-700'
+                          : (entry.performedByRole === 'WORKER' || entry.performedByRole === 'STAFF') ? 'bg-amber-100 text-amber-700'
                           : 'bg-gray-100 text-gray-600'
                         }`}>
                           {entry.performedByRole}
@@ -207,34 +224,35 @@ function AssignWorkerModal({ request, onClose }) {
   const toast = useToastContext();
   const [workerId, setWorkerId] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
+  const { hidden } = useHiddenAmounts();
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: listStaff,
   });
-  const workers = staff.filter((s) => s.role === 'WORKER' && s.enabled);
+  const workers = staff.filter((s) => s.role === 'STAFF' && s.enabled);
 
   const mutation = useMutation({
-    mutationFn: () => assignWorkerToRequest({ requestId: request.id, workerId, adminNotes }),
+    mutationFn: () => assignStaffToRequest({ requestId: request.id, staffId: workerId, adminNotes }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cashRequests'] });
-      toast.success('Worker assigned');
+      toast.success('Staff assigned');
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Assignment failed'),
   });
 
   return (
-    <Modal title="Assign Worker" onClose={onClose} size="sm">
+    <Modal title="Assign Staff" onClose={onClose} size="sm">
       <div className="space-y-5">
         <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 text-sm space-y-1">
           <p className="text-gray-500">Member ID: <span className="font-mono text-gray-800">{request.memberId.slice(0, 8)}…</span></p>
-          <p className="text-gray-500">Amount: <span className="font-semibold text-gray-900">₹{Number(request.requestedAmount).toLocaleString('en-IN')}</span></p>
+          <p className="text-gray-500">Amount: <span className="font-semibold text-gray-900">{hidden ? '••••••' : `₹${Number(request.requestedAmount).toLocaleString('en-IN')}`}</span></p>
           {request.notes && <p className="text-gray-500">Note: <span className="text-gray-700">{request.notes}</span></p>}
         </div>
-        <FormField label="Select Worker" required>
+        <FormField label="Select Staff" required>
           <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)} required>
-            <option value="">— Choose a worker —</option>
+            <option value="">— Choose a staff member —</option>
             {workers.map((w) => (
               <option key={w.id} value={w.id}>{w.fullName ?? w.username}</option>
             ))}
@@ -242,7 +260,7 @@ function AssignWorkerModal({ request, onClose }) {
         </FormField>
         <FormField label="Admin Notes (optional)">
           <Input
-            placeholder="Any instructions for the worker"
+            placeholder="Any instructions for the staff member"
             value={adminNotes}
             onChange={(e) => setAdminNotes(e.target.value)}
           />
@@ -251,7 +269,7 @@ function AssignWorkerModal({ request, onClose }) {
           <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
           <Button variant="primary" size="md" disabled={!workerId} loading={mutation.isPending}
             onClick={() => mutation.mutate()}>
-            Assign Worker
+            Assign Staff
           </Button>
         </div>
       </div>
@@ -267,6 +285,7 @@ function SetupCashPickupModal({ onClose }) {
   const [amount, setAmount] = useState('');
   const [workerId, setWorkerId] = useState('');
   const [notes, setNotes] = useState('');
+  const { hidden } = useHiddenAmounts();
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
@@ -281,18 +300,36 @@ function SetupCashPickupModal({ onClose }) {
   );
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
-  const workers = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
+  const workers = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
 
   const selectedChit = activeChits.find((c) => c.id === chitId);
 
+  // Fetch balances for ALL of the member's chits in parallel once the chit list loads
+  const balanceResults = useQueries({
+    queries: activeChits.map((c) => ({
+      queryKey: ['member-balance-for-pickup', memberId, c.id],
+      queryFn: () => getMemberBalance({ memberId, chitId: c.id }),
+      enabled: !!memberId,
+      staleTime: 30_000,
+    })),
+  });
+  const balanceMap = Object.fromEntries(
+    activeChits.map((c, i) => [
+      c.id,
+      balanceResults[i]?.data?.totalOutstanding != null ? Number(balanceResults[i].data.totalOutstanding) : null,
+    ])
+  );
+  const outstanding = balanceMap[chitId] ?? null;
+  const balanceFetching = balanceResults.some((r) => r.isFetching);
+
   const mutation = useMutation({
     mutationFn: () => adminCreateCashRequest({
-      memberId, workerId: workerId || undefined,
+      memberId, staffId: workerId || undefined,
       chitId, requestedAmount: Number(amount), notes: notes || null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cashRequests'] });
-      toast.success(workerId ? 'Cash pickup created and worker assigned' : 'Cash pickup request created');
+      toast.success(workerId ? 'Cash pickup created and staff assigned' : 'Cash pickup request created');
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to create pickup'),
@@ -309,7 +346,7 @@ function SetupCashPickupModal({ onClose }) {
             ))}
           </Select>
         </FormField>
-        <FormField label="Chit Fund" required>
+        <FormField label="Chit" required>
           {!memberId ? (
             <Select disabled><option>— Select member first —</option></Select>
           ) : activeChits.length === 0 && memberChits.length > 0 ? (
@@ -317,9 +354,11 @@ function SetupCashPickupModal({ onClose }) {
           ) : (
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)}>
               <option value="">— Select chit —</option>
-              {activeChits.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} [{c.status}]</option>
-              ))}
+              {activeChits.map((c) => {
+                const bal = balanceMap[c.id];
+                const balSuffix = bal === null ? '' : bal > 0 ? ` — ₹${bal.toLocaleString('en-IN')} due` : ' — No dues';
+                return <option key={c.id} value={c.id}>{c.name} [{c.status}]{balSuffix}</option>;
+              })}
             </Select>
           )}
         </FormField>
@@ -328,30 +367,36 @@ function SetupCashPickupModal({ onClose }) {
             <ChitStatusDot status={selectedChit.status} />
             <span className="font-medium text-gray-700">{selectedChit.name}</span>
             {selectedChit.installmentAmount && (
-              <span>₹{Number(selectedChit.installmentAmount).toLocaleString('en-IN')} / draw</span>
+              <span>{hidden ? '••••••' : `₹${Number(selectedChit.installmentAmount).toLocaleString('en-IN')}`} / draw</span>
             )}
           </div>
         )}
         <FormField label="Amount (₹)" required>
           <Input
             type="number" min="1"
-            placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
+            placeholder={outstanding > 0 ? String(outstanding) : selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
+          {outstanding > 0 && (
+            <button type="button" onClick={() => setAmount(String(outstanding))}
+              className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+              Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
+            </button>
+          )}
         </FormField>
-        <FormField label="Assign Worker" required>
+        <FormField label="Assign Staff" required>
           <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)} required>
-            <option value="">— Select worker —</option>
+            <option value="">— Select staff member —</option>
             {workers.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.role === 'WORKER' ? 'Worker' : 'Manager'}: {w.fullName ?? w.username}
+                {w.role === 'STAFF' ? 'Staff' : 'Manager'}: {w.fullName ?? w.username}
               </option>
             ))}
           </Select>
         </FormField>
         <FormField label="Notes">
-          <Textarea placeholder="Instructions for the worker…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Textarea placeholder="Instructions for the staff member…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </FormField>
         <div className="flex justify-end gap-3 pt-1">
           <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
@@ -371,15 +416,16 @@ function SetupCashPickupModal({ onClose }) {
 
 function VoidPickupModal({ request, memberMap, staffMap, loading, onConfirm, onClose }) {
   const [reason, setReason] = useState('');
+  const { hidden } = useHiddenAmounts();
   return (
     <Modal title="Void Cash Pickup" onClose={onClose} size="sm">
       <div className="space-y-4">
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <AlertTriangle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-red-800">This will undo the worker's pickup mark</p>
+            <p className="text-sm font-semibold text-red-800">This will undo the staff member's pickup mark</p>
             <p className="text-xs text-red-600 mt-0.5">
-              The request goes back to <strong>Assigned</strong> — the same worker still owns it and
+              The request goes back to <strong>Assigned</strong> — the same staff member still owns it and
               must physically re-visit the member and mark pickup again.
             </p>
           </div>
@@ -387,13 +433,13 @@ function VoidPickupModal({ request, memberMap, staffMap, loading, onConfirm, onC
 
         <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 text-sm space-y-1">
           <p className="text-gray-500">Member: <span className="font-semibold text-gray-900">{memberMap[request.memberId] ?? '—'}</span></p>
-          <p className="text-gray-500">Worker: <span className="font-semibold text-gray-900">{staffMap[request.assignedWorkerId] ?? '—'}</span></p>
-          <p className="text-gray-500">Amount: <span className="font-semibold text-gray-900">₹{Number(request.requestedAmount).toLocaleString('en-IN')}</span></p>
+          <p className="text-gray-500">Staff: <span className="font-semibold text-gray-900">{staffMap[request.assignedStaffId] ?? '—'}</span></p>
+          <p className="text-gray-500">Amount: <span className="font-semibold text-gray-900">{hidden ? '••••••' : `₹${Number(request.requestedAmount).toLocaleString('en-IN')}`}</span></p>
         </div>
 
         <FormField label="Reason (required — logged in audit trail)" required>
           <Input
-            placeholder="e.g. Worker marked wrong member by mistake"
+            placeholder="e.g. Staff marked wrong member by mistake"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -420,17 +466,17 @@ function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) 
   const toast = useToastContext();
 
   const [amount, setAmount] = useState(request.requestedAmount != null ? String(request.requestedAmount) : '');
-  const [workerId, setWorkerId] = useState(request.assignedWorkerId ?? '');
+  const [workerId, setWorkerId] = useState(request.assignedStaffId ?? '');
   const [adminNotes, setAdminNotes] = useState(request.adminNotes ?? '');
 
-  const workers = (staff ?? []).filter((s) => s.role === 'WORKER' || s.role === 'MANAGER');
+  const workers = (staff ?? []).filter((s) => s.role === 'STAFF' || s.role === 'MANAGER');
 
   const mutation = useMutation({
     mutationFn: () => updateCashRequest({
       requestId: request.id,
       requestedAmount: amount ? Number(amount) : undefined,
-      updateWorker: workerId !== (request.assignedWorkerId ?? ''),
-      workerId: workerId || null,
+      updateStaff: workerId !== (request.assignedStaffId ?? ''),
+      staffId: workerId || null,
       adminNotes: adminNotes || null,
     }),
     onSuccess: () => {
@@ -460,12 +506,12 @@ function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) 
           />
         </FormField>
 
-        <FormField label="Assigned Worker">
+        <FormField label="Assigned Staff">
           <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
             <option value="">— Unassign (move to Pending) —</option>
             {workers.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.role === 'WORKER' ? 'Worker' : 'Manager'}: {w.fullName ?? w.username}
+                {w.role === 'STAFF' ? 'Staff' : 'Manager'}: {w.fullName ?? w.username}
               </option>
             ))}
           </Select>
@@ -495,9 +541,128 @@ function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) 
   );
 }
 
+function PartialFollowUpModal({ request, memberMap, onClose }) {
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const { hidden } = useHiddenAmounts();
+  const remaining = request._remaining ?? 0;
+  const [amount, setAmount] = useState(remaining > 0 ? String(remaining) : '');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [staffId, setStaffId] = useState(request.assignedStaffId ?? '');
+  const [creating, setCreating] = useState(false);
+
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const workers = staff.filter((s) => s.role === 'STAFF' || s.role === 'MANAGER');
+
+  function quickDate(offset) {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().split('T')[0];
+  }
+
+  async function handleCreate() {
+    if (!amount) return;
+    setCreating(true);
+    try {
+      await adminCreateCashRequest({
+        memberId: request.memberId,
+        chitId: request.chitId,
+        staffId: staffId || undefined,
+        requestedAmount: Number(amount),
+        notes: `Follow-up pickup — originally requested ₹${Number(request.requestedAmount).toLocaleString('en-IN')}, ₹${Number(request.collectedAmount ?? 0).toLocaleString('en-IN')} collected on ${new Date(utc(request.partiallyCollectedAt ?? request.updatedAt)).toLocaleDateString('en-IN')}`,
+        scheduledFor: scheduledFor ? new Date(scheduledFor).toISOString().replace('Z', '') : undefined,
+      });
+      qc.invalidateQueries({ queryKey: ['cashRequests'] });
+      toast.success(staffId ? 'Follow-up pickup created and assigned to staff' : 'Follow-up cash pickup created');
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message ?? 'Failed to create follow-up');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <Modal title="Create Follow-Up Pickup?" onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+          <p className="text-sm font-semibold text-purple-800">
+            Partial collection remitted — {hidden ? '••••••' : `₹${remaining > 0 ? remaining.toLocaleString('en-IN') : 0}`} remaining
+          </p>
+          <p className="text-xs text-purple-600 mt-0.5">
+            Member: {memberMap[request.memberId] ?? '—'}<br />
+            Original request: {hidden ? '••••••' : `₹${Number(request.requestedAmount).toLocaleString('en-IN')}`} · Collected: {hidden ? '••••••' : `₹${Number(request.collectedAmount ?? 0).toLocaleString('en-IN')}`}
+          </p>
+        </div>
+
+        <FormField label="Amount for new pickup (₹)">
+          <Input
+            type="number" min="1"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </FormField>
+
+        <FormField label="Assign to staff (optional)">
+          <Select value={staffId} onChange={(e) => setStaffId(e.target.value)}>
+            <option value="">— Assign later —</option>
+            {workers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.role === 'STAFF' ? 'Staff' : 'Manager'}: {s.fullName ?? s.username}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+
+        <FormField label="Schedule date">
+          <div className="flex gap-2 mb-2">
+            {[['Tomorrow', 1], ['In 3 days', 3], ['Next week', 7]].map(([label, days]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setScheduledFor(quickDate(days))}
+                className={`px-2.5 py-1 text-xs rounded-lg border cursor-pointer transition-colors ${
+                  scheduledFor === quickDate(days)
+                    ? 'border-[#1E3A5F] bg-[#EEF2F8] text-[#1E3A5F] font-medium'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Input
+            type="date"
+            value={scheduledFor}
+            min={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setScheduledFor(e.target.value)}
+          />
+        </FormField>
+
+        <div className="flex gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose} className="flex-1">
+            Cancel Remaining
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            disabled={!amount || creating}
+            loading={creating}
+            onClick={handleCreate}
+          >
+            <Plus size={14} /> Create Pickup
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function CashRequestsTab() {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeFilter, setActiveFilter] = useState(searchParams.get('filter') ?? null);
   const [assignTarget, setAssignTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -505,12 +670,47 @@ export function CashRequestsTab() {
   const [voidPickupTarget, setVoidPickupTarget] = useState(null);
   const [trailTarget, setTrailTarget] = useState(null);
   const [showSetupModal, setShowSetupModal] = useState(false);
+  // Post-partial remittance follow-up
+  const [partialFollowUpTarget, setPartialFollowUpTarget] = useState(null);
 
-  const { data: requests = [], isLoading } = useQuery({
+  function setFilter(key) {
+    const next = activeFilter === key ? null : key;
+    setActiveFilter(next);
+    const p = new URLSearchParams(searchParams);
+    if (next) p.set('filter', next); else p.delete('filter');
+    setSearchParams(p, { replace: true });
+  }
+
+  const { data: activeRequests = [], isLoading } = useQuery({
     queryKey: ['cashRequests'],
     queryFn: getActiveCashRequests,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
+    refetchOnMount: 'always',
   });
+
+  const { data: cancelledRequests = [] } = useQuery({
+    queryKey: ['cashRequests', 'cancelled'],
+    queryFn: getCancelledCashRequests,
+    enabled: activeFilter === 'CANCELLED',
+    refetchInterval: 60_000,
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ['cashRequests', 'summary'],
+    queryFn: getCashRequestSummary,
+    refetchInterval: 10_000,
+    refetchOnMount: 'always',
+  });
+
+  // Combine and filter
+  const allRequests = activeFilter === 'CANCELLED'
+    ? cancelledRequests
+    : activeFilter
+      ? activeRequests.filter((r) => r.status === activeFilter)
+      : activeRequests;
+
+  // Use allRequests alias but keep backward compat
+  const requests = allRequests;
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
@@ -537,11 +737,6 @@ export function CashRequestsTab() {
 
   const collectMutation = useMutation({
     mutationFn: (id) => collectForRequest(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cashRequests'] });
-      toast.success('Cash confirmed — member account has been credited');
-      setCollectTarget(null);
-    },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Collection failed'),
   });
 
@@ -550,6 +745,7 @@ export function CashRequestsTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cashRequests'] });
       qc.invalidateQueries({ queryKey: ['cashAudit'] });
+      qc.invalidateQueries({ queryKey: ['active-cash-requests'] });
       toast.success('Pickup voided — request reverted to Assigned');
       setVoidPickupTarget(null);
     },
@@ -558,15 +754,66 @@ export function CashRequestsTab() {
 
   if (isLoading) return <ListSkeleton rows={6} cols={4} />;
 
-  const STATUS_LABEL = { PENDING: 'Pending', ASSIGNED: 'Assigned', PICKED_UP: 'Picked Up', COLLECTED: 'Collected', CANCELLED: 'Cancelled' };
+  const STATUS_LABEL = {
+    PENDING: 'Pending', SCHEDULED: 'Scheduled', ASSIGNED: 'Assigned', PICKED_UP: 'Picked Up',
+    PARTIALLY_COLLECTED: 'Partial', COLLECTED: 'Collected', CANCELLED: 'Cancelled',
+  };
 
   return (
     <div className="space-y-4">
+      {/* ── Filter cards ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        {STATUS_FILTERS.map(({ key, label, icon: Icon, color }) => {
+          const count = key === 'PENDING' ? (summary?.pending ?? 0)
+            : key === 'SCHEDULED' ? (activeRequests.filter((r) => r.status === 'SCHEDULED').length)
+            : key === 'ASSIGNED' ? (summary?.assigned ?? 0)
+            : key === 'PICKED_UP' ? (summary?.pickedUp ?? 0)
+            : key === 'PARTIALLY_COLLECTED' ? (summary?.partiallyCollected ?? 0)
+            : (summary?.cancelled ?? 0);
+          const todayCount = key === 'CANCELLED' ? summary?.todayCancelled : undefined;
+          const isActive = activeFilter === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={`flex items-center gap-2 px-3 py-3 rounded-xl border text-left transition-all cursor-pointer ${
+                isActive
+                  ? 'border-2 bg-white shadow-md'
+                  : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
+              }`}
+              style={isActive ? { borderColor: color } : {}}
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: `${color}18` }}>
+                <Icon size={14} style={{ color }} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-gray-500 leading-none">{label}</p>
+                {todayCount !== undefined ? (
+                  <>
+                    <p className="text-base font-bold text-gray-900 leading-tight">{todayCount}</p>
+                    <p className="text-xs text-gray-400">{count} overall</p>
+                  </>
+                ) : (
+                  <p className="text-base font-bold text-gray-900 leading-tight">{count}</p>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">
-          {requests.length > 0
-            ? `${requests.length} active request${requests.length !== 1 ? 's' : ''}`
-            : 'No active cash requests'}
+          {activeFilter
+            ? `${requests.length} ${STATUS_LABEL[activeFilter]?.toLowerCase() ?? activeFilter.toLowerCase()} request${requests.length !== 1 ? 's' : ''}`
+            : requests.length > 0 ? `${requests.length} active request${requests.length !== 1 ? 's' : ''}` : 'No active cash requests'}
+          {activeFilter && (
+            <button onClick={() => setFilter(activeFilter)} className="ml-2 text-xs text-blue-600 hover:underline cursor-pointer">
+              Clear filter
+            </button>
+          )}
         </p>
         <Button variant="primary" size="sm" onClick={() => setShowSetupModal(true)}>
           <Plus size={13} /> Setup Cash Pickup
@@ -578,9 +825,9 @@ export function CashRequestsTab() {
         </div>
       )}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <Table columns={['Member', 'Chit', 'Worker', 'Amount', 'Note', 'Status', 'Requested', 'Actions']}>
+        <Table columns={['Member', 'Chit', 'Staff', 'Amount', 'Note', 'Status', 'Requested', 'Actions']}>
           {requests.map((r) => (
-            <Tr key={r.id}>
+            <Tr key={r.id} onClick={() => setTrailTarget(r)}>
               <Td>
                 <span className="text-sm font-medium text-gray-900">
                   {memberMap[r.memberId] ?? <span className="font-mono text-xs text-gray-400">{r.memberId?.slice(0, 8)}…</span>}
@@ -590,12 +837,36 @@ export function CashRequestsTab() {
                 <span className="text-sm text-gray-700">{chitMap[r.chitId] ?? <span className="text-xs text-gray-400 italic">—</span>}</span>
               </Td>
               <Td>
-                {r.assignedWorkerId
-                  ? <span className="text-sm text-gray-700">{staffMap[r.assignedWorkerId] ?? '—'}</span>
+                {r.assignedStaffId
+                  ? <span className="text-sm text-gray-700">{staffMap[r.assignedStaffId] ?? '—'}</span>
                   : <span className="text-xs text-gray-400 italic">Not assigned</span>}
               </Td>
-              <Td><span className="font-semibold text-gray-900">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span></Td>
-              <Td><span className="text-sm text-gray-500 max-w-[160px] truncate block">{r.notes ?? '—'}</span></Td>
+              <Td>
+                <div>
+                  <span className="font-semibold text-gray-900">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>
+                  {r.collectedAmount != null && r.status === 'PARTIALLY_COLLECTED' && (
+                    <p className="text-xs text-purple-600 mt-0.5">
+                      Collected: ₹{Number(r.collectedAmount).toLocaleString('en-IN')}
+                      {r.memberApproved === true && <span className="ml-1 text-green-600 font-semibold">✓ Approved</span>}
+                      {r.memberApproved === false && <span className="ml-1 text-red-600 font-semibold">✗ Rejected</span>}
+                      {r.memberApproved == null && (
+                        <span className="ml-1 font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                          ⚠ Not approved
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </Td>
+              <Td>
+                <div className="max-w-[160px]">
+                  {r.notes && <p className="text-sm text-gray-500 truncate">{r.notes}</p>}
+                  {r.adminNotes && <p className="text-xs text-amber-600 truncate italic">{r.adminNotes}</p>}
+                  {r.memberRejectionReason && (
+                    <p className="text-xs text-red-600 truncate">Rejected: {r.memberRejectionReason}</p>
+                  )}
+                </div>
+              </Td>
               <Td>
                 <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${REQ_STATUS_STYLE[r.status] ?? 'bg-gray-100 text-gray-600'}`}>
                   {STATUS_LABEL[r.status] ?? r.status}
@@ -603,11 +874,11 @@ export function CashRequestsTab() {
               </Td>
               <Td>
                 <span className="text-xs text-gray-400">
-                  {new Date(r.requestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {new Date(utc(r.requestedAt)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                 </span>
               </Td>
               <Td>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   {(r.status === 'PENDING' || r.status === 'ASSIGNED') && (
                     <button
                       onClick={() => setEditTarget(r)}
@@ -617,7 +888,7 @@ export function CashRequestsTab() {
                       <Pencil size={14} />
                     </button>
                   )}
-                  {r.status === 'PENDING' && (
+                  {(r.status === 'PENDING' || r.status === 'SCHEDULED') && (
                     <Button variant="primary" size="sm" onClick={() => setAssignTarget(r)}>
                       <UserCheck size={13} className="mr-1" /> Assign
                     </Button>
@@ -628,21 +899,26 @@ export function CashRequestsTab() {
                         <CheckCircle size={13} className="mr-1" /> Collect
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => setVoidPickupTarget(r)}
-                        title="Void this pickup — worker marked wrong member">
+                        title="Void this pickup — staff marked wrong member">
                         <RotateCcw size={13} className="mr-1" /> Void
                       </Button>
                     </>
                   )}
-                  {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP') && (
+                  {r.status === 'PARTIALLY_COLLECTED' && (
+                    <Button
+                      variant={r.memberApproved == null ? 'warning' : 'success'}
+                      size="sm"
+                      onClick={() => setCollectTarget(r)}
+                    >
+                      {r.memberApproved == null
+                        ? <><AlertTriangle size={13} className="mr-1" /> Remit ₹{Number(r.collectedAmount ?? r.requestedAmount).toLocaleString('en-IN')}</>
+                        : <><HandCoins size={13} className="mr-1" /> Remit ₹{Number(r.collectedAmount ?? r.requestedAmount).toLocaleString('en-IN')}</>
+                      }
+                    </Button>
+                  )}
+                  {(r.status === 'PENDING' || r.status === 'SCHEDULED' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PARTIALLY_COLLECTED') && (
                     <Button variant="muted" size="sm" onClick={() => setCancelTarget(r)}>Cancel</Button>
                   )}
-                  <button
-                    onClick={() => setTrailTarget(r)}
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors cursor-pointer"
-                    title="View audit trail"
-                  >
-                    <ChevronRight size={15} />
-                  </button>
                 </div>
               </Td>
             </Tr>
@@ -684,13 +960,59 @@ export function CashRequestsTab() {
 
       {collectTarget && (
         <ConfirmDialog
-          variant="success"
-          title="Confirm Cash Receipt"
-          description={`Confirm you received ₹${Number(collectTarget.requestedAmount).toLocaleString('en-IN')} from worker ${staffMap[collectTarget.assignedWorkerId] ?? ''}? This will credit the member's account.`}
+          variant={collectTarget.status === 'PARTIALLY_COLLECTED' && collectTarget.memberApproved == null ? 'warning' : 'success'}
+          title={collectTarget.status === 'PARTIALLY_COLLECTED' ? 'Confirm Partial Receipt' : 'Confirm Cash Receipt'}
+          description={
+            collectTarget.status === 'PARTIALLY_COLLECTED'
+              ? `Confirm you received ₹${Number(collectTarget.collectedAmount ?? collectTarget.requestedAmount).toLocaleString('en-IN')} (partial) from ${staffMap[collectTarget.assignedStaffId] ?? 'staff'}? Remaining ₹${(Number(collectTarget.requestedAmount) - Number(collectTarget.collectedAmount ?? collectTarget.requestedAmount)).toLocaleString('en-IN')} will need a follow-up pickup.`
+              : `Confirm you received ₹${Number(collectTarget.requestedAmount).toLocaleString('en-IN')} from staff ${staffMap[collectTarget.assignedStaffId] ?? ''}? This will credit the member's account.`
+          }
           actionLabel="Yes, Received"
           loading={collectMutation.isPending}
-          onConfirm={() => collectMutation.mutate(collectTarget.id)}
+          onConfirm={() => {
+            const isPartial = collectTarget.status === 'PARTIALLY_COLLECTED';
+            const remaining = isPartial
+              ? Number(collectTarget.requestedAmount) - Number(collectTarget.collectedAmount ?? collectTarget.requestedAmount)
+              : 0;
+            const targetSnapshot = { ...collectTarget, _remaining: remaining };
+            collectMutation.mutate(collectTarget.id, {
+              onSuccess: () => {
+                qc.invalidateQueries({ queryKey: ['cashRequests'] });
+                qc.invalidateQueries({ queryKey: ['active-cash-requests'] });
+                qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+                qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+                qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+                qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draws' });
+                toast.success('Cash confirmed — member account has been credited');
+                setCollectTarget(null);
+                if (isPartial && remaining > 0) {
+                  setPartialFollowUpTarget(targetSnapshot);
+                }
+              },
+            });
+          }}
           onClose={() => setCollectTarget(null)}
+        >
+          {collectTarget.status === 'PARTIALLY_COLLECTED' && collectTarget.memberApproved == null && (
+            <div className="mt-3 rounded-lg px-4 py-3 bg-red-50 border border-red-200 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">Member has not approved yet</p>
+                <p className="text-xs text-red-600 mt-0.5 leading-relaxed">
+                  The member was notified about the partial amount of ₹{Number(collectTarget.collectedAmount ?? 0).toLocaleString('en-IN')} but hasn't confirmed it. Consider waiting for their approval before remitting.
+                </p>
+              </div>
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {partialFollowUpTarget && (
+        <PartialFollowUpModal
+          request={partialFollowUpTarget}
+          memberMap={memberMap}
+          staffMap={staffMap}
+          onClose={() => setPartialFollowUpTarget(null)}
         />
       )}
 
@@ -717,7 +1039,7 @@ function ChitStatusDot({ status }) {
 
 // ─── Record Payment Tab ────────────────────────────────────────────────────
 const PAYMENT_MODES = [
-  { value: 'CASH',          label: 'Cash',          desc: 'Physical cash — admin or worker collected' },
+  { value: 'CASH',          label: 'Cash',          desc: 'Physical cash — admin or staff collected' },
   { value: 'UPI',           label: 'UPI',            desc: 'Instantly credited to treasury bank' },
   { value: 'BANK_TRANSFER', label: 'Bank Transfer',  desc: 'NEFT/RTGS/IMPS — credited to treasury bank' },
 ];
@@ -726,6 +1048,7 @@ export function RecordPaymentTab() {
   const { user } = useAuth();
   const toast = useToastContext();
   const qc = useQueryClient();
+  const { hidden } = useHiddenAmounts();
 
   const [memberId, setMemberId]     = useState('');
   const [chitId, setChitId]         = useState('');
@@ -753,16 +1076,17 @@ export function RecordPaymentTab() {
     queryKey: ['staff'],
     queryFn: listStaff,
   });
-  const collectors = staff.filter((s) => (s.role === 'WORKER' || s.role === 'MANAGER') && s.enabled !== false);
+  const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
 
   const mutation = useMutation({
     mutationFn: () => {
+      const idempotencyKey = crypto.randomUUID();
       if (paymentMode === 'CASH' && collectedBy !== 'SELF') {
         // Worker/Manager collected → AWAITING_REMITTANCE
-        return collectPayment({ chitId, memberId, amount: Number(amount), notes: notes || null, overrideCollectedBy: collectedBy });
+        return collectPayment({ chitId, memberId, amount: Number(amount), notes: notes || null, overrideCollectedBy: collectedBy }, idempotencyKey);
       } else {
         // Admin direct (cash/upi/bank) → COMPLETED immediately
-        return recordPayment({ chitId, memberId, amount: Number(amount), paymentMode, notes: notes || null });
+        return recordPayment({ chitId, memberId, amount: Number(amount), paymentMode, notes: notes || null, idempotencyKey });
       }
     },
     onSuccess: () => {
@@ -794,11 +1118,21 @@ export function RecordPaymentTab() {
   const selectedChit = collectableChits.find((c) => c.id === chitId);
   const isCash = paymentMode === 'CASH';
 
-  const { data: chitBalance } = useQuery({
-    queryKey: ['memberBalance', memberId, chitId],
-    queryFn: () => getMemberBalance({ memberId, chitId }),
-    enabled: !!memberId && !!chitId,
+  // Fetch balances for ALL of this member's chits in parallel once the list loads
+  const chitBalanceResults = useQueries({
+    queries: collectableChits.map((c) => ({
+      queryKey: ['memberBalance', memberId, c.id],
+      queryFn: () => getMemberBalance({ memberId, chitId: c.id }),
+      enabled: !!memberId,
+      staleTime: 30_000,
+    })),
   });
+  const balanceMap = Object.fromEntries(
+    collectableChits.map((c, i) => [
+      c.id,
+      chitBalanceResults[i]?.data?.totalOutstanding != null ? Number(chitBalanceResults[i].data.totalOutstanding) : null,
+    ])
+  );
 
   const { data: memberCredit } = useQuery({
     queryKey: ['memberCredit', memberId],
@@ -807,7 +1141,7 @@ export function RecordPaymentTab() {
   });
   const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
 
-  const outstanding = chitBalance ? Number(chitBalance.totalOutstanding ?? 0) : null;
+  const outstanding = chitId ? (balanceMap[chitId] ?? null) : null;
   const amtNum = Number(amount || 0);
   // Effective amount after credit auto-applies
   const effectiveAmount = amtNum + creditBalance;
@@ -866,7 +1200,7 @@ export function RecordPaymentTab() {
         </FormField>
 
         {/* Chit */}
-        <FormField label="Chit Fund" required>
+        <FormField label="Chit" required>
           {!memberId ? (
             <Select disabled><option>— Select a member first —</option></Select>
           ) : collectableChits.length === 0 ? (
@@ -874,9 +1208,11 @@ export function RecordPaymentTab() {
           ) : (
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)} required>
               <option value="">— Select chit —</option>
-              {collectableChits.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} [{c.status}]</option>
-              ))}
+              {collectableChits.map((c) => {
+                const bal = balanceMap[c.id];
+                const balSuffix = bal === null ? '' : bal > 0 ? ` — ₹${bal.toLocaleString('en-IN')} due` : ' — No dues';
+                return <option key={c.id} value={c.id}>{c.name} [{c.status}]{balSuffix}</option>;
+              })}
             </Select>
           )}
         </FormField>
@@ -887,15 +1223,6 @@ export function RecordPaymentTab() {
               <ChitStatusDot status={selectedChit.status} />
               <span className="font-medium text-gray-700">{selectedChit.name}</span>
               <Badge variant={statusBadge(selectedChit.status)}>{selectedChit.status}</Badge>
-              <span className="ml-auto font-semibold">
-                {outstanding === null ? (
-                  <span className="text-gray-300">loading…</span>
-                ) : outstanding === 0 ? (
-                  <span className="text-green-600">No outstanding</span>
-                ) : (
-                  <span className="text-red-600">₹{outstanding.toLocaleString('en-IN')} outstanding</span>
-                )}
-              </span>
             </div>
             {creditBalance > 0 && outstanding !== null && outstanding > 0 && (
               <div className="flex items-center gap-2 text-emerald-700 font-medium border-t border-gray-200 pt-1.5">
@@ -918,6 +1245,12 @@ export function RecordPaymentTab() {
             onChange={(e) => setAmount(e.target.value)}
             required
           />
+          {outstanding > 0 && (
+            <button type="button" onClick={() => setAmount(String(outstanding))}
+              className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+              Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
+            </button>
+          )}
           {isOverpay && (
             <div className="mt-1.5 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
               <span className="flex-shrink-0">ℹ</span>
@@ -936,7 +1269,7 @@ export function RecordPaymentTab() {
               <option value="SELF">Self (I collected it directly)</option>
               {collectors.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.role === 'WORKER' ? 'Worker' : 'Manager'}: {s.fullName ?? s.username}
+                  {s.role === 'STAFF' ? 'Staff' : 'Manager'}: {s.fullName ?? s.username}
                 </option>
               ))}
             </Select>
@@ -986,6 +1319,7 @@ export function PendingRemittanceTab() {
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [voidTarget, setVoidTarget] = useState(null);
   const [collectPickupTarget, setCollectPickupTarget] = useState(null);
+  const [partialFollowUp, setPartialFollowUp] = useState(null);
   const [sortField, setSortField] = useState('collectedAt');
   const [sortDir, setSortDir] = useState('desc');
   const [filterCollector, setFilterCollector] = useState('');
@@ -1001,13 +1335,15 @@ export function PendingRemittanceTab() {
     refetchInterval: 30_000,
   });
 
-  // PICKED_UP cash requests = worker has cash, admin hasn't collected yet
+  // PICKED_UP and PARTIALLY_COLLECTED cash requests = worker has cash, admin hasn't collected yet
   const { data: allActiveRequests = [] } = useQuery({
     queryKey: ['cashRequests'],
     queryFn: getActiveCashRequests,
     refetchInterval: 30_000,
   });
-  const pickedUpRequests = allActiveRequests.filter((r) => r.status === 'PICKED_UP');
+  const pickedUpRequests = allActiveRequests.filter(
+    (r) => r.status === 'PICKED_UP' || r.status === 'PARTIALLY_COLLECTED'
+  );
 
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
@@ -1039,6 +1375,8 @@ export function PendingRemittanceTab() {
       qc.invalidateQueries({ queryKey: ['payment-batches-all'] });
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
       qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draws' });
       toast.success('Cash collected from staff — payment credited to member');
       setConfirmTarget(null);
     },
@@ -1058,18 +1396,11 @@ export function PendingRemittanceTab() {
 
   const collectPickupMutation = useMutation({
     mutationFn: (requestId) => collectForRequest(requestId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cashRequests'] });
-      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
-      toast.success('Cash received — member account credited, treasury updated');
-      setCollectPickupTarget(null);
-    },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Collection failed'),
   });
 
   // All workers + managers for the filter dropdown (not just those with pending batches)
-  const collectorOptions = staff.filter((s) => s.role === 'WORKER' || s.role === 'MANAGER');
+  const collectorOptions = staff.filter((s) => s.role === 'STAFF' || s.role === 'MANAGER');
 
   if (isLoading) return <ListSkeleton rows={6} cols={4} />;
 
@@ -1100,7 +1431,7 @@ export function PendingRemittanceTab() {
               <option value="">All Collectors</option>
               {collectorOptions.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.role === 'WORKER' ? 'W' : 'M'}: {s.fullName ?? s.username}
+                  {s.role === 'STAFF' ? 'W' : 'M'}: {s.fullName ?? s.username}
                 </option>
               ))}
             </Select>
@@ -1109,7 +1440,7 @@ export function PendingRemittanceTab() {
         <EmptyState
           icon={Clock}
           title="No pending remittances"
-          message="When a worker or manager collects cash from a member, it appears here until you collect it from them."
+          message="When a staff member or manager collects cash from a member, it appears here until you collect it from them."
         />
       </>
     );
@@ -1124,39 +1455,59 @@ export function PendingRemittanceTab() {
           <div className="flex items-center gap-2 mb-1">
             <PackageCheck size={15} className="text-green-700" />
             <p className="text-sm font-semibold text-green-800">
-              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from worker
+              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff
             </p>
           </div>
-          {pickedUpRequests.map((r) => (
-            <div key={r.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-3 border border-green-100">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-bold flex-shrink-0">
-                  {(memberMap[r.memberId] ?? '?')[0].toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">
-                    {memberMap[r.memberId] ?? '—'}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate">
-                    Worker: {staffMap[r.assignedWorkerId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
-                  </p>
-                  {r.pickedUpAt && (
-                    <p className="text-xs text-green-600 mt-0.5">
-                      Picked up {new Date(utc(r.pickedUpAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+          {pickedUpRequests.map((r) => {
+            const isPartial = r.status === 'PARTIALLY_COLLECTED';
+            const displayAmt = isPartial ? (r.collectedAmount ?? r.requestedAmount) : r.requestedAmount;
+            return (
+              <div key={r.id} className={`flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-3 border ${isPartial ? 'border-purple-200' : 'border-green-100'}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${isPartial ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                    {(memberMap[r.memberId] ?? '?')[0].toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {memberMap[r.memberId] ?? '—'}
+                      </p>
+                      {isPartial && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium flex-shrink-0">Partial</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 truncate">
+                      Staff: {staffMap[r.assignedStaffId] ?? '—'} ·{' '}
+                      <span className="font-semibold">₹{Number(displayAmt).toLocaleString('en-IN')}</span>
+                      {isPartial && <span className="text-gray-400"> of ₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>}
                     </p>
-                  )}
+                    {isPartial && r.memberApproved === true && (
+                      <p className="text-xs text-green-600 mt-0.5">✓ Member approved</p>
+                    )}
+                    {isPartial && r.memberApproved === false && (
+                      <p className="text-xs text-red-600 mt-0.5">✗ Member rejected · {r.memberRejectionReason}</p>
+                    )}
+                    {isPartial && r.memberApproved == null && (
+                      <p className="text-xs text-gray-400 mt-0.5">Awaiting member approval</p>
+                    )}
+                    {r.pickedUpAt && !isPartial && (
+                      <p className="text-xs text-green-600 mt-0.5">
+                        Picked up {new Date(utc(r.pickedUpAt)).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                      </p>
+                    )}
+                  </div>
                 </div>
+                <Button
+                  variant={isPartial ? 'primary' : 'success'}
+                  size="sm"
+                  className="flex-shrink-0"
+                  onClick={() => setCollectPickupTarget(r)}
+                >
+                  <CheckCircle size={13} className="mr-1" /> {isPartial ? 'Remit' : 'Collect'}
+                </Button>
               </div>
-              <Button
-                variant="success"
-                size="sm"
-                className="flex-shrink-0"
-                onClick={() => setCollectPickupTarget(r)}
-              >
-                <CheckCircle size={13} className="mr-1" /> Collect
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1171,7 +1522,7 @@ export function PendingRemittanceTab() {
             <option value="">All Collectors</option>
             {collectorOptions.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.role === 'WORKER' ? 'W' : 'M'}: {s.fullName ?? s.username}
+                {s.role === 'STAFF' ? 'W' : 'M'}: {s.fullName ?? s.username}
               </option>
             ))}
           </Select>
@@ -1252,13 +1603,55 @@ export function PendingRemittanceTab() {
 
       {collectPickupTarget && (
         <ConfirmDialog
-          variant="success"
-          title="Confirm Cash Received from Worker"
-          description={`Confirm you received ₹${Number(collectPickupTarget.requestedAmount).toLocaleString('en-IN')} from ${staffMap[collectPickupTarget.assignedWorkerId] ?? 'worker'}? The member's account will be credited and treasury updated immediately.`}
+          variant={collectPickupTarget.status === 'PARTIALLY_COLLECTED' && collectPickupTarget.memberApproved == null ? 'warning' : 'success'}
+          title={collectPickupTarget.status === 'PARTIALLY_COLLECTED' ? 'Confirm Partial Receipt' : 'Confirm Cash Received from Staff'}
+          description={
+            collectPickupTarget.status === 'PARTIALLY_COLLECTED'
+              ? `Confirm you received ₹${Number(collectPickupTarget.collectedAmount ?? collectPickupTarget.requestedAmount).toLocaleString('en-IN')} (partial) from ${staffMap[collectPickupTarget.assignedStaffId] ?? 'staff'}? Member's account will be credited with this amount.`
+              : `Confirm you received ₹${Number(collectPickupTarget.requestedAmount).toLocaleString('en-IN')} from ${staffMap[collectPickupTarget.assignedStaffId] ?? 'staff'}? The member's account will be credited and treasury updated immediately.`
+          }
           actionLabel="Yes, Received"
           loading={collectPickupMutation.isPending}
-          onConfirm={() => collectPickupMutation.mutate(collectPickupTarget.id)}
+          onConfirm={() => {
+            const snap = { ...collectPickupTarget };
+            collectPickupMutation.mutate(collectPickupTarget.id, {
+              onSuccess: () => {
+                qc.invalidateQueries({ queryKey: ['cashRequests'] });
+                qc.invalidateQueries({ queryKey: ['active-cash-requests'] });
+                qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+                qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+                qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
+                qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draws' });
+                toast.success('Cash received — member account credited, treasury updated');
+                setCollectPickupTarget(null);
+                if (snap.status === 'PARTIALLY_COLLECTED') {
+                  const remaining = Number(snap.requestedAmount) - Number(snap.collectedAmount ?? snap.requestedAmount);
+                  if (remaining > 0) setPartialFollowUp({ ...snap, _remaining: remaining });
+                }
+              },
+            });
+          }}
           onClose={() => setCollectPickupTarget(null)}
+        >
+          {collectPickupTarget.status === 'PARTIALLY_COLLECTED' && collectPickupTarget.memberApproved == null && (
+            <div className="mt-3 rounded-lg px-4 py-3 bg-red-50 border border-red-200 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">Member has not approved yet</p>
+                <p className="text-xs text-red-600 mt-0.5 leading-relaxed">
+                  The member was notified about the partial amount of ₹{Number(collectPickupTarget.collectedAmount ?? collectPickupTarget.requestedAmount).toLocaleString('en-IN')} but hasn't confirmed it yet.
+                </p>
+              </div>
+            </div>
+          )}
+        </ConfirmDialog>
+      )}
+
+      {partialFollowUp && (
+        <PartialFollowUpModal
+          request={partialFollowUp}
+          memberMap={memberMap}
+          onClose={() => setPartialFollowUp(null)}
         />
       )}
     </div>
@@ -1266,10 +1659,16 @@ export function PendingRemittanceTab() {
 }
 
 // ─── History Tab ────────────────────────────────────────────────────────────
+const PAGE_SIZE = 50;
+
 export function HistoryTab() {
   const navigate = useNavigate();
   const [chitId, setChitId]     = useState('');
   const [memberId, setMemberId] = useState('');
+  const [page, setPage] = useState(0);
+  const [allBatches, setAllBatches] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
   const chits = allChits.filter((c) => c.status !== 'DRAFT');
@@ -1285,11 +1684,32 @@ export function HistoryTab() {
     })
   );
 
-  const { data: batches = [], isLoading, isError, refetch } = useQuery({
+  const { isLoading, isError, refetch } = useQuery({
     queryKey: ['payment-batches-all', chitId, memberId],
-    queryFn: () => getAllPaymentBatches({ ...(chitId ? { chitId } : {}), ...(memberId ? { memberId } : {}) }),
+    queryFn: async () => {
+      const result = await getAllPaymentBatches({ ...(chitId ? { chitId } : {}), ...(memberId ? { memberId } : {}), page: 0, size: PAGE_SIZE });
+      setAllBatches(result.content ?? []);
+      setHasMore(result.hasMore ?? false);
+      setPage(0);
+      return result;
+    },
     retry: 2,
   });
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const result = await getAllPaymentBatches({ ...(chitId ? { chitId } : {}), ...(memberId ? { memberId } : {}), page: nextPage, size: PAGE_SIZE });
+      setAllBatches(prev => [...prev, ...(result.content ?? [])]);
+      setHasMore(result.hasMore ?? false);
+      setPage(nextPage);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const batches = allBatches;
 
   const chitMap = Object.fromEntries(chits.map((c) => [c.id, { name: c.name, status: c.status }]));
 
@@ -1326,7 +1746,7 @@ export function HistoryTab() {
           </FormField>
         </div>
         <div className="min-w-[200px] flex-1 max-w-xs">
-          <FormField label="Chit Fund">
+          <FormField label="Chit">
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)}>
               <option value="">All Chits</option>
               {chits.map((c) => (
@@ -1363,8 +1783,9 @@ export function HistoryTab() {
           <EmptyState icon={History} title="No payment history"
             message={chitId ? 'No payments recorded for this chit.' : 'No payments recorded yet.'} />
         ) : (
+          <>
           <Table columns={['Member', 'Chit', 'Draw(s)', 'Amount', 'Mode', 'Recorded By', 'Date & Time', 'Status']}>
-            {batches.map((b) => (
+            {batches.map((b, idx) => (
               <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'History' } })} className="cursor-pointer hover:bg-blue-50/30 transition-colors">
                 <Td className="font-medium text-gray-900">
                   {memberMap[b.memberId] ?? b.memberId?.slice(0, 8) ?? '—'}
@@ -1408,6 +1829,19 @@ export function HistoryTab() {
               </Tr>
             ))}
           </Table>
+          {hasMore && (
+            <div className="flex justify-center py-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-5 py-2 text-sm font-semibold rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : `Load more (${batches.length} loaded)`}
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>
@@ -1418,7 +1852,7 @@ export function HistoryTab() {
 export default function PaymentsPage() {
   const { user } = useAuth();
   const role = user?.role ?? 'ADMIN';
-  const tabs = role === 'WORKER' ? WORKER_TABS : role === 'MANAGER' ? MANAGER_TABS : ADMIN_TABS;
+  const tabs = role === 'STAFF' ? STAFF_TABS : role === 'MANAGER' ? MANAGER_TABS : ADMIN_TABS;
 
   return (
     <div className="space-y-6">
@@ -1427,7 +1861,7 @@ export default function PaymentsPage() {
           Payments
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          {role === 'WORKER'
+          {role === 'STAFF'
             ? 'Record cash payments collected from members.'
             : 'Record payments, manage cash requests, and view payment history.'}
         </p>

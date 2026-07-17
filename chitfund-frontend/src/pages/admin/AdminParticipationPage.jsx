@@ -3,10 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { getUserById, getOrgReservations } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ArrowLeft, Building2, CheckCircle, Layers } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 export default function AdminParticipationPage() {
   const { adminId } = useParams();
   const navigate = useNavigate();
+  const { hidden } = useHiddenAmounts();
 
   const { data: adminUser, isLoading: userLoading } = useQuery({
     queryKey: ['user', adminId],
@@ -144,7 +146,7 @@ function OrgSlotRow({ slot }) {
         <p className="text-sm font-semibold text-gray-900">{slot.chitName ?? 'Unknown Chit'}</p>
         <p className="text-xs text-gray-500 mt-0.5">
           Draw #{slot.monthNumber} · {date}
-          {slot.payoutAmount ? ` · ₹${Number(slot.payoutAmount).toLocaleString('en-IN')}` : ''}
+          {slot.payoutAmount ? ` · ${hidden ? '••••••' : `₹${Number(slot.payoutAmount).toLocaleString('en-IN')}`}` : ''}
         </p>
         {isRealized && slot.updatedAt && (
           <p className="text-xs text-green-600 mt-0.5">

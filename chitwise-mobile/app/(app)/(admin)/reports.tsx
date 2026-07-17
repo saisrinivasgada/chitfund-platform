@@ -12,8 +12,8 @@ import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: any) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const monthStart = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 
 const PRESETS = [
   { label: 'Today',      from: todayStr,    to: todayStr },
@@ -472,7 +472,7 @@ function MemberReport() {
 // Payments Report
 // ─────────────────────────────────────────────────────────────────────────────
 function PaymentsReport() {
-  const [presetIdx, setPresetIdx] = useState(2);
+  const [presetIdx, setPresetIdx] = useState(0);
   const from = PRESETS[presetIdx].from();
   const to   = PRESETS[presetIdx].to();
 

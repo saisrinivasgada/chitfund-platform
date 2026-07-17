@@ -63,7 +63,7 @@ public class MemberCreditService {
     public void addCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        MemberCreditBalance credit = creditBalanceRepository.findByMemberId(memberId)
+        MemberCreditBalance credit = creditBalanceRepository.findByMemberIdForUpdate(memberId)
                 .orElseGet(() -> MemberCreditBalance.builder()
                         .memberId(memberId)
                         .balance(BigDecimal.ZERO)
@@ -93,7 +93,7 @@ public class MemberCreditService {
     public void consumeCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        MemberCreditBalance credit = creditBalanceRepository.findByMemberId(memberId)
+        MemberCreditBalance credit = creditBalanceRepository.findByMemberIdForUpdate(memberId)
                 .orElseGet(() -> MemberCreditBalance.builder()
                         .memberId(memberId)
                         .balance(BigDecimal.ZERO)

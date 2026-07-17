@@ -12,6 +12,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.chitfund.paymentservice.dto.response.PagedResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -61,6 +66,18 @@ public class AdminWalletService {
     public List<AdminWalletEntryResponse> listAll() {
         return walletRepository.findAllByOrderByCreatedAtDesc()
                 .stream().map(this::toResponse).toList();
+    }
+
+    public PagedResponse<AdminWalletEntryResponse> listPaged(int page, int size) {
+        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<AdminWalletEntry> result = walletRepository.findAllByOrderByCreatedAtDesc(pr);
+        return PagedResponse.<AdminWalletEntryResponse>builder()
+                .content(result.getContent().stream().map(this::toResponse).toList())
+                .totalElements(result.getTotalElements())
+                .page(page)
+                .size(size)
+                .hasMore(result.hasNext())
+                .build();
     }
 
     @Transactional

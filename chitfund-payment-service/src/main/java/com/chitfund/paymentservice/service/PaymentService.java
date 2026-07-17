@@ -31,6 +31,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.chitfund.paymentservice.dto.response.PagedResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -42,6 +47,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -69,7 +76,26 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin) {
-        if (!memberServiceClient.isMemberActive(request.getMemberId())
+        return collectCash(request, workerId, callerIsAdmin, null, false);
+    }
+
+    @Transactional
+    public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin, String idempotencyKey) {
+        return collectCash(request, workerId, callerIsAdmin, idempotencyKey, false);
+    }
+
+    @Transactional
+    public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin, String idempotencyKey, boolean skipMemberCheck) {
+        if (idempotencyKey != null) {
+            var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                PaymentBatch b = existing.get();
+                return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
+            }
+        }
+
+        if (!skipMemberCheck
+                && !memberServiceClient.isMemberActive(request.getMemberId())
                 && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
                     "Member " + request.getMemberId() + " is not active");
@@ -89,6 +115,7 @@ public class PaymentService {
                 .collectedBy(effectiveCollector)
                 .collectedAt(LocalDateTime.now())
                 .notes(request.getNotes())
+                .idempotencyKey(idempotencyKey)
                 .build();
         batchRepository.save(batch);
 
@@ -96,22 +123,24 @@ public class PaymentService {
             List<PaymentAllocation> allocations = applyFifo(batch, workerId);
             log.info("Admin {} collected ₹{} cash directly from member {} for chit {} — completed immediately",
                     workerId, request.getAmount(), request.getMemberId(), request.getChitId());
-            creditWallet(batch, workerId);
-            eventPublisher.publish(buildCompletedEvent(batch, workerId));
+            creditWallet(batch, workerId, allocations);
+            PaymentCompletedEvent completedEvent = buildCompletedEvent(batch, workerId);
+            publishAfterCommit(() -> eventPublisher.publish(completedEvent));
             return toBatchResponse(batch, allocations);
         }
 
         log.info("Collector {} collected ₹{} cash from member {} for chit {} — awaiting remittance",
                 effectiveCollector, request.getAmount(), request.getMemberId(), request.getChitId());
 
-        eventPublisher.publish(new CashCollectedEvent(
+        CashCollectedEvent collectedEvent = new CashCollectedEvent(
                 batch.getId().toString(),
                 request.getChitId().toString(),
                 request.getMemberId().toString(),
                 request.getAmount(),
                 workerId.toString(),
                 Instant.now()
-        ));
+        );
+        publishAfterCommit(() -> eventPublisher.publish(collectedEvent));
 
         return toBatchResponse(batch, List.of());
     }
@@ -122,6 +151,18 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId) {
+        return recordPayment(request, adminId, null);
+    }
+
+    @Transactional
+    public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
+        if (idempotencyKey != null) {
+            var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                PaymentBatch b = existing.get();
+                return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
+            }
+        }
         if (!memberServiceClient.isMemberActive(request.getMemberId())
                 && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
             throw new BusinessException(ErrorCode.MEMBER_INACTIVE,
@@ -140,6 +181,7 @@ public class PaymentService {
                 .collectedAt(request.getPaymentMode() == PaymentMode.CASH ? LocalDateTime.now() : null)
                 .collectedBy(request.getPaymentMode() == PaymentMode.CASH ? adminId : null)
                 .recordedBy(adminId)
+                .idempotencyKey(idempotencyKey)
                 .build();
         batchRepository.save(batch);
 
@@ -149,14 +191,15 @@ public class PaymentService {
                 adminId, request.getPaymentMode(), request.getAmount(),
                 request.getMemberId(), request.getChitId(), allocations.size());
 
-        creditWallet(batch, adminId);
+        creditWallet(batch, adminId, allocations);
         notificationService.notifyUser(batch.getMemberId(), NotificationType.PAYMENT_COMPLETED,
                 "Payment Recorded",
                 String.format("Your %s payment of ₹%s has been recorded and credited to your account.",
                         request.getPaymentMode().toString().replace("_", " "),
                         request.getAmount().toPlainString()),
                 "PAYMENT", batch.getId(), "/member");
-        eventPublisher.publish(buildCompletedEvent(batch, adminId));
+        PaymentCompletedEvent recordedEvent = buildCompletedEvent(batch, adminId);
+        publishAfterCommit(() -> eventPublisher.publish(recordedEvent));
 
         return toBatchResponse(batch, allocations);
     }
@@ -172,7 +215,7 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse remitCash(UUID batchId, UUID adminId) {
-        PaymentBatch batch = batchRepository.findById(batchId)
+        PaymentBatch batch = batchRepository.findByIdForUpdate(batchId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Payment batch not found: " + batchId));
 
@@ -191,13 +234,14 @@ public class PaymentService {
         log.info("Admin {} remitted cash batch {} (₹{}) for member {} — {} months updated",
                 adminId, batchId, batch.getTotalAmount(), batch.getMemberId(), allocations.size());
 
-        creditWallet(batch, adminId);
+        creditWallet(batch, adminId, allocations);
         notificationService.notifyUser(batch.getMemberId(), NotificationType.PAYMENT_COMPLETED,
                 "Payment Confirmed",
                 String.format("Your cash payment of ₹%s has been received and credited to your account.",
                         batch.getTotalAmount().toPlainString()),
                 "PAYMENT", batchId, "/member");
-        eventPublisher.publish(buildCompletedEvent(batch, adminId));
+        PaymentCompletedEvent remitEvent = buildCompletedEvent(batch, adminId);
+        publishAfterCommit(() -> eventPublisher.publish(remitEvent));
 
         return toBatchResponse(batch, allocations);
     }
@@ -464,6 +508,14 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
+    public List<PaymentBatchResponse> getAllBatchesForMember(UUID memberId) {
+        List<PaymentBatch> batches = batchRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
+        return batches.stream()
+                .map(b -> toBatchResponse(b, allocationRepository.findByBatchId(b.getId())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public PaymentBatchResponse getBatchById(UUID batchId) {
         PaymentBatch batch = batchRepository.findById(batchId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND, "Batch not found: " + batchId));
@@ -474,15 +526,24 @@ public class PaymentService {
      * Auto-credit treasury when a payment is fully settled.
      * CASH → AccountType.CASH; UPI / BANK_TRANSFER / CHEQUE → AccountType.BANK
      */
-    private void creditWallet(PaymentBatch batch, UUID actorId) {
+    private void creditWallet(PaymentBatch batch, UUID actorId, List<PaymentAllocation> allocations) {
         AccountType accountType = batch.getPaymentMode() == PaymentMode.CASH
                 ? AccountType.CASH : AccountType.BANK;
+
+        String drawPart = allocations.isEmpty() ? "" :
+                " · Draw " + allocations.stream()
+                        .map(PaymentAllocation::getMonthNumber)
+                        .distinct()
+                        .sorted()
+                        .map(n -> "#" + n)
+                        .collect(java.util.stream.Collectors.joining(", "));
+
         AdminWalletEntryRequest entry = new AdminWalletEntryRequest();
         entry.setAccountType(accountType);
         entry.setEntryType(WalletEntryType.IN);
         entry.setAmount(batch.getTotalAmount());
         entry.setCategory("PAYMENT");
-        entry.setDescription("Payment received — member " + batch.getMemberId() + ", chit " + batch.getChitId());
+        entry.setDescription("Payment received — member " + batch.getMemberId() + ", chit " + batch.getChitId() + drawPart);
         adminWalletService.addEntry(entry, actorId);
     }
 
@@ -523,9 +584,9 @@ public class PaymentService {
         BigDecimal remaining = batch.getTotalAmount().add(creditToUse);
         List<PaymentAllocation> allocations = new ArrayList<>();
 
-        // Step 2: FIFO within the current chit
+        // Step 2: FIFO within the current chit — acquire row-level write locks to prevent concurrent double-allocation
         List<PaymentRecord> sameChit = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                         batch.getMemberId(), batch.getChitId(), pendingStatuses);
 
         remaining = applyToRecords(sameChit, remaining, batch.getId(), allocations);
@@ -533,7 +594,7 @@ public class PaymentService {
         // Step 3: Spill into other chits (ordered by dueDate ascending — oldest debt first)
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
             List<PaymentRecord> otherChits = paymentRecordRepository
-                    .findOutstandingAcrossOtherChits(batch.getMemberId(), batch.getChitId(), pendingStatuses);
+                    .findOutstandingAcrossOtherChitsForUpdate(batch.getMemberId(), batch.getChitId(), pendingStatuses);
             if (!otherChits.isEmpty()) {
                 log.info("Batch {} — ₹{} spills across {} other-chit record(s) for member {}",
                         batch.getId(), remaining, otherChits.size(), batch.getMemberId());
@@ -685,6 +746,35 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
+    public PagedResponse<PaymentBatchResponse> getAllBatchesPaged(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate, int page, int size) {
+        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<PaymentBatch> result;
+        if (fromDate != null || toDate != null) {
+            LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
+            LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
+            result = batchRepository.findByDateRangePaged(start, end, chitId, memberId, pr);
+        } else if (chitId != null && memberId != null) {
+            result = batchRepository.findByChitIdAndMemberIdOrderByCreatedAtDesc(chitId, memberId, pr);
+        } else if (chitId != null) {
+            result = batchRepository.findByChitIdOrderByCreatedAtDesc(chitId, pr);
+        } else if (memberId != null) {
+            result = batchRepository.findByMemberIdOrderByCreatedAtDesc(memberId, pr);
+        } else {
+            result = batchRepository.findAllByOrderByCreatedAtDesc(pr);
+        }
+        List<PaymentBatchResponse> content = result.getContent().stream()
+                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
+                .toList();
+        return PagedResponse.<PaymentBatchResponse>builder()
+                .content(content)
+                .totalElements(result.getTotalElements())
+                .page(page)
+                .size(size)
+                .hasMore(result.hasNext())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getTodaysBatches() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);
@@ -726,6 +816,17 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
+    public Map<String, Object> getChitOutstandingSummary(UUID chitId) {
+        List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+        BigDecimal total = paymentRecordRepository.findTotalOutstandingByChitId(chitId, pending);
+        long memberCount = paymentRecordRepository.countDistinctMembersWithOutstandingByChitId(chitId, pending);
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("totalOutstanding", total);
+        result.put("membersWithOutstanding", memberCount);
+        return result;
+    }
+
+    @Transactional(readOnly = true)
     public Map<UUID, BigDecimal> getMemberTotalBalanceBulk(List<UUID> memberIds) {
         List<PaymentRecordStatus> pending = List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
         List<Object[]> rows = paymentRecordRepository.findTotalOutstandingByMemberIds(memberIds, pending);
@@ -740,6 +841,19 @@ public class PaymentService {
      * Computes a "fat event" with the member's full payment summary at this point in time.
      * reporting-service uses these totals directly — no cross-service call needed.
      */
+    private void publishAfterCommit(Runnable publish) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    try { publish.run(); }
+                    catch (Exception e) { log.error("Post-commit event publish failed: {}", e.getMessage()); }
+                }
+            });
+        } else {
+            publish.run();
+        }
+    }
+
     private PaymentCompletedEvent buildCompletedEvent(PaymentBatch batch, UUID actorId) {
         List<PaymentRecord> all = paymentRecordRepository
                 .findByMemberIdAndChitIdOrderByMonthNumberAsc(batch.getMemberId(), batch.getChitId());

@@ -15,6 +15,7 @@ import {
   CreditCard, Banknote, Clock, CheckCircle, ArrowRight,
   IndianRupee, Users, AlertTriangle, RefreshCw,
 } from 'lucide-react';
+import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 function fmt(n) {
   if (n == null) return '0';
@@ -50,6 +51,7 @@ export default function ManagerHomePage() {
   const toast = useToastContext();
   const qc = useQueryClient();
   const [confirmRemit, setConfirmRemit] = useState(null);
+  const { hidden } = useHiddenAmounts();
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -112,7 +114,7 @@ export default function ManagerHomePage() {
 
   const completedToday = todayBatches.filter((b) => b.status === 'COMPLETED');
   const todayTotal = completedToday.reduce((s, b) => s + (b.totalAmount ?? 0), 0);
-  const workers = staff.filter((s) => s.role === 'WORKER');
+  const workers = staff.filter((s) => s.role === 'STAFF');
 
   if (todayLoading || remLoading) return <PageSpinner />;
 
@@ -143,7 +145,7 @@ export default function ManagerHomePage() {
         <StatCard
           icon={IndianRupee}
           label="Collected Today"
-          value={`₹${fmt(todayTotal)}`}
+          value={hidden ? '••••••' : `₹${fmt(todayTotal)}`}
           sub={`${completedToday.length} payment${completedToday.length !== 1 ? 's' : ''}`}
           color="#16A34A"
         />
@@ -151,7 +153,7 @@ export default function ManagerHomePage() {
           icon={Clock}
           label="Pending Remittance"
           value={pendingRemittances.length}
-          sub="Cash held by workers"
+          sub="Cash held by staff"
           color="#D97706"
           onClick={() => navigate('/payments')}
         />
@@ -165,7 +167,7 @@ export default function ManagerHomePage() {
         />
         <StatCard
           icon={Users}
-          label="Field Workers"
+          label="Field Staff"
           value={workers.length}
           sub="Active collection staff"
           color="#1E3A5F"
@@ -185,7 +187,7 @@ export default function ManagerHomePage() {
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400">Cash collected by workers, not yet confirmed</p>
+          <p className="text-xs text-gray-400">Cash collected by staff, not yet confirmed</p>
         </div>
 
         {pendingRemittances.length === 0 ? (
@@ -208,13 +210,12 @@ export default function ManagerHomePage() {
                     {memberMap[batch.memberId] ?? batch.memberId?.slice(0, 8) + '…'}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {chitMap[batch.chitId] ?? '—'} · Collected by {staffMap[batch.collectedBy] ?? 'Worker'} at {fmtTime(batch.collectedAt)}
+                    {chitMap[batch.chitId] ?? '—'} · Collected by {staffMap[batch.collectedBy] ?? 'Staff'} at {fmtTime(batch.collectedAt)}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="font-bold text-gray-900 flex items-center gap-0.5 justify-end">
-                    <IndianRupee size={14} />
-                    {fmt(batch.totalAmount)}
+                    {hidden ? '••••••' : <><IndianRupee size={14} />{fmt(batch.totalAmount)}</>}
                   </p>
                   <span className="text-xs text-amber-600 font-medium">Awaiting remittance</span>
                 </div>
@@ -275,8 +276,7 @@ export default function ManagerHomePage() {
                   </p>
                 </div>
                 <span className="font-semibold text-green-700 flex items-center gap-0.5 flex-shrink-0 text-sm">
-                  <IndianRupee size={13} />
-                  {fmt(batch.totalAmount)}
+                  {hidden ? '••••••' : <><IndianRupee size={13} />{fmt(batch.totalAmount)}</>}
                 </span>
                 <Badge variant="success">Done</Badge>
               </div>
@@ -324,8 +324,7 @@ export default function ManagerHomePage() {
                   <p className="text-xs text-gray-400">Month {p.monthNumber} · {chitMap[p.chitId] ?? p.chitId?.slice(0, 8)}</p>
                 </div>
                 <span className="font-semibold text-red-600 flex items-center gap-0.5 text-sm flex-shrink-0">
-                  <IndianRupee size={13} />
-                  {fmt(p.netPayoutAmount)}
+                  {hidden ? '••••••' : <><IndianRupee size={13} />{fmt(p.netPayoutAmount)}</>}
                 </span>
                 <Badge variant={p.status === 'PARTIALLY_DISBURSED' ? 'warning' : 'danger'}>
                   {p.status === 'PARTIALLY_DISBURSED' ? 'Partial' : 'Pending'}
@@ -340,7 +339,7 @@ export default function ManagerHomePage() {
         <ConfirmDialog
           variant="primary"
           title="Confirm Cash Received"
-          description={`Confirm you received ₹${fmt(confirmRemit.totalAmount)} from ${staffMap[confirmRemit.collectedBy] ?? 'worker'} for ${memberMap[confirmRemit.memberId] ?? 'member'}? This will credit the payment to the member's account.`}
+          description={`Confirm you received ${hidden ? '••••••' : `₹${fmt(confirmRemit.totalAmount)}`} from ${staffMap[confirmRemit.collectedBy] ?? 'staff'} for ${memberMap[confirmRemit.memberId] ?? 'member'}? This will credit the payment to the member's account.`}
           actionLabel="Yes, Received"
           loading={remitMutation.isPending}
           onConfirm={() => remitMutation.mutate(confirmRemit.id)}

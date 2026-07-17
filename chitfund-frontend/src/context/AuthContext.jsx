@@ -5,10 +5,16 @@ const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'
 
 const AuthContext = createContext(null);
 
+function normalizeUser(userData) {
+  if (!userData) return userData;
+  if (userData.role === 'WORKER') return { ...userData, role: 'STAFF' };
+  return userData;
+}
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('token'));
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
+    try { return normalizeUser(JSON.parse(localStorage.getItem('user'))); } catch { return null; }
   });
   const idleTimer = useRef(null);
   const lastActivity = useRef(Date.now());
@@ -66,10 +72,11 @@ export function AuthProvider({ children }) {
   }, [token, resetIdleTimer, logout]);
 
   function login(tokenValue, userData) {
+    const normalized = normalizeUser(userData);
     localStorage.setItem('token', tokenValue);
-    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('user', JSON.stringify(normalized));
     setToken(tokenValue);
-    setUser(userData);
+    setUser(normalized);
   }
 
   // Patch specific fields in the stored user (e.g., clear mustChangePassword after password change)

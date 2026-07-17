@@ -25,10 +25,12 @@ import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
 import SettlementPage from './pages/admin/SettlementPage';
 import AdminParticipationPage from './pages/admin/AdminParticipationPage';
-import WorkerTasksPage from './pages/worker/WorkerTasksPage';
+import StaffTasksPage from './pages/staff/StaffTasksPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
+import MemberProfilePage from './pages/member/MemberProfilePage';
 import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
+import ErrorPage from './pages/ErrorPage';
 
 export default function App() {
   return (
@@ -40,10 +42,12 @@ export default function App() {
       {/* Member portal — ROLE_MEMBER only */}
       <Route element={<MemberPortalLayout />}>
         <Route path="/member" element={<MemberPortalPage />} />
+        <Route path="/member/profile" element={<MemberProfilePage />} />
         <Route path="/member/chits/:chitId" element={<MemberChitDetailPage />} />
+        <Route path="/member/transactions/:batchId" element={<TransactionDetailPage />} />
       </Route>
 
-      {/* Admin/Worker routes */}
+      {/* Admin/Staff routes */}
       <Route element={<AppLayout />}>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/members" element={<MembersPage />} />
@@ -68,10 +72,11 @@ export default function App() {
         <Route path="/team" element={<TeamPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
         <Route path="/admin/participation/:adminId" element={<AdminParticipationPage />} />
-        <Route path="/tasks" element={<WorkerTasksPage />} />
+        <Route path="/tasks" element={<StaffTasksPage />} />
         <Route path="/transactions/:batchId" element={<TransactionDetailPage />} />
       </Route>
 
+      <Route path="/error" element={<ErrorPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

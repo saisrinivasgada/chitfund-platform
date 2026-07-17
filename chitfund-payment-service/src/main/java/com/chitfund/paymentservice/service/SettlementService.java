@@ -13,6 +13,8 @@ import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
 import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
 import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse;
@@ -134,6 +136,15 @@ public class SettlementService {
     @Transactional
     public SettlementResponse confirm(ConfirmSettlementRequest request, UUID adminId) {
         UUID memberId = request.getMemberId();
+
+        List<SettlementPaymentStatus> terminalStatuses = List.of(
+                SettlementPaymentStatus.FULLY_COLLECTED,
+                SettlementPaymentStatus.FULLY_DISBURSED,
+                SettlementPaymentStatus.BALANCED);
+        if (settlementRepository.existsByMemberIdAndPaymentStatusNotIn(memberId, terminalStatuses)) {
+            throw new BusinessException(ErrorCode.SETTLEMENT_ALREADY_EXISTS);
+        }
+
         List<SettlementChitItem> chitItems = new ArrayList<>();
         BigDecimal totalOwed = BigDecimal.ZERO;
         BigDecimal totalRefunded = BigDecimal.ZERO;

@@ -9,7 +9,7 @@ import java.util.UUID;
 public class AssignWorkerRequest {
 
     @NotNull
-    private UUID workerId;
+    private UUID staffId;
 
     private String adminNotes;
 }

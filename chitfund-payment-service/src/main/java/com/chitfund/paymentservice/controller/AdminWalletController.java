@@ -39,7 +39,12 @@ public class AdminWalletController {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<AdminWalletEntryResponse>>> listTransactions() {
+    public ResponseEntity<?> listTransactions(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false, defaultValue = "50") int size) {
+        if (page != null) {
+            return ResponseEntity.ok(ApiResponse.success(walletService.listPaged(page, size)));
+        }
         return ResponseEntity.ok(ApiResponse.success(walletService.listAll()));
     }
 

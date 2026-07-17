@@ -32,6 +32,8 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -111,7 +113,7 @@ public class PayoutService {
             }
         }
 
-        eventPublisher.publish(new PayoutCreatedEvent(
+        PayoutCreatedEvent createdEvent = new PayoutCreatedEvent(
                 payout.getId().toString(),
                 payout.getChitId().toString(),
                 payout.getMemberId().toString(),
@@ -121,7 +123,8 @@ public class PayoutService {
                 payout.getNetPayoutAmount(),
                 adminId.toString(),
                 Instant.now()
-        ));
+        );
+        publishAfterCommit(() -> eventPublisher.publish(createdEvent));
 
         return toResponse(payout);
     }
@@ -133,7 +136,7 @@ public class PayoutService {
      */
     @Transactional
     public PayoutResponse disburse(UUID payoutId, DisburseRequest request, UUID adminId) {
-        Payout payout = findOrThrow(payoutId);
+        Payout payout = findOrThrowForWrite(payoutId);
 
         if (payout.getStatus() != PayoutStatus.PENDING && payout.getStatus() != PayoutStatus.PARTIALLY_DISBURSED) {
             throw new BusinessException(ErrorCode.PAYOUT_NOT_PENDING,
@@ -187,7 +190,7 @@ public class PayoutService {
         paymentServiceClient.recordPayoutDebit(thisAmount, request.getDisbursementMode(), payoutId, payout.getMemberId());
 
         if (fullyDisbursed) {
-            eventPublisher.publish(new PayoutDisbursedEvent(
+            PayoutDisbursedEvent disbursedEvent = new PayoutDisbursedEvent(
                     payout.getId().toString(),
                     payout.getChitId().toString(),
                     payout.getMemberId().toString(),
@@ -197,7 +200,8 @@ public class PayoutService {
                     payout.getReferenceNumber(),
                     adminId.toString(),
                     Instant.now()
-            ));
+            );
+            publishAfterCommit(() -> eventPublisher.publish(disbursedEvent));
 
             // If every draw in this chit now has a DISBURSED payout, auto-complete the chit.
             // WHY check here and not in chit-service?
@@ -227,14 +231,24 @@ public class PayoutService {
         payout.setVoidReason(request.getReason());
         payoutRepository.save(payout);
 
-        // Revert winner's withheld installment(s) back to OUTSTANDING — they now owe that money again
+        // Revert winner's withheld installment(s) back to OUTSTANDING — they now owe that money again.
+        // Must run inside the TX so failure rolls back the payout status change atomically.
         paymentServiceClient.revertPayoutDeductions(payoutId);
 
-        // If money was already disbursed (full or partial), reverse the treasury OUT.
-        // WHY: the original disbursement debited the treasury. Voiding means the money
-        // comes back (or the record is corrected). This IN entry keeps the balance accurate.
+        // Record the treasury IN entry after commit. This is secondary to the status update and
+        // deduction revert. If it fails, the void is still committed and deductions are reverted;
+        // a missing treasury entry is recoverable manually.
         if (disbursedSoFar.compareTo(BigDecimal.ZERO) > 0 && modeUsed != null) {
-            paymentServiceClient.recordPayoutVoidReversal(disbursedSoFar, modeUsed, payoutId);
+            final DisbursementMode capturedMode = modeUsed;
+            final BigDecimal capturedAmount = disbursedSoFar;
+            publishAfterCommit(() -> {
+                try {
+                    paymentServiceClient.recordPayoutVoidReversal(capturedAmount, capturedMode, payoutId);
+                } catch (Exception e) {
+                    log.error("COMPENSATION NEEDED: payout {} voided but treasury void reversal (₹{}) failed — add manual wallet entry. Error: {}",
+                            payoutId, capturedAmount, e.getMessage());
+                }
+            });
         }
 
         log.info("Payout {} voided by {}. Reason: {}. Disbursed ₹{} reversed.",
@@ -346,6 +360,25 @@ public class PayoutService {
         return payoutRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYOUT_NOT_FOUND,
                         "Payout not found: " + id));
+    }
+
+    private Payout findOrThrowForWrite(UUID id) {
+        return payoutRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAYOUT_NOT_FOUND,
+                        "Payout not found: " + id));
+    }
+
+    private void publishAfterCommit(Runnable publish) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    try { publish.run(); }
+                    catch (Exception e) { log.error("Post-commit event publish failed: {}", e.getMessage()); }
+                }
+            });
+        } else {
+            publish.run();
+        }
     }
 
     private PayoutResponse toResponse(Payout p) {
