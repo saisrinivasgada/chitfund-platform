@@ -117,6 +117,12 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(columnDefinition = "char(36)", updatable = false)
+    private UUID createdBy;
+
+    @Column(columnDefinition = "char(36)")
+    private UUID updatedBy;
+
     @PrePersist
     void prePersist() {
         createdAt = updatedAt = LocalDateTime.now();

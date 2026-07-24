@@ -101,26 +101,25 @@ public class ReservationController {
 
         MonthReservation saved = reservationRepository.save(slot);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_CREATED", adminId.toString(), "ADMIN", null, saved);
+                "SLOT_CREATED", adminId.toString(), "ADMIN", null, slotSnapshot(saved));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(chitMapper.toReservationResponse(saved), "Slot added"));
     }
 
     @PutMapping("/{reservationId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<MonthReservationResponse>> updateSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             @Valid @RequestBody ReservationSlotRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
         MonthReservation r = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
 
-        MonthReservation before = MonthReservation.builder()
-                .memberId(r.getMemberId()).reservationMonth(r.getReservationMonth())
-                .payoutAmount(r.getPayoutAmount()).postPayoutContribution(r.getPostPayoutContribution())
-                .status(r.getStatus()).build();
+        Map<String, Object> beforeSnap = slotSnapshot(r);
 
         boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
         if (isOrg && !r.isOrgHeld()) {
@@ -143,18 +142,20 @@ public class ReservationController {
 
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_UPDATED", adminId.toString(), "ADMIN", before, saved);
+                "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved));
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot updated"));
     }
 
     @PatchMapping("/{reservationId}/process")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<MonthReservationResponse>> processSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
         MonthReservation r = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
         if (r.getStatus() != ReservationStatus.RESERVED) {
@@ -165,7 +166,7 @@ public class ReservationController {
         r.setUpdatedBy(adminId);
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_PROCESSED", adminId.toString(), "ADMIN", null, saved);
+                "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved));
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
     }
@@ -180,9 +181,7 @@ public class ReservationController {
         UUID adminId = (UUID) auth.getPrincipal();
         MonthReservation r = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
-        MonthReservation beforeVoid = MonthReservation.builder()
-                .memberId(r.getMemberId()).status(r.getStatus())
-                .reservationMonth(r.getReservationMonth()).payoutAmount(r.getPayoutAmount()).build();
+        Map<String, Object> beforeVoidSnap = slotSnapshot(r);
 
         r.setStatus(ReservationStatus.VOIDED);
         r.setVoidReason(reason);
@@ -191,7 +190,7 @@ public class ReservationController {
         r.setUpdatedBy(adminId);
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoid, saved);
+                "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved));
         return ResponseEntity.ok(ApiResponse.success(null, "Reservation voided"));
     }
 
@@ -204,7 +203,7 @@ public class ReservationController {
      * Member C (was at slot 4) shifts to slot 5, etc. PROCESSED and VOIDED slots are unchanged.
      */
     @PostMapping("/shift")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Transactional
     public ResponseEntity<ApiResponse<Map<String, Integer>>> shiftReservations(
             @PathVariable UUID chitId,
@@ -312,6 +311,17 @@ public class ReservationController {
 
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));
+    }
+
+    private Map<String, Object> slotSnapshot(MonthReservation r) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        if (r.getMemberId() != null) m.put("memberId", r.getMemberId().toString());
+        m.put("status", r.getStatus() != null ? r.getStatus().name() : null);
+        if (r.getPayoutAmount() != null) m.put("payoutAmount", r.getPayoutAmount());
+        if (r.getReservationMonth() != null) m.put("reservationMonth", r.getReservationMonth().toString());
+        if (r.getMonthNumber() != null) m.put("monthNumber", r.getMonthNumber());
+        m.put("orgHeld", r.isOrgHeld());
+        return m;
     }
 
     // Permanently deletes a slot — only allowed if it is already VOIDED.

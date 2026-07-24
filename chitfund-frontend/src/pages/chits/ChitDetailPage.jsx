@@ -14,6 +14,7 @@ import {
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance,
   getMe, listStaff, getUserById, getWalletBalance,
+  getChitAuditLogs,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -26,6 +27,8 @@ import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea, DateInput } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog, DestructiveDialog } from '../../components/ui/ConfirmDialog';
+import RoleBadge from '../../components/ui/RoleBadge';
+import OpenDrawModal from '../../components/draws/OpenDrawModal';
 import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
@@ -384,9 +387,40 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
     fullName: `${s.fullName ?? s.username} (Admin)`,
   }));
 
+  // Need draws + existing reservations to detect late-joiner backlog
+  const { data: draws = [] } = useQuery({ queryKey: ['draws', chitId], queryFn: () => getDraws(chitId) });
+  const { data: existingSlots = [] } = useQuery({ queryKey: ['reservations', chitId], queryFn: () => getReservations(chitId) });
+
   const initMonth  = prefill?.reservationMonth ? prefill.reservationMonth.substring(0, 7) : '';
   const initPayout = prefill?.payoutAmount     ? String(prefill.payoutAmount)             : '';
   const [form, setForm] = useState({ reservationMonth: initMonth, memberId: '', orgHeld: false, payoutAmount: initPayout, postPayoutContribution: '' });
+  const [showBacklogConfirm, setShowBacklogConfirm] = useState(false);
+
+  const baseInstallment = Number(chit?.installmentAmount ?? (chit?.chitValue / chit?.totalMembers) ?? 0);
+  const pastRealDrawCount = draws.filter((d) => d.status !== 'SKIPPED').length;
+
+  // A member is a "late joiner" if they have NO existing reservations in this chit
+  const selectedMemberId = form.orgHeld ? null : form.memberId;
+  const memberAlreadyHasSlot = selectedMemberId
+    ? existingSlots.some((s) => String(s.memberId) === String(selectedMemberId) && s.status !== 'VOIDED')
+    : false;
+  const isLateJoiner = !form.orgHeld && selectedMemberId && pastRealDrawCount > 0 && !memberAlreadyHasSlot;
+
+  // Backlog for THIS slot assignment only (the member may be assigned multiple slots)
+  const backlogPerSlot = pastRealDrawCount * baseInstallment;
+  const selectedMemberName = allMembers.find((m) => String(m.id) === String(selectedMemberId))?.fullName ?? 'This member';
+
+  const doSave = () => {
+    mutation.mutate();
+  };
+
+  const handleAddSlot = () => {
+    if (isLateJoiner && backlogPerSlot > 0) {
+      setShowBacklogConfirm(true);
+    } else {
+      doSave();
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: () => addReservationSlot({
@@ -409,6 +443,7 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
   const isPinned = !!prefill;
 
   return (
+    <>
     <Modal title={isPinned ? 'Fill Voided Slot' : 'Add Reservation Slot'} onClose={onClose} size="sm">
       <div className="space-y-4">
         {isPinned && (
@@ -444,6 +479,20 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
             ))}
           </Select>
         </FormField>
+
+        {/* Late-joiner backlog warning — shown inline as soon as a new member is selected */}
+        {isLateJoiner && backlogPerSlot > 0 && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+            <AlertTriangle size={15} className="text-orange-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-orange-800 leading-snug">
+              <span className="font-semibold">{selectedMemberName}</span> is joining after{' '}
+              <span className="font-semibold">{pastRealDrawCount} draw{pastRealDrawCount > 1 ? 's' : ''}</span> have already been made.
+              They will owe <span className="font-semibold">₹{backlogPerSlot.toLocaleString()}</span> for this slot's backlog
+              when the next draw opens.
+            </div>
+          </div>
+        )}
+
         <FormField label="Payout Amount (₹)" required>
           <Input type="number" min="0" placeholder="45000" value={form.payoutAmount}
             onChange={(e) => setForm((f) => ({ ...f, payoutAmount: e.target.value }))} required />
@@ -456,13 +505,34 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
         )}
         <div className="flex gap-3 pt-4">
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={() => mutation.mutate()} loading={mutation.isPending}
+          <Button onClick={handleAddSlot} loading={mutation.isPending}
             disabled={!form.reservationMonth || !form.payoutAmount} className="flex-1">
             {isPinned ? 'Fill Slot' : 'Add Slot'}
           </Button>
         </div>
       </div>
     </Modal>
+
+    {showBacklogConfirm && (
+      <ConfirmDialog
+        title="Late-Joining Member — Backlog Due"
+        description={`${selectedMemberName} is joining after ${pastRealDrawCount} draw${pastRealDrawCount > 1 ? 's' : ''} have already been made.`}
+        actionLabel="Understood — Add Slot"
+        variant="warning"
+        onConfirm={() => { setShowBacklogConfirm(false); doSave(); }}
+        onClose={() => setShowBacklogConfirm(false)}
+      >
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 mb-1">
+          <p className="font-semibold mb-1">Backlog for this slot</p>
+          <p>{pastRealDrawCount} draws × ₹{baseInstallment.toLocaleString()} = <span className="font-bold">₹{backlogPerSlot.toLocaleString()}</span></p>
+          <p className="text-xs text-orange-600 mt-1.5">
+            If assigned multiple slots, each slot adds ₹{backlogPerSlot.toLocaleString()} more.
+            The full total is charged in the next draw preview.
+          </p>
+        </div>
+      </ConfirmDialog>
+    )}
+    </>
   );
 }
 
@@ -859,11 +929,17 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
     queryFn: () => getSlotHistory(slot.id),
   });
 
+  function resolveName(memberId) {
+    if (!memberId || memberId === 'null') return null;
+    const m = memberMap[String(memberId)];
+    return m?.fullName ?? m?.name ?? `#${String(memberId).slice(0, 8)}`;
+  }
+
   function renderState(raw) {
     const s = parseState(raw);
     if (!s) return null;
     const memberId = s.memberId ?? s.chit?.members;
-    const memberName = memberId ? (memberMap[String(memberId)]?.fullName ?? memberMap[String(memberId)]?.name ?? `#${String(memberId).slice(0,8)}`) : null;
+    const memberName = resolveName(memberId);
     const payout = s.payoutAmount ? `₹${Number(s.payoutAmount).toLocaleString()}` : null;
     const status = s.status;
     return (
@@ -871,6 +947,21 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
         {memberName && <span><span className="text-gray-400">Member:</span> {memberName}</span>}
         {payout     && <span><span className="text-gray-400">Payout:</span> {payout}</span>}
         {status     && <span><span className="text-gray-400">Status:</span> {status}</span>}
+      </div>
+    );
+  }
+
+  function renderSwapEntry(entry) {
+    const bs = parseState(entry.beforeState);
+    const as_ = parseState(entry.afterState);
+    const from = resolveName(bs?.memberId);
+    const to   = resolveName(as_?.memberId);
+    if (!from && !to) return null;
+    return (
+      <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 flex items-center gap-2 text-xs">
+        <span className="font-medium text-gray-700">{from ?? '—'}</span>
+        <span className="text-amber-500 font-bold">↔</span>
+        <span className="font-medium text-gray-700">{to ?? '—'}</span>
       </div>
     );
   }
@@ -906,11 +997,15 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
           <ol className="relative border-l border-gray-100 ml-2 space-y-5">
             {[...logs].reverse().map((entry) => {
               const cfg = ACTION_LABELS[entry.action] ?? { label: entry.action, color: 'bg-gray-100 text-gray-500' };
-              const before = renderState(entry.beforeState);
-              const after  = renderState(entry.afterState);
+              const isSwap = entry.action === 'SLOT_SWAPPED';
+              const before = isSwap ? null : renderState(entry.beforeState);
+              const after  = isSwap ? null : renderState(entry.afterState);
+              const swapEl = isSwap ? renderSwapEntry(entry) : null;
+              const actorName = entry.actorId
+                ? (memberMap[String(entry.actorId)]?.fullName ?? memberMap[String(entry.actorId)]?.name ?? entry.actorRole ?? 'Unknown')
+                : entry.actorRole;
               return (
                 <li key={entry.id} className="pl-5">
-                  {/* dot */}
                   <span className="absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white bg-[#1E3A5F]" />
 
                   <div className="flex flex-wrap items-center gap-2 mb-1.5">
@@ -920,10 +1015,12 @@ function SlotHistoryModal({ slot, memberMap, onClose }) {
                     <span className="text-[11px] text-gray-400">
                       {entry.createdAt ? new Date(entry.createdAt.endsWith('Z') ? entry.createdAt : entry.createdAt + 'Z').toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                     </span>
-                    {entry.actorRole && (
-                      <span className="text-[10px] text-gray-300 font-medium uppercase tracking-wide">{entry.actorRole}</span>
+                    {actorName && (
+                      <span className="text-[10px] text-gray-500 font-medium">by {actorName}</span>
                     )}
                   </div>
+
+                  {swapEl}
 
                   {(before || after) && (
                     <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 space-y-1.5 text-xs">
@@ -1068,7 +1165,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const { user } = useAuth();
-  const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
+  const canEdit = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
@@ -1551,7 +1648,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   );
 }
 
-// Custom React dropdown for picking a reservation slot — shows "Slot #N (Mon YYYY)" labels.
+// ─── (SlotPickerDropdown moved to components/draws/OpenDrawModal.jsx) ───────────
 function SlotPickerDropdown({ slots, value, onChange, disabled, placeholder = 'Select slot…' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -1610,7 +1707,7 @@ function SlotPickerDropdown({ slots, value, onChange, disabled, placeholder = 'S
 }
 
 // ─── Months Tab ───────────────────────────────────────────────────────────────
-function OpenDrawModal({ chitId, chit, draws, onClose }) {
+function OpenDrawModal_LOCAL({ chitId, chit, draws, onClose }) {
   // Derive draw number before any hooks so it's available to useState initializer
   const nextCycleNum = draws.length > 0 ? Math.max(...draws.map((c) => c.monthNumber)) + 1 : 1;
 
@@ -2524,7 +2621,8 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
 }
 
 // ── Per-cycle payment rows (lazy-loaded when the card is expanded) ────────────
-function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTransactions }) {
+function DrawPaymentRows({ draw, chitId, chit, reservations, memberMap, onCollect, onView, onViewTransactions }) {
+  const [dueTooltip, setDueTooltip] = useState(null); // { rect, backdateCount, backlogPerDraw, regularAmt, amountDue }
   const qc = useQueryClient();
   const toast = useToastContext();
   const { data: payments = [], isLoading } = useQuery({
@@ -2556,7 +2654,7 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
     </div>
   );
 
-  return (
+  return (<>
     <div className="border-t border-gray-100 overflow-auto max-h-80" style={{ WebkitOverflowScrolling: 'touch' }}>
       <table className="w-full text-sm min-w-[560px]">
         <thead className="bg-gray-50">
@@ -2589,7 +2687,42 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
                     )}
                   </div>
                 </td>
-                <td className="px-3 py-3 text-right text-gray-700 font-medium">₹{Number(p.amountDue).toLocaleString()}</td>
+                <td className="px-3 py-3 text-right text-gray-700 font-medium">
+                  {(() => {
+                    const baseInstallment = Number(
+                      chit?.installmentAmount ??
+                      (chit?.chitValue && chit?.totalMembers ? chit.chitValue / chit.totalMembers : 0)
+                    );
+                    const memberSlots = (reservations ?? []).filter(
+                      (r) => String(r.memberId) === String(p.memberId) && r.status !== 'VOIDED'
+                    );
+                    const reservedSlots    = memberSlots.filter((r) => r.status === 'RESERVED').length;
+                    const processedSlots   = memberSlots.filter((r) => r.status === 'PROCESSED').length;
+                    const totalSlots       = reservedSlots + processedSlots;
+                    const defaultPostPayout = Number(chit?.defaultPostPayoutContribution ?? baseInstallment);
+                    const regularAmt       = reservedSlots * baseInstallment + processedSlots * defaultPostPayout;
+                    const backlogAmt       = Number(p.amountDue) - regularAmt;
+                    const backlogPerDraw   = totalSlots * baseInstallment;
+                    const backdateCount    = backlogPerDraw > 0 ? Math.round(backlogAmt / backlogPerDraw) : 0;
+
+                    if (backdateCount > 0 && baseInstallment > 0) {
+                      return (
+                        <div
+                          className="inline-flex items-center gap-1 cursor-help justify-end"
+                          onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setDueTooltip({ rect, backdateCount, backlogPerDraw, regularAmt, amountDue: Number(p.amountDue) });
+                          }}
+                          onMouseLeave={() => setDueTooltip(null)}
+                        >
+                          <span>₹{Number(p.amountDue).toLocaleString()}</span>
+                          <Info size={12} className="text-orange-400 flex-shrink-0" />
+                        </div>
+                      );
+                    }
+                    return <span>₹{Number(p.amountDue).toLocaleString()}</span>;
+                  })()}
+                </td>
                 <td className="px-3 py-3 text-right text-green-700 font-medium">
                   {hasPaidSomething ? `₹${Number(p.amountPaid).toLocaleString()}` : '—'}
                 </td>
@@ -2648,6 +2781,36 @@ function DrawPaymentRows({ draw, chitId, memberMap, onCollect, onView, onViewTra
         </tbody>
       </table>
     </div>
+
+    {/* Fixed-position tooltip — escapes overflow-auto clip on the table container */}
+    {dueTooltip && (
+      <div
+        className="fixed z-[9999] w-60 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-2xl pointer-events-none"
+        style={{
+          right: window.innerWidth - dueTooltip.rect.right,
+          top: dueTooltip.rect.top - 8,
+          transform: 'translateY(-100%)',
+        }}
+      >
+        <p className="font-semibold text-orange-300 mb-2">Amount breakdown</p>
+        <div className="space-y-1.5">
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-400">{dueTooltip.backdateCount} missed draw{dueTooltip.backdateCount > 1 ? 's' : ''} × ₹{dueTooltip.backlogPerDraw.toLocaleString()}</span>
+            <span className="text-orange-200 font-semibold whitespace-nowrap">₹{(dueTooltip.backdateCount * dueTooltip.backlogPerDraw).toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-400">Current draw</span>
+            <span className="whitespace-nowrap">₹{dueTooltip.regularAmt.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between gap-2 border-t border-gray-700 pt-1.5">
+            <span className="font-semibold">Total</span>
+            <span className="font-bold whitespace-nowrap">₹{dueTooltip.amountDue.toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="absolute -bottom-1 right-3 w-2 h-2 bg-gray-900 rotate-45" />
+      </div>
+    )}
+  </>
   );
 }
 
@@ -3095,6 +3258,8 @@ function DrawsTab({ chitId, chit }) {
                   <DrawPaymentRows
                     draw={c}
                     chitId={chitId}
+                    chit={chit}
+                    reservations={reservations}
                     memberMap={memberMap}
                     onCollect={(paymentRecord, member) => setCollectTarget({ paymentRecord, member })}
                     onView={(paymentRecord, member) => setViewTarget({ paymentRecord, member, initialTab: 'draws' })}
@@ -3314,8 +3479,11 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
                     )}
                   </Td>
                   <Td className="text-right">
-                    {/* Managers: view-only; Admins: full create/disburse access */}
-                    {(!isManager || payout?.status === 'DISBURSED') && (
+                    {isManager && payout && (payout.status === 'PENDING' || payout.status === 'PARTIALLY_DISBURSED') ? (
+                      <span className="inline-flex items-center text-xs text-amber-700 font-medium px-2 py-1 bg-amber-50 rounded-lg border border-amber-200 whitespace-nowrap">
+                        Pending disbursement
+                      </span>
+                    ) : (
                       <Button size="sm"
                         variant={payout?.status === 'DISBURSED' ? 'secondary' : 'primary'}
                         onClick={() => setDisburseTarget({ winner: w, payout: (payout?.status === 'VOIDED' || payout?.status === 'CANCELLED') ? null : payout, member })}>
@@ -3390,6 +3558,8 @@ function TreasuryBadge() {
 function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, onClose }) {
   const qc    = useQueryClient();
   const toast = useToastContext();
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
 
   const memberId   = winner.memberId ?? winner.winnerId;
   const monthNumber = winner.monthNumber;
@@ -3691,13 +3861,17 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             <CheckCircle size={16} className="text-green-600 flex-shrink-0" />
             <div>
               <p className="text-sm font-semibold text-green-800">Payout created successfully!</p>
-              <p className="text-xs text-green-600 mt-0.5">Record the disbursement below to complete the transaction.</p>
+              <p className="text-xs text-green-600 mt-0.5">
+                {isManager
+                  ? 'An admin will record the disbursement to complete the transaction.'
+                  : 'Record the disbursement below to complete the transaction.'}
+              </p>
             </div>
           </div>
         )}
 
-        {/* ── Disburse form — for PENDING and PARTIALLY_DISBURSED ── */}
-        {(payout?.status === 'PENDING' || payout?.status === 'PARTIALLY_DISBURSED') && !showCancelForm && (
+        {/* ── Disburse form — for PENDING and PARTIALLY_DISBURSED (admin only) ── */}
+        {!isManager && (payout?.status === 'PENDING' || payout?.status === 'PARTIALLY_DISBURSED') && !showCancelForm && (
           <div className="border border-gray-200 rounded-xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-gray-700">
@@ -3783,8 +3957,8 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
           </div>
         )}
 
-        {/* ── Cancel payout inline form ── */}
-        {payout?.status === 'PENDING' && showCancelForm && (
+        {/* ── Cancel payout inline form (admin only) ── */}
+        {!isManager && payout?.status === 'PENDING' && showCancelForm && (
           <div className="border border-red-200 bg-red-50 rounded-xl p-4 space-y-3">
             <p className="text-sm font-semibold text-red-700">Cancel this payout?</p>
             <FormField label="Reason" required>
@@ -3857,9 +4031,7 @@ function StatusChangeDialog({
   const confirmDisabled = needsStartDate && !pendingStartDate;
 
   const descriptions = {
-    ACTIVE: hasWarning
-      ? `${unallocatedCount} slot${unallocatedCount > 1 ? 's are' : ' is'} still UNALLOCATED — no member or payout assigned. Those months will have no winner. Fill them in first, or activate anyway.`
-      : `Members will be enrolled and payment cycles will begin from the start date.`,
+    ACTIVE: `Members will be enrolled and payment cycles will begin from the start date.`,
     COMPLETED: `This closes all active draws and marks the fund as finished. Existing payment records are preserved.`,
     DRAFT: `All current enrollments will be cleared so you can freely edit the schedule. Re-activating will re-sync enrollments.`,
   };
@@ -4047,7 +4219,7 @@ function HeaderActions({ chitId, chit }) {
   });
 
   const status = chit.status;
-  const statusTargets = {
+  const statusTargetsAll = {
     DRAFT:    ['ACTIVE', 'CANCELLED'],
     ACTIVE:   ['DRAFT', 'COMPLETED', 'CANCELLED'],
     PAUSED:   ['CANCELLED'],
@@ -4055,6 +4227,10 @@ function HeaderActions({ chitId, chit }) {
     CANCELLED: [],
     DELETED:  [],
   }[status] ?? [];
+  // Managers can change status but cannot cancel or delete chits
+  const statusTargets = isManager
+    ? statusTargetsAll.filter((s) => s !== 'CANCELLED')
+    : statusTargetsAll;
 
   // Preflight: pre-load reservations while on a DRAFT chit so the count is
   // instantly available when the admin opens the activation confirmation.
@@ -4070,7 +4246,7 @@ function HeaderActions({ chitId, chit }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {/* Pause */}
-      {status === 'ACTIVE' && !isManager && (
+      {status === 'ACTIVE' && (
         <Button variant="warning" size="sm" loading={pauseMutation.isPending}
           onClick={() => setShowPauseModal(true)}>
           <Pause size={14} /> Pause
@@ -4078,15 +4254,15 @@ function HeaderActions({ chitId, chit }) {
       )}
 
       {/* Resume */}
-      {status === 'PAUSED' && !isManager && (
+      {status === 'PAUSED' && (
         <Button variant="success" size="sm" loading={resumeMutation.isPending}
           onClick={() => resumeMutation.mutate()}>
           <Play size={14} /> Resume
         </Button>
       )}
 
-      {/* Status dropdown — managers can only change status on DRAFT chits */}
-      {statusTargets.length > 0 && (!isManager || status === 'DRAFT') && (
+      {/* Status dropdown */}
+      {statusTargets.length > 0 && (
         <div className="relative">
           <Button variant="secondary" size="sm" loading={statusMutation.isPending}
             onClick={() => setShowStatusMenu((o) => !o)}>
@@ -4174,6 +4350,273 @@ function HeaderActions({ chitId, chit }) {
   );
 }
 
+// ─── Audit Tab ────────────────────────────────────────────────────────────────
+// action → display config; payments excluded from chit-level view (too noisy — shown per-member)
+const ACTION_META = {
+  DRAW_OPENED:             { label: 'Draw Opened',         color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'draws'    },
+  DRAW_SKIPPED:            { label: 'Draw Skipped',        color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200',  group: 'draws'    },
+  DRAW_CLOSED:             { label: 'Draw Closed',         color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'draws'    },
+  DRAW_DELETED:            { label: 'Draw Deleted',        color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    group: 'draws'    },
+  // backward-compat aliases for records written before the rename
+  MONTH_OPENED:            { label: 'Draw Opened',         color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'draws'    },
+  MONTH_SKIPPED:           { label: 'Draw Skipped',        color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200',  group: 'draws'    },
+  MONTH_CLOSED:            { label: 'Draw Closed',         color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'draws'    },
+  MONTH_DELETED:           { label: 'Draw Deleted',        color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    group: 'draws'    },
+  PAYOUT_VOIDED:           { label: 'Payout Voided',       color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    group: 'payouts'  },
+  WINNER_ASSIGNED:         { label: 'Winner Assigned',     color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200',  group: 'winners'  },
+  PAYOUT_CREATED:          { label: 'Payout Created',      color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200', group: 'payouts'  },
+  PAYOUT_DISBURSED:        { label: 'Payout Disbursed',    color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'payouts'  },
+  PAYOUT_CANCELLED:        { label: 'Payout Cancelled',    color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    group: 'payouts'  },
+  SLOT_CREATED:            { label: 'Slot Added',          color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'schedule' },
+  SLOT_UPDATED:            { label: 'Slot Updated',        color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200',  group: 'schedule' },
+  SLOT_PROCESSED:          { label: 'Slot Processed',      color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'schedule' },
+  SLOT_VOIDED:             { label: 'Slot Voided',         color: 'text-red-700',    bg: 'bg-red-50',    border: 'border-red-200',    group: 'schedule' },
+  SLOT_SWAPPED:            { label: 'Slots Swapped',       color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'schedule' },
+  ORG_RESERVATION_CREATED: { label: 'Org Slot Reserved',  color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'schedule' },
+  ORG_PAYOUT_REALIZED:     { label: 'Org Payout Realized',color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'schedule' },
+};
+
+
+const AUDIT_FILTERS = [
+  { key: 'all',      label: 'All'      },
+  { key: 'draws',    label: 'Draws'    },
+  { key: 'winners',  label: 'Winners'  },
+  { key: 'payouts',  label: 'Payouts'  },
+  { key: 'schedule', label: 'Slots'    },
+];
+
+function parseAuditState(json) {
+  try { return typeof json === 'object' ? json : JSON.parse(json); } catch { return null; }
+}
+
+function buildSummary(action, after, before, memberMap) {
+  const a = after ?? {};
+  const b = before ?? {};
+  switch (action) {
+    case 'DRAW_OPENED':
+    case 'MONTH_OPENED':
+      return `Draw #${a.monthNumber ?? '?'} opened · Due ${a.dueDate ?? '—'} · ${a.members ?? '?'} members`;
+    case 'DRAW_SKIPPED':
+    case 'MONTH_SKIPPED':
+      return `Draw #${a.monthNumber ?? '?'} skipped${a.reason ? ` — "${a.reason}"` : ''}`;
+    case 'DRAW_CLOSED':
+    case 'MONTH_CLOSED':
+      return `Draw #${a.monthNumber ?? '?'} closed`;
+    case 'DRAW_DELETED':
+    case 'MONTH_DELETED':
+      return `Draw #${b.monthNumber ?? '?'} deleted`;
+    case 'WINNER_ASSIGNED': {
+      const wName = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : '—';
+      const amt   = a.winningAmount ? `₹${Number(a.winningAmount).toLocaleString('en-IN')}` : '';
+      return `Draw #${a.monthNumber ?? '?'} · ${wName}${amt ? ` wins ${amt}` : ''}`;
+    }
+    case 'PAYOUT_CREATED': {
+      const mName = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : '—';
+      const net   = a.netAmount ? `₹${Number(a.netAmount).toLocaleString('en-IN')}` : '';
+      return `${mName} · Draw #${a.monthNumber ?? '?'} · ${net}`;
+    }
+    case 'PAYOUT_DISBURSED': {
+      const net = a.netAmount ?? a.amount;
+      const amtStr = net ? `₹${Number(net).toLocaleString('en-IN')} ` : '';
+      return `${amtStr}disbursed · ${a.mode ?? ''} ${a.ref ? `· Ref: ${a.ref}` : ''}`.trim();
+    }
+    case 'PAYOUT_VOIDED':
+      return `Payout voided${a.reason ? ` — "${a.reason}"` : ''}`;
+    case 'PAYOUT_CANCELLED':
+      return `Payout cancelled${a.reason ? ` — "${a.reason}"` : ''}`;
+    case 'SLOT_CREATED': {
+      const mName = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : (a.orgHeld ? 'Org-held' : '—');
+      return `Slot #${a.monthNumber ?? '?'} → ${mName}${a.payoutAmount ? ` · ₹${Number(a.payoutAmount).toLocaleString('en-IN')}` : ''}`;
+    }
+    case 'SLOT_UPDATED': {
+      const mName = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : (a.orgHeld ? 'Org-held' : 'Unallocated');
+      return `Slot #${a.monthNumber ?? '?'} → ${mName}${a.payoutAmount ? ` · ₹${Number(a.payoutAmount).toLocaleString('en-IN')}` : ''}`;
+    }
+    case 'SLOT_PROCESSED': {
+      const mName = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : '—';
+      return `Slot #${a.monthNumber ?? '?'} processed · ${mName}`;
+    }
+    case 'SLOT_VOIDED': {
+      const mName = b?.memberId ? (memberMap[String(b.memberId)] ?? b.memberId) : '—';
+      return `Slot #${a.monthNumber ?? b?.monthNumber ?? '?'} voided · was ${mName}`;
+    }
+    case 'SLOT_SWAPPED': {
+      const mA = a.memberId ? (memberMap[String(a.memberId)] ?? a.memberId) : '—';
+      const mB = b?.memberId ? (memberMap[String(b.memberId)] ?? b.memberId) : '—';
+      return `${mB} ↔ ${mA}`;
+    }
+    case 'ORG_RESERVATION_CREATED':
+      return `Org slot reserved · Draw #${a.monthNumber ?? '?'} · ₹${Number(a.payoutAmount ?? 0).toLocaleString('en-IN')}`;
+    case 'ORG_PAYOUT_REALIZED':
+      return `Org payout realized · ₹${Number(a.payoutAmount ?? 0).toLocaleString('en-IN')}`;
+    default:
+      return action;
+  }
+}
+
+function AuditTab({ chitId }) {
+  const [filter,  setFilter]  = useState('all');
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const { data: rawLogs = [], isLoading } = useQuery({
+    queryKey: ['chit-audit', chitId],
+    queryFn: () => getChitAuditLogs(chitId, 0, 200),
+  });
+  const { data: staffList  = [] } = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+
+  const actorNameMap = Object.fromEntries(
+    staffList.map((s) => [String(s.id), s.fullName ?? s.username ?? 'Unknown'])
+  );
+  const memberMap = Object.fromEntries(
+    allMembers.map((m) => [String(m.id), m.fullName ?? m.name ?? 'Member'])
+  );
+
+  const NOISE_ACTIONS = new Set(['PAYMENT_COMPLETED', 'CASH_COLLECTED']);
+  const logs = rawLogs.filter((l) => !NOISE_ACTIONS.has(l.action));
+
+  const filtered = (filter === 'all'
+    ? logs
+    : logs.filter((l) => (ACTION_META[l.action]?.group ?? 'other') === filter)
+  ).slice().sort((a, b) => {
+    const diff = new Date(a.createdAt) - new Date(b.createdAt);
+    return sortAsc ? diff : -diff;
+  });
+
+  // Collapse multiple PAYOUT_DISBURSED events for the same payout into one grouped row
+  const displayedLogs = (() => {
+    const seen = new Set();
+    return filtered.reduce((acc, log) => {
+      if (log.action !== 'PAYOUT_DISBURSED') { acc.push(log); return acc; }
+      if (seen.has(log.entityId)) return acc;
+      seen.add(log.entityId);
+      const group = filtered
+        .filter(l => l.action === 'PAYOUT_DISBURSED' && l.entityId === log.entityId)
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      acc.push({ ...log, _disbGroup: group });
+      return acc;
+    }, []);
+  })();
+
+  const countFor = (key) => logs.filter((l) => (ACTION_META[l.action]?.group ?? 'other') === key).length;
+
+  const formatTime = (ts) => {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  if (isLoading) return <PageSpinner />;
+
+  return (
+    <div className="space-y-4">
+      {/* Filter pills — centered */}
+      <div className="flex items-center justify-center gap-2 flex-wrap">
+        {AUDIT_FILTERS.map((f) => {
+          const isActive = filter === f.key;
+          const cnt = f.key === 'all' ? logs.length : countFor(f.key);
+          return (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className="text-sm font-semibold rounded-full cursor-pointer whitespace-nowrap transition-all flex items-center gap-1.5"
+              style={{
+                padding: '6px 16px',
+                backgroundColor: isActive ? '#1E3A5F' : '#ffffff',
+                color: isActive ? '#ffffff' : '#374151',
+                border: isActive ? '1.5px solid #1E3A5F' : '1.5px solid #D1D5DB',
+              }}
+            >
+              {f.label}
+              <span style={{ opacity: isActive ? 0.7 : 0.5, fontSize: 11 }}>{cnt}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {displayedLogs.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
+          <History size={28} className="text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500">No events recorded yet</p>
+          <p className="text-xs text-gray-400 mt-1">Events appear here as draws, payouts and slot changes are made</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[140px_1fr_120px_100px] bg-gray-50 border-b border-gray-100 px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            <span>Event</span>
+            <span>Detail</span>
+            <span>By</span>
+            <button
+              onClick={() => setSortAsc((p) => !p)}
+              className="flex items-center gap-1 cursor-pointer hover:text-gray-600 transition-colors justify-end"
+            >
+              When {sortAsc ? '↑' : '↓'}
+            </button>
+          </div>
+
+          {/* Rows */}
+          {displayedLogs.map((log, idx) => {
+            const after  = parseAuditState(log.afterState);
+            const before = parseAuditState(log.beforeState);
+            const isLast = idx === displayedLogs.length - 1;
+
+            let meta, summary, displayTime;
+            if (log._disbGroup) {
+              const group = log._disbGroup;
+              const lastAfter = parseAuditState(group[group.length - 1].afterState);
+              const fullyDisbursed = lastAfter?.status === 'DISBURSED';
+              const totalStr = lastAfter?.totalDisbursed
+                ? `₹${Number(lastAfter.totalDisbursed).toLocaleString('en-IN')}`
+                : '';
+              if (group.length > 1) {
+                const txnAmts = group.map(l => {
+                  const a = parseAuditState(l.afterState);
+                  return a?.amount ? `₹${Number(a.amount).toLocaleString('en-IN')}` : '';
+                }).filter(Boolean).join(' + ');
+                summary = `${totalStr} disbursed · ${group.length} payments (${txnAmts})${lastAfter?.mode ? ` · ${lastAfter.mode}` : ''}`;
+              } else {
+                summary = buildSummary(log.action, after, null, memberMap);
+              }
+              meta = fullyDisbursed
+                ? ACTION_META.PAYOUT_DISBURSED
+                : { label: 'Partial Disbursement', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', group: 'payouts' };
+              displayTime = formatTime(group[group.length - 1].createdAt);
+            } else {
+              meta        = ACTION_META[log.action] ?? { label: log.action, color: 'text-gray-600', bg: 'bg-gray-50', border: 'border-transparent', group: 'other' };
+              summary     = buildSummary(log.action, after, before, memberMap);
+              displayTime = formatTime(log.createdAt);
+            }
+
+            const actor   = log.actorId ? (actorNameMap[String(log.actorId)] ?? '—') : 'System';
+            const rawRole = log.actorRole?.replace('ROLE_', '') ?? '';
+            return (
+              <div
+                key={log.id}
+                className={`grid grid-cols-[140px_1fr_120px_100px] items-start px-4 py-3 gap-3 ${!isLast ? 'border-b border-gray-50' : ''} hover:bg-gray-50 transition-colors`}
+              >
+                <div>
+                  <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.color}`}>
+                    {meta.label}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700 leading-snug">{summary}</p>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm text-gray-800 font-medium leading-snug truncate">{actor}</span>
+                  {rawRole && <RoleBadge role={rawRole} className="self-start" />}
+                </div>
+                <p className="text-xs text-gray-400 text-right leading-snug">{displayTime}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ChitDetailPage() {
   const { id } = useParams();
@@ -4185,6 +4628,8 @@ export default function ChitDetailPage() {
 
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.role === 'ADMIN';
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [descInput, setDescInput] = useState('');
@@ -4192,6 +4637,19 @@ export default function ChitDetailPage() {
   const { data: chit, isLoading } = useQuery({
     queryKey: ['chit', id],
     queryFn: () => getChit(id),
+  });
+
+  // Loaded here (shared cache key with sub-tabs) to compute true participant count
+  // including reservation-only members who have no formal enrollment
+  const { data: topEnrollments = [] } = useQuery({
+    queryKey: ['enrollments', id],
+    queryFn: () => getEnrollments(id),
+    enabled: !!id,
+  });
+  const { data: topReservations = [] } = useQuery({
+    queryKey: ['reservations', id],
+    queryFn: () => getReservations(id),
+    enabled: !!id,
   });
 
   const renameMutation = useMutation({
@@ -4213,9 +4671,18 @@ export default function ChitDetailPage() {
       </Button>
     </div>
   );
-
   const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
-  const TABS = ['Overview', 'Members', ...(isReservation ? ['Schedule'] : []), 'Draws', 'Winners'];
+  const TABS = ['Overview', 'Members', ...(isReservation ? ['Schedule'] : []), 'Draws', 'Winners', ...(isAdmin ? ['Audit'] : [])];
+
+  // True participant count = enrolled members + members with a reservation but no enrollment
+  const enrolledIds = new Set(topEnrollments.map((e) => String(e.memberId ?? e.id)));
+  const reservationOnlyIds = new Set(
+    topReservations
+      .filter((r) => r.memberId && !r.orgHeld && r.status !== 'VOIDED')
+      .map((r) => String(r.memberId))
+      .filter((mid) => !enrolledIds.has(mid))
+  );
+  const trueParticipantCount = enrolledIds.size + reservationOnlyIds.size;
 
   const installment = chit.installmentAmount
     ?? (chit.chitValue && chit.totalMembers ? chit.chitValue / chit.totalMembers : null);
@@ -4327,7 +4794,7 @@ export default function ChitDetailPage() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3">
           <p className="text-xs text-gray-400">Members / Spots</p>
           <p className="text-base font-bold text-gray-900 mt-0.5">
-            {chit.enrolledCount ?? '?'} / {chit.totalMembers}
+            {trueParticipantCount > 0 ? trueParticipantCount : (chit.enrolledCount ?? '?')} / {chit.totalMembers}
           </p>
           {(chit.orgHeldSpotsCount ?? 0) > 0 && (
             <p className="text-xs text-[#1E3A5F] mt-0.5 flex items-center gap-1">
@@ -4345,6 +4812,7 @@ export default function ChitDetailPage() {
         {activeTab === 'Schedule'  && <ReservationScheduleTab chitId={id} chit={chit} />}
         {activeTab === 'Draws'     && <DrawsTab chitId={id} chit={chit} />}
         {activeTab === 'Winners'   && <WinnersTab chitId={id} chit={chit} winnerSelectionMode={chit.winnerSelectionMode} />}
+        {activeTab === 'Audit'     && isAdmin && <AuditTab chitId={id} />}
       </div>
     </div>
   );

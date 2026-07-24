@@ -315,6 +315,7 @@ export default function StaffDetailPage() {
   const toast = useToastContext();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
+  const isManager = currentUser?.role === 'MANAGER';
   const qc = useQueryClient();
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -344,6 +345,7 @@ export default function StaffDetailPage() {
 
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
   const { data: allStaffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
+  const staffLookup = Object.fromEntries(allStaffList.map((s) => [s.id, s.fullName ?? s.username ?? '—']));
   const memberMap = Object.fromEntries([
     ...allStaffList.map((s) => [s.id, s.fullName ?? s.username ?? '—']),
     ...allMembers.flatMap((m) => {
@@ -448,6 +450,7 @@ export default function StaffDetailPage() {
 
           {!isDeleted && (
           <div className="flex items-center gap-2 flex-wrap">
+            {!isManager && (
             <Button
               variant="secondary"
               size="sm"
@@ -456,6 +459,7 @@ export default function StaffDetailPage() {
               <KeyRound size={14} className="mr-1.5" />
               Reset Password
             </Button>
+            )}
             {isAdmin && currentUser?.id !== staff.id && (
               <>
                 <Button variant="secondary" size="sm" onClick={() => setShowChangeRole(true)}>
@@ -489,12 +493,28 @@ export default function StaffDetailPage() {
           </div>
         )}
 
-        {/* Last login */}
-        {staff.lastLoginAt && (
-          <p className="mt-3 text-xs text-gray-400">
-            Last login: {fmtDate(staff.lastLoginAt)}
-          </p>
-        )}
+        {/* Last login + audit trail */}
+        <div className="mt-3 space-y-0.5">
+          {staff.lastLoginAt && (
+            <p className="text-xs text-gray-400">Last login: {fmtDate(staff.lastLoginAt)}</p>
+          )}
+          {staff.createdAt && (
+            <p className="text-xs text-gray-400">
+              Created: {fmtDate(staff.createdAt)}
+              {staff.createdBy && staffLookup[staff.createdBy] && (
+                <span className="text-gray-300"> · by {staffLookup[staff.createdBy]}</span>
+              )}
+            </p>
+          )}
+          {staff.updatedAt && staff.updatedAt !== staff.createdAt && (
+            <p className="text-xs text-gray-400">
+              Last changed: {fmtDate(staff.updatedAt)}
+              {staff.updatedBy && staffLookup[staff.updatedBy] && (
+                <span className="text-gray-300"> · by {staffLookup[staff.updatedBy]}</span>
+              )}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Worker + Manager: live status summary */}

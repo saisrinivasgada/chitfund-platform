@@ -46,12 +46,14 @@ public class AdminDrawController {
      * Call this when the month starts and you're ready to collect installments.
      */
     @PostMapping("/open")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<DrawSummaryResponse>> openMonth(
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<DrawSummaryResponse>> openDraw(
             @Valid @RequestBody OpenMonthRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        DrawSummaryResponse response = drawService.openMonth(request, adminId);
+        String role = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        DrawSummaryResponse response = drawService.openDraw(request, adminId, role);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
@@ -61,12 +63,14 @@ public class AdminDrawController {
      * - Publishes ChitMonthSkippedEvent → notifies members + workers + extends chit end date
      */
     @PostMapping("/skip")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<DrawSummaryResponse>> skipMonth(
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<DrawSummaryResponse>> skipDraw(
             @Valid @RequestBody SkipMonthRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        DrawSummaryResponse response = drawService.skipMonth(request, adminId);
+        String role = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        DrawSummaryResponse response = drawService.skipDraw(request, adminId, role);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
@@ -75,12 +79,14 @@ public class AdminDrawController {
      * Works even if some members are still OUTSTANDING (force-close).
      */
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<DrawSummaryResponse>> closeMonth(
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<DrawSummaryResponse>> closeDraw(
             @PathVariable UUID id,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(drawService.closeMonth(id, adminId)));
+        String role = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        return ResponseEntity.ok(ApiResponse.success(drawService.closeDraw(id, adminId, role)));
     }
 
     /**
@@ -107,12 +113,14 @@ public class AdminDrawController {
      * Blocked if any member has already paid — admin must void those batches first.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<Void> deleteDraw(
             @PathVariable UUID id,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        drawService.deleteDraw(id, adminId);
+        String role = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
+        drawService.deleteDraw(id, adminId, role);
         return ResponseEntity.noContent().build();
     }
 

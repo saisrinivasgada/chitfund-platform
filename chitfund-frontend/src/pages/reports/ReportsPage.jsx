@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getChit, getMembers, getMember,
@@ -878,10 +879,10 @@ function StatCard({ icon: Icon, label, value, sub, color = '#1E3A5F' }) {
   );
 }
 
-function TabBar({ active, onChange }) {
+function TabBar({ active, onChange, tabs = TABS }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1" style={{ marginTop: 12, marginBottom: 12 }}>
-      {TABS.map((t) => {
+      {tabs.map((t) => {
         const isActive = active === t;
         return (
           <button
@@ -926,11 +927,11 @@ function ChitLink({ id, name }) {
   );
 }
 
-function DateRangeBar({ from, to, onFrom, onTo, active, onPreset }) {
+function DateRangeBar({ from, to, onFrom, onTo, active, onPreset, presets = PRESETS, minDate }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-center gap-3">
       <div className="flex gap-1.5 flex-wrap">
-        {PRESETS.map((p) => {
+        {presets.map((p) => {
           const isActive = active === p.label;
           return (
             <button
@@ -951,9 +952,9 @@ function DateRangeBar({ from, to, onFrom, onTo, active, onPreset }) {
       </div>
       <div className="flex items-center gap-2 ml-auto">
         <Filter size={13} className="text-gray-400" />
-        <Input type="date" value={from} max={to || todayStr()} onChange={(e) => onFrom(e.target.value)} />
+        <Input type="date" value={from} min={minDate} max={to || todayStr()} onChange={(e) => onFrom(e.target.value)} />
         <span className="text-gray-400 text-xs">to</span>
-        <Input type="date" value={to} min={from} max={todayStr()} onChange={(e) => onTo(e.target.value)} />
+        <Input type="date" value={to} min={from || minDate} max={todayStr()} onChange={(e) => onTo(e.target.value)} />
       </div>
     </div>
   );
@@ -1570,15 +1571,16 @@ function ChitReportTab() {
         };
       })
     : draws.map((d) => {
+        const isSkipped   = d.status === 'SKIPPED';
         const collected   = Number(d.totalCollected ?? 0);
-        const outstanding = Number(d.totalOutstanding ?? 0);
-        const totalDue    = collected + outstanding;
+        const outstanding = isSkipped ? 0 : Number(d.totalOutstanding ?? 0);
+        const totalDue    = isSkipped ? 0 : collected + outstanding;
         return {
           monthNumber: d.monthNumber,
           drawId: d.id,
           totalDue:       totalDue > 0 ? totalDue : null,
-          totalCollected: d.totalCollected != null ? collected : null,
-          outstanding:    d.totalOutstanding != null ? outstanding : null,
+          totalCollected: isSkipped ? null : (d.totalCollected != null ? collected : null),
+          outstanding:    isSkipped ? null : (d.totalOutstanding != null ? outstanding : null),
           drawStatus: d.status,
           dueDate: d.dueDate,
           closedAt: d.closedAt,
@@ -2055,13 +2057,28 @@ function ChitReportTab() {
 
 // ─── Payments Tab ─────────────────────────────────────────────────────────────
 function PaymentsTab() {
-  const [from, setFrom]             = useSessionState('rpt_pmt_from', todayStr());
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
+
+  // Managers are restricted to the last 7 days only
+  const sevenDaysAgo = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return localDateStr(d); })();
+  const defaultFrom = isManager ? sevenDaysAgo : todayStr();
+  const defaultPreset = isManager ? 'Last 7 days' : 'Today';
+  const allowedPresets = isManager
+    ? PRESETS.filter((p) => ['Today', 'Last 7 days'].includes(p.label))
+    : PRESETS;
+
+  const [from, setFrom]             = useSessionState('rpt_pmt_from', defaultFrom);
   const [to, setTo]                 = useSessionState('rpt_pmt_to', todayStr());
-  const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', 'Today');
+  const [activePreset, setPreset]   = useSessionState('rpt_pmt_preset', defaultPreset);
   const [filterChit, setFilterChit] = useSessionState('rpt_pmt_chit', '');
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
+
+  // Clamp manager's date range to sevenDaysAgo minimum
+  const effectiveFrom = isManager && from < sevenDaysAgo ? sevenDaysAgo : from;
+  const effectiveTo   = to;
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
@@ -2069,14 +2086,14 @@ function PaymentsTab() {
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
 
   const { data: batches = [], isLoading } = useQuery({
-    queryKey: ['all-batches', from, to, filterChit],
-    queryFn: () => getAllPaymentBatches({ fromDate: from || undefined, toDate: to || undefined, chitId: filterChit || undefined }),
+    queryKey: ['all-batches', effectiveFrom, effectiveTo, filterChit],
+    queryFn: () => getAllPaymentBatches({ fromDate: effectiveFrom || undefined, toDate: effectiveTo || undefined, chitId: filterChit || undefined }),
   });
 
   function onPreset(range) {
     setFrom(range.from);
     setTo(range.to);
-    setPreset(PRESETS.find((p) => { const v = p.fn(); return v.from === range.from && v.to === range.to; })?.label ?? '');
+    setPreset(allowedPresets.find((p) => { const v = p.fn(); return v.from === range.from && v.to === range.to; })?.label ?? '');
   }
 
   const totalCollected = batches.reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
@@ -2138,7 +2155,18 @@ function PaymentsTab() {
 
   return (
     <div className="space-y-5">
-      <DateRangeBar from={from} to={to} onFrom={setFrom} onTo={setTo} active={activePreset} onPreset={onPreset} />
+      <DateRangeBar
+        from={from} to={to} onFrom={setFrom} onTo={setTo}
+        active={activePreset} onPreset={onPreset}
+        presets={allowedPresets}
+        minDate={isManager ? sevenDaysAgo : undefined}
+      />
+
+      {isManager && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
+          Payment history is limited to the last 7 days for managers.
+        </p>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="w-52">
@@ -2703,27 +2731,34 @@ function TreasuryTab() {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+const MANAGER_TABS = ['Overview', 'Member Report', 'Payments', 'Payouts'];
+
 export default function ReportsPage() {
+  const { user } = useAuth();
+  const isManager = user?.role === 'MANAGER';
+  const visibleTabs = isManager ? MANAGER_TABS : TABS;
+
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') || 'Overview';
+  const rawTab = searchParams.get('tab') || 'Overview';
+  const tab = visibleTabs.includes(rawTab) ? rawTab : 'Overview';
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Full visibility into members, chits, payments and treasury</p>
+        <p className="text-sm text-gray-500 mt-0.5">Full visibility into members, payments and payouts</p>
       </div>
 
-      <TabBar active={tab} onChange={setTab} />
+      <TabBar active={tab} onChange={setTab} tabs={visibleTabs} />
 
       <div>
         {tab === 'Overview'      && <OverviewTab />}
         {tab === 'Member Report' && <MemberReportTab />}
-        {tab === 'Chit Report'   && <ChitReportTab />}
+        {!isManager && tab === 'Chit Report'   && <ChitReportTab />}
         {tab === 'Payments'      && <PaymentsTab />}
         {tab === 'Payouts'       && <PayoutsTab />}
-        {tab === 'Treasury'      && <TreasuryTab />}
+        {!isManager && tab === 'Treasury'      && <TreasuryTab />}
       </div>
     </div>
   );

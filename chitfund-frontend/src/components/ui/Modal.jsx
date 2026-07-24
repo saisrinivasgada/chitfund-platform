@@ -24,11 +24,11 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
   }[size] ?? 'sm:max-w-md';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 lg:p-8">
       {/* Backdrop */}
       <div
         className="absolute inset-0"
-        style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+        style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)' }}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -41,7 +41,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
         className={[
           'relative bg-white w-full flex flex-col',
           // Mobile: full-width sheet from bottom
-          'rounded-t-2xl max-h-[92vh]',
+          'rounded-t-2xl max-h-[94vh]',
           // Tablet+: centred card
           `sm:rounded-2xl sm:shadow-2xl ${maxW}`,
         ].join(' ')}
@@ -53,7 +53,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 sm:px-7 py-5 border-b border-gray-100 flex-shrink-0">
           <h3
             className="text-lg font-bold"
             style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
@@ -74,7 +74,7 @@ export default function Modal({ title, onClose, children, size = 'md' }) {
           className="overflow-y-auto flex-1 min-h-0"
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
-          <div style={{ padding: '28px 28px 24px' }}>
+          <div style={{ padding: '32px 32px 28px' }}>
             {children}
           </div>
         </div>

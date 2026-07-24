@@ -35,6 +35,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @RequiredArgsConstructor
@@ -148,23 +149,27 @@ public class ChitService {
         ChitResponse response = enrich(chitRepository.save(chit));
         if (activatingFromDraft) {
             syncEnrollmentsFromSchedule(chit);
-            sendChitStatusNotifications(chit, "CHIT_ACTIVATED",
-                    "Chit Activated — " + chit.getName(),
-                    "Your chit '" + chit.getName() + "' is now active. Payments will begin as scheduled.");
+            final Chit activatedChit = chit;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    CompletableFuture.runAsync(() ->
+                        sendChitStatusNotifications(activatedChit, "CHIT_ACTIVATED",
+                                "Chit Activated — " + activatedChit.getName(),
+                                "Your chit '" + activatedChit.getName() + "' is now active. Payments will begin as scheduled."));
+                }
+            });
         } else if (completing) {
-            sendChitStatusNotifications(chit, "CHIT_COMPLETED",
-                    "Chit Completed — " + chit.getName(),
-                    "Your chit '" + chit.getName() + "' has been completed. Thank you for participating!");
-            final UUID completedChitId = chit.getId();
-            if (TransactionSynchronizationManager.isActualTransactionActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override public void afterCommit() {
-                        notificationClient.closeDrawsForChit(completedChitId);
-                    }
-                });
-            } else {
-                notificationClient.closeDrawsForChit(completedChitId);
-            }
+            final Chit completedChit = chit;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    CompletableFuture.runAsync(() -> {
+                        sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
+                                "Chit Completed — " + completedChit.getName(),
+                                "Your chit '" + completedChit.getName() + "' has been completed. Thank you for participating!");
+                        notificationClient.closeDrawsForChit(completedChit.getId());
+                    });
+                }
+            });
         } else if (revertingToDraft) {
             // Clear enrollments so admin can freely edit the schedule and re-activate
             List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndActiveTrue(chit.getId());
@@ -315,6 +320,15 @@ public class ChitService {
     public Chit findById(UUID id) {
         return chitRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+    }
+
+    public List<ChitResponse> listUpdatedToday() {
+        LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
+        LocalDateTime twelveHoursAgo = LocalDateTime.now().minusHours(12);
+        // Use whichever window is wider: today since midnight vs last 12 hours
+        LocalDateTime since = twelveHoursAgo.isBefore(startOfDay) ? twelveHoursAgo : startOfDay;
+        return chitRepository.findByUpdatedAtBetweenAndDeletedAtIsNull(since, LocalDateTime.now().plusMinutes(1))
+                .stream().map(this::enrich).toList();
     }
 
     private ChitResponse enrich(Chit chit) {

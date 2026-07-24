@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -23,4 +24,7 @@ public interface ChitRepository extends JpaRepository<Chit, UUID> {
 
     // Soft-deleted chits — admin audit view
     Page<Chit> findByDeletedAtIsNotNull(Pageable pageable);
+
+    // Chits whose status changed today — for activity feed
+    List<Chit> findByUpdatedAtBetweenAndDeletedAtIsNull(LocalDateTime from, LocalDateTime to);
 }

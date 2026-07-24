@@ -19,5 +19,6 @@ public record ChitMonthSkippedEvent(
         List<String> memberIds,
         String skipReason,
         String skippedBy,
+        String actorRole,
         Instant occurredAt
 ) {}

@@ -17,4 +17,9 @@ public class CreateMemberLoginRequest {
     @Email(message = "Invalid email format")
     @Size(max = 255)
     private String email;
+
+    @Pattern(regexp = "^[0-9]{6,15}$", message = "Enter a valid phone number (6–15 digits)")
+    private String phone;
+
+    private String phoneCountryCode;
 }

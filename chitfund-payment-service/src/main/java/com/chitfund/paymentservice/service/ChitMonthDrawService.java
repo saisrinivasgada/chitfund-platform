@@ -42,9 +42,10 @@ public class ChitMonthDrawService {
     private final PaymentEventPublisher eventPublisher;
     private final NotificationService notificationService;
     private final com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
+    private final com.chitfund.paymentservice.client.AuditClient auditClient;
 
     @Transactional
-    public DrawSummaryResponse openMonth(OpenMonthRequest request, UUID adminId) {
+    public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
         long realCycles = drawRepository.countByChitIdAndStatusNot(request.getChitId(), DrawStatus.SKIPPED);
         if (realCycles >= request.getMaxCycles()) {
             throw new BusinessException(ErrorCode.CHIT_CYCLES_EXHAUSTED,
@@ -81,8 +82,17 @@ public class ChitMonthDrawService {
                 .toList();
         paymentRecordRepository.saveAll(records);
 
-        log.info("Admin {} opened cycle {} for chit {} — {} payment records created",
-                adminId, request.getMonthNumber(), request.getChitId(), records.size());
+        log.info("Actor {} ({}) opened cycle {} for chit {} — {} payment records created",
+                adminId, actorRole, request.getMonthNumber(), request.getChitId(), records.size());
+
+        auditClient.log("CHIT_DRAW",
+                request.getChitId() + "-" + request.getMonthNumber(),
+                request.getChitId().toString(),
+                "DRAW_OPENED", adminId.toString(), actorRole,
+                null,
+                Map.of("monthNumber", request.getMonthNumber(),
+                        "dueDate", String.valueOf(request.getDueDate()),
+                        "members", records.size()));
 
         List<String> memberIdStrings = request.getMembers().stream()
                 .map(m -> m.getMemberId().toString()).toList();
@@ -95,6 +105,7 @@ public class ChitMonthDrawService {
                 request.getMembers().size(),
                 memberIdStrings,
                 adminId.toString(),
+                actorRole,
                 Instant.now()
         ));
 
@@ -121,7 +132,7 @@ public class ChitMonthDrawService {
     }
 
     @Transactional
-    public DrawSummaryResponse skipMonth(SkipMonthRequest request, UUID adminId) {
+    public DrawSummaryResponse skipDraw(SkipMonthRequest request, UUID adminId, String actorRole) {
         if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
                     "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
@@ -154,8 +165,16 @@ public class ChitMonthDrawService {
                 .toList();
         paymentRecordRepository.saveAll(waivedRecords);
 
-        log.info("Admin {} skipped month {} for chit {}. Reason: {}",
-                adminId, request.getMonthNumber(), request.getChitId(), request.getSkipReason());
+        log.info("Actor {} ({}) skipped month {} for chit {}. Reason: {}",
+                adminId, actorRole, request.getMonthNumber(), request.getChitId(), request.getSkipReason());
+
+        auditClient.log("CHIT_DRAW",
+                request.getChitId() + "-" + request.getMonthNumber(),
+                request.getChitId().toString(),
+                "DRAW_SKIPPED", adminId.toString(), actorRole,
+                null,
+                Map.of("monthNumber", request.getMonthNumber(),
+                        "reason", request.getSkipReason() != null ? request.getSkipReason() : ""));
 
         eventPublisher.publish(new ChitMonthSkippedEvent(
                 request.getChitId().toString(),
@@ -167,6 +186,7 @@ public class ChitMonthDrawService {
                 request.getMemberIds().stream().map(UUID::toString).toList(),
                 request.getSkipReason(),
                 adminId.toString(),
+                actorRole,
                 Instant.now()
         ));
 
@@ -174,7 +194,7 @@ public class ChitMonthDrawService {
     }
 
     @Transactional
-    public DrawSummaryResponse closeMonth(UUID cycleId, UUID adminId) {
+    public DrawSummaryResponse closeDraw(UUID cycleId, UUID adminId, String actorRole) {
         ChitMonthDraw cycle = drawRepository.findById(cycleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
@@ -189,7 +209,14 @@ public class ChitMonthDrawService {
         cycle.setClosedBy(adminId);
         drawRepository.save(cycle);
 
-        log.info("Admin {} closed month {} for chit {}", adminId, cycle.getMonthNumber(), cycle.getChitId());
+        log.info("Actor {} ({}) closed draw {} for chit {}", adminId, actorRole, cycle.getMonthNumber(), cycle.getChitId());
+
+        auditClient.log("CHIT_DRAW",
+                cycle.getChitId() + "-" + cycle.getMonthNumber(),
+                cycle.getChitId().toString(),
+                "DRAW_CLOSED", adminId.toString(), actorRole,
+                Map.of("status", "OPEN"),
+                Map.of("status", "CLOSED", "monthNumber", cycle.getMonthNumber()));
 
         return buildSummaryWithLiveStats(cycle);
     }
@@ -324,6 +351,8 @@ public class ChitMonthDrawService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal totalOutstanding = records.stream()
+                .filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING
+                          || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
                 .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
                 .filter(b -> b.compareTo(BigDecimal.ZERO) > 0)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -390,7 +419,7 @@ public class ChitMonthDrawService {
      * returns the record to OUTSTANDING), so the audit trail stays intact.
      */
     @Transactional
-    public void deleteDraw(UUID cycleId, UUID adminId) {
+    public void deleteDraw(UUID cycleId, UUID adminId, String actorRole) {
         ChitMonthDraw cycle = drawRepository.findById(cycleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
@@ -435,8 +464,15 @@ public class ChitMonthDrawService {
 
         drawRepository.delete(cycle);
 
-        log.info("Admin {} deleted cycle {} (month {}) for chit {} — {} payment records removed",
-                adminId, cycleId, cycle.getMonthNumber(), cycle.getChitId(), records.size());
+        log.info("Actor {} ({}) deleted draw {} (draw {}) for chit {} — {} payment records removed",
+                adminId, actorRole, cycleId, cycle.getMonthNumber(), cycle.getChitId(), records.size());
+
+        auditClient.log("CHIT_DRAW",
+                cycle.getChitId() + "-" + cycle.getMonthNumber(),
+                cycle.getChitId().toString(),
+                "DRAW_DELETED", adminId.toString(), actorRole,
+                Map.of("status", "OPEN", "monthNumber", cycle.getMonthNumber()),
+                null);
     }
 
     @Transactional(readOnly = true)

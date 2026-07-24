@@ -19,6 +19,7 @@ import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
+import RoleBadge from '../components/ui/RoleBadge';
 
 const STATUS_CONFIG = {
   COMPLETED:           { label: 'Completed',           icon: CheckCircle, bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200', dot: 'bg-green-500' },
@@ -229,6 +230,7 @@ export default function TransactionDetailPage() {
     }),
     ...staff.map((s) => [s.id, s.fullName ?? s.username]),
   ]);
+  const roleMap = Object.fromEntries(staff.map((s) => [s.id, s.role]));
 
   // Resolve a UUID to a display name — falls back to "Admin" when the actor
   // is an admin user (not present in staff or members list)
@@ -412,47 +414,6 @@ export default function TransactionDetailPage() {
         </div>
       )}
 
-      {/* Void action — admin only */}
-      {!isMember && (batch.status === 'COMPLETED' || batch.status === 'AWAITING_REMITTANCE') && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold text-red-800">Void Transaction</p>
-              <p className="text-xs text-red-600 mt-0.5">
-                Reverses all payment credits and updates treasury. This cannot be undone.
-              </p>
-            </div>
-            {!showVoidForm && (
-              <Button variant="danger" onClick={() => setShowVoidForm(true)}>
-                <XCircle size={14} /> Void
-              </Button>
-            )}
-          </div>
-          {showVoidForm && (
-            <div className="flex gap-2">
-              <Input
-                autoFocus
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
-                placeholder="Reason for voiding…"
-                className="flex-1"
-              />
-              <Button
-                variant="danger"
-                disabled={!voidReason.trim() || voidMutation.isPending}
-                loading={voidMutation.isPending}
-                onClick={() => voidMutation.mutate()}
-              >
-                Confirm Void
-              </Button>
-              <Button variant="secondary" onClick={() => { setShowVoidForm(false); setVoidReason(''); }}>
-                Cancel
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Amount Hero */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-between">
         <div>
@@ -569,7 +530,7 @@ export default function TransactionDetailPage() {
                 </div>
                 {b.months?.slice(0, 3).map((m) => (
                   <div key={m.monthNumber} className="flex justify-between text-xs text-gray-400 mt-1 pl-2">
-                    <span>Month {m.monthNumber}{m.dueDate ? ` · due ${new Date(m.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}</span>
+                    <span>Draw {m.monthNumber}{m.dueDate ? ` · due ${new Date(m.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}</span>
                     <span>{h(m.balance)}</span>
                   </div>
                 ))}
@@ -637,7 +598,12 @@ export default function TransactionDetailPage() {
             </>
           );
         })() : (
-          <InfoRow icon={User} label="Collected By" value={resolveName(batch.collectedBy)} />
+          <InfoRow icon={User} label="Collected By" value={
+            <span className="flex items-center gap-1.5">
+              {resolveName(batch.collectedBy)}
+              {roleMap[batch.collectedBy] && <RoleBadge role={roleMap[batch.collectedBy]} />}
+            </span>
+          } />
         )}
         <InfoRow icon={Clock} label={batch.collectedAt ? 'Collected At' : 'Recorded At'} value={fmtDateTime(batch.collectedAt ?? batch.createdAt)} />
       </Card>
@@ -668,6 +634,47 @@ export default function TransactionDetailPage() {
             <p className="text-sm text-gray-700 leading-relaxed">{resolveText(batch.notes)}</p>
           </div>
         </Card>
+      )}
+
+      {/* Void action — admin only */}
+      {!isMember && (batch.status === 'COMPLETED' || batch.status === 'AWAITING_REMITTANCE') && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-red-800">Void Transaction</p>
+              <p className="text-xs text-red-600 mt-0.5">
+                Reverses all payment credits and updates treasury. This cannot be undone.
+              </p>
+            </div>
+            {!showVoidForm && (
+              <Button variant="danger" onClick={() => setShowVoidForm(true)}>
+                <XCircle size={14} /> Void
+              </Button>
+            )}
+          </div>
+          {showVoidForm && (
+            <div className="flex gap-2">
+              <Input
+                autoFocus
+                value={voidReason}
+                onChange={(e) => setVoidReason(e.target.value)}
+                placeholder="Reason for voiding…"
+                className="flex-1"
+              />
+              <Button
+                variant="danger"
+                disabled={!voidReason.trim() || voidMutation.isPending}
+                loading={voidMutation.isPending}
+                onClick={() => voidMutation.mutate()}
+              >
+                Confirm Void
+              </Button>
+              <Button variant="secondary" onClick={() => { setShowVoidForm(false); setVoidReason(''); }}>
+                Cancel
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Confirm remit dialog */}

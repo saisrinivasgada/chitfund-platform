@@ -38,6 +38,7 @@ public class WinnerService {
     private final MonthReservationRepository reservationRepository;
     private final WinnerSelectionStrategyFactory strategyFactory;
     private final ChitMapper chitMapper;
+    private final com.chitfund.chitservice.client.AuditClient auditClient;
 
     @Transactional
     public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
@@ -90,6 +91,16 @@ public class WinnerService {
                 .build();
 
         MonthlyWinner saved = winnerRepository.save(winner);
+
+        String actorRole = null; // actorRole not passed into service yet — will show in audit without role
+        auditClient.log("WINNER_ASSIGNMENT", saved.getId().toString(), chitId.toString(),
+                "WINNER_ASSIGNED", assignedBy.toString(), actorRole,
+                null,
+                Map.of("monthNumber", saved.getMonthNumber(),
+                        "memberId", String.valueOf(winnerId),
+                        "winningAmount", winningAmount.toPlainString(),
+                        "mode", String.valueOf(chit.getWinnerSelectionMode())));
+
         return chitMapper.toWinnerResponse(saved);
     }
 

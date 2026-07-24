@@ -12,4 +12,6 @@ public class AssignWorkerRequest {
     private UUID staffId;
 
     private String adminNotes;
+
+    private String assigneeRole;
 }

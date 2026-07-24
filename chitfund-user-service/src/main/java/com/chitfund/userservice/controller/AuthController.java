@@ -37,7 +37,7 @@ public class AuthController {
                     "Staff accounts must be created by an admin via /api/users/staff");
         }
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(authService.register(request), "Registration successful"));
+                .body(ApiResponse.success(authService.register(request, null), "Registration successful"));
     }
 
     @PostMapping("/login")

@@ -491,7 +491,7 @@ function CreateLoginModal({ member, onClose }) {
     e.preventDefault();
     setStep('loading');
     try {
-      const loginData = await createMemberLogin({ username: form.username, email: form.email });
+      const loginData = await createMemberLogin({ username: form.username, email: form.email, phone: member.phone, phoneCountryCode: member.phoneCountryCode ?? '+91' });
       const newUserId = loginData?.userId;
       if (!newUserId) throw new Error('Failed to create login — no user ID returned');
       await linkMemberUser({ memberId: member.id, userId: newUserId });

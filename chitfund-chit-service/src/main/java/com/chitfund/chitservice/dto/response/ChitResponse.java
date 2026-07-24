@@ -47,6 +47,7 @@ public class ChitResponse {
     private Map<String, Object> attributes;
 
     private UUID createdBy;
+    private UUID updatedBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

@@ -29,6 +29,11 @@ public class UserService {
     public UserResponse getUserById(UUID id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        // Managers must not be able to fetch admin accounts by ID
+        User caller = callerUser();
+        if (caller != null && caller.getRole() == Role.MANAGER && user.getRole() == Role.ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return userMapper.toResponse(user);
     }
 
@@ -43,6 +48,7 @@ public class UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
         user.setLocked(true);
+        user.setUpdatedBy(callerId());
         return userMapper.toResponse(userRepository.save(user));
     }
 
@@ -52,6 +58,7 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
         user.setLocked(false);
         user.setFailedLoginAttempts(0);
+        user.setUpdatedBy(callerId());
         return userMapper.toResponse(userRepository.save(user));
     }
 
@@ -84,11 +91,15 @@ public class UserService {
             user.setEmail(request.getEmail());
         }
 
+        user.setUpdatedBy(userId);
         return userMapper.toResponse(userRepository.save(user));
     }
 
     public List<UserResponse> listStaff(boolean includeDeleted) {
-        List<Role> staffRoles = List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
+        User caller = callerUser();
+        List<Role> staffRoles = caller != null && caller.getRole() == Role.MANAGER
+                ? List.of(Role.MANAGER, Role.STAFF, Role.AGENT)
+                : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
         List<User> users = includeDeleted
                 ? userRepository.findByRoleInAndDeletedAtIsNotNull(staffRoles)
                 : userRepository.findByRoleInAndDeletedAtIsNull(staffRoles);
@@ -108,6 +119,7 @@ public class UserService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "You cannot deactivate your own account");
         }
         user.setEnabled(false);
+        user.setUpdatedBy(caller.getId());
         return userMapper.toResponse(userRepository.save(user));
     }
 
@@ -118,6 +130,7 @@ public class UserService {
         user.setEnabled(true);
         user.setLocked(false);
         user.setFailedLoginAttempts(0);
+        user.setUpdatedBy(callerId());
         return userMapper.toResponse(userRepository.save(user));
     }
 
@@ -137,6 +150,7 @@ public class UserService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member roles are managed through the member panel");
         }
         user.setRole(newRole);
+        user.setUpdatedBy(caller.getId());
         return userMapper.toResponse(userRepository.save(user));
     }
 
@@ -156,7 +170,19 @@ public class UserService {
         }
         user.setDeletedAt(LocalDateTime.now());
         user.setDeletedBy(deletedBy);
+        user.setUpdatedBy(deletedBy);
         user.setEnabled(false);
         return userMapper.toResponse(userRepository.save(user));
+    }
+
+    private UUID callerId() {
+        User caller = callerUser();
+        return caller != null ? caller.getId() : null;
+    }
+
+    private User callerUser() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof User u) return u;
+        return null;
     }
 }

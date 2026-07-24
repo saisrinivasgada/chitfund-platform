@@ -31,6 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -45,6 +46,7 @@ public class PayoutService {
     private final PayoutEventPublisher eventPublisher;
     private final PaymentServiceClient paymentServiceClient;
     private final ChitServiceClient chitServiceClient;
+    private final com.chitfund.payoutservice.client.AuditClient auditClient;
 
     /**
      * Admin registers a payout obligation after the winner is announced in chit-service.
@@ -56,7 +58,7 @@ public class PayoutService {
      * a Kafka consumer, called automatically. For now, admin calls it manually.
      */
     @Transactional
-    public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId) {
+    public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId, String actorRole) {
         if (payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
                 request.getChitId(), request.getMonthNumber(), request.getMemberId(),
                 List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))) {
@@ -125,6 +127,13 @@ public class PayoutService {
                 Instant.now()
         );
         publishAfterCommit(() -> eventPublisher.publish(createdEvent));
+
+        auditClient.log("PAYOUT", payout.getId().toString(), payout.getChitId().toString(),
+                "PAYOUT_CREATED", adminId.toString(), actorRole,
+                null,
+                Map.of("memberId", payout.getMemberId().toString(),
+                        "monthNumber", payout.getMonthNumber(),
+                        "netAmount", payout.getNetPayoutAmount().toPlainString()));
 
         return toResponse(payout);
     }
@@ -211,6 +220,14 @@ public class PayoutService {
             checkAndAutoCompleteChit(payout.getChitId());
         }
 
+        auditClient.log("PAYOUT", payoutId.toString(), payout.getChitId().toString(),
+                "PAYOUT_DISBURSED", adminId.toString(), "ADMIN",
+                Map.of("status", fullyDisbursed ? "PARTIALLY_DISBURSED" : "PENDING"),
+                Map.of("status", payout.getStatus().name(),
+                        "amount", thisAmount.toPlainString(),
+                        "totalDisbursed", newDisbursed.toPlainString(),
+                        "mode", request.getDisbursementMode().name()));
+
         return toResponse(payout);
     }
 
@@ -253,6 +270,12 @@ public class PayoutService {
 
         log.info("Payout {} voided by {}. Reason: {}. Disbursed ₹{} reversed.",
                 payoutId, adminId, request.getReason(), disbursedSoFar);
+
+        auditClient.log("PAYOUT", payoutId.toString(), payout.getChitId().toString(),
+                "PAYOUT_VOIDED", adminId.toString(), "ADMIN",
+                Map.of("status", "DISBURSED"),
+                Map.of("status", "VOIDED", "reason", request.getReason() != null ? request.getReason() : ""));
+
         return toResponse(payout);
     }
 
@@ -285,6 +308,11 @@ public class PayoutService {
         paymentServiceClient.revertPayoutDeductions(payoutId);
 
         log.info("Payout {} cancelled. Reason: {}. Installment deductions reverted.", payoutId, request.getReason());
+
+        auditClient.log("PAYOUT", payoutId.toString(), payout.getChitId().toString(),
+                "PAYOUT_CANCELLED", adminId.toString(), "ADMIN",
+                Map.of("status", "PENDING"),
+                Map.of("status", "CANCELLED", "reason", request.getReason() != null ? request.getReason() : ""));
 
         return toResponse(payout);
     }

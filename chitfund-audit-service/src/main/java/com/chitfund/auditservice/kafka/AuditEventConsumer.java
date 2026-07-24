@@ -26,39 +26,9 @@ public class AuditEventConsumer {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
-    @SqsListener(SqsQueues.MONTH_OPENED)
-    public void onMonthOpened(String payload) {
-        try {
-            ChitMonthOpenedEvent event = objectMapper.readValue(payload, ChitMonthOpenedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "payment-service", "CHIT_MONTH_CYCLE", event.chitId() + "-" + event.monthNumber(),
-                    event.chitId(), "MONTH_OPENED",
-                    event.openedBy(), "ROLE_ADMIN", null,
-                    null,
-                    "{\"monthNumber\":" + event.monthNumber() + ",\"dueDate\":\"" + event.dueDate() + "\",\"members\":" + event.totalMembers() + "}",
-                    null
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit MONTH_OPENED: {}", e.getMessage(), e);
-        }
-    }
-
-    @SqsListener(SqsQueues.MONTH_SKIPPED)
-    public void onMonthSkipped(String payload) {
-        try {
-            ChitMonthSkippedEvent event = objectMapper.readValue(payload, ChitMonthSkippedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "payment-service", "CHIT_MONTH_CYCLE", event.chitId() + "-" + event.monthNumber(),
-                    event.chitId(), "MONTH_SKIPPED",
-                    event.skippedBy(), "ROLE_ADMIN", null,
-                    null,
-                    "{\"monthNumber\":" + event.monthNumber() + ",\"reason\":\"" + event.skipReason() + "\"}",
-                    null
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit MONTH_SKIPPED: {}", e.getMessage(), e);
-        }
-    }
+    // DRAW_OPENED and DRAW_SKIPPED are now audited via direct HTTP in payment-service.
+    // The SQS listeners for MONTH_OPENED / MONTH_SKIPPED are removed to prevent duplicate
+    // audit records. SQS events are still published for notification-service consumers.
 
     @SqsListener(SqsQueues.CASH_COLLECTED)
     public void onCashCollected(String payload) {
@@ -95,41 +65,8 @@ public class AuditEventConsumer {
         }
     }
 
-    @SqsListener(SqsQueues.PAYOUT_CREATED)
-    public void onPayoutCreated(String payload) {
-        try {
-            PayoutCreatedEvent event = objectMapper.readValue(payload, PayoutCreatedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "payout-service", "PAYOUT", event.payoutId(),
-                    event.chitId(), "PAYOUT_CREATED",
-                    event.createdBy(), "ROLE_ADMIN", null,
-                    null,
-                    "{\"memberId\":\"" + event.memberId() + "\",\"monthNumber\":" + event.monthNumber()
-                            + ",\"netAmount\":" + event.netPayoutAmount() + "}",
-                    null
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit PAYOUT_CREATED: {}", e.getMessage(), e);
-        }
-    }
-
-    @SqsListener(SqsQueues.PAYOUT_DISBURSED)
-    public void onPayoutDisbursed(String payload) {
-        try {
-            PayoutDisbursedEvent event = objectMapper.readValue(payload, PayoutDisbursedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "payout-service", "PAYOUT", event.payoutId(),
-                    event.chitId(), "PAYOUT_DISBURSED",
-                    event.disbursedBy(), "ROLE_ADMIN", null,
-                    "{\"status\":\"PENDING\"}",
-                    "{\"status\":\"DISBURSED\",\"mode\":\"" + event.disbursementMode()
-                            + "\",\"ref\":\"" + event.referenceNumber() + "\"}",
-                    null
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit PAYOUT_DISBURSED: {}", e.getMessage(), e);
-        }
-    }
+    // PAYOUT_CREATED and PAYOUT_DISBURSED are now audited via direct HTTP in payout-service.
+    // SQS listeners removed to prevent duplicate entries; SQS events still consumed by notification-service.
 
     @SqsListener(SqsQueues.ORG_RESERVATION_CREATED)
     public void onOrgReservationCreated(String payload) {

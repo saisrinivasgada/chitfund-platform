@@ -156,7 +156,7 @@ public class PaymentController {
      * Response: { totalOutstanding: ₹6000, months: [{month:2, balance:₹1000}, {month:3, balance:₹5000}] }
      */
     @GetMapping("/balance")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberBalanceResponse>> getMemberBalance(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId) {
@@ -168,7 +168,7 @@ public class PaymentController {
      * Used on the member detail page summary card.
      */
     @GetMapping("/balance/total")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<BigDecimal>> getMemberTotalBalance(@RequestParam UUID memberId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberTotalBalance(memberId)));
     }
@@ -178,7 +178,7 @@ public class PaymentController {
      * Used on the members list page — one call instead of N. Accepts comma-separated UUIDs.
      */
     @GetMapping("/balance/bulk")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF')")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<UUID, BigDecimal>>> getMemberTotalBalanceBulk(
             @RequestParam String memberIds) {
         List<UUID> ids = Arrays.stream(memberIds.split(","))
@@ -235,7 +235,17 @@ public class PaymentController {
             @RequestParam(required = false) LocalDate fromDate,
             @RequestParam(required = false) LocalDate toDate,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false, defaultValue = "50") int size) {
+            @RequestParam(required = false, defaultValue = "50") int size,
+            Authentication auth) {
+        // Managers may only query the last 7 days
+        boolean isManager = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MANAGER"));
+        if (isManager) {
+            LocalDate sevenDaysAgo = LocalDate.now().minusDays(6);
+            if (fromDate == null || fromDate.isBefore(sevenDaysAgo)) {
+                fromDate = sevenDaysAgo;
+            }
+        }
         if (page != null) {
             return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatchesPaged(chitId, memberId, fromDate, toDate, page, size)));
         }

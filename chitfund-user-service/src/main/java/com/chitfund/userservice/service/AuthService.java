@@ -73,7 +73,7 @@ public class AuthService {
     @Value("${jwt.refresh-token-expiry-days}")
     private int refreshTokenExpiryDays;
 
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request, UUID createdBy) {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(ErrorCode.USERNAME_TAKEN);
         }
@@ -113,6 +113,8 @@ public class AuthService {
                 .passwordHash(passwordEncoder.encode(plainPassword))
                 .role(request.getRole())
                 .mustChangePassword(isTempPassword)
+                .createdBy(createdBy)
+                .updatedBy(createdBy)
                 .build();
 
         userRepository.save(user);
@@ -152,9 +154,14 @@ public class AuthService {
         }
 
         String tempPassword = generateTempPassword();
+        String phone = (request.getPhone() != null && !request.getPhone().isBlank()) ? request.getPhone() : null;
+        String countryCode = (request.getPhoneCountryCode() != null && !request.getPhoneCountryCode().isBlank())
+                ? request.getPhoneCountryCode() : (phone != null ? "+91" : null);
         User user = User.builder()
                 .username(request.getUsername())
                 .email(email)
+                .phone(phone)
+                .phoneCountryCode(countryCode)
                 .passwordHash(passwordEncoder.encode(tempPassword))
                 .role(Role.MEMBER)
                 .mustChangePassword(true)
@@ -217,6 +224,11 @@ public class AuthService {
         // Store the temp separately — real passwordHash is unchanged so old password still works.
         user.setTempPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof User caller) {
+            user.setUpdatedBy(caller.getId());
+        }
         userRepository.save(user);
         return ResetPasswordResponse.builder()
                 .userId(user.getId())

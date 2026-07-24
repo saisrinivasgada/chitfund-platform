@@ -1,21 +1,20 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   getTodaysPaymentBatches, getPendingRemittance, getPendingPayouts,
-  listStaff, getMembers, getChits, remitPayment,
+  listStaff, getMembers, getChits, getMyAssignedRequests,
 } from '../../services/api';
-import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useState } from 'react';
 import {
   CreditCard, Banknote, Clock, CheckCircle, ArrowRight,
-  IndianRupee, Users, AlertTriangle, RefreshCw,
+  IndianRupee, AlertTriangle,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
+import TodaysActivityFeed from '../../components/TodaysActivityFeed';
 
 function fmt(n) {
   if (n == null) return '0';
@@ -48,9 +47,6 @@ function StatCard({ icon: Icon, label, value, sub, color, onClick }) {
 export default function ManagerHomePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const toast = useToastContext();
-  const qc = useQueryClient();
-  const [confirmRemit, setConfirmRemit] = useState(null);
   const { hidden } = useHiddenAmounts();
 
   const greeting = () => {
@@ -92,6 +88,15 @@ export default function ManagerHomePage() {
     queryFn: getChits,
   });
 
+  const { data: myTasks = [] } = useQuery({
+    queryKey: ['manager-tasks'],
+    queryFn: getMyAssignedRequests,
+    refetchInterval: 60_000,
+  });
+  const cashInHand = myTasks
+    .filter((t) => t.status === 'PICKED_UP' || t.status === 'PARTIALLY_COLLECTED')
+    .reduce((sum, t) => sum + Number(t.collectedAmount ?? t.requestedAmount ?? 0), 0);
+
   const memberMap = Object.fromEntries(
     members.flatMap((m) => {
       const name = m.fullName ?? m.name ?? '—';
@@ -100,17 +105,6 @@ export default function ManagerHomePage() {
   );
   const chitMap   = Object.fromEntries(chits.map((c)  => [c.id, c.name ?? '—']));
   const staffMap  = Object.fromEntries(staff.map((s)  => [s.id, s.fullName ?? s.username ?? 'Staff']));
-
-  const remitMutation = useMutation({
-    mutationFn: (batchId) => remitPayment(batchId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-remittances'] });
-      qc.invalidateQueries({ queryKey: ['today-batches'] });
-      toast.success('Cash remitted — payment credited to member');
-      setConfirmRemit(null);
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Remittance failed'),
-  });
 
   const completedToday = todayBatches.filter((b) => b.status === 'COMPLETED');
   const todayTotal = completedToday.reduce((s, b) => s + (b.totalAmount ?? 0), 0);
@@ -131,11 +125,11 @@ export default function ManagerHomePage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => navigate('/payments')} size="md">
-            <CreditCard size={15} /> Record Payment
+          <Button variant="secondary" onClick={() => navigate('/pickups')} size="md">
+            <Banknote size={15} /> My Pickups
           </Button>
-          <Button onClick={() => navigate('/payments')} size="md">
-            <Banknote size={15} /> Collect Cash
+          <Button onClick={() => navigate('/payouts')} size="md">
+            <CreditCard size={15} /> Payouts
           </Button>
         </div>
       </div>
@@ -148,6 +142,14 @@ export default function ManagerHomePage() {
           value={hidden ? '••••••' : `₹${fmt(todayTotal)}`}
           sub={`${completedToday.length} payment${completedToday.length !== 1 ? 's' : ''}`}
           color="#16A34A"
+        />
+        <StatCard
+          icon={Banknote}
+          label="Cash In Hand"
+          value={hidden ? '••••••' : `₹${fmt(cashInHand)}`}
+          sub="Pending handover to admin"
+          color="#7C3AED"
+          onClick={() => navigate('/payments/cash-requests')}
         />
         <StatCard
           icon={Clock}
@@ -164,14 +166,6 @@ export default function ManagerHomePage() {
           sub="Winners awaiting payment"
           color="#DC2626"
           onClick={() => navigate('/payouts')}
-        />
-        <StatCard
-          icon={Users}
-          label="Field Staff"
-          value={workers.length}
-          sub="Active collection staff"
-          color="#1E3A5F"
-          onClick={() => navigate('/team')}
         />
       </div>
 
@@ -219,15 +213,7 @@ export default function ManagerHomePage() {
                   </p>
                   <span className="text-xs text-amber-600 font-medium">Awaiting remittance</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="flex-shrink-0"
-                  onClick={() => setConfirmRemit(batch)}
-                >
-                  <RefreshCw size={13} className="mr-1" />
-                  Remit
-                </Button>
+                <span className="text-xs text-gray-400 italic flex-shrink-0">Awaiting remittance</span>
               </div>
             ))}
           </div>
@@ -296,6 +282,9 @@ export default function ManagerHomePage() {
         )}
       </div>
 
+      {/* Today's Activity Feed */}
+      <TodaysActivityFeed />
+
       {/* Pending Payouts quick view */}
       {pendingPayouts.length > 0 && (
         <div className="bg-white rounded-xl border border-red-100 shadow-sm">
@@ -321,7 +310,7 @@ export default function ManagerHomePage() {
                   <p className="text-sm font-medium text-gray-900">
                     {memberMap[p.memberId] ?? '—'}
                   </p>
-                  <p className="text-xs text-gray-400">Month {p.monthNumber} · {chitMap[p.chitId] ?? p.chitId?.slice(0, 8)}</p>
+                  <p className="text-xs text-gray-400">Draw {p.monthNumber} · {chitMap[p.chitId] ?? p.chitId?.slice(0, 8)}</p>
                 </div>
                 <span className="font-semibold text-red-600 flex items-center gap-0.5 text-sm flex-shrink-0">
                   {hidden ? '••••••' : <><IndianRupee size={13} />{fmt(p.netPayoutAmount)}</>}
@@ -335,17 +324,6 @@ export default function ManagerHomePage() {
         </div>
       )}
 
-      {confirmRemit && (
-        <ConfirmDialog
-          variant="primary"
-          title="Confirm Cash Received"
-          description={`Confirm you received ${hidden ? '••••••' : `₹${fmt(confirmRemit.totalAmount)}`} from ${staffMap[confirmRemit.collectedBy] ?? 'staff'} for ${memberMap[confirmRemit.memberId] ?? 'member'}? This will credit the payment to the member's account.`}
-          actionLabel="Yes, Received"
-          loading={remitMutation.isPending}
-          onConfirm={() => remitMutation.mutate(confirmRemit.id)}
-          onClose={() => setConfirmRemit(null)}
-        />
-      )}
     </div>
   );
 }

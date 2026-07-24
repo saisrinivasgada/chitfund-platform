@@ -36,8 +36,10 @@ public class PayoutController {
             @Valid @RequestBody CreatePayoutRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
+        String role = auth.getAuthorities().stream().findFirst()
+                .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(payoutService.createPayout(request, adminId)));
+                .body(ApiResponse.success(payoutService.createPayout(request, adminId, role)));
     }
 
     /**

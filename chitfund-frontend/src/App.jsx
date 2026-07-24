@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import MemberPortalLayout from './components/layout/MemberPortalLayout';
 import LoginPage from './pages/LoginPage';
@@ -21,16 +22,25 @@ import ReportsPage from './pages/reports/ReportsPage';
 import MyAccountPage from './pages/admin/MyAccountPage';
 import AdminMemberViewPage from './pages/admin/AdminMemberViewPage';
 import TeamPage from './pages/admin/TeamPage';
+import RolesPage from './pages/admin/RolesPage';
 import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
 import SettlementPage from './pages/admin/SettlementPage';
 import AdminParticipationPage from './pages/admin/AdminParticipationPage';
 import StaffTasksPage from './pages/staff/StaffTasksPage';
+import ManagerCashPickupPage from './pages/manager/ManagerCashPickupPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
 import MemberProfilePage from './pages/member/MemberProfilePage';
 import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
 import ErrorPage from './pages/ErrorPage';
+import SessionExpiredPage from './pages/SessionExpiredPage';
+
+function PaymentsDefaultRedirect() {
+  const { user } = useAuth();
+  const dest = user?.role === 'MANAGER' ? 'cash-requests' : 'record';
+  return <Navigate to={dest} replace />;
+}
 
 export default function App() {
   return (
@@ -56,7 +66,7 @@ export default function App() {
         <Route path="/chits" element={<ChitsPage />} />
         <Route path="/chits/:id" element={<ChitDetailPage />} />
         <Route path="/payments" element={<PaymentsPage />}>
-          <Route index element={<Navigate to="record" replace />} />
+          <Route index element={<PaymentsDefaultRedirect />} />
           <Route path="record" element={<RecordPaymentTab />} />
           <Route path="cash-requests" element={<CashRequestsTab />} />
           <Route path="remittance" element={<PendingRemittanceTab />} />
@@ -70,12 +80,15 @@ export default function App() {
         <Route path="/treasury" element={<TreasuryPage />} />
         <Route path="/settlement" element={<SettlementPage />} />
         <Route path="/team" element={<TeamPage />} />
+        <Route path="/roles" element={<RolesPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
         <Route path="/admin/participation/:adminId" element={<AdminParticipationPage />} />
         <Route path="/tasks" element={<StaffTasksPage />} />
+        <Route path="/pickups" element={<ManagerCashPickupPage />} />
         <Route path="/transactions/:batchId" element={<TransactionDetailPage />} />
       </Route>
 
+      <Route path="/session-expired" element={<SessionExpiredPage />} />
       <Route path="/error" element={<ErrorPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

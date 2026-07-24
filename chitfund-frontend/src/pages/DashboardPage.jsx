@@ -97,16 +97,21 @@ function CashFilterCard({ icon: Icon, label, count, todayCount, color, bgColor, 
   );
 }
 
-function RemittanceCard({ batches, staffMap, hidden, onClick }) {
-  const total = batches.length;
-  const totalAmt = batches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
-  const uniqueIds = [...new Set(batches.map((b) => String(b.collectedBy)))];
-  const workers  = uniqueIds.filter((id) => staffMap[id]?.role === 'STAFF').length;
-  const managers = uniqueIds.filter((id) => staffMap[id]?.role === 'MANAGER').length;
+function RemittanceCard({ batches, staffMap, hidden, onClick, cashPickedUp = 0, cashPartial = 0 }) {
+  const batchTotal = batches.length;
+  const cashTotal  = cashPickedUp + cashPartial;
+  const total      = batchTotal + cashTotal;
+  const totalAmt   = batches.reduce((s, b) => s + Number(b.totalAmount ?? 0), 0);
+  const uniqueIds  = [...new Set(batches.map((b) => String(b.collectedBy)))];
+  const workers    = uniqueIds.filter((id) => staffMap[id]?.role === 'STAFF').length;
+  const managers   = uniqueIds.filter((id) => staffMap[id]?.role === 'MANAGER').length;
 
   const parts = [];
-  if (workers  > 0) parts.push(`${workers} staff${workers  !== 1 ? '' : ''}`);
-  if (managers > 0) parts.push(`${managers} manager${managers !== 1 ? 's' : ''}`);
+  if (cashPickedUp > 0) parts.push(`${cashPickedUp} picked up`);
+  if (cashPartial  > 0) parts.push(`${cashPartial} partial`);
+  if (batchTotal   > 0) parts.push(`${batchTotal} batch${batchTotal !== 1 ? 'es' : ''}`);
+  if (workers      > 0) parts.push(`${workers} staff`);
+  if (managers     > 0) parts.push(`${managers} manager${managers !== 1 ? 's' : ''}`);
 
   return (
     <button
@@ -385,7 +390,12 @@ export default function DashboardPage() {
               batches={remittanceBatches}
               staffMap={staffMap}
               hidden={hidden}
-              onClick={() => navigate('/payments/remittance')}
+              cashPickedUp={cashSummary?.pickedUp ?? 0}
+              cashPartial={cashSummary?.partiallyCollected ?? 0}
+              onClick={() => {
+                const hasCash = (cashSummary?.pickedUp ?? 0) + (cashSummary?.partiallyCollected ?? 0) > 0;
+                navigate(hasCash ? '/payments/cash-requests' : '/payments/remittance');
+              }}
             />
             <CashFilterCard
               icon={XCircle}

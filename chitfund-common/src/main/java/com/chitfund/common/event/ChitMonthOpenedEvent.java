@@ -23,5 +23,6 @@ public record ChitMonthOpenedEvent(
         Integer totalMembers,
         List<String> memberIds,
         String openedBy,
+        String actorRole,
         Instant occurredAt
 ) {}

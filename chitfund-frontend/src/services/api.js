@@ -2,10 +2,13 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: '/api' });
 
-// Attach auth token on every request
+// Attach auth token on every request except auth endpoints (login, etc.)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const isAuthEndpoint = config.url?.includes('/auth/');
+  if (!isAuthEndpoint) {
+    const token = localStorage.getItem('token');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -15,11 +18,10 @@ api.interceptors.response.use(
   (err) => {
     const isAuthEndpoint = err.config?.url?.includes('/auth/');
     if (err.response?.status === 401 && !isAuthEndpoint) {
-      // Session expired mid-session — clear storage and redirect to login
-      // Skip this for auth endpoints (login/register) so errors are shown to the user
+      // Session expired mid-session — clear storage and show session expired page
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      window.location.href = '/session-expired';
     }
     return Promise.reject(err);
   }
@@ -57,8 +59,8 @@ export const loginByMobile = async ({ phone, phoneCountryCode, password, role })
 // Admin-only, idempotent: if the email already exists as an unlinked MEMBER account
 // (partial failure from a previous attempt), it reuses that user with a fresh temp
 // password instead of failing with EMAIL_TAKEN.
-export const createMemberLogin = async ({ username, email }) => {
-  const res = await api.post('/users/create-member-login', { username, email });
+export const createMemberLogin = async ({ username, email, phone, phoneCountryCode }) => {
+  const res = await api.post('/users/create-member-login', { username, email, phone, phoneCountryCode });
   return res.data.data; // { userId, tempPassword }
 };
 
@@ -487,8 +489,8 @@ export const getPendingCashRequests = async () => {
   return res.data.data ?? [];
 };
 
-export const assignStaffToRequest = async ({ requestId, staffId, adminNotes }) => {
-  const res = await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes });
+export const assignStaffToRequest = async ({ requestId, staffId, adminNotes, staffRole }) => {
+  const res = await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes, assigneeRole: staffRole ?? 'STAFF' });
   return res.data.data;
 };
 
@@ -568,9 +570,10 @@ export const getCashRequestAuditLog = async (requestId) => {
   return res.data.data;
 };
 
-export const adminCreateCashRequest = async ({ memberId, staffId, chitId, requestedAmount, notes, scheduledFor }) => {
+export const adminCreateCashRequest = async ({ memberId, staffId, staffRole, chitId, requestedAmount, notes, scheduledFor }) => {
   const params = { memberId };
   if (staffId) params.staffId = staffId;
+  if (staffRole) params.assigneeRole = staffRole;
   const body = { chitId, requestedAmount, notes };
   if (scheduledFor) body.scheduledFor = scheduledFor;
   const res = await api.post('/payments/requests/admin', body, { params });
@@ -619,6 +622,11 @@ export const getPaymentBatchById = async (batchId) => {
 
 export const getTodaysDraws = async () => {
   const res = await api.get('/admin/draws/today');
+  return res.data.data ?? [];
+};
+
+export const getTodaysChitActivity = async () => {
+  const res = await api.get('/chits/updated-today');
   return res.data.data ?? [];
 };
 
@@ -694,6 +702,18 @@ export const getUnreadCount = async () => {
   const res = await api.get('/notifications/unread-count');
   const data = res.data.data;
   return typeof data === 'object' ? (data?.count ?? 0) : (data ?? 0);
+};
+
+// Full chronological audit trail for a chit (draws, payments, payouts, reservations)
+export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
+  try {
+    const res = await api.get(`/audit/logs/chit/${chitId}`, {
+      params: { page, size, sort: 'createdAt,desc' },
+    });
+    return res.data.data?.content ?? res.data.data ?? [];
+  } catch {
+    return [];
+  }
 };
 
 // Member profile change history from audit log

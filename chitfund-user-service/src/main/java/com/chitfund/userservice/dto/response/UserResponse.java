@@ -24,5 +24,7 @@ public class UserResponse {
     private LocalDateTime createdAt;
     private LocalDateTime deletedAt;
     private UUID deletedBy;
+    private UUID createdBy;
+    private UUID updatedBy;
     // passwordHash intentionally excluded — never expose it
 }

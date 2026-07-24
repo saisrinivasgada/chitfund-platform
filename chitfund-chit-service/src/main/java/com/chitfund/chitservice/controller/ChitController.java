@@ -60,6 +60,12 @@ public class ChitController {
         return ResponseEntity.ok(ApiResponse.success(chitService.listChits(status, pageable)));
     }
 
+    @GetMapping("/updated-today")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<List<ChitResponse>>> listUpdatedToday() {
+        return ResponseEntity.ok(ApiResponse.success(chitService.listUpdatedToday()));
+    }
+
     @GetMapping("/deleted")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<PagedResponse<ChitResponse>>> listDeletedChits(
@@ -85,7 +91,7 @@ public class ChitController {
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<ChitResponse>> updateStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateChitStatusRequest request,
@@ -95,7 +101,7 @@ public class ChitController {
     }
 
     @PostMapping("/{id}/pause")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<ChitResponse>> pauseChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
@@ -103,7 +109,7 @@ public class ChitController {
     }
 
     @PostMapping("/{id}/resume")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<ChitResponse>> resumeChit(
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(

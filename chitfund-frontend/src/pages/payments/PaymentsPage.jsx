@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, NavLink, Outlet, useSearchParams } from 'react-router-dom';
+import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit,
@@ -19,11 +19,12 @@ import FormField, { Input, Select, Textarea } from '../../components/ui/FormFiel
 import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ListSkeleton } from '../../components/ui/Spinner';
+import RoleBadge from '../../components/ui/RoleBadge';
 import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
-const MANAGER_TABS = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
+const MANAGER_TABS = ['Cash Requests', 'History']; // Managers record cash via My Pickups; no direct payment entry
 const STAFF_TABS   = ['Record Payment'];
 
 const TAB_ROUTES = {
@@ -173,13 +174,9 @@ function AdminCashTrailModal({ request, memberMap, staffMap, onClose }) {
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {entry.performedByRole && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          entry.performedByRole === 'ADMIN' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
-                          : (entry.performedByRole === 'WORKER' || entry.performedByRole === 'STAFF') ? 'bg-amber-100 text-amber-700'
-                          : 'bg-gray-100 text-gray-600'
-                        }`}>
-                          {entry.performedByRole}
-                          {entry.performedBy && staffMap[entry.performedBy] ? ` · ${staffMap[entry.performedBy]}` : ''}
+                        <span className="flex items-center gap-1">
+                          <RoleBadge role={entry.performedByRole} />
+                          {entry.performedBy && staffMap[entry.performedBy] ? <span className="text-xs text-gray-500">· {staffMap[entry.performedBy]}</span> : ''}
                         </span>
                       )}
                       {entry.fromStatus && entry.fromStatus !== entry.toStatus && (
@@ -468,8 +465,10 @@ function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) 
   const [amount, setAmount] = useState(request.requestedAmount != null ? String(request.requestedAmount) : '');
   const [workerId, setWorkerId] = useState(request.assignedStaffId ?? '');
   const [adminNotes, setAdminNotes] = useState(request.adminNotes ?? '');
+  const [showAmountAlert, setShowAmountAlert] = useState(false);
 
   const workers = (staff ?? []).filter((s) => s.role === 'STAFF' || s.role === 'MANAGER');
+  const originalAmount = request.requestedAmount;
 
   const mutation = useMutation({
     mutationFn: () => updateCashRequest({
@@ -482,12 +481,37 @@ function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cashRequests'] });
       toast.success('Cash pickup request updated');
-      onClose();
+      if (amount && Number(amount) !== originalAmount) {
+        setShowAmountAlert(true);
+      } else {
+        onClose();
+      }
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Update failed'),
   });
 
   const memberName = memberMap[request.memberId] ?? '—';
+
+  if (showAmountAlert) {
+    return (
+      <Modal title="Amount Changed" onClose={onClose} size="sm">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 px-4 py-4 rounded-xl border border-amber-200 bg-amber-50">
+            <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-900">Member Acknowledgement Required</p>
+              <p className="text-sm text-amber-700 mt-1.5 leading-relaxed">
+                The pickup amount has been changed to <strong>₹{Number(amount).toLocaleString('en-IN')}</strong>. Make sure the member accepts this new amount in their presence before leaving.
+              </p>
+            </div>
+          </div>
+          <Button variant="primary" size="md" className="w-full" onClick={onClose}>
+            Done — Member Acknowledged
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title="Edit Cash Pickup Request" onClose={onClose} size="sm">
@@ -717,6 +741,7 @@ export function CashRequestsTab() {
   const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
   const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
   const staffMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.fullName ?? s.username ?? 'Staff']));
+  const staffRoleMap = Object.fromEntries((staff ?? []).map((s) => [s.id, s.role]));
   const memberMap = Object.fromEntries([
     ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (Admin)`]),
     ...(allMembers ?? []).flatMap((m) => {
@@ -838,7 +863,10 @@ export function CashRequestsTab() {
               </Td>
               <Td>
                 {r.assignedStaffId
-                  ? <span className="text-sm text-gray-700">{staffMap[r.assignedStaffId] ?? '—'}</span>
+                  ? <span className="text-sm text-gray-700 flex items-center gap-1.5">
+                      {staffMap[r.assignedStaffId] ?? '—'}
+                      {staffRoleMap[r.assignedStaffId] && <RoleBadge role={staffRoleMap[r.assignedStaffId]} />}
+                    </span>
                   : <span className="text-xs text-gray-400 italic">Not assigned</span>}
               </Td>
               <Td>
@@ -1048,6 +1076,11 @@ export function RecordPaymentTab() {
   const { user } = useAuth();
   const toast = useToastContext();
   const qc = useQueryClient();
+
+  // Managers don't record direct payments — redirect to cash requests
+  if (user?.role === 'MANAGER') {
+    return <Navigate to="/payments/cash-requests" replace />;
+  }
   const { hidden } = useHiddenAmounts();
 
   const [memberId, setMemberId]     = useState('');
@@ -1361,7 +1394,7 @@ export function PendingRemittanceTab() {
   });
   const staffMap = Object.fromEntries(staff.map((s) => [s.id, s.fullName ?? s.username]));
   const memberMap = Object.fromEntries([
-    ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (Admin)`]),
+    ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (${s.role === 'MANAGER' ? 'Manager' : 'Staff'})`]),
     ...allMembers.flatMap((m) => {
       const name = m.fullName ?? m.name ?? m.id;
       return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
@@ -1455,7 +1488,7 @@ export function PendingRemittanceTab() {
           <div className="flex items-center gap-2 mb-1">
             <PackageCheck size={15} className="text-green-700" />
             <p className="text-sm font-semibold text-green-800">
-              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff
+              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff / manager
             </p>
           </div>
           {pickedUpRequests.map((r) => {
@@ -1477,7 +1510,7 @@ export function PendingRemittanceTab() {
                       )}
                     </div>
                     <p className="text-xs text-gray-500 truncate">
-                      Staff: {staffMap[r.assignedStaffId] ?? '—'} ·{' '}
+                      Collector: {staffMap[r.assignedStaffId] ?? '—'} ·{' '}
                       <span className="font-semibold">₹{Number(displayAmt).toLocaleString('en-IN')}</span>
                       {isPartial && <span className="text-gray-400"> of ₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>}
                     </p>
@@ -1715,6 +1748,7 @@ export function HistoryTab() {
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const staffMap = Object.fromEntries(staff.map((s) => [s.id, s.fullName ?? s.username]));
+  const staffRoleMap = Object.fromEntries(staff.map((s) => [s.id, s.role]));
 
   const selectedChit = chits.find((c) => c.id === chitId);
 
@@ -1810,9 +1844,17 @@ export function HistoryTab() {
                   </span>
                 </Td>
                 <Td className="text-gray-600 text-sm">
-                  {staffMap[b.recordedBy ?? b.remittedBy ?? b.collectedBy]
-                    ?? (b.recordedBy ?? b.remittedBy ?? b.collectedBy)?.slice(0, 8)
-                    ?? '—'}
+                  {(() => {
+                    const actorId = b.recordedBy ?? b.remittedBy ?? b.collectedBy;
+                    const name = staffMap[actorId] ?? actorId?.slice(0, 8) ?? '—';
+                    const role = staffRoleMap[actorId];
+                    return (
+                      <span className="flex items-center gap-1.5">
+                        {name}
+                        {role && <RoleBadge role={role} />}
+                      </span>
+                    );
+                  })()}
                 </Td>
                 <Td className="text-xs text-gray-400">
                   {b.collectedAt

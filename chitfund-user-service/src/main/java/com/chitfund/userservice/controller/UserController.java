@@ -163,8 +163,9 @@ public class UserController {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Managers can only create Staff accounts");
         }
+        User actor = (User) authentication.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(authService.register(request), "Staff account created"));
+                .body(ApiResponse.success(authService.register(request, actor.getId()), "Staff account created"));
     }
 
     /**

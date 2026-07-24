@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN created_by CHAR(36) NULL;
+ALTER TABLE users ADD COLUMN updated_by CHAR(36) NULL;

@@ -204,7 +204,17 @@ function AddStaffModal({ onClose }) {
 
         {/* Role selector */}
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-3">Role</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium text-gray-700">Role</p>
+            <Link
+              to="/roles"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#1E3A5F] hover:underline font-medium"
+            >
+              What can each role do? →
+            </Link>
+          </div>
           <div className={`grid gap-3 ${availableRoles.length === 1 ? 'grid-cols-1' : availableRoles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
             {availableRoles.map((r) => {
               const Icon = r.icon;
@@ -353,6 +363,9 @@ export default function TeamPage() {
 
   if (isLoading) return <ListSkeleton rows={5} cols={4} />;
 
+  // Managers must not see admin accounts — prevents password-reset exposure
+  const visibleStaff = isManager ? staff.filter((s) => s.role !== 'ADMIN') : staff;
+
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
       {/* Header */}
@@ -361,7 +374,9 @@ export default function TeamPage() {
           <h1 className="text-2xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
             Team
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Manage admins, managers and staff</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {isManager ? 'View managers and staff' : 'Manage admins, managers and staff'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (
@@ -382,7 +397,7 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {staff.length === 0 ? (
+      {visibleStaff.length === 0 ? (
         <EmptyState
           icon={showDeleted ? Trash2 : Briefcase}
           title={showDeleted ? 'No deleted staff' : 'No team members yet'}
@@ -398,7 +413,7 @@ export default function TeamPage() {
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <br></br>
           <Table columns={['Name', 'Username', 'Role', 'Status', 'Actions']}>
-            {staff.map((s) => {
+            {visibleStaff.map((s) => {
               const roleCfg = ROLE_BADGE[s.role] ?? { label: s.role, variant: 'default' };
               const isActive = s.enabled && !s.locked;
               const isSelf = s.id === currentUser?.id;

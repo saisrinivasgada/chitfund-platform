@@ -5,7 +5,7 @@ import {
   getChits, getMembers, getWinners,
   getAllPayouts, getPendingPayouts,
   disbursePayout, cancelPayout,
-  getWalletBalance,
+  getWalletBalance, listStaff,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import PayoutCreationForm from '../../components/payout/PayoutCreationForm';
@@ -17,7 +17,7 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, ArrowRight, Vault, CreditCard, Trophy } from 'lucide-react';
+import { Banknote, Clock, List, CheckCircle, XCircle, AlertCircle, ArrowRight, Vault, CreditCard, Trophy, Shield } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 function utc(s) { return s ? (s.endsWith('Z') || s.includes('+') ? s : s + 'Z') : null; }
@@ -840,6 +840,7 @@ function PendingTab() {
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allStaff = [] }   = useQuery({ queryKey: ['staff'], queryFn: listStaff });
 
   const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
   const memberMap = Object.fromEntries(
@@ -850,6 +851,7 @@ function PendingTab() {
       return entries;
     })
   );
+  const staffMap = Object.fromEntries(allStaff.map((s) => [String(s.id), s]));
 
   return (
     <div className="space-y-4">
@@ -862,8 +864,10 @@ function PendingTab() {
           <Table columns={['Chit', 'Member', 'Draw', 'Net Payout', 'Disbursed', 'Remaining', 'Status', 'Actions']}>
             {pending.map((p) => {
               const chitInfo = chitMap[p.chitId];
-              const mName   = memberMap[p.memberId] ?? p.memberId;
+              const mName   = memberMap[p.memberId] ?? String(p.memberId).slice(0, 8) + '…';
               const isPartial = p.status === 'PARTIALLY_DISBURSED';
+              const creator = p.createdBy ? staffMap[String(p.createdBy)] : null;
+              const createdByManager = creator?.role === 'MANAGER';
               return (
                 <Tr key={p.id} onClick={() => setDetailTarget({ ...p, _memberName: mName, _chitName: chitInfo?.name })}>
                   <Td className="font-medium text-gray-900">{chitInfo?.name ?? p.chitId?.toString().slice(0, 8)}</Td>
@@ -876,7 +880,17 @@ function PendingTab() {
                   <Td className="text-amber-700 font-medium">
                     {isPartial ? h(p.remainingAmount) : h(p.netPayoutAmount ?? p.winningAmount)}
                   </Td>
-                  <Td><PayoutStatusBadge status={p.status} /></Td>
+                  <Td>
+                    <div className="flex flex-col gap-1 items-start">
+                      <PayoutStatusBadge status={p.status} />
+                      {createdByManager && (
+                        <span className="inline-flex items-center gap-1 text-xs text-purple-700 font-medium bg-purple-50 px-1.5 py-0.5 rounded">
+                          <Shield size={10} className="flex-shrink-0" />
+                          {creator.fullName ?? creator.username ?? 'Manager'}
+                        </span>
+                      )}
+                    </div>
+                  </Td>
                   <Td>
                     {!isManager ? (
                       <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
@@ -974,7 +988,7 @@ function AllPayoutsTab() {
               const alreadyDisbursed = Number(p.disbursedAmount ?? 0);
               const remaining = Number(p.remainingAmount ?? (Number(p.netPayoutAmount ?? 0) - alreadyDisbursed));
               const chitName = p.chitName ?? chitMap[String(p.chitId)]?.name ?? '—';
-              const mName    = memberMap[p.memberId] ?? p.memberName ?? p.memberId;
+              const mName    = memberMap[p.memberId] ?? p.memberName ?? String(p.memberId).slice(0, 8) + '…';
               return (
                 <Tr key={p.id} onClick={() => setDetailTarget({ ...p, _memberName: mName, _chitName: chitName })}>
                   <Td className="text-gray-600 text-xs">{chitName}</Td>
@@ -1014,9 +1028,9 @@ export default function PayoutsPage() {
   const { user } = useAuth();
   const isManager = user?.role === 'MANAGER';
   const tabs = isManager
-    ? ['Pending Disbursement', 'All Payouts']
+    ? ['Create Payout', 'Pending Disbursement', 'All Payouts']
     : TABS;
-  const defaultTab = isManager ? 'Pending Disbursement' : 'Create Payout';
+  const defaultTab = 'Create Payout';
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   const activeTab = (rawTab && tabs.includes(rawTab)) ? rawTab : defaultTab;

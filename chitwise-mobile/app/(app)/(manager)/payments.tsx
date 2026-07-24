@@ -1,29 +1,41 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, FlatList } from 'react-native';
+import { View, Text, ScrollView, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAllPaymentBatches, getPendingRemittance, getPendingPayouts, getMembers, getChits } from '../../../services/api';
-import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, SectionHeader, fmtDate } from '../../../components/ui';
+import { getAllPaymentBatches, getPendingPayouts, getMembers, getChits } from '../../../services/api';
+import { C, Card, Badge, Amount, EmptyState, LoadingScreen, fmtDate } from '../../../components/ui';
 
-const TABS = ['Remittance', 'Payouts', 'All Payments'] as const;
+const TABS = ['Payouts', 'All Payments'] as const;
 type Tab = typeof TABS[number];
 
-export default function ManagerPaymentsScreen() {
-  const [tab, setTab] = useState<Tab>('Remittance');
+// Last 7 days (managers are restricted to this range by the backend too)
+function sevenDaysAgoStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 6);
+  return d.toISOString().split('T')[0];
+}
 
-  const { data: pendingRemit = [],  isLoading: l1, refetch: r1 } = useQuery({ queryKey: ['pending-remit'],    queryFn: getPendingRemittance });
-  const { data: pendingPayouts = [],isLoading: l2, refetch: r2 } = useQuery({ queryKey: ['pending-payouts'],  queryFn: getPendingPayouts });
-  const { data: allBatches = [],    isLoading: l3, refetch: r3 } = useQuery({ queryKey: ['all-batches'],      queryFn: () => getAllPaymentBatches() });
-  const { data: members = [] }                                    = useQuery({ queryKey: ['members'],          queryFn: getMembers });
-  const { data: chits = [] }                                      = useQuery({ queryKey: ['chits'],            queryFn: getChits });
+export default function ManagerPaymentsScreen() {
+  const [tab, setTab] = useState<Tab>('Payouts');
+
+  const { data: pendingPayouts = [], isLoading: l1, refetch: r1 } = useQuery({
+    queryKey: ['pending-payouts'],
+    queryFn: getPendingPayouts,
+  });
+  const { data: allBatches = [], isLoading: l2, refetch: r2 } = useQuery({
+    queryKey: ['m-all-batches-7d'],
+    queryFn: () => getAllPaymentBatches({ fromDate: sevenDaysAgoStr() }),
+  });
+  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: chits = [] }   = useQuery({ queryKey: ['chits'],   queryFn: getChits });
 
   const memberMap: Record<string, string> = {};
   (members as any[]).forEach((m: any) => { memberMap[m.id] = m.fullName ?? m.name ?? '—'; });
   const chitMap: Record<string, string> = {};
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
 
-  const isLoading = l1 || l2 || l3;
-  function onRefresh() { r1(); r2(); r3(); }
+  const isLoading = l1 || l2;
+  function onRefresh() { r1(); r2(); }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -48,30 +60,6 @@ export default function ManagerPaymentsScreen() {
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
           contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         >
-          {tab === 'Remittance' && (
-            <>
-              <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
-                {(pendingRemit as any[]).length} batches pending remittance
-              </Text>
-              {(pendingRemit as any[]).length === 0
-                ? <EmptyState title="All clear" message="No batches awaiting remittance." />
-                : (pendingRemit as any[]).map((b: any) => (
-                  <Card key={b.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                        {memberMap[b.memberId] ?? '—'}
-                      </Text>
-                      <Badge status={b.status ?? 'AWAITING_REMITTANCE'} />
-                    </View>
-                    <Text style={{ fontSize: 12, color: C.navy, marginBottom: 4 }}>{chitMap[b.chitId] ?? b.chitName ?? '—'}</Text>
-                    <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />
-                    {b.collectedAt && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Collected {fmtDate(b.collectedAt)}</Text>}
-                  </Card>
-                ))
-              }
-            </>
-          )}
-
           {tab === 'Payouts' && (
             <>
               <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
@@ -100,10 +88,10 @@ export default function ManagerPaymentsScreen() {
           {tab === 'All Payments' && (
             <>
               <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
-                {(allBatches as any[]).length} total payment batches
+                {(allBatches as any[]).length} payments in the last 7 days
               </Text>
               {(allBatches as any[]).length === 0
-                ? <EmptyState title="No payments" message="Payment history will appear here." />
+                ? <EmptyState title="No payments" message="No payments in the last 7 days." />
                 : (allBatches as any[]).map((b: any) => (
                   <Card key={b.id} style={{ marginBottom: 8 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>

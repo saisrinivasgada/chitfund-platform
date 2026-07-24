@@ -358,7 +358,7 @@ export default function LoginPage() {
                   <p className="text-sm text-red-600">{error}</p>
                 </div>
               )}
-              <div className="pt-4">
+              <div className="pt-2 mt-2">
                 <Button type="submit" loading={loading} className="w-full">Sign in</Button>
               </div>
               <button type="button" onClick={() => setShowForgot((v) => !v)}
