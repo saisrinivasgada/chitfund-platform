@@ -514,7 +514,7 @@ export default function RegisterOrgPage() {
                   <div className="w-5 h-5 border-2 border-[#1E3A5F]/20 border-t-[#1E3A5F] rounded-full animate-spin" />
                 </div>
               ) : (
-                <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1">
+                <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch">
                   {plans.map((p) => {
                     const isCustom = p.plan === 'CUSTOM';
                     const selected = form.plan === p.plan;
@@ -528,7 +528,7 @@ export default function RegisterOrgPage() {
                         key={p.plan}
                         onClick={() => set('plan', p.plan)}
                         style={{ minWidth: 220 }}
-                        className={`relative text-left rounded-2xl border-2 p-6 transition-all cursor-pointer flex flex-col flex-shrink-0 ${
+                        className={`relative text-left rounded-2xl border-2 p-6 transition-all cursor-pointer flex flex-col flex-shrink-0 h-full ${
                           selected ? 'border-[#1E3A5F] bg-[#f0f5fb]' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                         }`}
                       >

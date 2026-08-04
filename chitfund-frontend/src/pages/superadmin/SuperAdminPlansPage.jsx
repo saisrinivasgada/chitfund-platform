@@ -34,44 +34,35 @@ function CapBadge({ on, label, icon: Icon }) {
 }
 
 /* ── Plan card as shown on register/landing page ─────────────────────── */
-function PlanCard({ plan, highlighted }) {
+function PlanCard({ plan }) {
   const price = plan.effectivePriceInr ?? plan.priceMonthlyInr;
   const hasDiscount = plan.globalDiscountPct && plan.globalDiscountPct > 0;
   const features = Array.isArray(plan.features) ? plan.features : [];
 
   return (
     <div
-      className={`relative flex flex-col rounded-2xl border transition-all ${
-        highlighted
-          ? 'border-[#1E3A5F] shadow-lg bg-[#1E3A5F] text-white'
-          : 'border-gray-200 bg-white text-gray-900'
-      }`}
+      className="relative flex flex-col h-full rounded-2xl border border-gray-200 bg-white text-gray-900"
       style={{ minWidth: 220, maxWidth: 280 }}
     >
-      {highlighted && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="bg-amber-400 text-amber-900 text-xs font-bold px-3 py-1 rounded-full shadow">Popular</span>
-        </div>
-      )}
       <div className="p-6 flex-1">
-        <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${highlighted ? 'text-blue-200' : 'text-gray-400'}`}>
+        <p className="text-xs font-bold uppercase tracking-widest mb-1 text-gray-400">
           {plan.displayName ?? plan.plan}
         </p>
         {plan.tagline && (
-          <p className={`text-xs mb-4 ${highlighted ? 'text-blue-100' : 'text-gray-500'}`}>{plan.tagline}</p>
+          <p className="text-xs mb-4 text-gray-500">{plan.tagline}</p>
         )}
         {price === 0 ? (
-          <p className="text-2xl font-bold mb-1">Contact us</p>
+          <p className="text-2xl font-bold mb-1 text-gray-800">Contact us</p>
         ) : (
           <div className="mb-4">
-            <p className="text-3xl font-bold">
+            <p className="text-3xl font-bold text-gray-900">
               {fmtRupees(price)}
-              <span className={`text-sm font-normal ml-1 ${highlighted ? 'text-blue-200' : 'text-gray-400'}`}>/mo</span>
+              <span className="text-sm font-normal ml-1 text-gray-400">/mo</span>
             </p>
             {hasDiscount && (
-              <p className={`text-xs mt-0.5 ${highlighted ? 'text-blue-200' : 'text-gray-400'}`}>
+              <p className="text-xs mt-0.5 text-gray-400">
                 <span className="line-through">{fmtRupees(plan.priceMonthlyInr)}</span>
-                <span className="ml-1 text-emerald-400 font-semibold">{plan.globalDiscountPct}% off</span>
+                <span className="ml-1 text-emerald-600 font-semibold">{plan.globalDiscountPct}% off</span>
               </p>
             )}
           </div>
@@ -79,23 +70,20 @@ function PlanCard({ plan, highlighted }) {
         <ul className="space-y-2 mt-4">
           {features.map((f, i) => (
             <li key={i} className="flex items-start gap-2 text-sm">
-              <Check size={13} className={`flex-shrink-0 mt-0.5 ${highlighted ? 'text-blue-300' : 'text-emerald-500'}`} />
-              <span className={highlighted ? 'text-blue-100' : 'text-gray-600'}>{f}</span>
+              <Check size={13} className="flex-shrink-0 mt-0.5 text-emerald-500" />
+              <span className="text-gray-600">{f}</span>
             </li>
           ))}
           {features.length === 0 && (
-            <li className={`text-xs italic ${highlighted ? 'text-blue-300' : 'text-gray-400'}`}>No features listed</li>
+            <li className="text-xs italic text-gray-400">No features listed</li>
           )}
         </ul>
       </div>
       <div className="px-6 pb-6">
         <button
           type="button"
-          className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-            highlighted
-              ? 'bg-white text-[#1E3A5F] hover:bg-blue-50'
-              : 'bg-[#1E3A5F] text-white hover:opacity-90'
-          }`}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 transition-colors"
+          style={{ backgroundColor: '#1E3A5F' }}
         >
           Get started
           <ChevronRight size={14} className="inline ml-1" />
@@ -107,7 +95,6 @@ function PlanCard({ plan, highlighted }) {
 
 function PlanPreviewModal({ plans, onClose }) {
   const live = plans.filter(p => p.isPublic && p.isActive);
-  const midIdx = Math.floor(live.length / 2);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-auto" onClick={onClose}>
@@ -125,9 +112,9 @@ function PlanPreviewModal({ plans, onClose }) {
               <p className="text-sm">No live plans to preview — mark some plans as Live first</p>
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-2 justify-center flex-wrap">
-              {live.map((plan, i) => (
-                <PlanCard key={plan.plan} plan={plan} highlighted={i === midIdx} />
+            <div className="flex gap-4 overflow-x-auto pb-2 items-stretch">
+              {live.map((plan) => (
+                <PlanCard key={plan.plan} plan={plan} />
               ))}
             </div>
           )}
@@ -541,16 +528,16 @@ export default function SuperAdminPlansPage() {
                               <Edit2 size={14} />
                             </button>
 
-                            {/* Make Live / Take Offline */}
+                            {/* Make Live / Stop Live */}
                             {plan.isActive !== false && (
                               plan.isPublic ? (
                                 <button
                                   type="button"
                                   onClick={() => handleTakeOffline(plan)}
                                   disabled={isToggling}
-                                  className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-500 hover:border-red-200 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors disabled:opacity-50"
+                                  className="text-xs px-2.5 py-1 rounded-lg border border-red-300 bg-red-50 text-red-600 hover:bg-red-100 font-semibold cursor-pointer transition-colors disabled:opacity-50"
                                 >
-                                  {isToggling ? '…' : 'Take offline'}
+                                  {isToggling ? '…' : 'Stop Live'}
                                 </button>
                               ) : (
                                 <button
