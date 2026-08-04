@@ -1,9 +1,31 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  return null;
+}
 import { useAuth } from './context/AuthContext';
 import AppLayout from './components/layout/AppLayout';
 import MemberPortalLayout from './components/layout/MemberPortalLayout';
 import LoginPage from './pages/LoginPage';
+import LandingPage from './pages/LandingPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
+import SelectCompanyPage from './pages/SelectCompanyPage';
+import SetupAccountPage from './pages/SetupAccountPage';
+import TransferPage from './pages/TransferPage';
+import RegisterOrgPage from './pages/RegisterOrgPage';
+import ProxyPage from './pages/ProxyPage';
+import SuperAdminLayout from './components/superadmin/SuperAdminLayout';
+import SuperAdminHomePage from './pages/superadmin/SuperAdminHomePage';
+import SuperAdminTenantsPage from './pages/superadmin/SuperAdminTenantsPage';
+import SuperAdminOrgDetailPage from './pages/superadmin/SuperAdminOrgDetailPage';
+import SuperAdminPlansPage from './pages/superadmin/SuperAdminPlansPage';
+import SuperAdminPromotionsPage from './pages/superadmin/SuperAdminPromotionsPage';
+import SuperAdminAlertsPage from './pages/superadmin/SuperAdminAlertsPage';
+import SuperAdminBillingPage from './pages/superadmin/SuperAdminBillingPage';
+import SuperAdminPaymentDetailPage from './pages/superadmin/SuperAdminPaymentDetailPage';
 import DashboardPage from './pages/DashboardPage';
 import MembersPage from './pages/members/MembersPage';
 import MemberDetailPage from './pages/members/MemberDetailPage';
@@ -27,6 +49,7 @@ import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
 import SettlementPage from './pages/admin/SettlementPage';
 import AdminParticipationPage from './pages/admin/AdminParticipationPage';
+import BillingPage from './pages/BillingPage';
 import StaffTasksPage from './pages/staff/StaffTasksPage';
 import ManagerCashPickupPage from './pages/manager/ManagerCashPickupPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
@@ -35,6 +58,7 @@ import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
 import ErrorPage from './pages/ErrorPage';
 import SessionExpiredPage from './pages/SessionExpiredPage';
+import TenantGate from './components/layout/TenantGate';
 
 function PaymentsDefaultRedirect() {
   const { user } = useAuth();
@@ -44,10 +68,32 @@ function PaymentsDefaultRedirect() {
 
 export default function App() {
   return (
+    <>
+    <ScrollToTop />
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterOrgPage />} />
+      <Route path="/select-company" element={<SelectCompanyPage />} />
+      <Route path="/setup-account" element={<SetupAccountPage />} />
+      <Route path="/auth/transfer" element={<TransferPage />} />
+      <Route path="/proxy" element={<ProxyPage />} />
+      {/* Super-admin console */}
+      <Route element={<SuperAdminLayout />}>
+        <Route path="/superadmin" element={<SuperAdminHomePage />} />
+        <Route path="/superadmin/tenants" element={<SuperAdminTenantsPage />} />
+        <Route path="/superadmin/tenants/:tenantId" element={<SuperAdminOrgDetailPage />} />
+        <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
+        <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
+        <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
+        <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
+        <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
+      </Route>
       {/* Forced password change — accessible to any authenticated user */}
       <Route path="/change-password" element={<ChangePasswordPage />} />
+
+      {/* Tenant-gated routes — suspended/expired org shows blocking screen */}
+      <Route element={<TenantGate />}>
 
       {/* Member portal — ROLE_MEMBER only */}
       <Route element={<MemberPortalLayout />}>
@@ -59,7 +105,7 @@ export default function App() {
 
       {/* Admin/Staff routes */}
       <Route element={<AppLayout />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/members" element={<MembersPage />} />
         <Route path="/members/:id" element={<MemberDetailPage />} />
         <Route path="/admin/member-view/:memberId" element={<AdminMemberViewPage />} />
@@ -80,6 +126,7 @@ export default function App() {
         <Route path="/treasury" element={<TreasuryPage />} />
         <Route path="/settlement" element={<SettlementPage />} />
         <Route path="/team" element={<TeamPage />} />
+        <Route path="/billing" element={<BillingPage />} />
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
         <Route path="/admin/participation/:adminId" element={<AdminParticipationPage />} />
@@ -88,9 +135,12 @@ export default function App() {
         <Route path="/transactions/:batchId" element={<TransactionDetailPage />} />
       </Route>
 
+      </Route> {/* end TenantGate */}
+
       <Route path="/session-expired" element={<SessionExpiredPage />} />
       <Route path="/error" element={<ErrorPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    </>
   );
 }
