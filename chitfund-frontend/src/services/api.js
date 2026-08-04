@@ -28,9 +28,214 @@ api.interceptors.response.use(
 );
 
 // ─── Auth (user-service, no strip) ────────────────────────────────────────
+// Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse? }
 export const login = async ({ username, password }) => {
   const res = await api.post('/auth/login', { username, password });
   return res.data.data;
+};
+
+// Step 2: exchange pre-scope loginToken + tenantId → full scoped AuthResponse
+export const selectTenant = async ({ loginToken, tenantId }) => {
+  const res = await api.post('/auth/select-tenant', { loginToken, tenantId });
+  return res.data.data; // AuthResponse { accessToken, refreshToken, user }
+};
+
+// Public: org self-registration (status = PENDING until super-admin activates)
+export const registerOrg = async (body) => {
+  const res = await api.post('/auth/register-org', body);
+  return res.data.data; // TenantResponse
+};
+
+// Member sets up their account via SMS link token
+export const setupAccount = async ({ token, newPassword, fullName }) => {
+  const res = await api.post('/auth/setup-account', { token, newPassword, fullName });
+  return res.data.data; // AuthResponse or LoginResponse
+};
+
+// Generate a short-lived pre-scope token for cross-subdomain org switching.
+// Needs explicit Authorization header because the interceptor skips /auth/ endpoints.
+export const generateTransferToken = async () => {
+  const token = localStorage.getItem('token');
+  const res = await api.post('/auth/transfer-token', null, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  return res.data.data; // PreScopeAuthResponse { loginToken, tenants }
+};
+
+// Self-service password reset via mobile OTP
+export const sendForgotPasswordOtp = async ({ phone, countryCode }) => {
+  await api.post('/auth/forgot-password/send', { phone, countryCode });
+};
+
+export const resetPasswordViaOtp = async ({ phone, countryCode, otpCode, newPassword }) => {
+  await api.post('/auth/forgot-password/reset', { phone, countryCode, otpCode, newPassword });
+};
+
+// ─── Super-admin (user-service /api/super-admin/**) ───────────────────────
+export const superAdminListTenants = async ({ status } = {}) => {
+  const params = status ? { status } : {};
+  const res = await api.get('/super-admin/tenants', { params });
+  return res.data.data ?? [];
+};
+
+export const superAdminGetTenant = async (tenantId) => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}`);
+  return res.data.data;
+};
+
+export const superAdminActivateTenant = async (tenantId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/activate`);
+  return res.data.data;
+};
+
+export const superAdminSuspendTenant = async (tenantId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/suspend`);
+  return res.data.data;
+};
+
+export const superAdminGetAdminCredentials = async (tenantId) => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/credentials`);
+  return res.data.data;
+};
+
+export const superAdminProxyAs = async (tenantId, role, userId) => {
+  const params = userId ? `?role=${role}&userId=${userId}` : `?role=${role}`;
+  const res = await api.post(`/super-admin/tenants/${tenantId}/proxy${params}`);
+  return res.data.data;
+};
+
+export const superAdminUpdatePlan = async (tenantId, plan) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } });
+  return res.data.data;
+};
+
+export const superAdminListUpgradeRequests = async () => {
+  const res = await api.get('/super-admin/tenants/upgrade-requests');
+  return res.data.data ?? [];
+};
+
+export const superAdminListRenewalRequests = async () => {
+  const res = await api.get('/super-admin/tenants/renewal-requests');
+  return res.data.data ?? [];
+};
+
+export const superAdminClearRenewalRequest = async (tenantId) => {
+  await api.delete(`/super-admin/tenants/${tenantId}/renewal-request`);
+};
+
+export const requestPlanUpgrade = async (toPlan) => {
+  const res = await api.post('/plans/upgrade-request', null, { params: { toPlan } });
+  return res.data;
+};
+
+export const requestRenewal = async () => {
+  const res = await api.post('/plans/renewal-request');
+  return res.data;
+};
+
+export const superAdminUpdateTenant = async (tenantId, { name, slug }) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}`, { name, slug });
+  return res.data.data;
+};
+
+export const superAdminListOrgUsers = async (tenantId) => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/users`);
+  return res.data.data ?? [];
+};
+
+export const superAdminAddOrgUser = async (tenantId, userData) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/users`, userData);
+  return res.data.data;
+};
+
+export const superAdminListOrgChits = async (tenantId, { status } = {}) => {
+  const params = { tenantFilter: tenantId };
+  if (status) params.status = status;
+  const res = await api.get('/chits', { params });
+  return res.data.data?.content ?? res.data.data ?? [];
+};
+
+export const superAdminSetPlanExpiry = async (tenantId, expiresAt) => {
+  // expiresAt: ISO string or null (clears expiry)
+  const params = expiresAt ? { expiresAt } : {};
+  const res = await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, { params });
+  return res.data.data;
+};
+
+export const superAdminGetEffectiveLimits = async (tenantId) => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/effective-limits`);
+  return res.data.data;
+};
+
+export const superAdminGetAllLimitsBulk = async () => {
+  const res = await api.get('/super-admin/tenants/limits-bulk');
+  return res.data.data ?? [];
+};
+
+export const superAdminChitUsageSummary = async () => {
+  const res = await api.get('/super-admin/chits/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const superAdminMemberUsageSummary = async () => {
+  const res = await api.get('/super-admin/members/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const getMyEffectiveLimits = async () => {
+  const res = await api.get('/users/me/effective-limits');
+  return res.data.data ?? null;
+};
+
+export const superAdminSetCustomLimits = async (tenantId, data) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data);
+  return res.data.data;
+};
+
+export const superAdminRemoveCustomLimits = async (tenantId, fallbackPlan = 'BASIC') => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+  return res.data;
+};
+
+// ─── Public plans (no auth needed) ────────────────────────────────────────
+export const getPublicPlans = async () => {
+  const res = await api.get('/plans/public');
+  return res.data.data ?? [];
+};
+
+// ─── Super-admin plan definition CRUD ─────────────────────────────────────
+export const superAdminListPlans = async () => {
+  const res = await api.get('/super-admin/plans');
+  return res.data.data ?? [];
+};
+
+export const superAdminCreatePlanDef = async (body) => {
+  const res = await api.post('/super-admin/plans', body);
+  return res.data.data;
+};
+
+export const superAdminUpdatePlanDef = async (code, body) => {
+  const res = await api.put(`/super-admin/plans/${code}`, body);
+  return res.data.data;
+};
+
+export const superAdminDeletePlanDef = async (code) => {
+  await api.delete(`/super-admin/plans/${code}`);
+};
+
+// ─── Per-org discount ──────────────────────────────────────────────────────
+export const superAdminGetDiscount = async (tenantId) => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/discount`);
+  return res.data.data ?? null;
+};
+
+export const superAdminSetDiscount = async (tenantId, body) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/discount`, body);
+  return res.data.data;
+};
+
+export const superAdminRemoveDiscount = async (tenantId) => {
+  await api.delete(`/super-admin/tenants/${tenantId}/discount`);
 };
 
 export const getMe = async () => {
@@ -45,6 +250,7 @@ export const mobileLookup = async (phone, phoneCountryCode) => {
   return res.data.data; // { singleAccount, accounts: [{ role, displayLabel }] }
 };
 
+// Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse? }
 export const loginByMobile = async ({ phone, phoneCountryCode, password, role }) => {
   const res = await api.post('/auth/login-mobile', {
     phone,
@@ -67,6 +273,11 @@ export const createMemberLogin = async ({ username, email, phone, phoneCountryCo
 export const resetMemberPassword = async (userId) => {
   const res = await api.post(`/users/${userId}/reset-password`);
   return res.data.data; // { userId, username, tempPassword }
+};
+
+export const resendSetupLink = async (userId) => {
+  const res = await api.post(`/users/${userId}/resend-setup-link`);
+  return res.data.data; // { setupToken, userId }
 };
 
 export const changePassword = async ({ currentPassword, newPassword }) => {
@@ -97,12 +308,13 @@ export const listStaff = async ({ deleted = false } = {}) => {
 };
 
 // role must be 'ADMIN', 'MANAGER', or 'STAFF' — requires authenticated ADMIN token
-export const createStaff = async ({ username, email, fullName, phone, role }) => {
+export const createStaff = async ({ username, email, fullName, phone, phoneCountryCode, role }) => {
   const res = await api.post('/users/staff', {
     username,
     email: email || null,
     fullName: fullName || null,
     phone: phone || null,
+    phoneCountryCode: phoneCountryCode || '+91',
     role,
   });
   return res.data.data; // { accessToken, user, tempPassword }
@@ -807,6 +1019,151 @@ export const updateTeamNote = async (id, { text, visibility }) => {
 };
 export const deleteTeamNote = async (id) => {
   await api.delete(`/members/notes/${id}`);
+};
+
+// ── Phone OTP (public — for registration) ─────────────────────────────────
+export const sendRegistrationOtp = async ({ phone, countryCode }) => {
+  const res = await api.post('/auth/otp/send', { phone, countryCode });
+  return res.data; // { success, message }
+};
+export const verifyRegistrationOtp = async ({ phone, countryCode, code }) => {
+  const res = await api.post('/auth/otp/verify', { phone, countryCode, code });
+  return res.data.data; // { verificationToken }
+};
+
+// ── Phone OTP (authenticated — for profile phone change) ──────────────────
+export const sendPhoneChangeOtp = async ({ phone, countryCode }) => {
+  const res = await api.post('/users/me/phone/send-otp', { phone, countryCode });
+  return res.data;
+};
+export const verifyPhoneChangeOtp = async ({ phone, countryCode, code }) => {
+  const res = await api.post('/users/me/phone/verify-otp', { phone, countryCode, code });
+  return res.data.data; // UserResponse with updated phone
+};
+
+// ─── Tenant plan limits (for feature gating in frontend) ──────────────────
+export const getMyTenantLimits = async () => {
+  const res = await api.get('/users/me/tenant-limits');
+  return res.data.data;
+};
+
+// ─── Referral info for org admin ──────────────────────────────────────────
+export const getMyReferralInfo = async () => {
+  const res = await api.get('/users/me/referral');
+  return res.data.data;
+};
+
+// ─── Promotions (public — no auth needed) ─────────────────────────────────
+export const getPublicPromotions = async () => {
+  const res = await api.get('/public/promotions');
+  return res.data.data ?? [];
+};
+
+export const validatePromoCode = async (code, plan) => {
+  const params = { code };
+  if (plan) params.plan = plan;
+  const res = await api.get('/public/promotions/validate', { params });
+  return res.data.data;
+};
+
+// ─── Promotions (super-admin) ──────────────────────────────────────────────
+export const superAdminListPromotions = async () => {
+  const res = await api.get('/superadmin/promotions');
+  return res.data.data ?? [];
+};
+
+export const superAdminCreatePromotion = async (body) => {
+  const res = await api.post('/superadmin/promotions', body);
+  return res.data.data;
+};
+
+export const superAdminUpdatePromotion = async (id, body) => {
+  const res = await api.put(`/superadmin/promotions/${id}`, body);
+  return res.data.data;
+};
+
+export const superAdminSetPromotionVisibility = async (id, isPublic) => {
+  const res = await api.patch(`/superadmin/promotions/${id}/visibility`, { isPublic });
+  return res.data.data;
+};
+
+export const superAdminDeactivatePromotion = async (id) => {
+  const res = await api.delete(`/superadmin/promotions/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListReferralCredits = async (status) => {
+  const params = status ? { status } : {};
+  const res = await api.get('/superadmin/promotions/referral-credits', { params });
+  return res.data.data ?? [];
+};
+
+export const superAdminAddTenantCredit = async (tenantId, amountInr, notes) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
+  return res.data.data;
+};
+
+export const superAdminDeductTenantCredit = async (tenantId, amountInr, notes) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
+  return res.data.data;
+};
+
+export const getMyBillingInfo = async () => {
+  const res = await api.get('/users/me/billing-info');
+  return res.data.data ?? null;
+};
+
+// ── Plan Billing / Payments ────────────────────────────────────────────────────
+
+export const billingUpgradePreview = async (tenantId, newPlan) => {
+  const res = await api.get('/super-admin/billing/upgrade-preview', { params: { tenantId, newPlan } });
+  return res.data.data;
+};
+
+export const billingRecordPayment = async (payload) => {
+  const res = await api.post('/super-admin/billing/payments', payload);
+  return res.data.data;
+};
+
+export const billingRecordUpgrade = async (payload) => {
+  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
+  return res.data.data;
+};
+
+export const billingRecordRefund = async (paymentId, payload) => {
+  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
+  return res.data.data;
+};
+
+export const billingListPayments = async ({ tenantId, page = 0, size = 20 } = {}) => {
+  const params = { page, size, ...(tenantId ? { tenantId } : {}) };
+  const res = await api.get('/super-admin/billing/payments', { params });
+  return res.data.data;
+};
+
+export const billingGetPayment = async (paymentId) => {
+  const res = await api.get(`/super-admin/billing/payments/${paymentId}`);
+  return res.data.data;
+};
+
+export const billingGetReceipt = async (receiptId) => {
+  const res = await api.get(`/super-admin/billing/receipts/${receiptId}`);
+  return res.data.data;
+};
+
+export const myBillingUpgradePreview = async (newPlan) => {
+  const res = await api.get('/billing/upgrade-preview', { params: { newPlan } });
+  return res.data.data;
+};
+
+export const myBillingPayments = async () => {
+  const res = await api.get('/billing/my-payments');
+  return res.data.data ?? [];
+};
+
+export const myBillingReceipt = async (receiptId) => {
+  const res = await api.get(`/billing/receipts/${receiptId}`);
+  return res.data.data;
 };
 
 export default api;

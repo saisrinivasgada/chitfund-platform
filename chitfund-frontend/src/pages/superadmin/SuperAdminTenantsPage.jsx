@@ -187,7 +187,7 @@ function TenantRow({ tenant, onAction, onNavigate }) {
           </button>
           {planMenuOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setPlanMenuOpen(false)} />
+              <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setPlanMenuOpen(false); }} />
               <div className="absolute left-0 mt-1 z-20 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 min-w-[130px]">
                 {['BASIC', 'PRO', 'ENTERPRISE'].filter((p) => p !== tenant.plan).map((p) => (
                   <button
@@ -259,7 +259,7 @@ function TenantRow({ tenant, onAction, onNavigate }) {
             </button>
             {menuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => { setMenuOpen(false); setProxyMenuOpen(false); }} />
+                <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setProxyMenuOpen(false); }} />
                 <div className="fixed z-50 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 min-w-[175px]" style={{ top: menuPos.top, right: menuPos.right }}>
                   {tenant.status !== 'ACTIVE' && (
                     <button
