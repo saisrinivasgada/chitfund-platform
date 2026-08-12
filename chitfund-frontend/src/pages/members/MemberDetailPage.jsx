@@ -996,10 +996,12 @@ function PaymentHistorySection({ memberId }) {
   });
 
   const statusColor = {
-    SETTLED: 'text-green-700 bg-green-50',
-    PARTIALLY_PAID: 'text-amber-700 bg-amber-50',
-    OUTSTANDING: 'text-gray-600 bg-gray-50',
-    WAIVED: 'text-gray-400 bg-gray-50',
+    SETTLED:            'text-green-700 bg-green-50',
+    PARTIALLY_PAID:     'text-amber-700 bg-amber-50',
+    OUTSTANDING:        'text-red-700 bg-red-50',
+    WAIVED:             'text-gray-400 bg-gray-50',
+    PAYOUT_DEDUCTED:    'text-purple-700 bg-purple-50',
+    SETTLEMENT_CLEARED: 'text-teal-700 bg-teal-50',
   };
 
   const chitStatusColor = {
