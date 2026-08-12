@@ -31,6 +31,11 @@ const STATUS_CONFIG = {
     icon: XCircle,
     classes: 'bg-red-50 text-red-700 border border-red-100',
   },
+  REJECTED: {
+    label: 'Rejected',
+    icon: XCircle,
+    classes: 'bg-gray-100 text-gray-500 border border-gray-200',
+  },
 };
 
 const PLAN_CLASSES = {
@@ -339,6 +344,8 @@ export default function SuperAdminTenantsPage() {
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
   const [toast, setToast]       = useState('');
   const [creditTenant, setCreditTenant] = useState(null);
   const [activationCreds, setActivationCreds] = useState(null); // { adminUsername, adminTempPassword }
@@ -350,16 +357,17 @@ export default function SuperAdminTenantsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await superAdminListTenants({ status: statusFilter || undefined });
+      const data = await superAdminListTenants();
       setTenants(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to load tenants', err);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
 
   async function handleAction(action, tenantId, extra) {
     if (action === 'addCredit') {
@@ -411,15 +419,19 @@ export default function SuperAdminTenantsPage() {
     }
   }
 
-  const filtered = tenants.filter((t) =>
-    !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.slug?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = tenants.filter((t) => {
+    if (!statusFilter && t.status === 'REJECTED') return false;
+    return !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.slug?.toLowerCase().includes(search.toLowerCase());
+  });
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const stats = {
-    total:     tenants.length,
+    total:     tenants.filter((t) => t.status !== 'REJECTED').length,
     active:    tenants.filter((t) => t.status === 'ACTIVE').length,
     pending:   tenants.filter((t) => t.status === 'PENDING').length,
     suspended: tenants.filter((t) => t.status === 'SUSPENDED').length,
+    rejected:  tenants.filter((t) => t.status === 'REJECTED').length,
   };
 
   return (
@@ -497,10 +509,11 @@ export default function SuperAdminTenantsPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="pl-8 pr-8 py-2.5 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] appearance-none cursor-pointer"
             >
-              <option value="">All statuses</option>
+              <option value="">All (excl. rejected)</option>
               <option value="ACTIVE">Active</option>
               <option value="PENDING">Pending</option>
               <option value="SUSPENDED">Suspended</option>
+              <option value="REJECTED">Rejected</option>
             </select>
           </div>
         </div>
@@ -528,7 +541,7 @@ export default function SuperAdminTenantsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((tenant) => (
+                {paginated.map((tenant) => (
                   <TenantRow key={tenant.id} tenant={tenant} onAction={handleAction} onNavigate={(id) => navigate(`/superadmin/tenants/${id}`)} />
                 ))}
               </tbody>
@@ -536,9 +549,37 @@ export default function SuperAdminTenantsPage() {
           )}
         </div>
 
-        <p className="text-xs text-gray-400 mt-3 text-right">
-          {filtered.length} of {tenants.length} organizations
-        </p>
+        {/* Pagination */}
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-xs text-gray-400">
+            {filtered.length} organization{filtered.length !== 1 ? 's' : ''} · page {page} of {Math.max(1, totalPages)}
+          </p>
+          {totalPages > 1 && (
+            <div className="flex gap-1">
+              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1).map((p, idx, arr) => (
+                <span key={p}>
+                  {idx > 0 && arr[idx - 1] !== p - 1 && <span className="px-1 text-xs text-gray-400 self-center">…</span>}
+                  <button type="button" onClick={() => setPage(p)}
+                    className={`px-3 py-1.5 text-xs rounded-lg border cursor-pointer ${p === page ? 'bg-[#1E3A5F] text-white border-[#1E3A5F]' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>{p}</button>
+                </span>
+              ))}
+              <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-white disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Next</button>
+            </div>
+          )}
+        </div>
+
+        {/* Rejected requests link */}
+        {stats.rejected > 0 && !statusFilter && (
+          <div className="mt-4 text-center">
+            <button type="button" onClick={() => setStatusFilter('REJECTED')}
+              className="text-xs text-gray-400 hover:text-red-600 cursor-pointer transition-colors underline underline-offset-2">
+              View {stats.rejected} rejected request{stats.rejected !== 1 ? 's' : ''}
+            </button>
+          </div>
+        )}
       </main>
 
       {/* Toast */}

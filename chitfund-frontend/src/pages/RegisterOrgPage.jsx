@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode, checkSlugAvailability } from '../services/api';
 import {
   BookOpen, Building2, CheckCircle, ChevronRight, ChevronLeft,
-  Zap, Shield, Users, BarChart2, Eye, EyeOff, Check,
+  Zap, Shield, Users, BarChart2, Check,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
 
@@ -78,7 +78,7 @@ export default function RegisterOrgPage() {
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState({
     orgName: '', slug: '', adminFullName: '', adminUsername: '', adminEmail: '',
-    adminPassword: '', adminPhone: '', adminPhoneCountryCode: '+91', plan: 'BASIC',
+    adminPhone: '', adminPhoneCountryCode: '+91', plan: 'BASIC',
     promoCode: '',
   });
   const [plans, setPlans]             = useState([]);
@@ -89,7 +89,6 @@ export default function RegisterOrgPage() {
   const [slugStatus, setSlugStatus]   = useState(null); // null | 'checking' | 'available' | 'taken'
   const slugDebounceRef = useRef(null);
   const slugAbortRef    = useRef(null);
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [fe, setFe]                   = useState({});
@@ -266,28 +265,64 @@ export default function RegisterOrgPage() {
 
   /* ── Success screen ── */
   if (done) {
+    const steps = [
+      { label: 'Application received',        desc: 'Your request is in our system.',                        done: true  },
+      { label: 'Under review',                desc: 'Our team will review within 24 hours.',                 done: false },
+      { label: 'Activation email sent',       desc: `We'll email ${form.adminEmail} with next steps.`,       done: false },
+      { label: 'Your org goes live',          desc: 'Log in and start managing your chit fund.',             done: false },
+    ];
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#f8fafd] to-[#eef2f7] px-4 py-10">
-        <div className="bg-white rounded-3xl p-7 sm:p-14 shadow-2xl text-center max-w-md w-full border border-gray-100">
-          <div className="w-20 h-20 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-8">
-            <CheckCircle size={40} className="text-green-500" />
+        <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-gray-100 overflow-hidden">
+          {/* Header */}
+          <div className="px-8 pt-10 pb-6 text-center" style={{ background: 'linear-gradient(135deg,#1E3A5F 0%,#2d5280 100%)' }}>
+            <div className="w-16 h-16 rounded-full bg-white/15 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle size={32} className="text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-1" style={{ fontFamily: 'Merriweather, serif' }}>
+              You're in the queue!
+            </h2>
+            <p className="text-white/70 text-sm">
+              <strong className="text-white">{form.orgName}</strong> has been submitted for review.
+            </p>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4" style={{ fontFamily: 'Merriweather, serif' }}>
-            Application submitted!
-          </h2>
-          <p className="text-gray-500 text-sm leading-relaxed mb-2">
-            Your organization <strong className="text-gray-800">{form.orgName}</strong> has been registered and is under review.
-          </p>
-          <p className="text-gray-400 text-sm mb-10">
-            We'll contact you at <strong className="text-gray-600">{form.adminEmail}</strong> once it's activated — usually within 24 hours.
-          </p>
-          <button
-            onClick={() => navigate('/login')}
-            className="w-full py-3.5 rounded-xl text-white font-semibold cursor-pointer transition-opacity hover:opacity-90"
-            style={{ backgroundColor: '#1E3A5F' }}
-          >
-            Back to login
-          </button>
+
+          {/* Steps */}
+          <div className="px-8 py-6">
+            <div className="space-y-4">
+              {steps.map((s, i) => (
+                <div key={i} className="flex gap-4 items-start">
+                  <div className="flex flex-col items-center flex-shrink-0">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${s.done ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                      {s.done ? <CheckCircle size={16} /> : i + 1}
+                    </div>
+                    {i < steps.length - 1 && <div className="w-px flex-1 mt-1 min-h-[20px]" style={{ backgroundColor: '#E5E7EB' }} />}
+                  </div>
+                  <div className="pb-4">
+                    <p className={`text-sm font-semibold ${s.done ? 'text-gray-900' : 'text-gray-500'}`}>{s.label}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{s.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 p-4 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 leading-relaxed">
+              <strong>What happens next?</strong> Keep an eye on <strong>{form.adminEmail}</strong>. Once approved, you'll receive an activation link to set up your password and start using ChitWise.
+            </div>
+          </div>
+
+          <div className="px-8 pb-8">
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full py-3.5 rounded-xl text-white font-semibold cursor-pointer transition-opacity hover:opacity-90"
+              style={{ backgroundColor: '#1E3A5F' }}
+            >
+              Back to login
+            </button>
+            <p className="text-center text-xs text-gray-400 mt-3">
+              Questions? Reach us at <span className="text-gray-600 font-medium">support@thechitwise.com</span>
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -498,28 +533,6 @@ export default function RegisterOrgPage() {
                     error={fe.adminEmail}
                   />
                   <FieldError msg={fe.adminEmail} />
-                </div>
-                <div data-field="adminPassword">
-                  <FieldLabel required>Password</FieldLabel>
-                  <div className="relative">
-                    <TextInput
-                      type={showPassword ? 'text' : 'password'}
-                      value={form.adminPassword}
-                      onChange={(e) => set('adminPassword', e.target.value)}
-                      placeholder="Minimum 8 characters"
-                      required
-                      className="pr-11"
-                      error={fe.adminPassword}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  <FieldError msg={fe.adminPassword} />
                 </div>
                 <div data-field="adminPhone">
                   <FieldLabel required>

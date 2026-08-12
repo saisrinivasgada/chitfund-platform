@@ -21,6 +21,12 @@ const ICON_COLORS = {
   info: 'text-blue-500',
 };
 
+const FLASH_BG = {
+  success: 'bg-green-500',
+  error: 'bg-red-500',
+  warning: 'bg-amber-500',
+};
+
 function ToastItem({ toast, onDismiss }) {
   const Icon = ICONS[toast.type] ?? Info;
   return (
@@ -39,13 +45,48 @@ function ToastItem({ toast, onDismiss }) {
   );
 }
 
-export default function Toast({ toasts, onDismiss }) {
-  if (!toasts.length) return null;
+function CenterFlash({ flash }) {
+  if (!flash) return null;
+  const Icon = ICONS[flash.type] ?? CheckCircle;
+  const bg = FLASH_BG[flash.type] ?? 'bg-blue-500';
   return (
-    <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2">
-      {toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
-      ))}
+    <div
+      key={flash.id}
+      className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none"
+    >
+      <div
+        className={`${bg} rounded-full flex items-center justify-center shadow-2xl`}
+        style={{
+          width: 80,
+          height: 80,
+          animation: 'centerFlashAnim 1.2s ease-out forwards',
+        }}
+      >
+        <Icon size={36} className="text-white" />
+      </div>
+      <style>{`
+        @keyframes centerFlashAnim {
+          0%   { transform: scale(0.4); opacity: 0; }
+          25%  { transform: scale(1.1); opacity: 1; }
+          55%  { transform: scale(1);   opacity: 1; }
+          100% { transform: scale(1.2); opacity: 0; }
+        }
+      `}</style>
     </div>
+  );
+}
+
+export default function Toast({ toasts, onDismiss, centerFlash }) {
+  return (
+    <>
+      <CenterFlash flash={centerFlash} />
+      {toasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2">
+          {toasts.map((t) => (
+            <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }

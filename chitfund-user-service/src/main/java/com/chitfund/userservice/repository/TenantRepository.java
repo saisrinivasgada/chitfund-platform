@@ -13,7 +13,11 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
 
     boolean existsBySlug(String slug);
 
+    boolean existsBySlugAndStatusNot(String slug, String status);
+
     List<Tenant> findAllByStatusOrderByCreatedAtDesc(String status);
+
+    List<Tenant> findAllByStatusNotOrderByCreatedAtDesc(String status);
 
     List<Tenant> findAllByOrderByCreatedAtDesc();
 

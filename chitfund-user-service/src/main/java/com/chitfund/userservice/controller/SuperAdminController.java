@@ -83,6 +83,14 @@ public class SuperAdminController {
                 tenantService.setTenantStatus(tenantId, status), "Status updated"));
     }
 
+    @PostMapping("/{tenantId}/reactivate")
+    public ResponseEntity<ApiResponse<TenantResponse>> reactivate(
+            @PathVariable UUID tenantId,
+            @RequestParam(required = false) String newSlug) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.reactivateTenant(tenantId, newSlug), "Tenant reactivated"));
+    }
+
     @PostMapping("/{tenantId}/plan")
     public ResponseEntity<ApiResponse<TenantResponse>> updatePlan(
             @PathVariable UUID tenantId,

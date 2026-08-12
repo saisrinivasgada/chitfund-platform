@@ -107,6 +107,12 @@ export const superAdminSetTenantStatus = async (tenantId, status) => {
   return res.data.data;
 };
 
+export const superAdminReactivateTenant = async (tenantId, newSlug) => {
+  const params = newSlug ? { newSlug } : {};
+  const res = await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, { params });
+  return res.data.data;
+};
+
 export const superAdminGetAdminCredentials = async (tenantId) => {
   const res = await api.get(`/super-admin/tenants/${tenantId}/credentials`);
   return res.data.data;

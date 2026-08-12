@@ -145,8 +145,8 @@ const ROLES = [
       { icon: BookOpen,    text: 'Audit history & role controls' },
     ],
     stats: [
-      { label: 'Chit groups', value: '12 active' },
-      { label: 'This month',  value: '₹4.8L collected' },
+      { label: 'Every action',  value: 'Audit logged' },
+      { label: 'Data access',   value: 'Role-scoped' },
     ],
   },
   {
@@ -164,8 +164,8 @@ const ROLES = [
       { icon: BookOpen,    text: 'Daily collection summary' },
     ],
     stats: [
-      { label: 'Pending tasks', value: '8 today' },
-      { label: 'Cash to remit', value: '₹42,000' },
+      { label: 'Field access',  value: 'Task-scoped' },
+      { label: 'Every action',  value: 'Audit logged' },
     ],
   },
   {
@@ -183,8 +183,8 @@ const ROLES = [
       { icon: BookOpen,    text: 'Download receipts anytime' },
     ],
     stats: [
-      { label: 'Active chits', value: '2 groups' },
-      { label: 'Next draw',    value: 'In 4 days' },
+      { label: 'Your records', value: 'Private & yours' },
+      { label: 'Login',        value: 'OTP verified' },
     ],
   },
 ];
@@ -465,8 +465,8 @@ export default function LoginPage() {
         <div className="relative z-10 grid grid-cols-2 gap-3">
           <AnimatePresence mode="wait" initial={false}>
             {(selectedRole?.stats ?? [
-              { label: 'Chit groups', value: '12 active' },
-              { label: 'This month',  value: '₹4.8L collected' },
+              { label: 'Your data',   value: 'Always private' },
+              { label: 'Connections', value: 'HTTPS secured' },
             ]).map(({ label, value }) => (
               <motion.div
                 key={label}

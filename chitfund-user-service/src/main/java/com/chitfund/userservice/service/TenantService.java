@@ -55,7 +55,7 @@ public class TenantService {
     // ── Public org self-registration ─────────────────────────────────────────
 
     public TenantResponse registerOrg(RegisterOrgRequest req) {
-        if (tenantRepository.existsBySlug(req.getSlug())) {
+        if (tenantRepository.existsBySlugAndStatusNot(req.getSlug(), "REJECTED")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Subdomain '" + req.getSlug() + "' is already taken", HttpStatus.CONFLICT);
         }
@@ -92,8 +92,10 @@ public class TenantService {
                     "Username '" + username + "' is already taken", HttpStatus.CONFLICT);
         }
 
-        // Use the password the org owner chose; store it as the temp password so super-admin can view it
-        String rawPassword = req.getAdminPassword();
+        // Generate a temp password (admin sets their real password on first activation)
+        String rawPassword = (req.getAdminPassword() != null && !req.getAdminPassword().isBlank())
+                ? req.getAdminPassword()
+                : generateTempPassword();
         User admin = User.builder()
                 .username(username)
                 .email(req.getAdminEmail())
@@ -244,12 +246,12 @@ public class TenantService {
     }
 
     public boolean slugExists(String slug) {
-        return tenantRepository.existsBySlug(slug);
+        return tenantRepository.existsBySlugAndStatusNot(slug, "REJECTED");
     }
 
     public TenantResponse setTenantStatus(UUID tenantId, String newStatus) {
         String upper = newStatus.toUpperCase();
-        if (!java.util.Set.of("PENDING", "ACTIVE", "SUSPENDED").contains(upper)) {
+        if (!java.util.Set.of("PENDING", "ACTIVE", "SUSPENDED", "REJECTED").contains(upper)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid status: " + newStatus);
         }
         Tenant t = tenantRepository.findById(tenantId)
@@ -262,6 +264,27 @@ public class TenantService {
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "UNKNOWN"),
                 java.util.Map.of("status", upper),
                 tenantId.toString());
+        return toResponse(t);
+    }
+
+    public TenantResponse reactivateTenant(UUID tenantId, String newSlug) {
+        Tenant t = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        if (!"REJECTED".equals(t.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Only rejected tenants can be reactivated");
+        }
+        String targetSlug = (newSlug != null && !newSlug.isBlank()) ? newSlug.toLowerCase().trim() : t.getSlug();
+        // Check slug availability (excluding this tenant itself and other REJECTED tenants)
+        boolean slugTaken = tenantRepository.existsBySlugAndStatusNot(targetSlug, "REJECTED")
+                || tenantRepository.findAllByStatusOrderByCreatedAtDesc("REJECTED").stream()
+                   .anyMatch(other -> !other.getId().equals(tenantId) && targetSlug.equals(other.getSlug()));
+        if (slugTaken) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Subdomain '" + targetSlug + "' is already taken — please choose another", HttpStatus.CONFLICT);
+        }
+        t.setSlug(targetSlug);
+        t.setStatus("PENDING");
+        tenantRepository.save(t);
         return toResponse(t);
     }
 

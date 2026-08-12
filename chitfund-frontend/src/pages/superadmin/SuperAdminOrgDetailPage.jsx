@@ -23,6 +23,7 @@ import {
   superAdminSetDiscount,
   superAdminRemoveDiscount,
   superAdminSetTenantStatus,
+  superAdminReactivateTenant,
   resetMemberPassword,
   superAdminProxyAs,
 } from '../../services/api';
@@ -34,6 +35,7 @@ const STATUS_CONFIG = {
   ACTIVE:    { label: 'Active',    icon: CheckCircle, cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
   PENDING:   { label: 'Pending',   icon: Clock,       cls: 'bg-amber-50 text-amber-700 border-amber-100' },
   SUSPENDED: { label: 'Suspended', icon: XCircle,     cls: 'bg-red-50 text-red-700 border-red-100' },
+  REJECTED:  { label: 'Rejected',  icon: XCircle,     cls: 'bg-gray-100 text-gray-500 border-gray-200' },
 };
 const CHIT_STATUS = {
   ACTIVE:    'bg-emerald-100 text-emerald-700',
@@ -643,6 +645,33 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
                 {resetting ? 'Resetting…' : 'Reset to Plan'}
               </button>
             </div>
+            {/* Plan preview */}
+            {(() => {
+              const preview = plans.find(p => p.plan === resetPlan);
+              if (!preview) return null;
+              const priceInr = preview.priceMonthlyInr ? Math.round(preview.priceMonthlyInr / 100) : null;
+              return (
+                <div className="mt-2 p-3 rounded-xl bg-gray-50 border border-gray-100 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-gray-700">{preview.displayName ?? resetPlan} plan</span>
+                    {priceInr != null && <span className="font-bold text-amber-600">₹{priceInr.toLocaleString('en-IN')}/mo</span>}
+                  </div>
+                  {preview.tagline && <p className="text-gray-400">{preview.tagline}</p>}
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {[
+                      { label: 'Max Chits', value: preview.maxActiveChits === -1 ? '∞' : preview.maxActiveChits },
+                      { label: 'Max Members', value: preview.maxMembers === -1 ? '∞' : preview.maxMembers },
+                      { label: 'Max Staff', value: preview.maxStaff === -1 ? '∞' : preview.maxStaff },
+                    ].map(({ label, value }) => value != null && (
+                      <div key={label} className="bg-white rounded-lg p-2 border border-gray-100 text-center">
+                        <p className="font-bold text-gray-800">{value}</p>
+                        <p className="text-gray-400 mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {error && (
@@ -753,6 +782,11 @@ export default function SuperAdminOrgDetailPage() {
   const [proxyingUserId, setProxyingUserId] = useState(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
+  const [showReactivate, setShowReactivate] = useState(false);
+  const [plans, setPlans] = useState([]);
+  const [userPage, setUserPage] = useState(1);
+  const [chitPage, setChitPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   function showToast(msg) {
     setToast(msg);
@@ -852,6 +886,9 @@ export default function SuperAdminOrgDetailPage() {
   }, [tenantId]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => {
+    superAdminListPlans().then(all => setPlans(all.filter(p => p.isActive))).catch(() => {});
+  }, []);
 
   async function handleStatusToggle() {
     if (tenant.status !== 'ACTIVE') {
@@ -985,7 +1022,7 @@ export default function SuperAdminOrgDetailPage() {
                       <ChevronDown size={11} className="text-gray-400 -ml-0.5" />
                     </button>
                     {showStatusDropdown && (
-                      <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[140px]">
+                      <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[160px]">
                         {['ACTIVE', 'PENDING', 'SUSPENDED'].map((s) => {
                           const cfg = STATUS_CONFIG[s];
                           const Icon = cfg.icon;
@@ -1002,6 +1039,19 @@ export default function SuperAdminOrgDetailPage() {
                             </button>
                           );
                         })}
+                        {tenant.status === 'PENDING' && (
+                          <>
+                            <div className="border-t border-gray-100 my-1" />
+                            <button
+                              type="button"
+                              onClick={() => { setShowStatusDropdown(false); handleStatusChange('REJECTED'); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                            >
+                              <XCircle size={12} />
+                              Reject Request
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1058,17 +1108,25 @@ export default function SuperAdminOrgDetailPage() {
                 {planOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setPlanOpen(false)} />
-                    <div className="absolute right-0 mt-1 z-20 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 min-w-[190px]">
-                      {['BASIC', 'PRO', 'ENTERPRISE'].map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => handlePlanChange(p)}
-                          className={`w-full text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-50 ${p === tenant.plan ? 'font-bold text-blue-600' : 'text-gray-700'}`}
-                        >
-                          {p} {p === tenant.plan && '✓'}
-                        </button>
-                      ))}
+                    <div className="absolute right-0 mt-1 z-20 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 min-w-[220px]">
+                      {(plans.length > 0 ? plans : [{ plan: 'BASIC' }, { plan: 'GROWTH' }, { plan: 'ENTERPRISE' }]).map((p) => {
+                        const planKey = (p.plan ?? p).toUpperCase();
+                        const priceInr = p.priceMonthlyInr ? Math.round(p.priceMonthlyInr / 100) : null;
+                        const isCurrent = planKey === (tenant.plan ?? '').toUpperCase();
+                        return (
+                          <button
+                            key={planKey}
+                            type="button"
+                            onClick={() => handlePlanChange(planKey)}
+                            className={`w-full text-left px-4 py-2.5 text-sm cursor-pointer hover:bg-gray-50 flex items-center justify-between ${isCurrent ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                          >
+                            <span>{p.displayName ?? planKey} {isCurrent && '✓'}</span>
+                            {priceInr != null && (
+                              <span className="text-xs font-semibold" style={{ color: '#059669' }}>₹{priceInr.toLocaleString('en-IN')}/mo</span>
+                            )}
+                          </button>
+                        );
+                      })}
                       <div className="border-t border-gray-100 my-1" />
                       <button
                         type="button"
@@ -1093,19 +1151,30 @@ export default function SuperAdminOrgDetailPage() {
                 )}
               </div>
 
-              {/* Pause / Activate */}
-              <button
-                type="button"
-                onClick={handleStatusToggle}
-                className={`inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                  tenant.status === 'ACTIVE'
-                    ? 'border border-red-200 text-red-600 hover:bg-red-50'
-                    : 'border border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                }`}
-              >
-                {tenant.status === 'ACTIVE' ? <XCircle size={14} /> : <CheckCircle size={14} />}
-                {tenant.status === 'ACTIVE' ? 'Pause Subscription' : 'Activate'}
-              </button>
+              {/* Pause / Activate / Reactivate */}
+              {tenant.status === 'REJECTED' ? (
+                <button
+                  type="button"
+                  onClick={() => setShowReactivate(true)}
+                  className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors"
+                >
+                  <CheckCircle size={14} />
+                  Reactivate
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleStatusToggle}
+                  className={`inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                    tenant.status === 'ACTIVE'
+                      ? 'border border-red-200 text-red-600 hover:bg-red-50'
+                      : 'border border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                  }`}
+                >
+                  {tenant.status === 'ACTIVE' ? <XCircle size={14} /> : <CheckCircle size={14} />}
+                  {tenant.status === 'ACTIVE' ? 'Pause Subscription' : 'Activate'}
+                </button>
+              )}
 
               {/* Add user */}
               <button
@@ -1447,7 +1516,7 @@ export default function SuperAdminOrgDetailPage() {
                 <p className="text-sm">No users yet</p>
               </div>
             ) : (
-              <div className="overflow-y-auto max-h-[480px]">
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-gray-50 z-10">
                     <tr className="border-b border-gray-100">
@@ -1461,7 +1530,7 @@ export default function SuperAdminOrgDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((u) => (
+                    {users.slice((userPage - 1) * PAGE_SIZE, userPage * PAGE_SIZE).map((u) => (
                       <tr key={u.userId} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
                         <td className="px-6 py-3.5">
                           <div>
@@ -1522,6 +1591,18 @@ export default function SuperAdminOrgDetailPage() {
                     ))}
                   </tbody>
                 </table>
+                {/* Users pagination */}
+                {Math.ceil(users.length / PAGE_SIZE) > 1 && (
+                  <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-400">{users.length} users · page {userPage} of {Math.ceil(users.length / PAGE_SIZE)}</span>
+                    <div className="flex gap-1">
+                      <button type="button" onClick={() => setUserPage(p => Math.max(1, p - 1))} disabled={userPage === 1}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Prev</button>
+                      <button type="button" onClick={() => setUserPage(p => Math.min(Math.ceil(users.length / PAGE_SIZE), p + 1))} disabled={userPage === Math.ceil(users.length / PAGE_SIZE)}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Next</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1536,9 +1617,9 @@ export default function SuperAdminOrgDetailPage() {
                 <p className="text-sm">No chits created yet</p>
               </div>
             ) : (
-              <div className="overflow-y-auto max-h-[480px]">
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-gray-50 z-10">
+                  <thead className="bg-gray-50">
                     <tr className="border-b border-gray-100">
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Chit Name</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
@@ -1550,7 +1631,7 @@ export default function SuperAdminOrgDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {chits.map((c) => (
+                    {chits.slice((chitPage - 1) * PAGE_SIZE, chitPage * PAGE_SIZE).map((c) => (
                       <tr
                         key={c.id}
                         onClick={() => navigate('/chits/' + c.id)}
@@ -1581,6 +1662,18 @@ export default function SuperAdminOrgDetailPage() {
                     ))}
                   </tbody>
                 </table>
+                {/* Chits pagination */}
+                {Math.ceil(chits.length / PAGE_SIZE) > 1 && (
+                  <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-400">{chits.length} chits · page {chitPage} of {Math.ceil(chits.length / PAGE_SIZE)}</span>
+                    <div className="flex gap-1">
+                      <button type="button" onClick={() => setChitPage(p => Math.max(1, p - 1))} disabled={chitPage === 1}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Prev</button>
+                      <button type="button" onClick={() => setChitPage(p => Math.min(Math.ceil(chits.length / PAGE_SIZE), p + 1))} disabled={chitPage === Math.ceil(chits.length / PAGE_SIZE)}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 disabled:opacity-40 hover:bg-gray-50 cursor-pointer">Next</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1651,6 +1744,13 @@ export default function SuperAdminOrgDetailPage() {
           tenant={tenant}
           onClose={() => setShowAddCredit(false)}
           onSuccess={(msg) => { showToast(msg); loadAll(); setShowAddCredit(false); }}
+        />
+      )}
+      {showReactivate && tenant && (
+        <ReactivateModal
+          tenant={tenant}
+          onClose={() => setShowReactivate(false)}
+          onSuccess={(msg) => { showToast(msg); loadAll(); setShowReactivate(false); }}
         />
       )}
       <Toast msg={toast} />
@@ -1763,6 +1863,68 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ReactivateModal({ tenant, onClose, onSuccess }) {
+  const [slug, setSlug] = useState(tenant.slug ?? '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!slug.trim()) { setError('Subdomain is required'); return; }
+    setError('');
+    setLoading(true);
+    try {
+      const newSlug = slug.trim() !== tenant.slug ? slug.trim() : undefined;
+      await superAdminReactivateTenant(tenant.id, newSlug);
+      onSuccess('Registration reactivated — now PENDING review');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Failed to reactivate');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900">Reactivate Registration</h3>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"><X size={16} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          <p className="text-sm text-gray-500">
+            Reactivating <strong className="text-gray-900">{tenant.name}</strong> will move it back to <span className="text-amber-600 font-semibold">PENDING</span>. Verify the subdomain is available.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Subdomain</label>
+            <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-400">
+              <span className="px-3 py-2.5 text-sm text-gray-400 bg-gray-50 border-r border-gray-200 flex-shrink-0">app.chitwise.com/</span>
+              <input
+                type="text"
+                value={slug}
+                onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-_.]/g, ''))}
+                className="flex-1 px-3 py-2.5 text-sm font-mono focus:outline-none"
+              />
+            </div>
+            {slug !== tenant.slug && (
+              <p className="text-xs text-amber-600 mt-1">Changed from original: <span className="font-mono">{tenant.slug}</span></p>
+            )}
+          </div>
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
+              <AlertCircle size={14} />{error}
+            </div>
+          )}
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+            <Button type="submit" loading={loading}>{loading ? 'Reactivating…' : 'Reactivate'}</Button>
+          </div>
+        </form>
       </div>
     </div>
   );
