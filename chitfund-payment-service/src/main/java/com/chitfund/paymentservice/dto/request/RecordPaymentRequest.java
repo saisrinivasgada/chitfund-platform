@@ -17,7 +17,7 @@ public class RecordPaymentRequest {
     private UUID memberId;
 
     @NotNull
-    @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
+    @DecimalMin(value = "0.00", message = "Amount cannot be negative")
     private BigDecimal amount;
 
     // CASH is not allowed here — use POST /payments/collect for cash

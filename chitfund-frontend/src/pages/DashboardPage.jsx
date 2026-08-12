@@ -1,9 +1,11 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   getChits, getMembers, getPendingPayouts, getWalletBalance,
   getActiveCashRequests, getPendingRemittance, listStaff,
   getOrgReservations, getCashRequestSummary, getWinners, getAllPayouts,
+  getMyReferralInfo, getMyEffectiveLimits, getPendingSettlements,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
@@ -16,10 +18,55 @@ import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
   ArrowRight, Wallet, Truck, Clock, Calendar, Building2,
-  CheckCircle, XCircle, PackageCheck, AlertTriangle,
+  CheckCircle, XCircle, PackageCheck, AlertTriangle, Copy, Check, ShieldAlert,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
+
+function OverLimitModal({ violations, onContinue }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center gap-3 px-6 pt-6 pb-4">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <ShieldAlert size={20} className="text-red-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-900">Usage Over Plan Limit</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Your current usage exceeds your plan limits</p>
+          </div>
+        </div>
+        <div className="px-6 pb-2 space-y-2">
+          {violations.map((v, i) => (
+            <div key={i} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-red-800">{v.label}</p>
+                <p className="text-xs text-red-600 mt-0.5">Limit: {v.limit} — You have: {v.current}</p>
+              </div>
+              <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-lg">
+                +{v.current - v.limit} over
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="px-6 py-4 bg-amber-50 mx-6 mb-4 rounded-xl">
+          <p className="text-xs text-amber-800">
+            <span className="font-semibold">Action required:</span> Contact ChitWise support to upgrade your plan or adjust your limits. You can still view your data, but new additions may be blocked.
+          </p>
+        </div>
+        <div className="px-6 pb-6">
+          <button
+            type="button"
+            onClick={onContinue}
+            className="w-full py-2.5 rounded-xl bg-[#1E3A5F] text-white text-sm font-semibold hover:bg-[#162d4a] transition-colors cursor-pointer"
+          >
+            Continue to Dashboard
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SectionHeader({ icon: Icon, color, title, linkLabel, onLink }) {
   return (
@@ -165,9 +212,52 @@ function TreasuryCard({ label, amount, icon: Icon, color, hidden }) {
   );
 }
 
+function ReferralCard({ referralCode, creditBalance }) {
+  const [copied, setCopied] = useState(false);
+  function copyCode() {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(referralCode).then(done).catch(() => done());
+    else done();
+  }
+  const credit = Number(creditBalance ?? 0);
+  return (
+    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200 p-5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+            <Users size={18} className="text-purple-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Refer other organizations</p>
+            <p className="text-xs text-gray-500">Share your code — new orgs get a first-month discount, you earn credit after their first 30 days.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 sm:flex-shrink-0">
+          <span className="font-mono text-sm font-bold text-purple-800 bg-purple-100 px-3 py-1.5 rounded-lg">
+            {referralCode}
+          </span>
+          <button onClick={copyCode} className="p-2 rounded-lg text-purple-500 hover:bg-purple-100 transition-colors" title="Copy code">
+            {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
+          </button>
+        </div>
+      </div>
+      {credit > 0 && (
+        <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200">
+          <CheckCircle size={13} className="text-green-500" />
+          <span className="text-xs font-semibold text-green-700">₹{credit.toFixed(0)} referral credit earned</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, planExpiresAt } = useAuth();
+  const isPlanExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const navigate = useNavigate();
+  const [limitsDismissed, setLimitsDismissed] = useState(
+    () => !!sessionStorage.getItem('overLimitDismissed')
+  );
 
   if (user?.role === 'STAFF')  return <StaffHomePage />;
   if (user?.role === 'MANAGER') return <ManagerHomePage />;
@@ -251,6 +341,25 @@ export default function DashboardPage() {
     staleTime: 300_000,
   });
 
+  const { data: referralInfo } = useQuery({
+    queryKey: ['myReferralInfo'],
+    queryFn: getMyReferralInfo,
+    enabled: isAdmin,
+    staleTime: 300_000,
+  });
+
+  const { data: pendingSettlementsPage } = useQuery({
+    queryKey: ['dash-pending-settlements'],
+    queryFn: () => getPendingSettlements(0, 5),
+    enabled: isAdmin,
+    staleTime: 120_000,
+  });
+  const pendingSettlements = pendingSettlementsPage?.content ?? [];
+  const pendingSettlementCount = pendingSettlementsPage?.totalElements ?? 0;
+  const memberNameMap = Object.fromEntries(
+    members.map(m => [String(m.id).toLowerCase(), m.fullName ?? m.name ?? ''])
+  );
+
   const paidKeys = new Set(
     allPayoutsForDash
       .filter((p) => p.status !== 'CANCELLED')
@@ -268,6 +377,25 @@ export default function DashboardPage() {
 
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
 
+  const { data: effectiveLimits } = useQuery({
+    queryKey: ['my-effective-limits'],
+    queryFn: getMyEffectiveLimits,
+    enabled: isAdmin,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const limitViolations = (() => {
+    if (!effectiveLimits || !isAdmin) return [];
+    const v = [];
+    if (effectiveLimits.maxActiveChits > 0 && activeChits.length > effectiveLimits.maxActiveChits) {
+      v.push({ label: 'Active Chit Groups', current: activeChits.length, limit: effectiveLimits.maxActiveChits });
+    }
+    if (effectiveLimits.maxMembers > 0 && members.length > effectiveLimits.maxMembers) {
+      v.push({ label: 'Members', current: members.length, limit: effectiveLimits.maxMembers });
+    }
+    return v;
+  })();
+
   function navToCashFilter(filter) {
     navigate(`/payments/cash-requests?filter=${filter}`);
   }
@@ -276,9 +404,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {limitViolations.length > 0 && !limitsDismissed && (
+        <OverLimitModal
+          violations={limitViolations}
+          onContinue={() => {
+            sessionStorage.setItem('overLimitDismissed', '1');
+            setLimitsDismissed(true);
+          }}
+        />
+      )}
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2
             className="text-2xl font-bold"
@@ -290,14 +427,33 @@ export default function DashboardPage() {
             Here's what's happening with your chit funds today.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={() => navigate('/chits', { state: { openAdd: true } })} size="md" className="min-w-36">
-            <Plus size={15} /> New Chit
-          </Button>
-          <Button variant="secondary" onClick={() => navigate('/members', { state: { openAdd: true } })} size="md">
-            <UserPlus size={15} /> Add Member
-          </Button>
-        </div>
+        {(() => {
+          const chitLimitHit = !!(effectiveLimits?.maxActiveChits > 0 && activeChits.length >= effectiveLimits.maxActiveChits);
+          const memberLimitHit = !!(effectiveLimits?.maxMembers > 0 && members.length >= effectiveLimits.maxMembers);
+          const chitOff = isPlanExpired || chitLimitHit;
+          const memberOff = isPlanExpired || memberLimitHit;
+          const expiredTip = 'Your plan has expired — contact support to renew';
+          return (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div
+                className={`transition-opacity duration-300 ${chitOff ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}
+                title={chitOff ? (isPlanExpired ? expiredTip : 'Active chit limit reached — upgrade to add more') : undefined}
+              >
+                <Button onClick={() => navigate('/chits', { state: { openAdd: true } })} size="md" className="min-w-36">
+                  <Plus size={15} /> New Chit
+                </Button>
+              </div>
+              <div
+                className={`transition-opacity duration-300 ${memberOff ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}
+                title={memberOff ? (isPlanExpired ? expiredTip : 'Member limit reached — upgrade to add more') : undefined}
+              >
+                <Button variant="secondary" onClick={() => navigate('/members', { state: { openAdd: true } })} size="md">
+                  <UserPlus size={15} /> Add Member
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── At a Glance (5 cards) ────────────────────────────────────────── */}
@@ -484,6 +640,55 @@ export default function DashboardPage() {
           </div>
         );
       })()}
+
+      {/* ── Pending Settlement Payments ──────────────────────────────────── */}
+      {isAdmin && pendingSettlementCount > 0 && (
+        <div>
+          <SectionHeader
+            icon={AlertTriangle}
+            color="#D97706"
+            title="Pending Settlement Payments"
+            linkLabel="View all"
+            onLink={() => navigate('/settlement')}
+          />
+          <div className="space-y-2">
+            {pendingSettlements.map((s) => {
+              const remainingAmt = Number(s.remainingAmount ?? 0);
+              const netAmt = Number(s.totalAmount ?? 0);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => navigate(`/settlement?memberId=${s.memberId}&settlementId=${s.id}`)}
+                  className="w-full bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex items-center gap-3 text-left hover:border-amber-400 transition-all cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-50">
+                    <AlertTriangle size={16} className="text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{memberNameMap[String(s.memberId).toLowerCase()] || String(s.memberId).slice(0, 8) + '…'}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Net {netAmt > 0 ? 'collect' : 'disburse'} ₹{Math.abs(netAmt).toLocaleString('en-IN')}
+                      {' · '}
+                      <span className="text-amber-700 font-medium">₹{Math.abs(remainingAmt).toLocaleString('en-IN')} remaining</span>
+                    </p>
+                  </div>
+                  <ArrowRight size={14} className="text-amber-500 flex-shrink-0" />
+                </button>
+              );
+            })}
+            {pendingSettlementCount > pendingSettlements.length && (
+              <button
+                type="button"
+                onClick={() => navigate('/settlement')}
+                className="w-full text-xs font-medium text-amber-700 hover:underline cursor-pointer py-2"
+              >
+                +{pendingSettlementCount - pendingSettlements.length} more pending →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Recent Activity ──────────────────────────────────────────────── */}
       <div>

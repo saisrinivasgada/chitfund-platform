@@ -12,6 +12,7 @@ import {
   adminCreateCashRequest, getAuditLogs,
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
   getOrgReservations, realizeOrgPayout, getCashRequestSummary,
+  getPendingSettlements,
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -45,6 +46,9 @@ export default function AdminDashboard() {
   const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
   const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
   const { data: cashSummary,          refetch: refetchSummary  } = useQuery({ queryKey: ['m-cash-summary'],  queryFn: getCashRequestSummary,   staleTime: 60_000 });
+  const { data: pendingSettlementsPage, refetch: refetchSettlements } = useQuery({ queryKey: ['m-dash-pending-settlements'], queryFn: () => getPendingSettlements(0, 5), staleTime: 120_000 });
+  const pendingSettlements = (pendingSettlementsPage as any)?.content ?? [];
+  const pendingSettlementCount = (pendingSettlementsPage as any)?.totalElements ?? 0;
 
   // Org Holdings — slots the organization holds across chits
   const { data: orgReservations = [], refetch: refetchOrgReservations } = useQuery({
@@ -65,7 +69,7 @@ export default function AdminDashboard() {
   });
 
   const isLoading = crLoading || chitsLoading || membersLoading;
-  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); }
+  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); refetchSettlements(); }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
@@ -256,6 +260,46 @@ export default function AdminDashboard() {
                 </View>
               </Card>
             ))}
+          </View>
+        )}
+
+        {/* Pending Settlement Payments */}
+        {pendingSettlementCount > 0 && (
+          <View style={{ marginBottom: 20 }}>
+            <SectionHeader title={`Pending Settlements (${pendingSettlementCount})`}
+              action={<TouchableOpacity onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Settlement' } })}><Text style={{ fontSize: 13, color: '#D97706', fontWeight: '600' }}>View all →</Text></TouchableOpacity>}
+            />
+            {pendingSettlements.map((s: any) => {
+              const memberName = memberMap[String(s.memberId).toLowerCase()] ?? String(s.memberId).slice(0, 8) + '…';
+              const remaining = Math.abs(Number(s.remainingAmount ?? 0));
+              const net = Number(s.totalAmount ?? 0);
+              return (
+                <TouchableOpacity
+                  key={s.id}
+                  onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Settlement', memberId: s.memberId } })}
+                  activeOpacity={0.8}
+                >
+                  <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#D97706' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>{memberName}</Text>
+                        <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                          {net > 0 ? 'Collect' : 'Disburse'} · <Text style={{ color: '#D97706', fontWeight: '600' }}>₹{remaining.toLocaleString('en-IN')} remaining</Text>
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 16, color: '#D97706' }}>→</Text>
+                    </View>
+                  </Card>
+                </TouchableOpacity>
+              );
+            })}
+            {pendingSettlementCount > pendingSettlements.length && (
+              <TouchableOpacity onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Settlement' } })}>
+                <Text style={{ fontSize: 12, color: '#D97706', fontWeight: '600', textAlign: 'center', paddingVertical: 8 }}>
+                  +{pendingSettlementCount - pendingSettlements.length} more pending →
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 

@@ -6,22 +6,26 @@ const api = axios.create({ baseURL: '/api' });
 api.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Handle 401 globally
+// Handle 401 + plan-expiry globally
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     const isAuthEndpoint = err.config?.url?.includes('/auth/');
     if (err.response?.status === 401 && !isAuthEndpoint) {
-      // Session expired mid-session — clear storage and show session expired page
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
       window.location.href = '/session-expired';
+    }
+    if (err.response?.data?.errorCode === 'PLAN_002') {
+      window.dispatchEvent(new CustomEvent('plan-expired'));
     }
     return Promise.reject(err);
   }
@@ -41,6 +45,11 @@ export const selectTenant = async ({ loginToken, tenantId }) => {
 };
 
 // Public: org self-registration (status = PENDING until super-admin activates)
+export const checkSlugAvailability = async (slug, signal) => {
+  const res = await api.get('/auth/check-slug', { params: { slug }, signal });
+  return res.data.data; // { slug, available }
+};
+
 export const registerOrg = async (body) => {
   const res = await api.post('/auth/register-org', body);
   return res.data.data; // TenantResponse
@@ -55,7 +64,7 @@ export const setupAccount = async ({ token, newPassword, fullName }) => {
 // Generate a short-lived pre-scope token for cross-subdomain org switching.
 // Needs explicit Authorization header because the interceptor skips /auth/ endpoints.
 export const generateTransferToken = async () => {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
   const res = await api.post('/auth/transfer-token', null, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -90,6 +99,11 @@ export const superAdminActivateTenant = async (tenantId) => {
 
 export const superAdminSuspendTenant = async (tenantId) => {
   const res = await api.post(`/super-admin/tenants/${tenantId}/suspend`);
+  return res.data.data;
+};
+
+export const superAdminSetTenantStatus = async (tenantId, status) => {
+  const res = await api.patch(`/super-admin/tenants/${tenantId}/status`, null, { params: { status } });
   return res.data.data;
 };
 
@@ -357,8 +371,16 @@ export const linkMemberUser = async ({ memberId, userId }) => {
 };
 
 export const getMembers = async (params = {}) => {
-  const res = await api.get('/members', { params });
+  const res = await api.get('/members', { params: { size: 200, ...params } });
   return res.data.data?.content ?? res.data.data ?? [];
+};
+
+export const getMembersPage = async ({ search = '', page = 0, size = 20, status } = {}) => {
+  const params = { page, size };
+  if (search) params.search = search;
+  if (status) params.status = status;
+  const res = await api.get('/members', { params });
+  return res.data.data ?? { content: [], totalElements: 0, totalPages: 0, number: 0 };
 };
 
 export const getMember = async (id) => {
@@ -414,6 +436,11 @@ export const createChit = async (body) => {
 
 export const updateChitStatus = async ({ id, status, startDate }) => {
   const res = await api.put(`/chits/${id}/status`, { status, startDate: startDate ?? null });
+  return res.data.data;
+};
+
+export const updateChitDetails = async ({ id, ...body }) => {
+  const res = await api.patch(`/chits/${id}/details`, body);
   return res.data.data;
 };
 
@@ -965,13 +992,57 @@ export const getSettlementPreview = async ({ memberId, chitIds }) => {
   return res.data.data;
 };
 
-export const confirmSettlement = async ({ memberId, chitItems, notes }) => {
-  const res = await api.post('/settlement/confirm', { memberId, chitItems, notes: notes ?? null });
+export const confirmSettlement = async ({ memberId, chitItems, notes, adjustmentAmount, adjustmentReason }) => {
+  const res = await api.post('/settlement/confirm', {
+    memberId, chitItems, notes: notes ?? null,
+    adjustmentAmount: adjustmentAmount ?? null,
+    adjustmentReason: adjustmentReason ?? null,
+  });
   return res.data.data;
 };
 
-export const getMemberSettlements = async (memberId) => {
-  const res = await api.get(`/settlement/member/${memberId}`);
+export const recordSettlementTransaction = async ({ settlementId, amount, mode, referenceNumber, notes, idempotencyKey }) => {
+  const res = await api.post(`/settlement/${settlementId}/transactions`, {
+    settlementId, amount, mode,
+    referenceNumber: referenceNumber || null,
+    notes: notes || null,
+    idempotencyKey,
+  });
+  return res.data.data;
+};
+
+export const getMemberSettlements = async (memberId, page = 0, size = 10) => {
+  const res = await api.get(`/settlement/member/${memberId}?page=${page}&size=${size}`);
+  return res.data.data ?? { content: [], totalPages: 0, totalElements: 0 };
+};
+
+export const getPendingSettlements = async (page = 0, size = 20) => {
+  const res = await api.get(`/settlement/pending-payments?page=${page}&size=${size}`);
+  return res.data.data ?? { content: [], totalPages: 0, totalElements: 0 };
+};
+
+export const getAllSettlements = async (page = 0, size = 20) => {
+  const res = await api.get(`/settlement/all?page=${page}&size=${size}`);
+  return res.data.data ?? { content: [], totalPages: 0, totalElements: 0 };
+};
+
+export const voidSettlement = async (settlementId) => {
+  const res = await api.post(`/settlement/${settlementId}/void`);
+  return res.data.data;
+};
+
+export const getSettlementById = async (settlementId) => {
+  const res = await api.get(`/settlement/${settlementId}`);
+  return res.data.data;
+};
+
+export const getSettlementTransactions = async (settlementId) => {
+  const res = await api.get(`/settlement/${settlementId}/transactions`);
+  return res.data.data ?? [];
+};
+
+export const getMemberPaymentHistoryByChit = async (memberId, chitId) => {
+  const res = await api.get('/payments/history', { params: { memberId, chitId } });
   return res.data.data ?? [];
 };
 
@@ -1001,6 +1072,11 @@ export const addWalletTransaction = async (payload) => {
 
 export const transferWallet = async (payload) => {
   const res = await api.post('/admin/wallet/transfer', payload);
+  return res.data.data;
+};
+
+export const redeemMemberCredit = async (payload) => {
+  const res = await api.post('/admin/wallet/credit-withdrawal', payload);
   return res.data.data;
 };
 

@@ -30,6 +30,7 @@ const STATUS_CONFIG = {
 const MODE_ICON = {
   CASH: Banknote,
   UPI:  CreditCard,
+  CREDIT: CreditCard,
   BANK: Building2, NEFT: Building2, RTGS: Building2, IMPS: Building2,
   BANK_TRANSFER: Building2,
 };
@@ -301,7 +302,7 @@ export default function TransactionDetailPage() {
     : null;
   const receiptRows = [
     ['Date',         fmtDateTime(batch.collectedAt ?? batch.createdAt)],
-    ['Payment Mode', batch.paymentMode?.replace(/_/g, ' ') ?? '—'],
+    ['Payment Mode', batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode?.replace(/_/g, ' ') ?? '—')],
     ['Member',       receiptMemberName],
     ['Chit Name',    chitName],
     ...(receiptChitValue ? [['Chit Value', receiptChitValue]] : []),
@@ -414,6 +415,19 @@ export default function TransactionDetailPage() {
         </div>
       )}
 
+      {/* Credit payment banner */}
+      {batch.paymentMode === 'CREDIT' && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <CreditCard size={16} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-700">Settled via Credit Balance</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              This payment was covered entirely from the member's credit balance — no cash was collected.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Amount Hero */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-between">
         <div>
@@ -426,7 +440,7 @@ export default function TransactionDetailPage() {
         </div>
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700">
           <ModeIcon size={14} className="text-gray-500" />
-          {batch.paymentMode?.replace('_', ' ')}
+          {batch.paymentMode === 'CREDIT' ? 'Credit Balance' : batch.paymentMode?.replace('_', ' ')}
         </span>
       </div>
 

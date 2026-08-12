@@ -1073,9 +1073,10 @@ const PAYMENT_MODES = [
 ];
 
 export function RecordPaymentTab() {
-  const { user } = useAuth();
+  const { user, planExpiresAt } = useAuth();
   const toast = useToastContext();
   const qc = useQueryClient();
+  const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
 
   // Managers don't record direct payments — redirect to cash requests
   if (user?.role === 'MANAGER') {
@@ -1111,9 +1112,14 @@ export function RecordPaymentTab() {
   });
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
 
+  const isCredit = paymentMode === 'CREDIT';
+
   const mutation = useMutation({
     mutationFn: () => {
       const idempotencyKey = crypto.randomUUID();
+      if (isCredit) {
+        return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, idempotencyKey });
+      }
       if (paymentMode === 'CASH' && collectedBy !== 'SELF') {
         // Worker/Manager collected → AWAITING_REMITTANCE
         return collectPayment({ chitId, memberId, amount: Number(amount), notes: notes || null, overrideCollectedBy: collectedBy }, idempotencyKey);
@@ -1123,7 +1129,9 @@ export function RecordPaymentTab() {
       }
     },
     onSuccess: () => {
-      const msg = paymentMode === 'CASH' && collectedBy !== 'SELF'
+      const msg = isCredit
+        ? 'Credits applied — outstanding settled'
+        : paymentMode === 'CASH' && collectedBy !== 'SELF'
         ? 'Cash collection recorded — pending remittance from staff'
         : 'Payment recorded successfully';
       toast.success(msg);
@@ -1176,9 +1184,10 @@ export function RecordPaymentTab() {
 
   const outstanding = chitId ? (balanceMap[chitId] ?? null) : null;
   const amtNum = Number(amount || 0);
+  const creditCoversAll = chitId && outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
   // Effective amount after credit auto-applies
   const effectiveAmount = amtNum + creditBalance;
-  const isOverpay = outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
+  const isOverpay = !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
 
   return (
     <div className="max-w-lg">
@@ -1219,12 +1228,34 @@ export function RecordPaymentTab() {
             ))}
           </Select>
           {memberId && creditBalance > 0 && (
-            <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-              <span className="text-xs text-emerald-800 font-medium">
-                Credit balance: <strong>₹{creditBalance.toLocaleString('en-IN')}</strong>
-              </span>
-              <span className="text-xs text-emerald-600 ml-auto">Auto-applied to outstanding</span>
+            <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                <span className="text-xs text-emerald-800 font-medium">
+                  Credit balance: <strong>₹{creditBalance.toLocaleString('en-IN')}</strong>
+                </span>
+                {creditCoversAll && (
+                  <button
+                    type="button"
+                    onClick={() => setMode(isCredit ? 'CASH' : 'CREDIT')}
+                    className={`ml-auto text-xs font-semibold px-2.5 py-1 rounded-lg border cursor-pointer transition-all ${
+                      isCredit
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {isCredit ? '✓ Using Credits' : 'Apply Credits'}
+                  </button>
+                )}
+                {!creditCoversAll && (
+                  <span className="text-xs text-emerald-600 ml-auto">Auto-applied to outstanding</span>
+                )}
+              </div>
+              {isCredit && (
+                <p className="text-xs text-emerald-600 mt-1">
+                  ₹{creditBalance.toLocaleString('en-IN')} credit covers ₹{(outstanding ?? 0).toLocaleString('en-IN')} outstanding — no cash needed.
+                </p>
+              )}
             </div>
           )}
           {memberId && creditBalance === 0 && memberCredit && (
@@ -1268,35 +1299,37 @@ export function RecordPaymentTab() {
           </div>
         )}
 
-        {/* Amount */}
-        <FormField label="Amount (₹)" required>
-          <Input
-            type="number"
-            min="1"
-            placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-          />
-          {outstanding > 0 && (
-            <button type="button" onClick={() => setAmount(String(outstanding))}
-              className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
-              Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
-            </button>
-          )}
-          {isOverpay && (
-            <div className="mt-1.5 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-              <span className="flex-shrink-0">ℹ</span>
-              <span>
-                Effective payment (₹{amtNum.toLocaleString('en-IN')}{creditBalance > 0 ? ` + ₹${creditBalance.toLocaleString('en-IN')} credit` : ''} = ₹{effectiveAmount.toLocaleString('en-IN')}) exceeds this chit's outstanding ₹{outstanding.toLocaleString('en-IN')}.
-                The excess <strong>₹{(effectiveAmount - outstanding).toLocaleString('en-IN')}</strong> will auto-apply to any other chit outstanding — if all clear, it becomes credit balance.
-              </span>
-            </div>
-          )}
-        </FormField>
+        {/* Amount — hidden when using credits */}
+        {!isCredit && (
+          <FormField label="Amount (₹)" required>
+            <Input
+              type="number"
+              min="1"
+              placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+            {outstanding > 0 && (
+              <button type="button" onClick={() => setAmount(String(outstanding))}
+                className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+                Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
+              </button>
+            )}
+            {isOverpay && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                <span className="flex-shrink-0">ℹ</span>
+                <span>
+                  Effective payment (₹{amtNum.toLocaleString('en-IN')}{creditBalance > 0 ? ` + ₹${creditBalance.toLocaleString('en-IN')} credit` : ''} = ₹{effectiveAmount.toLocaleString('en-IN')}) exceeds this chit's outstanding ₹{outstanding.toLocaleString('en-IN')}.
+                  The excess <strong>₹{(effectiveAmount - outstanding).toLocaleString('en-IN')}</strong> will auto-apply to any other chit outstanding — if all clear, it becomes credit balance.
+                </span>
+              </div>
+            )}
+          </FormField>
+        )}
 
-        {/* Collected By — only for CASH */}
-        {isCash && (
+        {/* Collected By — only for CASH, not when using credits */}
+        {!isCredit && isCash && (
           <FormField label="Collected By" required>
             <Select value={collectedBy} onChange={(e) => setCollectedBy(e.target.value)}>
               <option value="SELF">Self (I collected it directly)</option>
@@ -1323,14 +1356,23 @@ export function RecordPaymentTab() {
           />
         </FormField>
 
+        {isExpired && (
+          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-700 font-medium">
+            Plan expired — renew your plan to record payments.{' '}
+            <a href="/billing" className="underline font-semibold">Go to Billing →</a>
+          </div>
+        )}
         <Button
           onClick={() => mutation.mutate()}
           loading={mutation.isPending}
-          disabled={!memberId || !chitId || !amount || Number(amount) <= 0}
+          disabled={isExpired || !memberId || !chitId || (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0))}
           className="w-full"
+          title={isExpired ? 'Plan expired — renew to record payments' : undefined}
         >
           <CreditCard size={15} />
-          {isCash && collectedBy !== 'SELF'
+          {isCredit
+            ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
+            : isCash && collectedBy !== 'SELF'
             ? 'Record Collection (Remittance)'
             : `Record ${PAYMENT_MODES.find((m) => m.value === paymentMode)?.label} Payment`}
         </Button>

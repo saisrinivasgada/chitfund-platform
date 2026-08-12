@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getChit, updateChitStatus, updateChitName, pauseChit, resumeChit, deleteChit,
+  getChit, updateChitStatus, updateChitName, updateChitDetails, pauseChit, resumeChit, deleteChit,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw, shiftReservations,
@@ -12,7 +12,7 @@ import {
   getDrawPayments, recordPayment, collectPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
   getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
-  getChitsForMember, getMemberTotalBalance, getMemberBalance,
+  getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   getMe, listStaff, getUserById, getWalletBalance,
   getChitAuditLogs,
 } from '../../services/api';
@@ -28,6 +28,7 @@ import FormField, { Input, Select, Textarea, DateInput } from '../../components/
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog, DestructiveDialog } from '../../components/ui/ConfirmDialog';
 import RoleBadge from '../../components/ui/RoleBadge';
+import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 import OpenDrawModal from '../../components/draws/OpenDrawModal';
 import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
@@ -287,6 +288,7 @@ function MembersTab({ chitId, chit }) {
   const totalSpots2    = enrollments.length + orgHeldCount;
   const maxSpots       = chit?.totalMembers ?? Infinity;
   const spotsAreFull   = totalSpots2 >= maxSpots;
+  const isDraft        = chit?.status === 'DRAFT';
 
   return (
     <div className="space-y-4">
@@ -295,7 +297,7 @@ function MembersTab({ chitId, chit }) {
           {totalSpots2} spots filled · {(chit?.totalMembers ?? 0) - totalSpots2} remaining
           {orgHeldCount > 0 && <span className="text-gray-400"> ({orgHeldCount} org-held)</span>}
         </p>
-        {canEdit && !spotsAreFull && (
+        {canEdit && !spotsAreFull && !isDraft && (
           <Button onClick={() => setShowEnroll(true)} size="sm">
             <UserPlus size={14} /> Add Spot
           </Button>
@@ -304,10 +306,17 @@ function MembersTab({ chitId, chit }) {
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         {isLoading ? <PageSpinner /> : uniqueMembers.length === 0 ? (
-          <EmptyState icon={Users} title="No members enrolled"
-            message="Enroll members to this chit fund."
-            action={canEdit && !spotsAreFull ? 'Add Spot' : undefined}
-            onAction={canEdit && !spotsAreFull ? () => setShowEnroll(true) : undefined} />
+          isDraft ? (
+            <EmptyState
+              icon={Users}
+              title="No members yet"
+              message="Once this chit is activated, members from the scheduled slots will appear here." />
+          ) : (
+            <EmptyState icon={Users} title="No members enrolled"
+              message={chit?.status === 'ACTIVE' ? 'No members have been enrolled in this chit yet.' : 'Enroll members to this chit fund.'}
+              action={canEdit && !spotsAreFull ? 'Add Spot' : undefined}
+              onAction={canEdit && !spotsAreFull ? () => setShowEnroll(true) : undefined} />
+          )
         ) : (
           <Table columns={['Member', 'Spots Held', 'Enrolled On', 'Actions']}>
             {uniqueMembers.map((e) => {
@@ -434,6 +443,7 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
+      qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
       toast.success(prefill ? 'Replacement slot added at same position' : 'Slot added');
       onClose();
     },
@@ -547,17 +557,17 @@ const STATUS_COLORS = {
 // Uses string splitting to avoid UTC/local timezone offset bugs
 // Given the chit's startDate and a 1-based cycle number, returns the ISO due date
 // for that cycle (same day of month as start, clamped to end of target month).
-function computeDefaultDueDate(startDateStr, cycleNum) {
+function computeDefaultDueDate(startDateStr, cycleNum, monthlyDueDate) {
   if (!startDateStr) return '';
   const parts = startDateStr.split('-').map(Number);
   if (parts.length < 3) return '';
   const [y, m, d] = parts;
-  // Target month = startMonth + (cycleNum - 1)
-  const targetMonth = m - 1 + (cycleNum - 1);  // 0-indexed months from JS Date
+  const dueDay = (monthlyDueDate && monthlyDueDate >= 1 && monthlyDueDate <= 28) ? monthlyDueDate : d;
+  const targetMonth = m - 1 + (cycleNum - 1);
   const targetYear  = y + Math.floor(targetMonth / 12);
-  const targetMon   = targetMonth % 12;          // 0-indexed
+  const targetMon   = targetMonth % 12;
   const lastDay     = new Date(targetYear, targetMon + 1, 0).getDate();
-  const day         = Math.min(d, lastDay);
+  const day         = Math.min(dueDay, lastDay);
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
@@ -1165,7 +1175,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const { user } = useAuth();
-  const canEdit = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
@@ -1253,6 +1263,7 @@ function ReservationScheduleTab({ chitId, chit }) {
         );
       }
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
+      qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
       setEdits((prev) => { const n = { ...prev }; delete n[slot.id]; return n; });
       toast.success('Slot saved');
     },
@@ -1301,6 +1312,7 @@ function ReservationScheduleTab({ chitId, chit }) {
       }
 
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
+      qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
       setVoidingSlot(null);
       toast.success(
         replaceAt === 'same'
@@ -1337,6 +1349,7 @@ function ReservationScheduleTab({ chitId, chit }) {
         }
       }
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
+      qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
       toast.success('Slot restored');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to restore slot'),
@@ -1714,7 +1727,7 @@ function OpenDrawModal_LOCAL({ chitId, chit, draws, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [step, setStep] = useState(1);
-  const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum));
+  const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate));
   const [additionalWinners, setAdditionalWinners] = useState([]); // [{ id, memberId, slotId }]
   const [preview, setPreview] = useState(null);
 
@@ -2286,7 +2299,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
 
   const [form, setForm] = useState({
     monthNumber: String(nextCycleNum),
-    dueDate: computeDefaultDueDate(chit?.startDate, nextCycleNum),
+    dueDate: computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate),
     skipReason: '',
   });
 
@@ -2328,7 +2341,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
                 setForm((f) => ({
                   ...f,
                   monthNumber: e.target.value,
-                  dueDate: num > 0 ? computeDefaultDueDate(chit?.startDate, num) : f.dueDate,
+                  dueDate: num > 0 ? computeDefaultDueDate(chit?.startDate, num, chit?.monthlyDueDate) : f.dueDate,
                 }));
               }} required />
           </FormField>
@@ -2822,30 +2835,48 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const toast = useToastContext();
   const balance = Number(paymentRecord?.balance ?? 0);
 
-  const [amount, setAmount]         = useState(String(balance));
-  const [paymentMode, setPaymentMode] = useState(isWorker ? 'CASH' : 'UPI');
-  const [collectedBy, setCollectedBy] = useState('SELF'); // 'SELF' or a staff UUID
-  const [notes, setNotes]           = useState('');
+  const [amount, setAmount]           = useState(String(balance));
+  const [paymentMode, setPaymentMode]  = useState(isWorker ? 'CASH' : 'UPI');
+  const [collectedBy, setCollectedBy]  = useState('SELF');
+  const [notes, setNotes]             = useState('');
+  const [usingCredit, setUsingCredit]  = useState(false);
+
+  const { data: memberCredit } = useQuery({
+    queryKey: ['memberCredit', paymentRecord?.memberId],
+    queryFn: () => getMemberCredit(paymentRecord.memberId),
+    enabled: !!paymentRecord?.memberId,
+  });
+  const creditBalance = Number(memberCredit?.balance ?? 0);
+  const creditCoversAll = creditBalance >= balance && balance > 0;
+  const creditPartial = creditBalance > 0 && !creditCoversAll && balance > 0;
+
+  // Pre-fill amount with remaining to collect when credit partially covers outstanding
+  useEffect(() => {
+    if (creditPartial) setAmount(String(Math.max(0, balance - creditBalance)));
+  }, [creditBalance]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isCash    = paymentMode === 'CASH';
+  const viaTeam   = isCash && collectedBy !== 'SELF';
+  const amtNum    = usingCredit ? 0 : Number(amount || 0);
+  const isOverpay = !usingCredit && amtNum > balance && balance > 0;
+  const canSubmit = usingCredit ? creditCoversAll : (amtNum > 0);
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
-
-  const isCash       = paymentMode === 'CASH';
-  const viaTeam      = isCash && collectedBy !== 'SELF';
-  const amtNum       = Number(amount || 0);
-  const isOverpay    = amtNum > balance && balance > 0;
 
   function invalidate() {
     qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
     qc.invalidateQueries({ queryKey: ['draws', chitId] });
     qc.invalidateQueries({ queryKey: ['paymentHistory', chitId, member?.id] });
+    qc.invalidateQueries({ queryKey: ['memberCredit', paymentRecord?.memberId] });
   }
 
   const mutation = useMutation({
     mutationFn: async () => {
+      if (usingCredit) {
+        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
+      }
       if (viaTeam) {
-        // Create a cash pickup request — assigns the worker to go collect from the member.
-        // The payment is NOT recorded yet; it appears in Cash Requests until the worker collects.
         return adminCreateCashRequest({
           memberId: paymentRecord.memberId,
           staffId: collectedBy,
@@ -2853,14 +2884,16 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           requestedAmount: amtNum,
           notes: notes || null,
         });
-      } else {
-        // Admin direct (CASH self or UPI/Bank/Cheque) → settled immediately
-        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
       }
+      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
     },
     onSuccess: () => {
       invalidate();
-      toast.success(viaTeam ? 'Cash pickup assigned — visible in Cash Requests' : 'Payment recorded and settled');
+      toast.success(
+        usingCredit ? 'Credits applied — draw settled' :
+        viaTeam ? 'Cash pickup assigned — visible in Cash Requests' :
+        'Payment recorded and settled'
+      );
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
@@ -2881,19 +2914,59 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           </div>
         </div>
 
-        {/* Amount */}
-        <FormField label="Amount (₹)" required>
-          <Input type="number" min="0.01" step="0.01"
-            value={amount} onChange={(e) => setAmount(e.target.value)} required />
-          {isOverpay && (
-            <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              ⚠ ₹{amtNum.toLocaleString()} exceeds outstanding by <strong>₹{(amtNum - balance).toLocaleString()}</strong> — excess is not stored as credit.
-            </p>
-          )}
-        </FormField>
+        {/* Credit balance banner */}
+        {creditBalance > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-emerald-700">Credit Balance Available</p>
+                <p className="text-lg font-bold text-emerald-700">₹{creditBalance.toLocaleString()}</p>
+              </div>
+              {creditCoversAll && (
+                <button
+                  type="button"
+                  onClick={() => setUsingCredit((v) => !v)}
+                  className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all cursor-pointer ${
+                    usingCredit
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50'
+                  }`}
+                >
+                  {usingCredit ? '✓ Using Credits' : 'Apply Credits'}
+                </button>
+              )}
+              {!creditCoversAll && (
+                <p className="text-xs text-emerald-600">Auto-applies on payment</p>
+              )}
+            </div>
+            {usingCredit && (
+              <p className="text-xs text-emerald-600 mt-1.5">
+                ₹{creditBalance.toLocaleString()} credit will cover ₹{balance.toLocaleString()} outstanding — no cash needed.
+              </p>
+            )}
+            {creditPartial && (
+              <p className="text-xs text-emerald-600 mt-1.5">
+                ₹{creditBalance.toLocaleString()} credit auto-applies → collect remaining <strong>₹{Math.max(0, balance - creditBalance).toLocaleString()}</strong>
+              </p>
+            )}
+          </div>
+        )}
 
-        {/* Payment mode */}
-        {!isWorker && (
+        {/* Amount — hidden when using credits */}
+        {!usingCredit && (
+          <FormField label="Amount (₹)" required>
+            <Input type="number" min="0.01" step="0.01"
+              value={amount} onChange={(e) => setAmount(e.target.value)} required />
+            {isOverpay && (
+              <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠ ₹{amtNum.toLocaleString()} exceeds outstanding by <strong>₹{(amtNum - balance).toLocaleString()}</strong> — excess becomes credit balance.
+              </p>
+            )}
+          </FormField>
+        )}
+
+        {/* Payment mode — hidden when using credits */}
+        {!usingCredit && !isWorker && (
           <FormField label="Payment Mode" required>
             <Select value={paymentMode} onChange={(e) => { setPaymentMode(e.target.value); setCollectedBy('SELF'); }}>
               <option value="UPI">UPI</option>
@@ -2904,8 +2977,8 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           </FormField>
         )}
 
-        {/* Cash: who has it? */}
-        {isCash && (
+        {/* Cash: who collected? */}
+        {!usingCredit && isCash && (
           <FormField label="Collected by" required>
             <Select value={collectedBy} onChange={(e) => setCollectedBy(e.target.value)}>
               <option value="SELF">Self — I have the cash</option>
@@ -2931,12 +3004,16 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
         <div className="flex gap-3 pt-1">
           <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
           <Button
-            disabled={!amtNum || amtNum <= 0}
+            disabled={!canSubmit}
             loading={mutation.isPending}
             onClick={() => mutation.mutate()}
-            className="flex-1"
+            className={`flex-1 ${usingCredit ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
           >
-            {viaTeam ? `Assign Pickup ₹${amtNum.toLocaleString()}` : `Settle ₹${amtNum.toLocaleString()}`}
+            {usingCredit
+              ? `Apply ₹${balance.toLocaleString()} Credits`
+              : viaTeam
+              ? `Assign Pickup ₹${amtNum.toLocaleString()}`
+              : `Settle ₹${amtNum.toLocaleString()}`}
           </Button>
         </div>
       </div>
@@ -4148,11 +4225,153 @@ function StatusChangeDialog({
 }
 
 // ─── Header actions ───────────────────────────────────────────────────────────
+// ─── Edit Chit Details Modal ──────────────────────────────────────────────────
+function EditChitDetailsModal({ chitId, chit, onClose }) {
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const isDraft = chit.status === 'DRAFT';
+
+  const [form, setForm] = useState({
+    name:                         chit.name ?? '',
+    description:                  chit.description ?? '',
+    chitValue:                    String(chit.chitValue ?? ''),
+    installmentAmount:            String(chit.installmentAmount ?? ''),
+    numberOfMembers:              String(chit.totalMembers ?? ''),
+    numberOfMonths:               String(chit.durationMonths ?? chit.totalMembers ?? ''),
+    monthlyDueDate:               String(chit.monthlyDueDate ?? ''),
+    orgHeldSpotsCount:            String(chit.orgHeldSpotsCount ?? '0'),
+    startDate:                    chit.startDate ?? '',
+    postPayoutContributionEnabled: chit.postPayoutContributionEnabled ?? false,
+    defaultPostPayoutContribution: String(chit.defaultPostPayoutContribution ?? ''),
+  });
+
+  const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
+
+  const mutation = useMutation({
+    mutationFn: () => updateChitDetails({
+      id: chitId,
+      name:                         form.name.trim() || undefined,
+      description:                  form.description,
+      chitValue:                    form.chitValue ? Number(form.chitValue) : undefined,
+      installmentAmount:            form.installmentAmount ? Number(form.installmentAmount) : undefined,
+      numberOfMembers:              isDraft && form.numberOfMembers ? Number(form.numberOfMembers) : undefined,
+      numberOfMonths:               isDraft && form.numberOfMonths ? Number(form.numberOfMonths) : undefined,
+      monthlyDueDate:               form.monthlyDueDate ? Number(form.monthlyDueDate) : undefined,
+      orgHeldSpotsCount:            isDraft && form.orgHeldSpotsCount !== '' ? Number(form.orgHeldSpotsCount) : undefined,
+      startDate:                    isDraft && form.startDate ? form.startDate : undefined,
+      postPayoutContributionEnabled: form.postPayoutContributionEnabled,
+      defaultPostPayoutContribution: form.defaultPostPayoutContribution ? Number(form.defaultPostPayoutContribution) : undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chit', chitId] });
+      qc.invalidateQueries({ queryKey: ['chits'] });
+      toast.success('Chit details updated');
+      onClose();
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to update'),
+  });
+
+  return (
+    <Modal title="Edit Chit Details" onClose={onClose} size="md">
+      <div className="space-y-4">
+        {!isDraft && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800 leading-snug">
+              This chit is <strong>ACTIVE</strong>. Changing financial values (chit value, installment, post-payout amounts) will take effect for future draws. Member count and start date cannot be changed on an active chit.
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-3 pb-4 border-b border-gray-100">
+          <FormField label="Chit Name" required>
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Gold Chit 2025" />
+          </FormField>
+          <FormField label="Description">
+            <Textarea value={form.description} onChange={(e) => set('description', e.target.value)}
+              placeholder="Optional notes about this chit…" rows={2} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Chit Value (₹)" required>
+            <Input type="number" min="1000" value={form.chitValue}
+              onChange={(e) => set('chitValue', e.target.value)} />
+          </FormField>
+          <FormField label="Installment / Member (₹)">
+            <Input type="number" min="1" value={form.installmentAmount}
+              placeholder="Auto from chit value ÷ members"
+              onChange={(e) => set('installmentAmount', e.target.value)} />
+          </FormField>
+        </div>
+
+        {isDraft && (
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Number of Members" required>
+              <Input type="number" min="2" max="100" value={form.numberOfMembers}
+                onChange={(e) => set('numberOfMembers', e.target.value)} />
+            </FormField>
+            <FormField label="Number of Months" required>
+              <Input type="number" min="2" max="120" value={form.numberOfMonths}
+                onChange={(e) => set('numberOfMonths', e.target.value)} />
+            </FormField>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Monthly Due Date (day of month)">
+            <Input type="number" min="1" max="28" value={form.monthlyDueDate}
+              placeholder="e.g. 5"
+              onChange={(e) => set('monthlyDueDate', e.target.value)} />
+          </FormField>
+          {isDraft && (
+            <FormField label="Org-Held Spots">
+              <Input type="number" min="0" value={form.orgHeldSpotsCount}
+                onChange={(e) => set('orgHeldSpotsCount', e.target.value)} />
+            </FormField>
+          )}
+        </div>
+
+        {isDraft && (
+          <FormField label="Anticipated Start Date">
+            <Input type="date" value={form.startDate}
+              onChange={(e) => set('startDate', e.target.value)} />
+          </FormField>
+        )}
+
+        <div className="border-t border-gray-100 pt-4 space-y-3">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" checked={form.postPayoutContributionEnabled}
+              onChange={(e) => set('postPayoutContributionEnabled', e.target.checked)}
+              className="w-4 h-4 rounded accent-[#1E3A5F]" />
+            <span className="text-sm font-medium text-gray-800">Post-payout contribution rule</span>
+            <span className="text-xs text-gray-400">(members pay differently after winning)</span>
+          </label>
+          {form.postPayoutContributionEnabled && (
+            <FormField label="Default Post-Payout Amount (₹)">
+              <Input type="number" min="0" value={form.defaultPostPayoutContribution}
+                onChange={(e) => set('defaultPostPayoutContribution', e.target.value)} />
+            </FormField>
+          )}
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button onClick={() => mutation.mutate()} loading={mutation.isPending} className="flex-1">
+            Save Changes
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function HeaderActions({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
-  const { user } = useAuth();
+  const { user, tenantPlan } = useAuth();
   const isManager = user?.role === 'MANAGER';
+  const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [pendingStatus, setPendingStatus] = useState(null); // status being confirmed
   const [pendingStartDate, setPendingStartDate] = useState('');
@@ -4197,7 +4416,7 @@ function HeaderActions({ chitId, chit }) {
       return updateChitStatus({ id: chitId, status, startDate: startDate || null });
     },
     onSuccess: () => { invalidate(); toast.success('Status updated'); setPendingStatus(null); setPendingStartDate(''); setShowStatusMenu(false); },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to update status'),
+    onError: (err) => { if (handlePlanError(err)) return; toast.error(err.response?.data?.message ?? 'Failed to update status'); },
   });
 
   const pauseMutation = useMutation({
@@ -4346,6 +4565,7 @@ function HeaderActions({ chitId, chit }) {
           onClose={() => setShowDeleteModal(false)}
         />
       )}
+      {planModal}
     </div>
   );
 }
@@ -4374,6 +4594,7 @@ const ACTION_META = {
   SLOT_SWAPPED:            { label: 'Slots Swapped',       color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'schedule' },
   ORG_RESERVATION_CREATED: { label: 'Org Slot Reserved',  color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200',   group: 'schedule' },
   ORG_PAYOUT_REALIZED:     { label: 'Org Payout Realized',color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200',  group: 'schedule' },
+  CHIT_DETAILS_UPDATED:    { label: 'Chit Edited',        color: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200', group: 'settings' },
 };
 
 
@@ -4383,6 +4604,7 @@ const AUDIT_FILTERS = [
   { key: 'winners',  label: 'Winners'  },
   { key: 'payouts',  label: 'Payouts'  },
   { key: 'schedule', label: 'Slots'    },
+  { key: 'settings', label: 'Edits'    },
 ];
 
 function parseAuditState(json) {
@@ -4449,6 +4671,13 @@ function buildSummary(action, after, before, memberMap) {
       return `Org slot reserved · Draw #${a.monthNumber ?? '?'} · ₹${Number(a.payoutAmount ?? 0).toLocaleString('en-IN')}`;
     case 'ORG_PAYOUT_REALIZED':
       return `Org payout realized · ₹${Number(a.payoutAmount ?? 0).toLocaleString('en-IN')}`;
+    case 'CHIT_DETAILS_UPDATED': {
+      const parts = [];
+      if (b.name !== a.name) parts.push(`Name: "${b.name}" → "${a.name}"`);
+      if (b.chitValue !== a.chitValue) parts.push(`Value: ₹${Number(b.chitValue).toLocaleString('en-IN')} → ₹${Number(a.chitValue).toLocaleString('en-IN')}`);
+      if (b.installmentAmount !== a.installmentAmount) parts.push(`Installment: ₹${Number(b.installmentAmount).toLocaleString('en-IN')} → ₹${Number(a.installmentAmount).toLocaleString('en-IN')}`);
+      return parts.length > 0 ? parts.join(' · ') : 'Chit details updated';
+    }
     default:
       return action;
   }
@@ -4630,9 +4859,8 @@ export default function ChitDetailPage() {
   const toast = useToastContext();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
-  const [editingName, setEditingName] = useState(false);
-  const [nameInput, setNameInput] = useState('');
-  const [descInput, setDescInput] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editActiveConfirmed, setEditActiveConfirmed] = useState(false);
 
   const { data: chit, isLoading } = useQuery({
     queryKey: ['chit', id],
@@ -4650,16 +4878,6 @@ export default function ChitDetailPage() {
     queryKey: ['reservations', id],
     queryFn: () => getReservations(id),
     enabled: !!id,
-  });
-
-  const renameMutation = useMutation({
-    mutationFn: () => updateChitName({ id, name: nameInput.trim(), description: descInput.trim() || undefined }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['chit', id] });
-      setEditingName(false);
-      toast.success('Chit name updated');
-    },
-    onError: (e) => toast.error(e.response?.data?.message ?? 'Failed to update name'),
   });
 
   if (isLoading) return <PageSpinner />;
@@ -4714,69 +4932,64 @@ export default function ChitDetailPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          {editingName ? (
-            <div className="space-y-2">
-              <input
-                autoFocus
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') renameMutation.mutate(); if (e.key === 'Escape') setEditingName(false); }}
-                className="text-2xl font-bold w-full border-b-2 border-[#1E3A5F] bg-transparent outline-none pb-0.5"
-                style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}
-                placeholder="Chit name…"
-              />
-              <input
-                value={descInput}
-                onChange={(e) => setDescInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') setEditingName(false); }}
-                className="text-sm w-full border-b border-gray-300 bg-transparent outline-none pb-0.5 text-gray-500"
-                placeholder="Description (optional)…"
-              />
-              <div className="flex gap-2 pt-1">
-                <Button type="button" size="sm" loading={renameMutation.isPending}
-                  disabled={!nameInput.trim()}
-                  onClick={() => renameMutation.mutate()}>
-                  Save
-                </Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => setEditingName(false)}>
-                  Cancel
-                </Button>
-              </div>
+          <div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-2xl font-bold tracking-tight" style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}>
+                {chit.name}
+              </h2>
+              {isAdmin && chit.status !== 'DELETED' && chit.status !== 'COMPLETED' && chit.status !== 'CANCELLED' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (chit.status === 'DRAFT' || editActiveConfirmed) {
+                      setShowEditModal(true);
+                    } else {
+                      setEditActiveConfirmed('pending');
+                    }
+                  }}
+                  className="text-gray-400 hover:text-[#1E3A5F] transition-colors"
+                  title="Edit chit details"
+                >
+                  <Settings size={15} />
+                </button>
+              )}
+              <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
+              {chit.chitType && chit.chitType !== 'RESERVATION' && (
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
+                  {chit.chitType}
+                </span>
+              )}
+              {chit.status === 'PAUSED' && (
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                  ⏸ Paused {chit.totalPausedMonths > 0 ? `· ${chit.totalPausedMonths} months paused` : ''}
+                </span>
+              )}
             </div>
-          ) : (
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: '#1E3A5F', fontFamily: 'Inter, system-ui, sans-serif' }}>
-                  {chit.name}
-                </h2>
-                {chit.status !== 'DELETED' && (
-                  <button
-                    type="button"
-                    onClick={() => { setNameInput(chit.name); setDescInput(chit.description ?? ''); setEditingName(true); }}
-                    className="text-gray-400 hover:text-[#1E3A5F] transition-colors"
-                    title="Edit chit name"
-                  >
-                    <Settings size={15} />
-                  </button>
-                )}
-                <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
-                {chit.chitType && chit.chitType !== 'RESERVATION' && (
-                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
-                    {chit.chitType}
-                  </span>
-                )}
-                {chit.status === 'PAUSED' && (
-                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                    ⏸ Paused {chit.totalPausedMonths > 0 ? `· ${chit.totalPausedMonths} months paused` : ''}
-                  </span>
-                )}
-              </div>
-              {chit.description && <p className="text-sm text-gray-500 mt-1">{chit.description}</p>}
-            </div>
-          )}
+            {chit.description && <p className="text-sm text-gray-500 mt-1">{chit.description}</p>}
+          </div>
         </div>
         <HeaderActions chitId={id} chit={chit} />
       </div>
+
+      {/* Active-chit edit warning */}
+      {editActiveConfirmed === 'pending' && (
+        <ConfirmDialog
+          title="Chit is Already Active"
+          description="This chit is live. Changes to financial values will apply to future draws. Member count and start date cannot be changed. Continue anyway?"
+          actionLabel="Continue Editing"
+          variant="warning"
+          onConfirm={() => { setEditActiveConfirmed(true); setShowEditModal(true); }}
+          onClose={() => setEditActiveConfirmed(false)}
+        />
+      )}
+
+      {showEditModal && (
+        <EditChitDetailsModal
+          chitId={id}
+          chit={chit}
+          onClose={() => { setShowEditModal(false); setEditActiveConfirmed(false); }}
+        />
+      )}
 
       {/* Stat mini-cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

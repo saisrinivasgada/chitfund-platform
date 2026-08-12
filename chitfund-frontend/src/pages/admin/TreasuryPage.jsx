@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getWalletBalance, getWalletTransactions, addWalletTransaction, transferWallet,
   getMembers, getChits, getChitsForMember, getMemberTotalBalance, listStaff,
+  getMemberCredit, redeemMemberCredit,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
@@ -83,9 +84,7 @@ function ResolvedDescription({ desc, memberMap, chitMap, navigate }) {
         </button>
       );
     } else {
-      parts.push(
-        <span key={uuid} className="font-mono text-xs text-gray-400">{uuid.slice(0, 8)}…</span>
-      );
+      // Unknown UUID (draw/batch ID etc.) — suppress it entirely
     }
     lastIndex = match.index + uuid.length;
   }
@@ -128,6 +127,32 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
   const navigate = useNavigate();
   const isTransfer = tx.category === 'TRANSFER';
   const isIn = tx.entryType === 'IN';
+
+  // Parse memberId and settlementId from settlement payment description
+  const settlementMemberId = tx.category === 'SETTLEMENT_PAYMENT'
+    ? (tx.description?.match(/member\s+([0-9a-f-]{36})/i)?.[1] ?? null)
+    : null;
+  const settlementId = tx.category === 'SETTLEMENT_PAYMENT'
+    ? (tx.description?.match(/settlement\s+([0-9a-f-]{36})/i)?.[1] ?? null)
+    : null;
+  // referenceId holds the payment transaction ID for SETTLEMENT_PAYMENT entries
+  const paymentTxId = tx.category === 'SETTLEMENT_PAYMENT' ? tx.referenceId : null;
+
+  // Credit withdrawal: extract memberId from description
+  const creditWithdrawalMemberId = tx.category === 'CREDIT_WITHDRAWAL'
+    ? (tx.description?.match(/member\s+([0-9a-f-]{36})/i)?.[1] ?? null)
+    : null;
+
+  function fmtCategory(cat) {
+    const LABELS = {
+      TRANSFER: 'Transfer',
+      SETTLEMENT_PAYMENT: 'Settlement Payment',
+      PAYOUT_DISBURSEMENT: 'Payout Disbursement',
+      PAYOUT_VOID_REVERSAL: 'Payout Void Reversal',
+      CREDIT_WITHDRAWAL: 'Credit Balance Return',
+    };
+    return LABELS[cat] ?? (cat ? cat.replace(/_/g, ' ').replace(/\b[a-z]/g, c => c.toUpperCase()) : '—');
+  }
 
   function DRow({ label, value, valueClass = '' }) {
     return (
@@ -187,7 +212,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 
           {/* Core details */}
           <div className="border-t border-gray-100">
-            {tx.category && <DRow label="Category" value={tx.category} />}
+            {tx.category && <DRow label="Category" value={fmtCategory(tx.category)} />}
             {tx.description && (
               <div className="py-3 border-b border-gray-100">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description</p>
@@ -205,11 +230,75 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
             {tx.createdBy && <DRow label="Recorded By" value={staffMap[tx.createdBy] ?? 'Admin'} />}
             {tx.id && (
               <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
-                <span className="text-sm text-gray-500">Reference ID</span>
+                <span className="text-sm text-gray-500">Entry ID</span>
                 <span className="text-xs font-mono text-gray-400">{String(tx.id).slice(0, 8)}…</span>
               </div>
             )}
+            {settlementId && (
+              <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                <span className="text-sm text-gray-500">Settlement ID</span>
+                <span className="text-xs font-mono text-gray-400">{String(settlementId).slice(0, 8)}…</span>
+              </div>
+            )}
+            {paymentTxId && (
+              <div className="flex items-center justify-between py-2.5 border-b border-gray-100">
+                <span className="text-sm text-gray-500">Payment ID</span>
+                <span className="text-xs font-mono text-gray-400">{String(paymentTxId).slice(0, 8)}…</span>
+              </div>
+            )}
           </div>
+
+          {/* Credit Withdrawal member link */}
+          {creditWithdrawalMemberId && (
+            <div className="border-t border-gray-100 pt-4 pb-2">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-3">
+                <p className="text-xs font-semibold text-emerald-700">Credit Balance Return</p>
+                <p className="text-xs text-emerald-600 mt-0.5">
+                  Member's credit balance was returned as cash — credits deducted from their wallet.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { onClose(); navigate(`/members/${creditWithdrawalMemberId}`); }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-emerald-600 text-emerald-700 text-sm font-semibold hover:bg-emerald-600 hover:text-white transition-all"
+              >
+                {memberMap[creditWithdrawalMemberId?.toLowerCase()] ?? 'View Member'} →
+              </button>
+            </div>
+          )}
+
+          {/* Settlement / Payment action buttons */}
+          {settlementMemberId && (
+            <div className="border-t border-gray-100 pt-4 pb-2 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  const params = new URLSearchParams({ memberId: settlementMemberId });
+                  if (settlementId) params.set('settlementId', settlementId);
+                  navigate(`/settlement?${params.toString()}`);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold hover:bg-[#1E3A5F] hover:text-white transition-all"
+              >
+                View Settlement Details →
+              </button>
+              {paymentTxId && settlementId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    const params = new URLSearchParams({ memberId: settlementMemberId });
+                    params.set('settlementId', settlementId);
+                    params.set('paymentId', paymentTxId);
+                    navigate(`/settlement?${params.toString()}`);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-green-600 text-green-700 text-sm font-semibold hover:bg-green-600 hover:text-white transition-all"
+                >
+                  Open Payment Receipt →
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -217,7 +306,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
 }
 
 const CATEGORIES_IN = ['Member Payment', 'Multiple Payments Collection', 'Multi-Slot Installment Collection', 'Chit Payout Return', 'Investment', 'Other Income'];
-const CATEGORIES_OUT = ['Payout Disbursement', 'Multi-Slot Payout Disbursement', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
+const CATEGORIES_OUT = ['Payout Disbursement', 'Multi-Slot Payout Disbursement', 'Credit Balance Return', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
 
 // ─── Mini member contact card (hover popover) ─────────────────────────────
 function MemberContactCard({ member }) {
@@ -321,16 +410,25 @@ function AddTransactionModal({ onClose }) {
   });
 
   const isMemberPayment = form.category === 'Member Payment';
+  const isCreditReturn = form.category === 'Credit Balance Return';
   const categories = form.entryType === 'IN' ? CATEGORIES_IN : CATEGORIES_OUT;
 
-  // All members (only needed when Member Payment is selected)
+  // All members (needed for Member Payment or Credit Balance Return)
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
-    enabled: isMemberPayment,
+    enabled: isMemberPayment || isCreditReturn,
   });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
   const selectedMember = activeMembers.find((m) => m.id === form.memberId) ?? null;
+
+  // Credit balance for selected member (only for Credit Balance Return)
+  const { data: selectedMemberCredit, isLoading: creditLoading } = useQuery({
+    queryKey: ['memberCredit', form.memberId],
+    queryFn: () => getMemberCredit(form.memberId),
+    enabled: isCreditReturn && !!form.memberId,
+  });
+  const availableCredit = selectedMemberCredit ? Number(selectedMemberCredit.balance ?? 0) : null;
 
   // Chits enrolled by this member
   const { data: memberChits = [] } = useQuery({
@@ -341,6 +439,15 @@ function AddTransactionModal({ onClose }) {
 
   const mutation = useMutation({
     mutationFn: () => {
+      if (isCreditReturn) {
+        return redeemMemberCredit({
+          memberId: form.memberId,
+          amount: Number(form.amount),
+          accountType: form.accountType,
+          notes: form.description || null,
+        });
+      }
+
       // Build description that includes member + chit context when it's a member payment
       const autoDesc = isMemberPayment && selectedMember
         ? [
@@ -360,7 +467,7 @@ function AddTransactionModal({ onClose }) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions', 'paged'] });
       toast.success('Transaction recorded');
       onClose();
     },
@@ -378,7 +485,7 @@ function AddTransactionModal({ onClose }) {
         style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
         <h3 className="text-lg font-bold text-gray-900 mb-5" style={{ fontFamily: 'Merriweather, serif' }}>
           Record Transaction
         </h3>
@@ -406,6 +513,49 @@ function AddTransactionModal({ onClose }) {
               ))}
             </Select>
           </FormField>
+
+          {/* ── Credit Balance Return sub-fields ── */}
+          {isCreditReturn && (
+            <>
+              <FormField label="Member" required>
+                <Select
+                  value={form.memberId}
+                  onChange={(e) => setForm((f) => ({ ...f, memberId: e.target.value, amount: '' }))}
+                >
+                  <option value="">— Select member —</option>
+                  {activeMembers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.fullName}</option>
+                  ))}
+                </Select>
+              </FormField>
+              {form.memberId && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                  {creditLoading ? (
+                    <p className="text-xs text-emerald-600">Loading credit balance…</p>
+                  ) : availableCredit !== null ? (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-700">Available Credit Balance</p>
+                        <p className="text-lg font-bold text-emerald-700">₹{availableCredit.toLocaleString('en-IN')}</p>
+                      </div>
+                      {availableCredit > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, amount: String(availableCredit) }))}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-all cursor-pointer"
+                        >
+                          Withdraw All
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+                  {availableCredit === 0 && (
+                    <p className="text-xs text-emerald-600 mt-1">No credit balance to return.</p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
           {/* ── Member Payment sub-fields ── */}
           {isMemberPayment && (
@@ -497,7 +647,8 @@ function AddTransactionModal({ onClose }) {
               loading={mutation.isPending}
               disabled={
                 !form.amount || Number(form.amount) <= 0 ||
-                (isMemberPayment && !form.memberId)
+                (isMemberPayment && !form.memberId) ||
+                (isCreditReturn && (!form.memberId || !form.amount || availableCredit === 0 || Number(form.amount) > (availableCredit ?? 0)))
               }
               className="flex-1"
             >
@@ -527,7 +678,7 @@ function TransferModal({ onClose }) {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions', 'paged'] });
       toast.success(`Transferred ₹${Number(amount).toLocaleString('en-IN')} from ${fromAccount} to ${toAccount}`);
       onClose();
     },
@@ -541,7 +692,7 @@ function TransferModal({ onClose }) {
         style={{ backgroundColor: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-4 sm:p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -665,7 +816,7 @@ export default function TreasuryPage() {
   const [txLoadingMore, setTxLoadingMore] = useState(false);
 
   const { isLoading: txLoading } = useQuery({
-    queryKey: ['wallet-transactions'],
+    queryKey: ['wallet-transactions', 'paged'],
     queryFn: async () => {
       const result = await getWalletTransactions({ page: 0, size: 50 });
       setTransactions(result.content ?? []);
@@ -688,8 +839,8 @@ export default function TreasuryPage() {
     }
   }
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
-  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
+  const { data: allChits = [] } = useQuery({ queryKey: ['chits', 'all'], queryFn: () => getChits({ size: 500 }) });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff()});
 
   const memberMap = Object.fromEntries(
@@ -709,16 +860,16 @@ export default function TreasuryPage() {
   function EntryTypeBadge({ t }) {
     if (t.category === 'TRANSFER') {
       return (
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 flex items-center gap-1">
-          <ArrowLeftRight size={10} /> TRANSFER
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+          <ArrowLeftRight size={10} /> Transfer
         </span>
       );
     }
+    const isIn = t.entryType === 'IN';
     return (
-      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTRY_TYPE_STYLE[t.entryType] ?? ''}`}>
-        {t.entryType === 'IN'
-          ? <span className="flex items-center gap-1"><TrendingUp size={10} /> IN</span>
-          : <span className="flex items-center gap-1"><TrendingDown size={10} /> OUT</span>}
+      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${ENTRY_TYPE_STYLE[t.entryType] ?? ''}`}>
+        {isIn ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+        {isIn ? 'In' : 'Out'}
       </span>
     );
   }
@@ -753,14 +904,14 @@ export default function TreasuryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
             Treasury
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">Track cash and bank balances · settle member accounts</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <Button variant="secondary" onClick={() => setShowTransfer(true)}>
             <ArrowLeftRight size={15} /> Transfer
           </Button>

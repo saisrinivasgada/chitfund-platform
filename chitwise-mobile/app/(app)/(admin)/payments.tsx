@@ -12,14 +12,15 @@ import {
   getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
-  getWalletBalance, getWalletTransactions, addWalletTransaction,
-  getSettlementPreview, confirmSettlement, getMemberSettlements,
-  getMemberTotalBalance,
+  getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
+  getSettlementPreview, confirmSettlement, getMemberSettlements, recordSettlementTransaction, getPendingSettlements,
+  getMemberTotalBalance, getMemberCredit,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
+import { useUIStore } from '../../../store/uiStore';
 
-const TABS = ['Cash Requests', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury', 'Settlement'] as const;
+const TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ const CP_STATUS: Record<string, { color: string; bg: string; label: string }> = 
 // CASH REQUESTS TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
 
   // Status filter (set by clicking legend cards or from URL param)
@@ -191,8 +193,8 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
           {sorted.length > 0 ? `${sorted.length} active pickup${sorted.length !== 1 ? 's' : ''}` : 'No active pickups'}
         </Text>
         <TouchableOpacity
-          onPress={() => setShowSetup(true)}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.navy, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}
+          onPress={() => !isExpired && setShowSetup(true)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: isExpired ? C.gray300 : C.navy, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}
         >
           <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ Setup Pickup</Text>
         </TouchableOpacity>
@@ -319,7 +321,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 
             {/* Action buttons */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {(r.status === 'PENDING' || r.status === 'ASSIGNED') && (
+              {(r.status === 'PENDING' || r.status === 'ASSIGNED') && !isExpired && (
                 <Button label="Edit" variant="outline" size="sm"
                   onPress={() => {
                     setEditTarget(r);
@@ -329,7 +331,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                   }} />
               )}
               {r.status === 'PENDING' && (
-                <Button label="Assign Staff" variant="primary" size="sm"
+                <Button label="Assign Staff" variant="primary" size="sm" disabled={isExpired}
                   onPress={() => { setAssignTarget(r); setAssignWorkerId(''); setAssignNotes(''); }} />
               )}
               {r.status === 'PICKED_UP' && (
@@ -745,6 +747,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 // RECORD PAYMENT TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function RecordPaymentTab() {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
@@ -783,25 +786,45 @@ function RecordPaymentTab() {
   const selectedChit = payableChits.find((c: any) => c.id === chitId);
   const bal = (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
   const isCash = mode === 'CASH';
+  const isCredit = mode === 'CREDIT';
   const workerCollect = isCash && collectedBy !== 'SELF';
-  const amtNum = Number(amount) || 0;
+  const amtNum = isCredit ? 0 : (Number(amount) || 0);
   const isOverpay = amtNum > 0 && bal != null && bal > 0 && amtNum > bal;
+
+  const { data: memberCreditData } = useQuery({
+    queryKey: ['m-member-credit-pay', memberId],
+    queryFn: () => getMemberCredit(memberId),
+    enabled: !!memberId,
+  });
+  const creditBalance = Number((memberCreditData as any)?.balance ?? 0);
+  const outstanding = bal != null ? Number(bal) : null;
+  const creditCoversAll = outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
+  const creditPartial = creditBalance > 0 && !creditCoversAll && outstanding !== null && outstanding > 0;
+
+  useEffect(() => {
+    if (creditPartial && outstanding !== null) {
+      setAmount(String(Math.max(0, outstanding - creditBalance)));
+    }
+  }, [creditBalance, outstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
     mutationFn: () => workerCollect
       ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy })
-      : recordPayment({ chitId, memberId, amount: amtNum, paymentMode: mode, notes: notes || undefined }),
+      : recordPayment({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined }),
     onSuccess: () => {
-      const msg = workerCollect
+      const msg = isCredit
+        ? 'Credits applied — outstanding settled'
+        : workerCollect
         ? 'Recorded — awaiting remittance from staff'
         : 'Payment recorded — treasury credited';
       toast.saved(msg);
       setAmount(''); setNotes(''); setCollectedBy('SELF');
+      if (isCredit) setMode('CASH');
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
-      // Refresh draw payment rows in chits screen
+      qc.invalidateQueries({ queryKey: ['m-member-credit-pay', memberId] });
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draw-payments' });
       if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
@@ -850,7 +873,9 @@ function RecordPaymentTab() {
     return !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
   });
 
-  const submitLabel = workerCollect
+  const submitLabel = isCredit
+    ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
+    : workerCollect
     ? 'Record Collection (via Staff)'
     : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
 
@@ -963,10 +988,41 @@ function RecordPaymentTab() {
         </View>
       )}
 
+      {/* ── Credit balance banner ──────────────────────────────────────────── */}
+      {chitId && creditBalance > 0 && (
+        <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#065F46' }}>Credit Balance Available</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#059669' }}>₹{creditBalance.toLocaleString('en-IN')}</Text>
+            </View>
+            {creditCoversAll && (
+              <TouchableOpacity
+                onPress={() => setMode(isCredit ? 'CASH' : 'CREDIT')}
+                style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: isCredit ? '#059669' : 'white', borderWidth: 1.5, borderColor: isCredit ? '#059669' : '#6EE7B7' }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: isCredit ? 'white' : '#059669' }}>{isCredit ? '✓ Using Credits' : 'Apply Credits'}</Text>
+              </TouchableOpacity>
+            )}
+            {!creditCoversAll && (
+              <Text style={{ fontSize: 11, color: '#059669' }}>Auto-applies on payment</Text>
+            )}
+          </View>
+          {isCredit && (
+            <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{creditBalance.toLocaleString('en-IN')} credit will cover ₹{(outstanding ?? 0).toLocaleString('en-IN')} outstanding — no cash needed.</Text>
+          )}
+          {creditPartial && (
+            <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{creditBalance.toLocaleString('en-IN')} credit auto-applies → collect remaining <Text style={{ fontWeight: '700' }}>₹{Math.max(0, (outstanding ?? 0) - creditBalance).toLocaleString('en-IN')}</Text></Text>
+          )}
+        </View>
+      )}
+
       {/* ── Payment form ───────────────────────────────────────────────────── */}
       {chitId && (
         <>
-          {/* Amount */}
+          {/* Amount — hidden when using credits */}
+          {!isCredit && (
+            <>
           <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
           <TextInput value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0"
             placeholderTextColor={C.gray400}
@@ -980,8 +1036,11 @@ function RecordPaymentTab() {
               </Text>
             </View>
           )}
+            </>
+          )}
 
-          {/* Payment Mode — vertical radio list with descriptions */}
+          {/* Payment Mode — hidden when using credits */}
+          {!isCredit && (<>
           <Text style={{ ...T.label, marginBottom: 8, marginTop: 6 }}>Payment Mode</Text>
           <View style={{ gap: 6, marginBottom: 16 }}>
             {MODES.map((m) => (
@@ -996,6 +1055,7 @@ function RecordPaymentTab() {
               </TouchableOpacity>
             ))}
           </View>
+          </>)}
 
           {/* Collected By — CASH mode only ──────────────────────────────────── */}
           {isCash && (
@@ -1054,15 +1114,17 @@ function RecordPaymentTab() {
           {/* Submit */}
           <Button
             label={submitLabel}
-            variant={workerCollect ? 'primary' : 'success'}
+            variant={isCredit ? 'success' : workerCollect ? 'primary' : 'success'}
             fullWidth
-            disabled={!amount || amtNum <= 0}
+            disabled={isExpired || (isCredit ? !creditCoversAll : (!amount || amtNum <= 0))}
             loading={recordMut.isPending}
             onPress={() => {
               const workerName = workerCollect
                 ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
                 : null;
-              const confirmMsg = workerCollect
+              const confirmMsg = isCredit
+                ? `Apply ₹${creditBalance.toLocaleString('en-IN')} credit balance to settle ₹${(outstanding ?? 0).toLocaleString('en-IN')} outstanding for ${selectedChit?.name}?`
+                : workerCollect
                 ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
                 : `Record ₹${amtNum.toLocaleString('en-IN')} via ${mode.replace(/_/g, ' ')} for ${selectedChit?.name}?`;
               Alert.alert('Confirm Payment', confirmMsg, [
@@ -1096,7 +1158,7 @@ function RecordPaymentTab() {
                       </View>
                     </View>
                     <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
-                      {b.paymentMode ?? 'CASH'} · {fmtDate(b.collectedAt ?? b.createdAt)}
+                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH')} · {fmtDate(b.collectedAt ?? b.createdAt)}
                     </Text>
                     {b.collectedByName && (
                       <Text style={{ fontSize: 11, color: C.amber, marginTop: 1 }}>via {b.collectedByName}</Text>
@@ -1152,6 +1214,7 @@ const PAYOUT_STATUS_COLOR: Record<string, string> = {
 };
 
 function PayoutsTab() {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<'PENDING' | 'ALL'>('PENDING');
 
@@ -1425,7 +1488,7 @@ function PayoutsTab() {
       {/* Actions row */}
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
         <View style={{ flex: 1 }}>
-          <Button label="+ Create Payout" variant="primary" size="sm" onPress={() => setShowCreate(true)} />
+          <Button label="+ Create Payout" variant="primary" size="sm" disabled={isExpired} onPress={() => setShowCreate(true)} />
         </View>
         <View style={{ flex: 1 }}>
           <Button label={filter === 'PENDING' ? 'Show All' : 'Show Pending'} variant="outline" size="sm"
@@ -1509,7 +1572,7 @@ function PayoutsTab() {
             <Divider />
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               {(p.status === 'PENDING' || p.status === 'PARTIALLY_DISBURSED') && (
-                <Button label="Disburse" variant="success" size="sm" onPress={() => {
+                <Button label="Disburse" variant="success" size="sm" disabled={isExpired} onPress={() => {
                   setDisburseTarget(p);
                   setDisburseAmt(String(p.remainingAmount ?? p.netPayoutAmount ?? p.winningAmount ?? ''));
                   setDisburseMode('CASH');
@@ -1972,6 +2035,7 @@ function resolveDesc(desc: string | null | undefined, memberMap: Record<string, 
 }
 
 function TreasuryTab() {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [txAmount, setTxAmount] = useState('');
@@ -1979,9 +2043,10 @@ function TreasuryTab() {
   const [txAccountType, setTxAccountType] = useState<'CASH' | 'BANK'>('CASH');
   const [txCategory, setTxCategory] = useState('');
   const [txNotes, setTxNotes] = useState('');
+  const [txMemberId, setTxMemberId] = useState('');
 
   const TX_CATEGORIES_IN  = ['Multiple Payments Collection', 'Multi-Slot Installment Collection', 'Member Payment', 'Chit Payout Return', 'Investment', 'Other Income'];
-  const TX_CATEGORIES_OUT = ['Payout Disbursement', 'Multi-Slot Payout Disbursement', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
+  const TX_CATEGORIES_OUT = ['Payout Disbursement', 'Multi-Slot Payout Disbursement', 'Credit Balance Return', 'Salary', 'Expense', 'Personal Withdrawal', 'Other Expense'];
   const [selectedTx, setSelectedTx] = useState<any>(null);
   const [txShowCount, setTxShowCount] = useState(20);
 
@@ -1995,17 +2060,27 @@ function TreasuryTab() {
   const chitMap   = Object.fromEntries((allChits as any[]).map((c: any) => [c.id.toLowerCase(), c.name ?? '—']));
   const staffMap  = Object.fromEntries((staff as any[]).map((s: any) => [s.id.toLowerCase(), s.fullName ?? s.username ?? '—']));
 
+  const isCreditReturn = txCategory === 'Credit Balance Return';
+  const { data: txMemberCreditData, isLoading: txCreditLoading } = useQuery({
+    queryKey: ['m-treasury-credit', txMemberId],
+    queryFn: () => getMemberCredit(txMemberId),
+    enabled: isCreditReturn && !!txMemberId,
+  });
+  const txAvailableCredit = txMemberCreditData ? Number((txMemberCreditData as any).balance ?? 0) : null;
+
   const addMut = useMutation({
-    mutationFn: () => addWalletTransaction({
-      amount: Number(txAmount),
-      entryType: txType === 'DEPOSIT' ? 'IN' : 'OUT',
-      accountType: txAccountType,
-      category: txCategory || undefined,
-      description: txNotes || undefined,
-    }),
+    mutationFn: () => isCreditReturn
+      ? redeemMemberCredit({ memberId: txMemberId, amount: Number(txAmount), accountType: txAccountType, notes: txNotes || null })
+      : addWalletTransaction({
+          amount: Number(txAmount),
+          entryType: txType === 'DEPOSIT' ? 'IN' : 'OUT',
+          accountType: txAccountType,
+          category: txCategory || undefined,
+          description: txNotes || undefined,
+        }),
     onSuccess: () => {
-      setShowAdd(false); setTxAmount(''); setTxCategory(''); setTxNotes('');
-      toast.saved(`${txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded`);
+      setShowAdd(false); setTxAmount(''); setTxCategory(''); setTxNotes(''); setTxMemberId('');
+      toast.saved(isCreditReturn ? 'Credit balance returned to member' : `${txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded`);
       refetchWallet();
       refetchTxns();
     },
@@ -2045,10 +2120,10 @@ function TreasuryTab() {
 
       <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
         <View style={{ flex: 1 }}>
-          <Button label="+ Deposit" variant="success" onPress={() => { setShowAdd(true); setTxType('DEPOSIT'); setTxCategory(''); }} />
+          <Button label="+ Deposit" variant="success" disabled={isExpired} onPress={() => { setShowAdd(true); setTxType('DEPOSIT'); setTxCategory(''); }} />
         </View>
         <View style={{ flex: 1 }}>
-          <Button label="− Withdrawal" variant="danger" onPress={() => { setShowAdd(true); setTxType('WITHDRAWAL'); setTxCategory(''); }} />
+          <Button label="− Withdrawal" variant="danger" disabled={isExpired} onPress={() => { setShowAdd(true); setTxType('WITHDRAWAL'); setTxCategory(''); }} />
         </View>
       </View>
 
@@ -2126,6 +2201,44 @@ function TreasuryTab() {
               ))}
             </View>
 
+            {/* Credit Balance Return: member picker + credit info */}
+            {isCreditReturn && (
+              <>
+                <Text style={{ ...T.label, marginBottom: 8 }}>Member *</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {(members as any[]).filter((m: any) => m.status !== 'INACTIVE').map((m: any) => (
+                      <TouchableOpacity key={m.id} onPress={() => { setTxMemberId(m.id); setTxAmount(''); }}
+                        style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: txMemberId === m.id ? '#059669' : C.gray300, backgroundColor: txMemberId === m.id ? '#ECFDF5' : C.white }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: txMemberId === m.id ? '#059669' : C.gray700 }}>{m.fullName}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+                {txMemberId && (
+                  <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                    {txCreditLoading ? (
+                      <Text style={{ fontSize: 12, color: '#059669' }}>Loading credit balance…</Text>
+                    ) : txAvailableCredit !== null ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: '#065F46' }}>Available Credit</Text>
+                          <Text style={{ fontSize: 18, fontWeight: '700', color: '#059669' }}>₹{txAvailableCredit.toLocaleString('en-IN')}</Text>
+                        </View>
+                        {txAvailableCredit > 0 && (
+                          <TouchableOpacity onPress={() => setTxAmount(String(txAvailableCredit))}
+                            style={{ backgroundColor: '#059669', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: 'white' }}>Withdraw All</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : null}
+                    {txAvailableCredit === 0 && <Text style={{ fontSize: 12, color: '#059669' }}>No credit balance to return.</Text>}
+                  </View>
+                )}
+              </>
+            )}
+
             <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹)</Text>
             <TextInput value={txAmount} onChangeText={setTxAmount} keyboardType="numeric" placeholder="0"
               placeholderTextColor={C.gray400}
@@ -2137,7 +2250,8 @@ function TreasuryTab() {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setShowAdd(false)} /></View>
               <View style={{ flex: 1 }}><Button label="Save" variant={txType === 'DEPOSIT' ? 'success' : 'danger'}
-                disabled={!txAmount || Number(txAmount) <= 0} loading={addMut.isPending}
+                disabled={!txAmount || Number(txAmount) <= 0 || (isCreditReturn && (!txMemberId || txAvailableCredit === 0 || Number(txAmount) > (txAvailableCredit ?? 0)))}
+                loading={addMut.isPending}
                 onPress={() => addMut.mutate()} /></View>
             </View>
           </View>
@@ -2169,13 +2283,21 @@ function TreasuryTab() {
                 </Text>
               </View>
 
+              {/* Credit withdrawal info banner */}
+              {selectedTx.category === 'CREDIT_WITHDRAWAL' && (
+                <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#065F46' }}>Credit Balance Return</Text>
+                  <Text style={{ fontSize: 12, color: '#059669', marginTop: 4 }}>Member's credit balance was returned as cash — credits deducted from their account.</Text>
+                </View>
+              )}
+
               {/* Details */}
               <Card style={{ marginBottom: 16 }}>
                 <Text style={{ fontSize: 12, color: C.gray500, fontWeight: '600', marginBottom: 12 }}>TRANSACTION DETAILS</Text>
                 {[
                   { label: 'Type', value: selectedTx.entryType === 'OUT' ? 'Withdrawal / Outgoing' : 'Deposit / Incoming' },
                   { label: 'Account', value: selectedTx.accountType ?? '—' },
-                  { label: 'Category', value: selectedTx.category ?? '—' },
+                  { label: 'Category', value: selectedTx.category === 'CREDIT_WITHDRAWAL' ? 'Credit Balance Return' : (selectedTx.category ?? '—') },
                   { label: 'Description', value: resolveDesc(selectedTx.description ?? selectedTx.notes, memberMap, chitMap, staffMap) },
                   { label: 'Date', value: fmtDateTime(selectedTx.createdAt) },
                   { label: 'ID', value: String(selectedTx.id)?.slice(0, 8) + '…' },
@@ -2209,148 +2331,541 @@ function TreasuryTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 // SETTLEMENT TAB
 // ─────────────────────────────────────────────────────────────────────────────
+const SETT_PURPLE = '#7C3AED';
+const SETT_PURPLE_LIGHT = '#F5F3FF';
+const SETT_PURPLE_BORDER = '#DDD6FE';
+
+const CASE_COLOR: Record<string, string> = {
+  CASE_A: C.amber, CASE_B1: C.navy, CASE_B2: '#7C3AED', UNKNOWN: C.gray400,
+};
+const CASE_LABEL: Record<string, string> = {
+  CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown',
+};
+
 function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
+
+  // Step state: 'pick' | 'preview' | 'payment' | 'history'
+  const [step, setStep] = useState<'pick' | 'preview' | 'payment' | 'history'>('pick');
   const [memberId, setMemberId] = useState(initialMemberId ?? '');
+  const [memberSearch, setMemberSearch] = useState('');
   const [preview, setPreview] = useState<any>(null);
+  const [confirmedSettlement, setConfirmedSettlement] = useState<any>(null);
+
+  // Adjustment / notes
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjReason, setAdjReason] = useState('');
   const [notes, setNotes] = useState('');
-  const [showHistory, setShowHistory] = useState(false);
+
+  // Payment step
+  const [payMode, setPayMode] = useState('CASH');
+  const [payRef, setPayRef] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+
+  // Expand/collapse per chit
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Pending settlements pagination
+  const [pendingPage, setPendingPage] = useState(0);
+  // History pagination
+  const [histPage, setHistPage] = useState(0);
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
-  const { data: history = [], isLoading: histLoading } = useQuery({
-    queryKey: ['m-settlement-history', memberId],
-    queryFn: () => getMemberSettlements(memberId),
-    enabled: !!memberId && showHistory,
+  const { data: histData, isLoading: histLoading } = useQuery({
+    queryKey: ['m-settlement-history', memberId, histPage],
+    queryFn: () => getMemberSettlements(memberId, histPage, 10),
+    enabled: !!memberId && step === 'history',
   });
+  const history = histData?.content ?? [];
+  const histTotalPages = histData?.totalPages ?? 0;
+
+  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+    queryKey: ['m-settlement-pending', pendingPage],
+    queryFn: () => getPendingSettlements(pendingPage, 10),
+  });
+  const pendingSettlements = pendingData?.content ?? [];
+  const pendingTotalPages = pendingData?.totalPages ?? 0;
+  const pendingTotalElements = pendingData?.totalElements ?? 0;
+
+  const activeMembers = (members as any[]).filter((m: any) => m.status !== 'INACTIVE');
+  const filteredMembers = activeMembers.filter((m: any) => {
+    if (!memberSearch) return true;
+    const q = memberSearch.toLowerCase();
+    return (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
+  });
+  const selectedMember = (members as any[]).find((m: any) => m.id === memberId);
 
   const previewMut = useMutation({
     mutationFn: () => getSettlementPreview(memberId),
-    onSuccess: (data) => { setPreview(data); setShowHistory(false); },
+    onSuccess: (data) => { setPreview(data); setStep('preview'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Preview failed'),
   });
 
   const confirmMut = useMutation({
     mutationFn: () => {
-      const chitItems = (preview?.chitSummaries ?? preview?.items ?? []).map((ci: any) => ({
-        chitId: ci.chitId, amountToSettle: ci.outstanding ?? ci.amountToSettle ?? 0,
+      const chitItems = (preview?.chitItems ?? []).map((ci: any) => ({
+        chitId: ci.chitId,
+        mode: ci.currentMode ?? undefined,
       }));
-      return confirmSettlement(memberId, chitItems, notes || undefined);
+      const adj = adjAmount ? Number(adjAmount) : null;
+      return confirmSettlement(memberId, chitItems, notes || undefined, adj, adjReason || undefined);
     },
-    onSuccess: () => {
-      toast.saved('Settlement confirmed');
-      setPreview(null); setNotes('');
+    onSuccess: (settlement) => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
       qc.invalidateQueries({ queryKey: ['m-settlement-history', memberId] });
+      const net = Math.abs(Number(settlement?.netAmount ?? 0));
+      if (net > 0 && settlement?.id) {
+        setConfirmedSettlement(settlement);
+        setStep('payment');
+      } else {
+        toast.saved('Settlement confirmed — member marked Inactive. Accounts balanced.');
+        resetAll();
+      }
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Settlement failed — please try again.'),
   });
 
-  const selectedMember = (members as any[]).find((m: any) => m.id === memberId);
+  const recordPayMut = useMutation({
+    mutationFn: () => recordSettlementTransaction(
+      confirmedSettlement.id,
+      Math.abs(Number(confirmedSettlement.netAmount)),
+      payMode,
+      payRef || null,
+      payNotes || null,
+    ),
+    onSuccess: () => {
+      toast.saved('Payment recorded — settlement complete.');
+      qc.invalidateQueries({ queryKey: ['m-settlement-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-settlement-history'] });
+      resetAll();
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment'),
+  });
 
+  function resetAll() {
+    setStep('pick'); setMemberId(''); setMemberSearch(''); setPreview(null);
+    setAdjAmount(''); setAdjReason(''); setNotes('');
+    setPayMode('CASH'); setPayRef(''); setPayNotes('');
+    setConfirmedSettlement(null); setExpanded({});
+  }
+
+  // ── Net amount with adjustment ─────────────────────────────────────────────
+  const baseNet = Number(preview?.grandTotal ?? 0);
+  const adjNum = adjAmount ? Number(adjAmount) : 0;
+  const finalNet = baseNet + adjNum;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <View style={{ backgroundColor: '#F5F3FF', borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
-        <Text style={{ fontSize: 13, color: '#7C3AED', fontWeight: '700' }}>Settlement</Text>
-        <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
-          Clear all outstanding dues for a member across all enrolled chits. Irreversible — creates a full audit trail.
-        </Text>
-      </View>
-
-      <Text style={{ ...T.label, marginBottom: 8 }}>Select Member</Text>
-      <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
-        {(members as any[]).filter((m: any) => m.status !== 'INACTIVE').map((m: any) => (
-          <TouchableOpacity key={m.id} onPress={() => { setMemberId(m.id); setPreview(null); setShowHistory(false); }}
-            style={{ padding: 12, backgroundColor: memberId === m.id ? '#F5F3FF' : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-            <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? '#7C3AED' : C.gray900 }}>
-              {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
-            </Text>
-            {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {memberId && (
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-          <View style={{ flex: 2 }}>
-            <Button label="Preview Settlement" variant="outline" loading={previewMut.isPending}
-              onPress={() => previewMut.mutate()} />
+      {/* ── Awaiting Settlement Payment ─────────────────────────────────── */}
+      {(pendingSettlements.length > 0 || pendingLoading) && (
+        <View style={{ marginBottom: 20 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>Awaiting Settlement Payment</Text>
+              {pendingTotalElements > 0 && (
+                <View style={{ backgroundColor: '#FDE68A', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E' }}>{pendingTotalElements}</Text>
+                </View>
+              )}
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Button label={showHistory ? 'New' : 'History'} variant="ghost"
-              onPress={() => { setShowHistory(!showHistory); setPreview(null); }} />
-          </View>
+
+          {pendingLoading ? (
+            <Text style={{ color: C.gray400, textAlign: 'center', padding: 16 }}>Loading…</Text>
+          ) : pendingSettlements.map((s: any) => {
+            const net = Number(s.netAmount ?? 0);
+            const absNet = Math.abs(net);
+            const moved = net > 0 ? Number(s.collectedAmount ?? 0) : Number(s.disbursedAmount ?? 0);
+            const remaining = Math.max(0, absNet - moved);
+            const isCollect = net > 0;
+            const memberName = (members as any[]).find((m: any) => m.id === s.memberId)?.fullName ?? `…${String(s.memberId).slice(-6)}`;
+            const statusLabel = { PENDING: 'Unpaid', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial' }[s.paymentStatus as string] ?? s.paymentStatus;
+            const statusColor = { PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED' }[s.paymentStatus as string] ?? C.gray400;
+            return (
+              <Card key={s.id} style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: C.amber }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{memberName}</Text>
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                      {new Date(s.settledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: isCollect ? C.red : C.green }}>
+                      ₹{absNet.toLocaleString('en-IN')}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: isCollect ? C.red : C.green, marginTop: 1 }}>
+                      {isCollect ? 'Collect' : 'Pay'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ backgroundColor: statusColor + '20', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>{statusLabel}</Text>
+                    </View>
+                    {remaining > 0 && (
+                      <Text style={{ fontSize: 11, color: C.gray500 }}>₹{remaining.toLocaleString('en-IN')} remaining</Text>
+                    )}
+                  </View>
+                </View>
+                <Button label="Record Payment" variant="primary" size="sm"
+                  onPress={() => {
+                    setConfirmedSettlement(s);
+                    setPayMode('CASH');
+                    setPayRef('');
+                    setPayNotes('');
+                    setStep('payment');
+                  }} />
+              </Card>
+            );
+          })}
+
+          {/* Pagination for pending */}
+          {pendingTotalPages > 1 && (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+              <Text style={{ fontSize: 11, color: C.gray400 }}>Page {pendingPage + 1}/{pendingTotalPages}</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Button label="← Prev" variant="ghost" size="sm" disabled={pendingPage === 0}
+                  onPress={() => setPendingPage(p => p - 1)} />
+                <Button label="Next →" variant="ghost" size="sm" disabled={pendingPage >= pendingTotalPages - 1}
+                  onPress={() => setPendingPage(p => p + 1)} />
+              </View>
+            </View>
+          )}
+          <View style={{ height: 1, backgroundColor: C.gray200, marginTop: 12, marginBottom: 4 }} />
         </View>
       )}
 
-      {/* Preview section */}
-      {preview && !showHistory && (
-        <View>
-          <Card style={{ marginBottom: 16, backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#DDD6FE' }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 12 }}>
-              Settlement Preview — {selectedMember?.fullName}
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#DDD6FE' }}>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: '#4C1D95' }}>Total Outstanding</Text>
-              <Amount value={preview.totalOutstanding ?? 0} size="sm" color={C.red} />
-            </View>
-            {(preview.chitSummaries ?? preview.items ?? []).map((ci: any, i: number) => (
-              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, color: '#6D28D9', fontWeight: '600' }}>{ci.chitName ?? `Chit ${ci.chitId?.slice(0, 8)}`}</Text>
-                  {ci.paidInstallments != null && (
-                    <Text style={{ fontSize: 11, color: C.gray400 }}>{ci.paidInstallments}/{ci.totalInstallments} draws paid</Text>
-                  )}
-                </View>
-                <Amount value={ci.outstanding ?? ci.amountToSettle ?? 0} size="sm" color={C.red} />
-              </View>
+      {/* Banner */}
+      <View style={{ backgroundColor: SETT_PURPLE_LIGHT, borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
+        <Text style={{ fontSize: 13, color: SETT_PURPLE, fontWeight: '700' }}>Member Settlement</Text>
+        <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
+          Discontinue a member and close all chit obligations. Irreversible — creates a full audit trail.
+        </Text>
+      </View>
+
+      {/* ── STEP: PICK MEMBER ─────────────────────────────────────────────── */}
+      {(step === 'pick' || step === 'history') && (
+        <>
+          <Text style={{ ...T.label, marginBottom: 8 }}>Select Member</Text>
+          <TextInput
+            value={memberSearch}
+            onChangeText={(t) => { setMemberSearch(t); if (!t) setMemberId(''); }}
+            placeholder="Search name or phone…"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }}
+          />
+          <ScrollView style={{ maxHeight: 200, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
+            {filteredMembers.map((m: any) => (
+              <TouchableOpacity key={m.id}
+                onPress={() => { setMemberId(m.id); setMemberSearch(m.fullName ?? ''); setPreview(null); }}
+                style={{ padding: 12, backgroundColor: memberId === m.id ? SETT_PURPLE_LIGHT : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? SETT_PURPLE : C.gray900 }}>
+                  {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
+                </Text>
+                {m.phone && <Text style={{ fontSize: 11, color: C.gray400 }}>{m.phone}</Text>}
+              </TouchableOpacity>
             ))}
+            {filteredMembers.length === 0 && (
+              <Text style={{ padding: 16, color: C.gray400 }}>No active members found</Text>
+            )}
+          </ScrollView>
+
+          {memberId && (
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+              <View style={{ flex: 2 }}>
+                <Button label="Preview Settlement" variant="primary" loading={previewMut.isPending}
+                  disabled={isExpired}
+                  onPress={() => previewMut.mutate()} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button label={step === 'history' ? 'Back' : 'History'} variant="ghost"
+                  onPress={() => setStep(step === 'history' ? 'pick' : 'history')} />
+              </View>
+            </View>
+          )}
+
+          {/* Settlement History */}
+          {step === 'history' && (
+            <>
+              <Text style={{ ...T.label, marginBottom: 12 }}>
+                HISTORY — {selectedMember?.fullName?.toUpperCase()}
+              </Text>
+              {histLoading && <Text style={{ color: C.gray400, textAlign: 'center', padding: 20 }}>Loading…</Text>}
+              {!histLoading && (history as any[]).length === 0 && (
+                <EmptyState title="No settlements" message="No settlement records for this member." />
+              )}
+              {(history as any[]).map((s: any, i: number) => (
+                <Card key={s.id ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: SETT_PURPLE }}>Settlement #{i + 1}</Text>
+                    <Amount value={Math.abs(Number(s.netAmount ?? s.totalAmount ?? 0))} size="sm" color={C.green} />
+                  </View>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDateTime(s.settledAt ?? s.createdAt)}</Text>
+                  {s.notes && <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginTop: 4 }}>"{s.notes}"</Text>}
+                </Card>
+              ))}
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── STEP: PREVIEW ────────────────────────────────────────────────── */}
+      {step === 'preview' && preview && (
+        <>
+          {/* Member + back */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <TouchableOpacity onPress={() => setStep('pick')} style={{ marginRight: 12 }}>
+              <Text style={{ fontSize: 22, color: C.gray400 }}>←</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>{selectedMember?.fullName}</Text>
+              <Text style={{ fontSize: 12, color: C.gray400 }}>Settlement Preview</Text>
+            </View>
+          </View>
+
+          {/* Per-chit cards */}
+          {(preview.chitItems ?? []).map((ci: any, i: number) => {
+            const caseKey = ci.settlementCase ?? 'UNKNOWN';
+            const caseColor = CASE_COLOR[caseKey] ?? C.gray400;
+            const caseLabel = CASE_LABEL[caseKey] ?? caseKey;
+            const net = Number(ci.netAmount ?? 0);
+            const netAbs = Math.abs(net);
+            const fundOwes = net < 0;
+            const isOpen = expanded[ci.chitId ?? i];
+            return (
+              <Card key={ci.chitId ?? i} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: caseColor }}>
+                {/* Header row */}
+                <TouchableOpacity
+                  onPress={() => setExpanded(prev => ({ ...prev, [ci.chitId ?? i]: !prev[ci.chitId ?? i] }))}
+                  style={{ flexDirection: 'row', alignItems: 'flex-start' }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <View style={{ backgroundColor: caseColor + '20', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: caseColor }}>{caseLabel}</Text>
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>
+                        {ci.chitName ?? `Chit ${i + 1}`}
+                      </Text>
+                    </View>
+                    {ci.description && (
+                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }} numberOfLines={2}>
+                        {ci.description}
+                      </Text>
+                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: fundOwes ? C.green : C.red }}>
+                        {fundOwes ? 'Fund pays ₹' : 'Member owes ₹'}{netAbs.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 18, color: C.gray400, marginLeft: 8 }}>{isOpen ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+
+                {/* Expanded breakdown */}
+                {isOpen && (
+                  <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                    {ci.unpaidDues != null && Number(ci.unpaidDues) !== 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>Unpaid dues</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>
+                          ₹{Math.abs(Number(ci.unpaidDues)).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    )}
+                    {ci.futureInstallments != null && Number(ci.futureInstallments) !== 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>Future installments</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>
+                          ₹{Math.abs(Number(ci.futureInstallments)).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    )}
+                    {ci.fundOwesForReserved != null && Number(ci.fundOwesForReserved) !== 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>Fund credit (reserved)</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>
+                          –₹{Math.abs(Number(ci.fundOwesForReserved)).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    )}
+                    {ci.totalPaidIn != null && (ci.settlementCase === 'CASE_B1' || ci.settlementCase === 'CASE_B2') && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>Total paid in (refund)</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>
+                          ₹{Math.abs(Number(ci.totalPaidIn)).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Net</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: fundOwes ? C.green : C.red }}>
+                        {fundOwes ? '–' : '+'}₹{netAbs.toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </Card>
+            );
+          })}
+
+          {/* Empty chitItems guard — member has no chit enrollments */}
+          {(preview.chitItems ?? []).length === 0 && (
+            <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1.5, borderColor: '#FDE68A' }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 4 }}>No Chit Enrollments Found</Text>
+              <Text style={{ fontSize: 13, color: '#92400E' }}>
+                This member has no active chit enrollments to settle. Add them to a chit first, or select a different member.
+              </Text>
+              <View style={{ marginTop: 12 }}>
+                <Button label="← Back" variant="ghost" onPress={() => setStep('pick')} />
+              </View>
+            </View>
+          )}
+
+          {/* Summary, Adjustment, Notes, Confirm — only shown when there are chit items */}
+          {(preview.chitItems ?? []).length > 0 && (
+          <>
+          <Card style={{ marginBottom: 16, backgroundColor: SETT_PURPLE_LIGHT, borderWidth: 1.5, borderColor: SETT_PURPLE_BORDER }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: SETT_PURPLE, marginBottom: 8 }}>Summary</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text style={{ fontSize: 13, color: '#6D28D9' }}>Base net</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: baseNet < 0 ? C.green : C.red }}>
+                {baseNet < 0 ? '–' : '+'}₹{Math.abs(baseNet).toLocaleString('en-IN')}
+              </Text>
+            </View>
+            {adjNum !== 0 && (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ fontSize: 13, color: '#6D28D9' }}>Adjustment</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: adjNum > 0 ? C.red : C.green }}>
+                  {adjNum > 0 ? '+' : '–'}₹{Math.abs(adjNum).toLocaleString('en-IN')}
+                </Text>
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: SETT_PURPLE_BORDER }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#4C1D95' }}>
+                {finalNet < 0 ? 'Fund pays member' : finalNet > 0 ? 'Member pays fund' : 'No money changes hands'}
+              </Text>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: finalNet < 0 ? C.green : finalNet > 0 ? C.red : C.gray400 }}>
+                ₹{Math.abs(finalNet).toLocaleString('en-IN')}
+              </Text>
+            </View>
           </Card>
 
-          <Text style={{ ...T.label, marginBottom: 6 }}>Settlement Notes (optional)</Text>
-          <TextInput value={notes} onChangeText={setNotes} multiline placeholder="e.g. Member is relocating, settled in full"
+          {/* Adjustment (optional) */}
+          <Text style={{ ...T.label, marginBottom: 6 }}>Adjustment Amount (optional)</Text>
+          <TextInput value={adjAmount} onChangeText={setAdjAmount} keyboardType="numeric"
+            placeholder="e.g. +500 or -500"
             placeholderTextColor={C.gray400}
-            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 64, textAlignVertical: 'top', marginBottom: 16 }} />
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 15, color: C.gray900, marginBottom: 10 }} />
 
-          <Button label={`Confirm — Clear ₹${Number(preview.totalOutstanding ?? 0).toLocaleString('en-IN')}`}
-            variant="primary" fullWidth loading={confirmMut.isPending}
+          {adjAmount !== '' && (
+            <>
+              <Text style={{ ...T.label, marginBottom: 6 }}>Adjustment Reason *</Text>
+              <TextInput value={adjReason} onChangeText={setAdjReason}
+                placeholder="e.g. Admin goodwill, penalty waived"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 10 }} />
+            </>
+          )}
+
+          {/* Notes */}
+          <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
+          <TextInput value={notes} onChangeText={setNotes} multiline
+            placeholder="e.g. Member relocating, settled amicably"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }} />
+
+          <Button
+            label={`Confirm Settlement${finalNet !== 0 ? ` — ₹${Math.abs(finalNet).toLocaleString('en-IN')}` : ''}`}
+            variant="primary" fullWidth disabled={isExpired || (adjAmount !== '' && !adjReason.trim())}
+            loading={confirmMut.isPending}
             onPress={() => Alert.alert(
               'Confirm Settlement',
-              `Clear ₹${Number(preview.totalOutstanding ?? 0).toLocaleString('en-IN')} in dues for ${selectedMember?.fullName}? This cannot be undone.`,
+              `Settle ${selectedMember?.fullName}?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive. This cannot be undone.`,
               [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Confirm', style: 'destructive', onPress: () => confirmMut.mutate() },
               ]
-            )} />
-        </View>
+            )}
+          />
+          </>
+          )}
+        </>
       )}
 
-      {/* History section */}
-      {showHistory && (
-        <View>
-          <Text style={{ ...T.label, marginBottom: 12 }}>
-            SETTLEMENT HISTORY — {selectedMember?.fullName?.toUpperCase()}
-          </Text>
-          {histLoading && <Text style={{ color: C.gray400, textAlign: 'center', padding: 20 }}>Loading…</Text>}
-          {!histLoading && (history as any[]).length === 0 && (
-            <EmptyState title="No settlements" message="No settlement records for this member." />
+      {/* ── STEP: PAYMENT RECORDING ───────────────────────────────────────── */}
+      {step === 'payment' && confirmedSettlement && (
+        <>
+          <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, marginBottom: 20, borderWidth: 1.5, borderColor: '#86EFAC' }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#166534', marginBottom: 4 }}>
+              Settlement Confirmed
+            </Text>
+            <Text style={{ fontSize: 12, color: '#166534' }}>
+              {selectedMember?.fullName ?? 'Member'} is now Inactive. Record how the payment was made.
+            </Text>
+          </View>
+
+          <Card style={{ marginBottom: 20, backgroundColor: SETT_PURPLE_LIGHT, borderWidth: 1.5, borderColor: SETT_PURPLE_BORDER }}>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Amount to record</Text>
+            <Text style={{ fontSize: 28, fontWeight: '800', color: SETT_PURPLE }}>
+              ₹{Math.abs(Number(confirmedSettlement.netAmount ?? 0)).toLocaleString('en-IN')}
+            </Text>
+            <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
+              {Number(confirmedSettlement.netAmount ?? 0) < 0 ? 'Fund pays member' : 'Member pays fund'}
+            </Text>
+          </Card>
+
+          {/* Payment mode */}
+          <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
+          <View style={{ gap: 8, marginBottom: 16 }}>
+            {(['CASH', 'BANK_TRANSFER', 'UPI'] as const).map((m) => (
+              <TouchableOpacity key={m}
+                onPress={() => setPayMode(m)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, borderWidth: 2,
+                  borderColor: payMode === m ? SETT_PURPLE : C.gray300,
+                  backgroundColor: payMode === m ? SETT_PURPLE_LIGHT : C.white }}>
+                <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 2,
+                  borderColor: payMode === m ? SETT_PURPLE : C.gray300,
+                  backgroundColor: payMode === m ? SETT_PURPLE : 'transparent' }} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: payMode === m ? SETT_PURPLE : C.gray700 }}>
+                  {m === 'BANK_TRANSFER' ? 'Bank Transfer' : m}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Reference */}
+          {payMode !== 'CASH' && (
+            <>
+              <Text style={{ ...T.label, marginBottom: 6 }}>Reference / UTR (optional)</Text>
+              <TextInput value={payRef} onChangeText={setPayRef}
+                placeholder={payMode === 'UPI' ? 'UPI transaction ID' : 'NEFT / RTGS reference'}
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 10 }} />
+            </>
           )}
-          {(history as any[]).map((s: any, i: number) => (
-            <Card key={s.id ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED' }}>Settlement #{i + 1}</Text>
-                <Amount value={s.totalAmount ?? s.settledAmount ?? 0} size="sm" color={C.green} />
-              </View>
-              <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDateTime(s.settledAt ?? s.createdAt)}</Text>
-              {s.notes && <Text style={{ fontSize: 12, color: C.gray500, fontStyle: 'italic', marginTop: 4 }}>"{s.notes}"</Text>}
-              {(s.chitItems ?? s.items ?? []).map((ci: any, j: number) => (
-                <View key={j} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-                  <Text style={{ fontSize: 12, color: C.gray600 }}>{ci.chitName ?? `Chit ${j + 1}`}</Text>
-                  <Amount value={ci.amountToSettle ?? ci.amount ?? 0} size="sm" />
-                </View>
-              ))}
-            </Card>
-          ))}
-        </View>
+
+          {/* Notes */}
+          <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
+          <TextInput value={payNotes} onChangeText={setPayNotes} multiline
+            placeholder="Any notes about this payment…"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }} />
+
+          <Button label="Record Payment" variant="success" fullWidth loading={recordPayMut.isPending}
+            onPress={() => recordPayMut.mutate()} />
+          <View style={{ marginTop: 10 }}>
+            <Button label="Record Later" variant="ghost" fullWidth
+              onPress={() => {
+                toast.saved('Settlement done. Record payment later from settlement history.');
+                resetAll();
+              }} />
+          </View>
+        </>
       )}
     </ScrollView>
   );
@@ -2504,10 +3019,15 @@ function RemittanceTab() {
                 </View>
                 <Amount value={batch.amount ?? batch.totalAmount ?? 0} size="md" />
               </View>
+              {batch.paymentMode === 'CREDIT' && (
+                <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>Settled via Credit Balance — no cash collected</Text>
+                </View>
+              )}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#FEF3C7', borderRadius: 6 }}>
-                  <Text style={{ fontSize: 11, color: C.amber, fontWeight: '600' }}>
-                    {batch.paymentMode ?? 'CASH'}
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: batch.paymentMode === 'CREDIT' ? '#ECFDF5' : '#FEF3C7', borderRadius: 6 }}>
+                  <Text style={{ fontSize: 11, color: batch.paymentMode === 'CREDIT' ? '#059669' : C.amber, fontWeight: '600' }}>
+                    {batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode ?? 'CASH')}
                   </Text>
                 </View>
                 <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.createdAt)}</Text>
@@ -2742,10 +3262,10 @@ function HistoryTab() {
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   {/* Mode chip */}
                   <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor:
-                    b.paymentMode === 'CASH' ? '#FEF3C7' : b.paymentMode === 'UPI' ? '#F3E8FF' : b.paymentMode === 'BANK_TRANSFER' ? '#DBEAFE' : C.gray100 }}>
+                    b.paymentMode === 'CREDIT' ? '#ECFDF5' : b.paymentMode === 'CASH' ? '#FEF3C7' : b.paymentMode === 'UPI' ? '#F3E8FF' : b.paymentMode === 'BANK_TRANSFER' ? '#DBEAFE' : C.gray100 }}>
                     <Text style={{ fontSize: 11, fontWeight: '600', color:
-                      b.paymentMode === 'CASH' ? C.amber : b.paymentMode === 'UPI' ? '#7C3AED' : b.paymentMode === 'BANK_TRANSFER' ? '#2563EB' : C.gray600 }}>
-                      {(b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
+                      b.paymentMode === 'CREDIT' ? '#059669' : b.paymentMode === 'CASH' ? C.amber : b.paymentMode === 'UPI' ? '#7C3AED' : b.paymentMode === 'BANK_TRANSFER' ? '#2563EB' : C.gray600 }}>
+                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
                     </Text>
                   </View>
                   {/* Collector (CASH only) */}

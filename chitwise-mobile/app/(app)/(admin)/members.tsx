@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  getMembers, createMember, patchMemberStatus, softDeleteMember, updateMember,
+  getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser,
+  sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
+import { useUIStore } from '../../../store/uiStore';
 
-const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'SUSPENDED'];
+const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
 
 // Per-chit balance badge shown on the enrolled chit card
 function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: string }) {
@@ -65,15 +67,20 @@ function MemberCreditBadge({ memberId }: { memberId: string }) {
 }
 
 export default function AdminMembersScreen() {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string }>();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(params.filter ?? null);
   const [selected, setSelected] = useState<any>(null);
-  const [memberShowCount, setMemberShowCount] = useState(20);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  useEffect(() => { setStatusFilter(params.filter ?? null); setMemberShowCount(20); }, [params.filter]);
+  useEffect(() => { setStatusFilter(params.filter ?? null); }, [params.filter]);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [showEditInline, setShowEditInline] = useState(false);
@@ -110,6 +117,7 @@ export default function AdminMembersScreen() {
   const [collectAmount, setCollectAmount] = useState('');
   const [collectMode, setCollectMode] = useState('CASH');
   const [collectNotes, setCollectNotes] = useState('');
+  const [useCredits, setUseCredits] = useState(false);
 
   // Create form - all fields matching web + backend
   const [cFullName, setCFullName] = useState('');
@@ -133,7 +141,20 @@ export default function AdminMembersScreen() {
   const [newReferralSearch, setNewReferralSearch] = useState('');
   const [idCopied, setIdCopied] = useState(false);
 
-  const { data: members = [], isLoading, refetch } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  // Full list for dropdowns, referral search, status counts, limit check
+  const { data: allMembers = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
+  const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
+
+  const statusApiFilter = statusFilter === 'Active' ? 'ACTIVE' : statusFilter === 'Inactive' ? 'INACTIVE' : statusFilter === 'Blacklisted' ? 'BLACKLISTED' : undefined;
+
+  const { data: membersInfinite, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } = useInfiniteQuery({
+    queryKey: ['m-members-page', debouncedSearch, statusApiFilter],
+    queryFn: ({ pageParam }) => getMembersPage({ page: pageParam as number, search: debouncedSearch, status: statusApiFilter }),
+    getNextPageParam: (lastPage: any) => lastPage.last ? undefined : (lastPage.number + 1),
+    initialPageParam: 0,
+  });
+  const members = membersInfinite?.pages.flatMap((p: any) => p.content) ?? [];
+  const totalElements = membersInfinite?.pages[0]?.totalElements ?? 0;
 
   const createMutation = useMutation({
     mutationFn: () => createMember({
@@ -179,7 +200,7 @@ export default function AdminMembersScreen() {
       setShowStatusInline(false);
       setNewStatus('');
       setStatusReason('');
-      const labels: Record<string, string> = { ACTIVE: 'activated', INACTIVE: 'deactivated', SUSPENDED: 'suspended', BLACKLISTED: 'blacklisted' };
+      const labels: Record<string, string> = { ACTIVE: 'activated', INACTIVE: 'deactivated', BLACKLISTED: 'blacklisted' };
       toast.saved(`Member ${labels[vars.status] ?? 'updated'}`);
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -249,18 +270,46 @@ export default function AdminMembersScreen() {
     mutationFn: () => recordPayment({
       memberId: selected?.id,
       chitId: collectChitId,
-      amount: Number(collectAmount),
-      paymentMode: collectMode,
+      amount: useCredits ? 0 : Number(collectAmount),
+      paymentMode: useCredits ? 'CREDIT' : collectMode,
       notes: collectNotes || undefined,
     }),
     onSuccess: () => {
       setShowCollect(false);
-      setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes('');
+      setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setUseCredits(false);
       qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
       qc.invalidateQueries({ queryKey: ['m-member-balance', selected?.id] });
-      toast.saved('Payment recorded');
+      qc.invalidateQueries({ queryKey: ['m-member-credit', selected?.id] });
+      toast.saved(useCredits ? 'Credits applied — outstanding settled' : 'Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+  });
+
+  const reminderMutation = useMutation({
+    mutationFn: () => sendPaymentReminder(selected!.userId ?? selected!.linkedUserId),
+    onSuccess: () => toast.noted('Payment reminder sent'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send reminder'),
+  });
+
+  const whatsappMutation = useMutation({
+    mutationFn: () => {
+      const totalOutstanding = Number((memberBalance as any)?.totalBalance ?? 0);
+      return sendWhatsAppReminder({
+        userId: selected!.userId ?? selected!.linkedUserId,
+        phone: selected!.phone,
+        memberName: selected!.fullName ?? selected!.name,
+        outstandingAmount: totalOutstanding > 0 ? `₹${totalOutstanding.toLocaleString('en-IN')}` : '',
+        chitName: '',
+      });
+    },
+    onSuccess: (res: any) => toast.noted(res?.message ?? 'WhatsApp reminder sent'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send WhatsApp message'),
+  });
+
+  const resendSetupMutation = useMutation({
+    mutationFn: () => resendSetupLink(selected!.userId ?? selected!.linkedUserId),
+    onSuccess: () => toast.noted('Setup link resent'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resend setup link'),
   });
 
   const { data: memberChits = [] } = useQuery({
@@ -282,6 +331,33 @@ export default function AdminMembersScreen() {
     staleTime: 60_000,
   });
   const memberCreditBalance = Number(memberCreditData?.balance ?? 0);
+
+  const { data: memberSettlementsPage } = useQuery({
+    queryKey: ['m-member-settlements', selected?.id],
+    queryFn: () => getMemberSettlements(selected!.id),
+    enabled: !!selected?.id && showDetail,
+    staleTime: 60_000,
+  });
+  const SETTLEMENT_TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
+  const pendingSettlements = ((memberSettlementsPage as any)?.content ?? []).filter(
+    (s: any) => !SETTLEMENT_TERMINAL.has(s.status)
+  );
+
+  const { data: collectChitBalance } = useQuery({
+    queryKey: ['m-collect-chit-balance', selected?.id, collectChitId],
+    queryFn: () => getMemberBalance(selected!.id, collectChitId),
+    enabled: !!selected?.id && !!collectChitId && showCollect,
+    staleTime: 30_000,
+  });
+  const collectOutstanding = Number((collectChitBalance as any)?.totalOutstanding ?? 0);
+  const creditCoversCollect = memberCreditBalance >= collectOutstanding && collectOutstanding > 0;
+  const creditPartialCollect = memberCreditBalance > 0 && !creditCoversCollect && collectOutstanding > 0;
+
+  useEffect(() => {
+    if (creditPartialCollect) {
+      setCollectAmount(String(Math.max(0, collectOutstanding - memberCreditBalance)));
+    }
+  }, [memberCreditBalance, collectOutstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch user account status to show mustChangePassword indicator persistently
   const { data: memberUser } = useQuery({
@@ -311,15 +387,6 @@ export default function AdminMembersScreen() {
     (r) => r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PENDING',
   );
 
-  const filtered = (members as any[]).filter((m) => {
-    const q = search.toLowerCase();
-    const matchesSearch = !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q) || (m.email ?? '').toLowerCase().includes(q);
-    let matchesStatus = true;
-    if (statusFilter === 'Active') matchesStatus = m.status === 'ACTIVE';
-    else if (statusFilter === 'Inactive') matchesStatus = m.status === 'INACTIVE';
-    else if (statusFilter === 'Suspended') matchesStatus = m.status === 'SUSPENDED';
-    return matchesSearch && matchesStatus;
-  });
 
   function openDetail(m: any) {
     setSelected(m);
@@ -355,6 +422,10 @@ export default function AdminMembersScreen() {
 
   if (isLoading) return <ListLoadingScreen />;
 
+  const activeMembers = (allMembers as any[]).filter((m: any) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
+  const memberLimitHit = !!(tenantLimits?.maxMembers > 0 && activeMembers.length >= tenantLimits.maxMembers);
+  const memberAddOff = isExpired || memberLimitHit;
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Header */}
@@ -362,27 +433,28 @@ export default function AdminMembersScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <View>
             <Text style={T.h1}>Members</Text>
-            <Text style={{ fontSize: 13, color: C.gray500 }}>{filtered.length} of {(members as any[]).length}</Text>
+            <Text style={{ fontSize: 13, color: C.gray500 }}>{totalElements} total</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <EyeToggle />
-            <TouchableOpacity onPress={() => setShowCreate(true)}
-              style={{ backgroundColor: C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}>
+            <TouchableOpacity onPress={() => !memberAddOff && setShowCreate(true)}
+              style={{ backgroundColor: memberAddOff ? C.gray300 : C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, opacity: memberAddOff ? 0.5 : 1 }}>
               <Text style={{ color: C.white, fontWeight: '700', fontSize: 13 }}>+ Add</Text>
             </TouchableOpacity>
             <ProfileAvatarButton size={34} />
           </View>
         </View>
-        <TextInput value={search} onChangeText={(t) => { setSearch(t); setMemberShowCount(20); }} placeholder="Search name, phone, email…"
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search name, phone, email…"
           placeholderTextColor={C.gray400}
           style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white, marginBottom: 10 }} />
         {/* Status filter tabs */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[null, 'Active', 'Inactive', 'Suspended'].map((f) => {
+          {[null, 'Active', 'Inactive', 'Blacklisted'].map((f) => {
             const label = f ?? 'All';
             const active = statusFilter === f;
-            const count = f === null ? (members as any[]).length
-              : (members as any[]).filter((m) => m.status === f.toUpperCase()).length;
+            const statusKey = f === 'Blacklisted' ? 'BLACKLISTED' : f?.toUpperCase();
+            const count = f === null ? (allMembers as any[]).length
+              : (allMembers as any[]).filter((m) => m.status === statusKey).length;
             return (
               <TouchableOpacity key={label} onPress={() => setStatusFilter(f)}
                 style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20,
@@ -397,17 +469,14 @@ export default function AdminMembersScreen() {
         </View>
       </View>
 
-      <FlatList style={{ flex: 1 }} data={filtered.slice(0, memberShowCount)} keyExtractor={(m: any) => m.id}
+      <FlatList style={{ flex: 1 }} data={members} keyExtractor={(m: any) => m.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: 32 }}
+        onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+        onEndReachedThreshold={0.5}
         ListEmptyComponent={<EmptyState title="No members" message={search ? 'Try a different search' : 'No members yet'} />}
-        ListFooterComponent={filtered.length > memberShowCount ? (
-          <TouchableOpacity onPress={() => setMemberShowCount(c => c + 20)}
-            style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({filtered.length - memberShowCount} remaining)</Text>
-          </TouchableOpacity>
-        ) : filtered.length > 20 ? (
-          <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>All {filtered.length} members shown</Text>
+        ListFooterComponent={isFetchingNextPage ? (
+          <ActivityIndicator color={C.navy} style={{ marginVertical: 16 }} />
         ) : null}
         renderItem={({ item: m }) => (
           <TouchableOpacity onPress={() => openDetail(m)} activeOpacity={0.7}>
@@ -504,6 +573,37 @@ export default function AdminMembersScreen() {
                     </Text>
                   </Card>
                 )}
+
+                {/* Pending settlement payments */}
+                {pendingSettlements.length > 0 && pendingSettlements.map((s: any) => {
+                  const remaining = Math.abs(Number(s.remainingAmount ?? 0));
+                  const isCollect = Number(s.totalAmount ?? 0) > 0;
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      onPress={() => {
+                        setShowDetail(false);
+                        setTimeout(() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'settlement', memberId: selected!.id, settlementId: s.id } }), 300);
+                      }}
+                      style={{ marginBottom: 12 }}
+                    >
+                      <Card style={{ backgroundColor: '#FFFBEB', borderWidth: 1.5, borderColor: '#FCD34D' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <Text style={{ fontSize: 20 }}>⚠️</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>
+                              Settlement {isCollect ? 'Payment' : 'Disbursement'} Pending
+                            </Text>
+                            <Text style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                              ₹{remaining.toLocaleString('en-IN')} remaining to {isCollect ? 'collect' : 'disburse'} → tap to record
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 16, color: '#D97706' }}>›</Text>
+                        </View>
+                      </Card>
+                    </TouchableOpacity>
+                  );
+                })}
 
                 {/* App Login section */}
                 {(selected?.userId || selected?.linkedUserId || selected?.hasAppAccess) ? (
@@ -887,7 +987,6 @@ export default function AdminMembersScreen() {
                       {[
                         { value: 'ACTIVE',      label: 'Active',      color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
                         { value: 'INACTIVE',    label: 'Inactive',    color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' },
-                        { value: 'SUSPENDED',   label: 'Suspended',   color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
                         { value: 'BLACKLISTED', label: 'Blacklisted', color: '#DC2626', bg: '#FFF5F5', border: '#FECACA' },
                       ].map((s) => (
                         <TouchableOpacity key={s.value} onPress={() => setNewStatus(s.value)}
@@ -1048,6 +1147,53 @@ export default function AdminMembersScreen() {
                   )}
                 </View>
 
+                {/* Reminders */}
+                {(selected?.userId || selected?.linkedUserId) && (
+                  <View style={{ marginTop: 16, gap: 10 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>REMINDERS</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => Alert.alert('Send Reminder', `Send a push notification payment reminder to ${selected.fullName}?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Send', onPress: () => reminderMutation.mutate() },
+                        ])}
+                        disabled={reminderMutation.isPending}
+                        style={{ flex: 1, backgroundColor: C.navy50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.navy + '40', opacity: reminderMutation.isPending ? 0.5 : 1 }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                          {reminderMutation.isPending ? 'Sending…' : '🔔 Push Reminder'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => Alert.alert('WhatsApp Reminder', `Send a WhatsApp payment reminder to ${selected.fullName}?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Send', onPress: () => whatsappMutation.mutate() },
+                        ])}
+                        disabled={whatsappMutation.isPending}
+                        style={{ flex: 1, backgroundColor: '#F0FDF4', borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: '#16A34A40', opacity: whatsappMutation.isPending ? 0.5 : 1 }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#16A34A' }}>
+                          {whatsappMutation.isPending ? 'Sending…' : '💬 WhatsApp'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {(memberUser as any)?.mustChangePassword === false && (
+                      <TouchableOpacity
+                        onPress={() => Alert.alert('Resend Setup Link', `Resend the account setup link to ${selected.fullName}?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Resend', onPress: () => resendSetupMutation.mutate() },
+                        ])}
+                        disabled={resendSetupMutation.isPending}
+                        style={{ backgroundColor: C.gray50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.gray200, opacity: resendSetupMutation.isPending ? 0.5 : 1 }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray600 ?? C.gray500 }}>
+                          {resendSetupMutation.isPending ? 'Sending…' : '🔗 Resend Setup Link'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
                 {/* Settle + Delete — bottom of detail */}
                 <View style={{ marginTop: 24, gap: 10, paddingBottom: 8 }}>
                   <Button label="Settle Account" variant="outline" fullWidth
@@ -1085,33 +1231,68 @@ export default function AdminMembersScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹)</Text>
-            <TextInput value={collectAmount} onChangeText={setCollectAmount} keyboardType="numeric" placeholder="0"
-              placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, fontWeight: '700', color: C.gray900, marginBottom: 14 }} />
+            {/* Credit balance banner */}
+            {memberCreditBalance > 0 && (
+              <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#065F46' }}>Credit Balance</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#059669' }}>₹{memberCreditBalance.toLocaleString('en-IN')}</Text>
+                  </View>
+                  {creditCoversCollect && (
+                    <TouchableOpacity
+                      onPress={() => setUseCredits(!useCredits)}
+                      style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: useCredits ? '#059669' : C.white, borderWidth: 1.5, borderColor: useCredits ? '#059669' : '#6EE7B7' }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: useCredits ? C.white : '#059669' }}>{useCredits ? '✓ Using Credits' : 'Apply Credits'}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!creditCoversCollect && (
+                    <Text style={{ fontSize: 11, color: '#059669' }}>Auto-applies on payment</Text>
+                  )}
+                </View>
+                {useCredits && (
+                  <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{memberCreditBalance.toLocaleString('en-IN')} credit will cover ₹{collectOutstanding.toLocaleString('en-IN')} outstanding — no cash needed.</Text>
+                )}
+                {creditPartialCollect && (
+                  <Text style={{ fontSize: 11, color: '#059669', marginTop: 6 }}>₹{memberCreditBalance.toLocaleString('en-IN')} credit auto-applies → collect remaining <Text style={{ fontWeight: '700' }}>₹{Math.max(0, collectOutstanding - memberCreditBalance).toLocaleString('en-IN')}</Text></Text>
+                )}
+              </View>
+            )}
 
-            <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((m) => (
-                <TouchableOpacity key={m} onPress={() => setCollectMode(m)}
-                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
-                    borderColor: collectMode === m ? C.navy : C.gray300,
-                    backgroundColor: collectMode === m ? C.navy50 : C.white }}>
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: collectMode === m ? C.navy : C.gray500 }}>
-                    {m.replace('_', ' ')}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Amount (hidden when using credits) */}
+            {!useCredits && (
+              <>
+                <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹)</Text>
+                <TextInput value={collectAmount} onChangeText={setCollectAmount} keyboardType="numeric" placeholder="0"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, fontWeight: '700', color: C.gray900, marginBottom: 14 }} />
+
+                <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                  {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((m) => (
+                    <TouchableOpacity key={m} onPress={() => setCollectMode(m)}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
+                        borderColor: collectMode === m ? C.navy : C.gray300,
+                        backgroundColor: collectMode === m ? C.navy50 : C.white }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: collectMode === m ? C.navy : C.gray500 }}>
+                        {m.replace('_', ' ')}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
 
             <Text style={{ ...T.label, marginBottom: 6 }}>Notes (optional)</Text>
             <TextInput value={collectNotes} onChangeText={setCollectNotes} placeholder="Any notes…" multiline
               placeholderTextColor={C.gray400}
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 56, textAlignVertical: 'top', marginBottom: 16 }} />
 
-            <Button label={`Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
+            <Button
+              label={useCredits ? `Apply ₹${collectOutstanding.toLocaleString('en-IN')} Credits` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
               variant="success" fullWidth size="lg"
-              disabled={!collectChitId || !collectAmount || Number(collectAmount) <= 0}
+              disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0))}
               loading={collectMutation.isPending}
               onPress={() => collectMutation.mutate()} />
           </View>
@@ -1188,7 +1369,7 @@ export default function AdminMembersScreen() {
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 6 }} />
               {cReferralSearch.length > 0 && !cReferredById && (
                 <ScrollView style={{ maxHeight: 140 }} nestedScrollEnabled>
-                  {(members as any[]).filter((m: any) =>
+                  {(allMembers as any[]).filter((m: any) =>
                     (m.fullName ?? '').toLowerCase().includes(cReferralSearch.toLowerCase())
                   ).slice(0, 6).map((m: any) => (
                     <TouchableOpacity key={m.id} onPress={() => { setCReferredById(m.id); setCReferralSearch(m.fullName); }}
@@ -1212,7 +1393,7 @@ export default function AdminMembersScreen() {
           </ScrollView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Member" variant="primary" onPress={() => createMutation.mutate()}
-              loading={createMutation.isPending} disabled={!cFullName || !cPhone} fullWidth />
+              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone} fullWidth />
           </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -1245,7 +1426,7 @@ export default function AdminMembersScreen() {
                   style={{ padding: 10, backgroundColor: C.gray50, borderRadius: 8, marginBottom: 4 }}>
                   <Text style={{ fontSize: 13, color: C.gray500, fontStyle: 'italic' }}>— Remove referral —</Text>
                 </TouchableOpacity>
-                {(members as any[])
+                {(allMembers as any[])
                   .filter((m: any) => m.id !== selected?.id && (m.fullName ?? '').toLowerCase().includes(newReferralSearch.toLowerCase()))
                   .slice(0, 7)
                   .map((m: any) => (

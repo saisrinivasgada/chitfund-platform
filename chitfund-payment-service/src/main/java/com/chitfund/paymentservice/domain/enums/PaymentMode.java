@@ -4,5 +4,6 @@ public enum PaymentMode {
     CASH,          // two-step: worker collects → admin remits
     UPI,           // direct transfer, completed immediately
     BANK_TRANSFER, // direct transfer, completed immediately
-    CHEQUE         // completed immediately (caller verifies clearance offline)
+    CHEQUE,        // completed immediately (caller verifies clearance offline)
+    CREDIT         // no cash — outstanding covered entirely from member credit balance
 }
