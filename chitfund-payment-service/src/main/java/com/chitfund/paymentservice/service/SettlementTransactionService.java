@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.service;
 
 import com.chitfund.paymentservice.domain.Settlement;
+import com.chitfund.paymentservice.domain.SettlementChitItem;
 import com.chitfund.paymentservice.domain.SettlementPaymentTransaction;
 import com.chitfund.paymentservice.domain.enums.AccountType;
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
@@ -9,6 +10,7 @@ import com.chitfund.paymentservice.domain.enums.TransactionDirection;
 import com.chitfund.paymentservice.domain.enums.WalletEntryType;
 import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
 import com.chitfund.paymentservice.dto.request.RecordSettlementTransactionRequest;
+import com.chitfund.paymentservice.dto.response.SettlementResponse;
 import com.chitfund.paymentservice.dto.response.SettlementTransactionResponse;
 import com.chitfund.paymentservice.repository.SettlementPaymentTransactionRepository;
 import com.chitfund.paymentservice.repository.SettlementRepository;
@@ -16,6 +18,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.chitfund.common.context.TenantContext;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -154,8 +160,10 @@ public class SettlementTransactionService {
 
         String description = direction == TransactionDirection.COLLECTION
                 ? "Settlement payment collected — member " + settlement.getMemberId()
+                  + " settlement " + settlementId
                   + " ₹" + req.getAmount().toPlainString()
                 : "Settlement refund disbursed — member " + settlement.getMemberId()
+                  + " settlement " + settlementId
                   + " ₹" + req.getAmount().toPlainString();
 
         AdminWalletEntryRequest walletReq = new AdminWalletEntryRequest();
@@ -164,7 +172,8 @@ public class SettlementTransactionService {
         walletReq.setAmount(req.getAmount());
         walletReq.setCategory("SETTLEMENT_PAYMENT");
         walletReq.setDescription(description);
-        adminWalletService.addEntry(walletReq, adminId);
+        walletReq.setReferenceId(txn.getId()); // payment transaction ID for direct receipt lookup
+        adminWalletService.addEntry(walletReq, adminId, TenantContext.get());
 
         log.info("Settlement transaction recorded: settlementId={} direction={} amount={} mode={} status={}",
                 settlementId, direction, req.getAmount(), req.getMode(), settlement.getPaymentStatus());
@@ -190,18 +199,67 @@ public class SettlementTransactionService {
     }
 
     /**
-     * Returns all settlements that still have an outstanding payment obligation —
-     * i.e., the net amount has not been fully collected or disbursed yet.
-     *
+     * Returns paginated settlements that still have an outstanding payment obligation,
+     * scoped to the current tenant.
      * Excludes FULLY_COLLECTED, FULLY_DISBURSED, BALANCED (all terminal statuses).
+     *
+     * WHY return SettlementResponse and not Settlement?
+     * open-in-view is disabled; the JPA session closes when this method returns.
+     * Returning the raw entity would cause LazyInitializationException when Jackson
+     * tries to serialize the lazy chitItems collection. Mapping inside the transaction
+     * prevents that.
      */
     @Transactional(readOnly = true)
-    public List<Settlement> getPendingSettlements() {
+    public Page<SettlementResponse> getPendingSettlements(Pageable pageable) {
         List<SettlementPaymentStatus> terminal = List.of(
                 SettlementPaymentStatus.FULLY_COLLECTED,
                 SettlementPaymentStatus.FULLY_DISBURSED,
                 SettlementPaymentStatus.BALANCED);
-        return settlementRepository.findByPaymentStatusNotIn(terminal);
+        return settlementRepository.findPendingByTenant(TenantContext.get(), terminal, pageable)
+                .map(this::toPendingResponse);
+    }
+
+    private SettlementResponse toPendingResponse(Settlement s) {
+        BigDecimal absNet = s.getNetAmount().abs();
+        BigDecimal moved = s.getNetAmount().compareTo(BigDecimal.ZERO) > 0
+                ? s.getCollectedAmount()
+                : s.getDisbursedAmount();
+        BigDecimal remaining = absNet.subtract(moved).max(BigDecimal.ZERO);
+        return SettlementResponse.builder()
+                .id(s.getId())
+                .memberId(s.getMemberId())
+                .settledBy(s.getSettledBy())
+                .settledAt(s.getSettledAt())
+                .totalOwed(s.getTotalOwed())
+                .totalRefunded(s.getTotalRefunded())
+                .netAmount(s.getNetAmount())
+                .notes(s.getNotes())
+                .adjustmentAmount(s.getAdjustmentAmount())
+                .adjustmentReason(s.getAdjustmentReason())
+                .paymentStatus(s.getPaymentStatus())
+                .collectedAmount(s.getCollectedAmount())
+                .disbursedAmount(s.getDisbursedAmount())
+                .remainingAmount(remaining)
+                .createdAt(s.getCreatedAt())
+                .chitItems(s.getChitItems().stream()
+                        .map(item -> SettlementResponse.ChitItemDetail.builder()
+                                .id(item.getId())
+                                .chitId(item.getChitId())
+                                .chitName(item.getChitName())
+                                .settlementCase(item.getSettlementCase())
+                                .settlementMode(item.getSettlementMode())
+                                .payoutStatus(item.getPayoutStatus())
+                                .disbursedAmount(item.getDisbursedAmount())
+                                .netPayoutAmount(item.getNetPayoutAmount())
+                                .unpaidDues(item.getUnpaidDues())
+                                .futureInstallments(item.getFutureInstallments())
+                                .payoutCredit(item.getPayoutCredit())
+                                .totalPaid(item.getTotalPaid())
+                                .netAmount(item.getNetAmount())
+                                .description(item.getDescription())
+                                .build())
+                        .toList())
+                .build();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

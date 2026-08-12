@@ -27,26 +27,43 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
     Optional<Payout> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
-    // Admin dashboard: all PENDING payouts — needs to disburse these
+    // ── Tenant-scoped list queries ─────────────────────────────────────────────
+    List<Payout> findByTenantIdAndStatusInOrderByCreatedAtAsc(String tenantId, List<PayoutStatus> statuses);
+    List<Payout> findByTenantIdOrderByCreatedAtDesc(String tenantId);
+
+    @Query("SELECT p FROM Payout p WHERE p.tenantId = :tenantId AND " +
+           "(p.createdAt >= :start AND p.createdAt < :end) OR " +
+           "(p.disbursedAt >= :start AND p.disbursedAt < :end) " +
+           "ORDER BY p.createdAt DESC")
+    List<Payout> findByTenantIdAndTodaysPayouts(@Param("tenantId") String tenantId,
+                                                @Param("start") LocalDateTime start,
+                                                @Param("end") LocalDateTime end);
+
+    @Query("SELECT p FROM Payout p WHERE p.tenantId = :tenantId " +
+           "AND p.createdAt >= :start AND p.createdAt < :end " +
+           "AND (:chitId IS NULL OR p.chitId = :chitId) " +
+           "ORDER BY p.createdAt DESC")
+    List<Payout> findByTenantIdAndDateRange(
+            @Param("tenantId") String tenantId,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId);
+
+    List<Payout> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, UUID chitId);
+    List<Payout> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId);
+
+    // ── Cross-tenant fallbacks (kept for super-admin/internal use) ─────────────
     List<Payout> findByStatusOrderByCreatedAtAsc(PayoutStatus status);
-
-    // Pending tab: PENDING + PARTIALLY_DISBURSED together
     List<Payout> findByStatusInOrderByCreatedAtAsc(List<PayoutStatus> statuses);
-
-    // Per-chit view: shows the full disbursement history for a chit
     List<Payout> findByChitIdOrderByMonthNumberAsc(UUID chitId);
-
-    // Member's winning history across all chits
     List<Payout> findByMemberIdOrderByCreatedAtDesc(UUID memberId);
 
-    // Today's activity: created or disbursed today
     @Query("SELECT p FROM Payout p WHERE " +
            "(p.createdAt >= :start AND p.createdAt < :end) OR " +
            "(p.disbursedAt >= :start AND p.disbursedAt < :end) " +
            "ORDER BY p.createdAt DESC")
     List<Payout> findTodaysPayouts(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
-    // Reports: all payouts in a date range, optionally filtered by chit
     @Query("SELECT p FROM Payout p WHERE " +
            "p.createdAt >= :start AND p.createdAt < :end " +
            "AND (:chitId IS NULL OR p.chitId = :chitId) " +

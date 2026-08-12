@@ -75,6 +75,14 @@ public class SuperAdminController {
                 tenantService.suspendTenant(tenantId), "Tenant suspended"));
     }
 
+    @PatchMapping("/{tenantId}/status")
+    public ResponseEntity<ApiResponse<TenantResponse>> setStatus(
+            @PathVariable UUID tenantId,
+            @RequestParam String status) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.setTenantStatus(tenantId, status), "Status updated"));
+    }
+
     @PostMapping("/{tenantId}/plan")
     public ResponseEntity<ApiResponse<TenantResponse>> updatePlan(
             @PathVariable UUID tenantId,

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Share, Alert, RefreshControl, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import {
   getMembers, getMember, getChitsForMember, getPayoutsForMember, getMemberTotalBalance,
   getAllPaymentBatches, getAllPayouts, getWalletBalance, getWalletTransactions, getChits,
-  getPayoutById, getChit,
+  getPayoutById, getChit, getDraws, getPayoutsByChit,
+  getCollectionsReport, getMembersReport, getPayoutsReport,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
 
@@ -29,7 +31,7 @@ const PY_STATUS_COLOR: Record<string, string> = {
   DISBURSED: C.green, PENDING: C.amber, CANCELLED: C.red, VOIDED: C.gray400,
 };
 
-const REPORT_TYPES = ['Overview', 'Member', 'Payments', 'Payouts'] as const;
+const REPORT_TYPES = ['Overview', 'Member', 'Chit', 'Payments', 'Payouts', 'Treasury'] as const;
 type ReportType = typeof REPORT_TYPES[number];
 
 // ── Selector pill ─────────────────────────────────────────────────────────────
@@ -310,8 +312,12 @@ function MemberReport() {
   const selectedMember = (allMembers as any[]).find((m: any) => m.id === memberId);
 
   const totalPaid = (chits as any[]).reduce((s: number, c: any) => s + (c.paidAmount ?? 0), 0);
-  const totalReceived = (payouts as any[]).filter((p: any) => p.status === 'DISBURSED')
+  const disbursedPayouts = (payouts as any[]).filter((p: any) => p.status === 'DISBURSED');
+  const pendingDisb = (payouts as any[]).filter((p: any) => p.status !== 'DISBURSED' && p.status !== 'CANCELLED' && p.status !== 'VOIDED');
+  const totalReceived = disbursedPayouts
     .reduce((s: number, p: any) => s + (p.netDisbursed ?? p.disbursedAmount ?? 0), 0);
+  const totalPendingDisb = pendingDisb
+    .reduce((s: number, p: any) => s + (p.netPayoutAmount ?? p.netDisbursed ?? 0), 0);
 
   const handleShare = async () => {
     if (!member) return;
@@ -323,14 +329,22 @@ function MemberReport() {
       `Outstanding Balance: ${fmt((balance as any)?.totalBalance)}`,
       `Total Installments Paid: ${fmt(totalPaid)}`,
       `Total Payouts Received: ${fmt(totalReceived)}`,
+      ...(pendingDisb.length > 0 ? [`Pending Disbursements: ${pendingDisb.length} (${fmt(totalPendingDisb)})`] : []),
       '',
       '--- Chit Enrollments ---',
       ...(chits as any[]).map((c: any) =>
         `• ${c.name ?? c.chitName}: Draw #${c.currentDraw ?? '—'} of ${c.totalMonths} | Paid: ${fmt(c.paidAmount)}`
       ),
+      ...(pendingDisb.length > 0 ? [
+        '',
+        '--- Pending Disbursements ---',
+        ...(pendingDisb as any[]).map((p: any) =>
+          `• ${p.chitName ?? '—'} Draw #${p.drawNumber ?? p.monthNumber}: ${fmt(p.netPayoutAmount)} [${p.status}]`
+        ),
+      ] : []),
       '',
-      '--- Payouts ---',
-      ...(payouts as any[]).map((p: any) =>
+      '--- Payouts Received ---',
+      ...(disbursedPayouts as any[]).map((p: any) =>
         `• ${p.chitName ?? '—'} Draw #${p.drawNumber}: ${fmt(p.netDisbursed ?? p.disbursedAmount)} [${p.status}]`
       ),
     ];
@@ -434,11 +448,34 @@ function MemberReport() {
             </Card>
           ))}
 
-          {/* Payouts */}
-          <SectionHeader title="Payouts" />
-          {(payouts as any[]).length === 0 ? (
-            <Text style={[T.sm, { textAlign: 'center', paddingVertical: 12 }]}>No payouts</Text>
-          ) : (payouts as any[]).map((p: any) => (
+          {/* Pending Disbursements */}
+          {pendingDisb.length > 0 && (
+            <>
+              <SectionHeader title={`Pending Disbursements (${pendingDisb.length})`} />
+              {pendingDisb.map((p: any) => (
+                <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
+                  <Card style={{ marginBottom: 8, padding: 14, borderColor: '#FCD34D', borderWidth: 1 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={T.h3} numberOfLines={1}>{p.chitName ?? '—'} · Draw #{p.drawNumber ?? p.monthNumber}</Text>
+                        <Text style={T.xs}>{fmtDate(p.createdAt)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 15, fontWeight: '700', color: '#D97706' }}>{fmt(p.netPayoutAmount ?? p.netDisbursed)}</Text>
+                        <Text style={[T.xs, { color: '#D97706' }]}>{p.status}</Text>
+                      </View>
+                    </View>
+                  </Card>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+
+          {/* Payouts Received */}
+          <SectionHeader title="Payouts Received" />
+          {disbursedPayouts.length === 0 ? (
+            <Text style={[T.sm, { textAlign: 'center', paddingVertical: 12 }]}>No payouts received</Text>
+          ) : (disbursedPayouts as any[]).map((p: any) => (
             <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
               <Card style={{ marginBottom: 8, padding: 14 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -663,9 +700,345 @@ function PayoutsReport() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Chit Report
+// ─────────────────────────────────────────────────────────────────────────────
+function ChitReport() {
+  const [chitId, setChitId] = useState('');
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedPayoutId, setSelectedPayoutId] = useState<string | null>(null);
+
+  const { data: chits = [] } = useQuery({ queryKey: ['rpt-chits'], queryFn: getChits });
+  const { data: chit }  = useQuery({ queryKey: ['rpt-chit', chitId], queryFn: () => getChit(chitId), enabled: !!chitId });
+  const { data: draws = [] } = useQuery({ queryKey: ['rpt-draws', chitId], queryFn: () => getDraws(chitId), enabled: !!chitId });
+  const { data: colReport = [], isLoading: loadingCol } = useQuery({ queryKey: ['rpt-col', chitId], queryFn: () => getCollectionsReport(chitId), enabled: !!chitId });
+  const { data: payoutsRpt = [] } = useQuery({ queryKey: ['rpt-chit-payouts', chitId], queryFn: () => getPayoutsReport(chitId), enabled: !!chitId });
+  const { data: payoutsByChit2 = [] } = useQuery({ queryKey: ['rpt-payouts-chit', chitId], queryFn: () => getPayoutsByChit(chitId), enabled: !!chitId });
+
+  const drawMap: Record<number, any> = {};
+  (draws as any[]).forEach((d: any) => { drawMap[d.monthNumber] = d; });
+
+  const collectionRows: any[] = (colReport as any[]).length > 0
+    ? (colReport as any[]).map((r: any) => {
+        const mn = r.monthNumber ?? r.drawNumber ?? r.month;
+        const draw = drawMap[mn] ?? {};
+        return {
+          monthNumber: mn,
+          totalDue: r.totalDue ?? r.expectedAmount ?? 0,
+          totalCollected: r.totalCollected ?? r.collectedAmount ?? r.totalPaid ?? 0,
+          outstanding: r.outstanding ?? r.balance ?? 0,
+          drawStatus: r.drawStatus ?? draw.status ?? '—',
+          dueDate: draw.dueDate,
+        };
+      })
+    : (draws as any[]).map((d: any) => {
+        const isSkipped = d.status === 'SKIPPED';
+        const collected = Number(d.totalCollected ?? 0);
+        const outstanding = isSkipped ? 0 : Number(d.totalOutstanding ?? 0);
+        return {
+          monthNumber: d.monthNumber,
+          totalDue: isSkipped ? 0 : collected + outstanding,
+          totalCollected: isSkipped ? 0 : collected,
+          outstanding: isSkipped ? 0 : outstanding,
+          drawStatus: d.status,
+          dueDate: d.dueDate,
+        };
+      });
+
+  const payoutsData: any[] = (payoutsRpt as any[]).length > 0 ? (payoutsRpt as any[]) : (payoutsByChit2 as any[]);
+  const totalExpected    = collectionRows.reduce((s, r) => s + Number(r.totalDue ?? 0), 0);
+  const totalCollected   = collectionRows.reduce((s, r) => s + Number(r.totalCollected ?? 0), 0);
+  const totalOutstanding = collectionRows.reduce((s, r) => s + Number(r.outstanding ?? 0), 0);
+  const totalDisbursed   = payoutsData.filter((p: any) => p.status === 'DISBURSED')
+    .reduce((s, p: any) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
+  const profitLoss = totalCollected - totalDisbursed;
+
+  const selectedChit = (chits as any[]).find((c: any) => c.id === chitId);
+
+  const handleShare = async () => {
+    if (!chit) return;
+    const lines = [
+      `📊 Chit Report: ${(chit as any).name}`,
+      `Generated: ${new Date().toLocaleString('en-IN')}`,
+      '',
+      `Total Draws: ${(draws as any[]).length}`,
+      `Expected: ${fmt(totalExpected)}`,
+      `Collected: ${fmt(totalCollected)}`,
+      `Outstanding: ${fmt(totalOutstanding)}`,
+      `Disbursed Payouts: ${fmt(totalDisbursed)}`,
+      `${profitLoss >= 0 ? 'Surplus' : 'Deficit'}: ${fmt(Math.abs(profitLoss))}`,
+      '',
+      '--- Draw Collections ---',
+      ...collectionRows.map((r: any) =>
+        `Draw #${r.monthNumber} | Due: ${fmt(r.totalDue)} | Collected: ${fmt(r.totalCollected)} | Outstanding: ${fmt(r.outstanding)} [${r.drawStatus}]`
+      ),
+      '',
+      '--- Payouts ---',
+      ...payoutsData.map((p: any) =>
+        `Draw #${p.monthNumber} | ${p.memberName ?? '—'} | Net: ${fmt(p.netPayoutAmount ?? p.disbursedAmount)} [${p.status}]`
+      ),
+    ];
+    await Share.share({ message: lines.join('\n') });
+  };
+
+  return (
+    <View>
+      {/* Chit selector */}
+      <TouchableOpacity
+        onPress={() => setShowPicker(true)}
+        style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 14, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+      >
+        <Text style={{ color: selectedChit ? C.gray900 : C.gray400, fontSize: 15 }}>
+          {selectedChit ? (selectedChit as any).name : 'Select a chit fund…'}
+        </Text>
+        <Text style={{ color: C.gray400 }}>▼</Text>
+      </TouchableOpacity>
+
+      {showPicker && (
+        <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, marginBottom: 12, maxHeight: 280 }}>
+          <ScrollView>
+            {(chits as any[]).map((c: any) => (
+              <TouchableOpacity
+                key={c.id}
+                onPress={() => { setChitId(c.id); setShowPicker(false); }}
+                style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: c.id === chitId ? C.navy50 : C.white }}
+              >
+                <Text style={{ fontSize: 15, color: C.gray900, fontWeight: '500' }}>{c.name}</Text>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>{c.status} · {c.totalMembers} members</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {!chitId && <EmptyState title="Select a chit" message="Choose a chit fund to view its full report." />}
+
+      {chitId && loadingCol && <ListLoadingScreen />}
+
+      {chitId && !loadingCol && (
+        <View>
+          {/* Share + Summary */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 12 }}>
+            <TouchableOpacity onPress={handleShare}
+              style={{ backgroundColor: C.navy, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
+              <Text style={{ color: C.white, fontSize: 13, fontWeight: '600' }}>⬆ Share</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Stats */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Expected',    value: fmt(totalExpected),    color: C.navy },
+              { label: 'Collected',   value: fmt(totalCollected),   color: C.green },
+              { label: 'Outstanding', value: fmt(totalOutstanding), color: C.red },
+              { label: 'Disbursed',   value: fmt(totalDisbursed),   color: '#7C3AED' },
+            ].map(s => (
+              <Card key={s.label} style={{ width: '47%', padding: 12 }}>
+                <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 4 }}>{s.label}</Text>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: s.color }}>{s.value}</Text>
+              </Card>
+            ))}
+          </View>
+
+          {/* Profit/Loss */}
+          <Card style={{ marginBottom: 16, padding: 14, backgroundColor: profitLoss >= 0 ? '#F0FDF4' : '#FEF2F2', borderColor: profitLoss >= 0 ? '#16A34A' : '#DC2626', borderWidth: 1 }}>
+            <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 4 }}>
+              {profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}
+            </Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: profitLoss >= 0 ? '#16A34A' : '#DC2626' }}>
+              {profitLoss >= 0 ? '+' : '-'}{fmt(Math.abs(profitLoss))}
+            </Text>
+            <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+              Collected ({fmt(totalCollected)}) − Disbursed ({fmt(totalDisbursed)})
+            </Text>
+          </Card>
+
+          {/* Draw collections */}
+          <SectionHeader title={`Draw Collections (${collectionRows.length})`} />
+          {collectionRows.length === 0 ? (
+            <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>No draw data</Text>
+          ) : collectionRows.map((r: any) => (
+            <Card key={r.monthNumber} style={{ marginBottom: 6, padding: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw #{r.monthNumber}</Text>
+                <View style={{ backgroundColor: DRAW_STATUS_COLOR_RPT[r.drawStatus] + '20', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: DRAW_STATUS_COLOR_RPT[r.drawStatus] ?? C.gray400 }}>{r.drawStatus}</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 14 }}>
+                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Due</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>{fmt(r.totalDue)}</Text></View>
+                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Collected</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>{fmt(r.totalCollected)}</Text></View>
+                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Outstanding</Text><Text style={{ fontSize: 12, fontWeight: '600', color: Number(r.outstanding) > 0 ? C.red : C.gray400 }}>{fmt(r.outstanding)}</Text></View>
+              </View>
+            </Card>
+          ))}
+
+          {/* Payouts */}
+          <SectionHeader title={`Payouts (${payoutsData.length})`} />
+          {payoutsData.length === 0 ? (
+            <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>No payouts yet</Text>
+          ) : payoutsData.map((p: any) => (
+            <TouchableOpacity key={p.id} onPress={() => setSelectedPayoutId(p.id)} activeOpacity={0.7}>
+              <Card style={{ marginBottom: 6, padding: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{p.memberName ?? '—'}</Text>
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>Draw #{p.monthNumber ?? p.drawNumber} · {fmtDate(p.createdAt)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: PY_STATUS_COLOR[p.status] ?? C.gray700 }}>{fmt(p.netPayoutAmount ?? p.disbursedAmount)}</Text>
+                    <Text style={{ fontSize: 10, color: C.gray400 }}>{p.status}</Text>
+                  </View>
+                </View>
+              </Card>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      <PayoutDetailModal payoutId={selectedPayoutId} onClose={() => setSelectedPayoutId(null)} />
+    </View>
+  );
+}
+
+const DRAW_STATUS_COLOR_RPT: Record<string, string> = {
+  PENDING: C.gray400, OPEN: C.green, CLOSED: C.navy, SKIPPED: C.amber,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Treasury Report
+// ─────────────────────────────────────────────────────────────────────────────
+function TreasuryReport() {
+  const [presetIdx, setPresetIdx] = useState(0);
+  const from = PRESETS[presetIdx].from();
+  const to   = PRESETS[presetIdx].to();
+
+  const { data: wallet } = useQuery({ queryKey: ['rpt-wallet'], queryFn: getWalletBalance });
+  const { data: _txData = [] } = useQuery({ queryKey: ['rpt-wallet-txns'], queryFn: getWalletTransactions });
+  const allTxns: any[] = Array.isArray(_txData) ? _txData : (_txData as any)?.content ?? [];
+
+  const filtered = allTxns.filter((t: any) => {
+    const d = t.createdAt ?? t.transactionDate;
+    if (!d || (!from && !to)) return true;
+    const str = String(d);
+    const dt = new Date(str.endsWith('Z') || str.includes('+') ? str : str + 'Z');
+    const date = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    if (from && date < from) return false;
+    if (to   && date > to)   return false;
+    return true;
+  });
+
+  const inflows  = filtered.filter((t: any) => Number(t.amount ?? 0) > 0).reduce((s, t: any) => s + Number(t.amount ?? 0), 0);
+  const outflows = filtered.filter((t: any) => Number(t.amount ?? 0) < 0).reduce((s, t: any) => s + Math.abs(Number(t.amount ?? 0)), 0);
+  const totalBalance = Number((wallet as any)?.totalBalance ?? 0);
+  const cashBalance  = Number((wallet as any)?.cashBalance ?? 0);
+  const bankBalance  = Number((wallet as any)?.bankBalance ?? 0);
+
+  const handleShare = async () => {
+    const periodLabel = PRESETS[presetIdx].label;
+    const lines = [
+      '🏦 Treasury Report',
+      `Period: ${periodLabel}`,
+      `Generated: ${new Date().toLocaleString('en-IN')}`,
+      '',
+      `Total Balance: ${fmt(totalBalance)}`,
+      `  Cash: ${fmt(cashBalance)} | Bank: ${fmt(bankBalance)}`,
+      `Inflows: ${fmt(inflows)} | Outflows: ${fmt(outflows)}`,
+      `Transactions: ${filtered.length}`,
+      '',
+      ...filtered.slice(0, 100).map((t: any) => {
+        const sign = Number(t.amount ?? 0) > 0 ? '+' : '-';
+        return `${fmtDate(t.createdAt ?? t.transactionDate)} | ${t.accountType ?? '—'} | ${t.entryType ?? '—'} | ${sign}${fmt(Math.abs(Number(t.amount ?? 0)))} | ${t.category ?? '—'} | ${t.description ?? t.notes ?? ''}`;
+      }),
+    ];
+    await Share.share({ message: lines.join('\n') });
+  };
+
+  return (
+    <View>
+      {/* Period */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row' }}>
+          {PRESETS.map((p, i) => (
+            <Pill key={p.label} label={p.label} active={i === presetIdx} onPress={() => setPresetIdx(i)} />
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* Balance cards */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: 'Total Balance', value: fmt(totalBalance), color: '#7C3AED' },
+          { label: 'Cash',          value: fmt(cashBalance),  color: C.navy },
+          { label: 'Bank',          value: fmt(bankBalance),  color: '#0891B2' },
+          { label: `Inflows (${PRESETS[presetIdx].label})`, value: fmt(inflows), color: C.green },
+        ].map(s => (
+          <Card key={s.label} style={{ width: '47%', padding: 12 }}>
+            <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 4 }}>{s.label}</Text>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: s.color }}>{s.value}</Text>
+          </Card>
+        ))}
+      </View>
+
+      {/* Share + count */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Text style={{ fontSize: 13, color: C.gray500 }}>{filtered.length} of {allTxns.length} transactions</Text>
+        <TouchableOpacity onPress={handleShare}
+          style={{ backgroundColor: C.navy, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
+          <Text style={{ color: C.white, fontSize: 13, fontWeight: '600' }}>⬆ Share</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Transaction list */}
+      {filtered.length === 0 ? (
+        <EmptyState title="No transactions" message="No wallet transactions in the selected period." />
+      ) : (
+        <View>
+          {filtered.map((t: any, i: number) => {
+            const isIn = Number(t.amount ?? 0) > 0;
+            return (
+              <Card key={t.id ?? i} style={{ marginBottom: 6, padding: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <View style={{ backgroundColor: (isIn ? C.green : C.red) + '20', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: isIn ? C.green : C.red }}>{t.entryType ?? (isIn ? 'IN' : 'OUT')}</Text>
+                      </View>
+                      {t.accountType && (
+                        <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 10, color: C.gray500 }}>{t.accountType}</Text>
+                        </View>
+                      )}
+                      {t.category && <Text style={{ fontSize: 10, color: C.gray400 }}>{t.category}</Text>}
+                    </View>
+                    {(t.description || t.notes) && (
+                      <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500 }} numberOfLines={2}>{t.description ?? t.notes}</Text>
+                    )}
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>
+                      {fmtDate(t.createdAt ?? t.transactionDate)}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: isIn ? C.green : C.red }}>
+                    {isIn ? '+' : '-'}{fmt(Math.abs(Number(t.amount ?? 0)))}
+                  </Text>
+                </View>
+              </Card>
+            );
+          })}
+          <View style={{ paddingVertical: 10, alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, color: C.gray400 }}>
+              +{fmt(inflows)} in / -{fmt(outflows)} out
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Screen
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ReportsScreen() {
+  const router = useRouter();
   const [activeReport, setActiveReport] = useState<ReportType>('Overview');
 
   return (
@@ -673,9 +1046,14 @@ export default function ReportsScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         {/* Header */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-          <View>
-            <Text style={T.h1}>Reports</Text>
-            <Text style={T.sm}>Generate and share reports</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
+              <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
+            </TouchableOpacity>
+            <View>
+              <Text style={T.h1}>Reports</Text>
+              <Text style={T.sm}>Generate and share reports</Text>
+            </View>
           </View>
           <ProfileAvatarButton />
         </View>
@@ -692,8 +1070,10 @@ export default function ReportsScreen() {
         {/* Report content */}
         {activeReport === 'Overview'  && <OverviewReport />}
         {activeReport === 'Member'    && <MemberReport />}
+        {activeReport === 'Chit'      && <ChitReport />}
         {activeReport === 'Payments'  && <PaymentsReport />}
         {activeReport === 'Payouts'   && <PayoutsReport />}
+        {activeReport === 'Treasury'  && <TreasuryReport />}
       </ScrollView>
     </SafeAreaView>
   );

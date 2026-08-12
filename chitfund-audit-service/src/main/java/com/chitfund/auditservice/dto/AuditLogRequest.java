@@ -22,5 +22,6 @@ public record AuditLogRequest(
         String actorIp,
         String beforeState,
         String afterState,
-        String metadata
+        String metadata,
+        String tenantId
 ) {}

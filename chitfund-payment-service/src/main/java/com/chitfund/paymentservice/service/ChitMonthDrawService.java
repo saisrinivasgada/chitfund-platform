@@ -43,9 +43,11 @@ public class ChitMonthDrawService {
     private final NotificationService notificationService;
     private final com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
     private final com.chitfund.paymentservice.client.AuditClient auditClient;
+    private final PlanExpiryChecker planExpiryChecker;
 
     @Transactional
     public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
+        planExpiryChecker.assertNotExpired();
         long realCycles = drawRepository.countByChitIdAndStatusNot(request.getChitId(), DrawStatus.SKIPPED);
         if (realCycles >= request.getMaxCycles()) {
             throw new BusinessException(ErrorCode.CHIT_CYCLES_EXHAUSTED,
@@ -71,6 +73,7 @@ public class ChitMonthDrawService {
 
         List<PaymentRecord> records = request.getMembers().stream()
                 .map(m -> PaymentRecord.builder()
+                        .tenantId(com.chitfund.common.context.TenantContext.get())
                         .chitId(request.getChitId())
                         .memberId(m.getMemberId())
                         .monthNumber(request.getMonthNumber())
@@ -92,11 +95,13 @@ public class ChitMonthDrawService {
                 null,
                 Map.of("monthNumber", request.getMonthNumber(),
                         "dueDate", String.valueOf(request.getDueDate()),
-                        "members", records.size()));
+                        "members", records.size()),
+                com.chitfund.common.context.TenantContext.get());
 
         List<String> memberIdStrings = request.getMembers().stream()
                 .map(m -> m.getMemberId().toString()).toList();
         eventPublisher.publish(new ChitMonthOpenedEvent(
+                com.chitfund.common.context.TenantContext.get(),
                 request.getChitId().toString(),
                 null,
                 request.getMonthNumber(),
@@ -133,6 +138,7 @@ public class ChitMonthDrawService {
 
     @Transactional
     public DrawSummaryResponse skipDraw(SkipMonthRequest request, UUID adminId, String actorRole) {
+        planExpiryChecker.assertNotExpired();
         if (drawRepository.existsByChitIdAndMonthNumber(request.getChitId(), request.getMonthNumber())) {
             throw new BusinessException(ErrorCode.MONTH_ALREADY_OPEN,
                     "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
@@ -154,6 +160,7 @@ public class ChitMonthDrawService {
         // WAIVED records preserve installmentAmount for reports ("₹X waived in month Y due to Z")
         List<PaymentRecord> waivedRecords = request.getMemberIds().stream()
                 .map(memberId -> PaymentRecord.builder()
+                        .tenantId(com.chitfund.common.context.TenantContext.get())
                         .chitId(request.getChitId())
                         .memberId(memberId)
                         .monthNumber(request.getMonthNumber())
@@ -174,9 +181,11 @@ public class ChitMonthDrawService {
                 "DRAW_SKIPPED", adminId.toString(), actorRole,
                 null,
                 Map.of("monthNumber", request.getMonthNumber(),
-                        "reason", request.getSkipReason() != null ? request.getSkipReason() : ""));
+                        "reason", request.getSkipReason() != null ? request.getSkipReason() : ""),
+                com.chitfund.common.context.TenantContext.get());
 
         eventPublisher.publish(new ChitMonthSkippedEvent(
+                com.chitfund.common.context.TenantContext.get(),
                 request.getChitId().toString(),
                 null,
                 request.getMonthNumber(),
@@ -216,7 +225,8 @@ public class ChitMonthDrawService {
                 cycle.getChitId().toString(),
                 "DRAW_CLOSED", adminId.toString(), actorRole,
                 Map.of("status", "OPEN"),
-                Map.of("status", "CLOSED", "monthNumber", cycle.getMonthNumber()));
+                Map.of("status", "CLOSED", "monthNumber", cycle.getMonthNumber()),
+                com.chitfund.common.context.TenantContext.get());
 
         return buildSummaryWithLiveStats(cycle);
     }
@@ -472,7 +482,8 @@ public class ChitMonthDrawService {
                 cycle.getChitId().toString(),
                 "DRAW_DELETED", adminId.toString(), actorRole,
                 Map.of("status", "OPEN", "monthNumber", cycle.getMonthNumber()),
-                null);
+                null,
+                com.chitfund.common.context.TenantContext.get());
     }
 
     @Transactional(readOnly = true)

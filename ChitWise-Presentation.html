@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ChitWise — How It Works</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --navy: #1E3A5F;
+    --gold: #D4A017;
+    --gold-light: #F0C830;
+    --green: #16A34A;
+    --red: #DC2626;
+    --gray-light: #F1F5F9;
+    --gray: #64748B;
+    --white: #FFFFFF;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #0F1B2D;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    gap: 20px;
+  }
+
+  .slide {
+    width: 100%;
+    max-width: 960px;
+    min-height: 540px;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    page-break-after: always;
+  }
+
+  /* ─── Slide 1: Cover ─── */
+  .s1 {
+    background: linear-gradient(135deg, #1E3A5F 0%, #0D2240 60%, #162D4A 100%);
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    text-align: center;
+    gap: 24px;
+  }
+  .s1 .logo-box {
+    width: 90px; height: 90px;
+    background: var(--gold);
+    border-radius: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px;
+    box-shadow: 0 8px 30px rgba(212,160,23,0.4);
+  }
+  .s1 h1 {
+    font-family: 'Merriweather', serif;
+    font-size: 58px;
+    font-weight: 900;
+    color: white;
+    letter-spacing: -1px;
+    line-height: 1.1;
+  }
+  .s1 h1 span { color: var(--gold); }
+  .s1 .tagline {
+    font-size: 22px;
+    color: rgba(255,255,255,0.75);
+    font-weight: 300;
+    max-width: 560px;
+  }
+  .s1 .badge {
+    background: rgba(212,160,23,0.15);
+    border: 1px solid rgba(212,160,23,0.4);
+    color: var(--gold-light);
+    padding: 8px 22px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .s1 .stars {
+    display: flex; gap: 4px; justify-content: center;
+    margin-top: 8px;
+  }
+  .s1 .stars span { color: var(--gold); font-size: 22px; }
+
+  .dot-grid {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    pointer-events: none;
+  }
+
+  /* ─── Slide 2: What is a Chit Fund ─── */
+  .s2 {
+    background: white;
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .slide-header {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .slide-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .slide-title {
+    font-family: 'Merriweather', serif;
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--navy);
+    line-height: 1.2;
+  }
+
+  .chit-explain {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .chit-card {
+    background: var(--gray-light);
+    border-radius: 16px;
+    padding: 28px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .chit-card .icon { font-size: 36px; }
+  .chit-card h3 { font-size: 18px; font-weight: 700; color: var(--navy); }
+  .chit-card p { font-size: 15px; color: var(--gray); line-height: 1.6; }
+
+  .example-box {
+    background: linear-gradient(135deg, var(--navy) 0%, #2A4D78 100%);
+    border-radius: 16px;
+    padding: 28px 32px;
+    color: white;
+    display: flex; gap: 40px; align-items: center;
+  }
+  .example-box .eg-label { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.6; }
+  .example-box .eg-value { font-size: 32px; font-weight: 700; color: var(--gold-light); font-family: 'Merriweather', serif; }
+  .example-box .eg-desc { font-size: 14px; opacity: 0.8; margin-top: 2px; }
+
+  /* ─── Slide 3: Who uses ChitWise ─── */
+  .s3 {
+    background: linear-gradient(160deg, #1E3A5F 0%, #0D2240 100%);
+    padding: 50px 60px;
+    gap: 32px;
+    color: white;
+  }
+  .s3 .slide-label { color: var(--gold-light); }
+  .s3 .slide-title { color: white; }
+
+  .roles-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .role-card {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    padding: 24px 20px;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 12px; text-align: center;
+  }
+  .role-icon {
+    width: 60px; height: 60px;
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .role-card h3 { font-size: 16px; font-weight: 700; color: var(--gold-light); }
+  .role-card p { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+
+  /* ─── Slide 4: How it works ─── */
+  .s4 {
+    background: white;
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .steps-container {
+    display: flex; flex-direction: column; gap: 16px;
+    flex: 1;
+  }
+  .step-row {
+    display: flex; align-items: flex-start; gap: 20px;
+  }
+  .step-num {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--navy);
+    color: white;
+    font-size: 18px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-content { flex: 1; }
+  .step-content h3 { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+  .step-content p { font-size: 14px; color: var(--gray); line-height: 1.55; }
+  .step-divider { width: 2px; height: 16px; background: #E2E8F0; margin-left: 21px; }
+
+  /* ─── Slide 5: Member Portal ─── */
+  .s5 {
+    background: var(--gray-light);
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .phone-mockup {
+    background: #1E3A5F;
+    border-radius: 30px;
+    width: 220px;
+    min-height: 380px;
+    padding: 20px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+    flex-shrink: 0;
+    box-shadow: 0 20px 50px rgba(30,58,95,0.35);
+  }
+  .phone-mockup .pm-header {
+    font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-bottom: 4px;
+  }
+  .phone-mockup .pm-avatar {
+    width: 42px; height: 42px; background: var(--gold); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; color: var(--navy);
+    margin: 0 auto;
+  }
+  .phone-mockup .pm-name { text-align: center; color: white; font-weight: 700; font-size: 14px; }
+  .phone-mockup .pm-phone { text-align: center; color: rgba(255,255,255,0.5); font-size: 11px; }
+  .pm-stat-row { display: flex; gap: 8px; margin-top: 4px; }
+  .pm-stat {
+    flex: 1;
+    background: rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  .pm-stat .sv { font-size: 14px; font-weight: 700; color: white; }
+  .pm-stat .sl { font-size: 9px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+  .pm-alert {
+    background: rgba(220,38,38,0.15);
+    border: 1px solid rgba(220,38,38,0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #FCA5A5;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pm-menu {
+    display: flex; justify-content: space-around; margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .pm-menu span { font-size: 20px; }
+
+  .member-features {
+    flex: 1;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .feature-item {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: white;
+    border-radius: 14px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .feature-item .fi-icon { font-size: 24px; flex-shrink: 0; }
+  .feature-item h4 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 2px; }
+  .feature-item p { font-size: 13px; color: var(--gray); line-height: 1.5; }
+
+  /* ─── Slide 6: Draw Day ─── */
+  .s6 {
+    background: white;
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .draw-visual {
+    display: flex; gap: 24px; align-items: center; justify-content: center;
+    flex-wrap: wrap;
+  }
+  .member-bubble {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .mb-avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: white;
+  }
+  .mb-name { font-size: 12px; color: var(--gray); font-weight: 500; }
+  .mb-winner { outline: 4px solid var(--gold); }
+  .mb-winner .mb-badge {
+    background: var(--gold);
+    color: var(--navy);
+    font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 100px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .draw-arrow { font-size: 28px; color: #CBD5E1; }
+  .draw-result-box {
+    background: linear-gradient(135deg, #16A34A, #15803D);
+    border-radius: 16px;
+    padding: 24px 32px;
+    color: white;
+    text-align: center;
+    max-width: 260px;
+  }
+  .draw-result-box .dr-icon { font-size: 40px; }
+  .draw-result-box h3 { font-size: 22px; font-weight: 700; margin: 8px 0 4px; }
+  .draw-result-box .dr-amount { font-size: 32px; font-weight: 700; color: #BBF7D0; font-family: 'Merriweather', serif; }
+  .draw-result-box p { font-size: 13px; opacity: 0.8; margin-top: 6px; }
+
+  .draw-types {
+    display: flex; gap: 16px;
+  }
+  .dt-card {
+    flex: 1;
+    border: 2px solid #E2E8F0;
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .dt-card h4 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+  .dt-card p { font-size: 13px; color: var(--gray); line-height: 1.5; }
+  .dt-card .dt-tag {
+    display: inline-block;
+    background: var(--gray-light);
+    color: var(--navy);
+    font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 100px;
+    margin-top: 8px;
+  }
+
+  /* ─── Slide 7: Payments ─── */
+  .s7 {
+    background: linear-gradient(160deg, #1E3A5F 0%, #0D2240 100%);
+    padding: 50px 60px;
+    gap: 32px;
+    color: white;
+  }
+  .s7 .slide-label { color: var(--gold-light); }
+  .s7 .slide-title { color: white; }
+  .payment-modes {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+  }
+  .pm-card {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    padding: 24px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .pm-card .pm-icon { font-size: 36px; }
+  .pm-card h3 { font-size: 17px; font-weight: 700; color: var(--gold-light); }
+  .pm-card p { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+  .pm-badge {
+    background: rgba(212,160,23,0.2);
+    color: var(--gold-light);
+    font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 100px;
+    width: fit-content;
+  }
+
+  .flow-banner {
+    background: rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 20px 28px;
+    display: flex; gap: 0; align-items: center;
+    justify-content: space-between;
+  }
+  .fb-step {
+    display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  }
+  .fb-step .fs-icon { font-size: 28px; }
+  .fb-step .fs-label { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
+  .fb-arrow { font-size: 20px; color: var(--gold); opacity: 0.7; }
+
+  /* ─── Slide 8: Payouts ─── */
+  .s8 {
+    background: white;
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .payout-flow {
+    display: flex; gap: 16px; align-items: stretch;
+  }
+  .pf-step {
+    flex: 1;
+    border-radius: 16px;
+    padding: 24px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+    text-align: center;
+    align-items: center;
+  }
+  .pf-step .pf-num {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+  }
+  .pf-step h4 { font-size: 15px; font-weight: 700; }
+  .pf-step p { font-size: 12px; line-height: 1.5; }
+  .pf-a { background: #EFF6FF; }
+  .pf-a .pf-num { background: #DBEAFE; color: #1D4ED8; }
+  .pf-a h4 { color: #1D4ED8; }
+  .pf-a p { color: #3B82F6; }
+  .pf-b { background: #FFF7ED; }
+  .pf-b .pf-num { background: #FED7AA; color: #C2410C; }
+  .pf-b h4 { color: #C2410C; }
+  .pf-b p { color: #EA580C; }
+  .pf-c { background: #F0FDF4; }
+  .pf-c .pf-num { background: #BBF7D0; color: #15803D; }
+  .pf-c h4 { color: #15803D; }
+  .pf-c p { color: #16A34A; }
+  .pf-d { background: #FDF4FF; }
+  .pf-d .pf-num { background: #E9D5FF; color: #7E22CE; }
+  .pf-d h4 { color: #7E22CE; }
+  .pf-d p { color: #9333EA; }
+  .pf-arrow { color: #CBD5E1; font-size: 22px; display: flex; align-items: center; }
+
+  /* ─── Slide 9: Transparency ─── */
+  .s9 {
+    background: var(--gray-light);
+    padding: 50px 60px;
+    gap: 32px;
+  }
+  .transparency-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1;
+  }
+  .tg-card {
+    background: white;
+    border-radius: 16px;
+    padding: 28px;
+    display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+  .tg-card .tg-icon { font-size: 36px; }
+  .tg-card h3 { font-size: 18px; font-weight: 700; color: var(--navy); }
+  .tg-card p { font-size: 14px; color: var(--gray); line-height: 1.6; }
+
+  /* ─── Slide 10: Mobile App ─── */
+  .s10 {
+    background: linear-gradient(160deg, #0D2240 0%, #1E3A5F 50%, #162D4A 100%);
+    padding: 50px 60px;
+    gap: 32px;
+    color: white;
+    flex-direction: row;
+    align-items: center;
+  }
+  .mobile-content { flex: 1; display: flex; flex-direction: column; gap: 28px; }
+  .mobile-content .slide-label { color: var(--gold-light); }
+  .mobile-content .slide-title { color: white; }
+  .mobile-features {
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .mf-item {
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .mf-item .mfi-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(212,160,23,0.15);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .mf-item h4 { font-size: 15px; font-weight: 700; color: var(--gold-light); margin-bottom: 2px; }
+  .mf-item p { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+  .mobile-phones {
+    display: flex; gap: 20px; align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .phone-frame {
+    background: #1A1A2E;
+    border-radius: 32px;
+    padding: 16px 12px 20px;
+    width: 180px;
+    border: 2px solid rgba(255,255,255,0.1);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  }
+  .phone-frame.tall { width: 200px; }
+  .phone-notch {
+    width: 60px; height: 14px; background: #0A0A15;
+    border-radius: 7px; margin: 0 auto 12px;
+  }
+  .phone-screen {
+    background: var(--navy);
+    border-radius: 18px;
+    padding: 14px 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    min-height: 260px;
+  }
+  .ps-header {
+    font-size: 10px; color: rgba(255,255,255,0.5); text-align: center;
+    letter-spacing: 1px;
+  }
+  .ps-greeting { font-size: 13px; font-weight: 700; color: white; }
+  .ps-amount {
+    background: linear-gradient(135deg, rgba(212,160,23,0.2), rgba(212,160,23,0.05));
+    border: 1px solid rgba(212,160,23,0.3);
+    border-radius: 12px;
+    padding: 10px 14px;
+  }
+  .ps-amount .psa-label { font-size: 9px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+  .ps-amount .psa-value { font-size: 22px; font-weight: 700; color: var(--gold-light); }
+  .ps-row { display: flex; gap: 6px; }
+  .ps-chip {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 8px 6px;
+    text-align: center;
+    font-size: 10px; color: rgba(255,255,255,0.7);
+  }
+  .ps-chip .pc-icon { font-size: 16px; display: block; margin-bottom: 3px; }
+  .ps-notification {
+    background: rgba(22,163,74,0.15);
+    border: 1px solid rgba(22,163,74,0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .ps-notification .pn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4ADE80; flex-shrink: 0; margin-top: 3px;
+  }
+  .ps-notification .pn-text { font-size: 10px; color: #86EFAC; line-height: 1.4; }
+
+  /* ─── Slide 11: Call to Action ─── */
+  .s11 {
+    background: linear-gradient(135deg, var(--gold) 0%, #B8860B 100%);
+    padding: 60px;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: 28px;
+  }
+  .s11 h2 {
+    font-family: 'Merriweather', serif;
+    font-size: 42px;
+    font-weight: 900;
+    color: var(--navy);
+    line-height: 1.2;
+  }
+  .s11 p {
+    font-size: 20px;
+    color: rgba(30,58,95,0.8);
+    max-width: 500px;
+  }
+  .cta-boxes {
+    display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .cta-box {
+    background: white;
+    border-radius: 16px;
+    padding: 22px 30px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    min-width: 180px;
+  }
+  .cta-box .cb-icon { font-size: 32px; }
+  .cta-box h4 { font-size: 16px; font-weight: 700; color: var(--navy); }
+  .cta-box p { font-size: 13px; color: var(--gray); }
+
+  .slide-footer {
+    position: absolute;
+    bottom: 16px;
+    right: 28px;
+    font-size: 11px;
+    color: rgba(0,0,0,0.25);
+    font-weight: 500;
+  }
+  .slide-footer.light { color: rgba(255,255,255,0.3); }
+
+  .slide-num {
+    position: absolute;
+    bottom: 16px;
+    left: 28px;
+    font-size: 11px;
+    color: rgba(0,0,0,0.2);
+    font-weight: 600;
+  }
+  .slide-num.light { color: rgba(255,255,255,0.25); }
+
+  /* Utility */
+  .flex-row { display: flex; flex-direction: row; gap: 32px; align-items: flex-start; }
+  .flex-col { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ─── Slide 12: Create a Chit ─── */
+  .s12 {
+    background: white;
+    padding: 50px 60px;
+    gap: 28px;
+  }
+  .create-chit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    flex: 1;
+  }
+  .cc-step {
+    background: var(--gray-light);
+    border-radius: 14px;
+    padding: 22px 24px;
+    display: flex; gap: 16px; align-items: flex-start;
+  }
+  .cc-step .cc-num {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--navy);
+    color: white; font-weight: 700; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .cc-step h4 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+  .cc-step p { font-size: 13px; color: var(--gray); line-height: 1.55; }
+  .chit-form-preview {
+    background: linear-gradient(135deg, var(--navy) 0%, #2A4D78 100%);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex; flex-direction: column; gap: 10px;
+    grid-column: span 2;
+  }
+  .cfp-title { font-size: 13px; font-weight: 700; color: var(--gold-light); letter-spacing: 1px; text-transform: uppercase; }
+  .cfp-fields {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  }
+  .cfp-field {
+    background: rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .cfp-field .cff-label { font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+  .cfp-field .cff-value { font-size: 15px; font-weight: 700; color: white; margin-top: 3px; }
+
+  /* ─── Slide 13: Create Payout ─── */
+  .s13 {
+    background: linear-gradient(160deg, #1E3A5F 0%, #0D2240 100%);
+    padding: 50px 60px;
+    gap: 28px;
+    color: white;
+  }
+  .s13 .slide-label { color: var(--gold-light); }
+  .s13 .slide-title { color: white; }
+  .payout-create-steps {
+    display: flex; gap: 16px; align-items: stretch; flex: 1;
+  }
+  .pc-step {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 22px 18px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    text-align: center;
+  }
+  .pc-step .pc-icon { font-size: 32px; }
+  .pc-step .pc-badge {
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 100px;
+    background: rgba(212,160,23,0.15);
+    color: var(--gold-light);
+  }
+  .pc-step h4 { font-size: 15px; font-weight: 700; color: var(--gold-light); }
+  .pc-step p { font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.55; }
+  .pc-arrow { color: rgba(255,255,255,0.25); font-size: 22px; display: flex; align-items: center; }
+
+  .payout-summary-box {
+    background: rgba(22,163,74,0.12);
+    border: 1px solid rgba(22,163,74,0.3);
+    border-radius: 14px;
+    padding: 18px 24px;
+    display: flex; gap: 32px; align-items: center;
+  }
+  .psb-item { display: flex; flex-direction: column; gap: 2px; }
+  .psb-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+  .psb-value { font-size: 20px; font-weight: 700; color: #4ADE80; font-family: 'Merriweather', serif; }
+  .psb-divider { width: 1px; background: rgba(255,255,255,0.1); align-self: stretch; }
+  .psb-note { font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.5; flex: 1; }
+
+  /* ─── Slide 14: Disbursement ─── */
+  .s14 {
+    background: var(--gray-light);
+    padding: 50px 60px;
+    gap: 28px;
+  }
+  .disb-flow {
+    display: flex; gap: 0; align-items: stretch; flex: 1;
+  }
+  .disb-step {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 12px; text-align: center; padding: 0 10px;
+  }
+  .disb-icon-wrap {
+    width: 64px; height: 64px; border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .disb-step h4 { font-size: 15px; font-weight: 700; color: var(--navy); }
+  .disb-step p { font-size: 13px; color: var(--gray); line-height: 1.5; }
+  .disb-connector {
+    display: flex; align-items: flex-start; padding-top: 32px;
+    color: #CBD5E1; font-size: 22px;
+  }
+  .partial-box {
+    background: white;
+    border-radius: 14px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    display: flex; gap: 16px; align-items: flex-start;
+  }
+  .partial-box .pb-icon { font-size: 28px; flex-shrink: 0; }
+  .partial-box h4 { font-size: 15px; font-weight: 700; color: var(--navy); margin-bottom: 4px; }
+  .partial-box p { font-size: 13px; color: var(--gray); line-height: 1.55; }
+  .disb-modes { display: flex; gap: 12px; }
+  .dm-chip {
+    flex: 1; background: white; border-radius: 12px;
+    padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  }
+  .dm-chip .dm-icon { font-size: 24px; }
+  .dm-chip .dm-label { font-size: 12px; font-weight: 700; color: var(--navy); }
+  .dm-chip .dm-sub { font-size: 11px; color: var(--gray); }
+
+  /* ─── Slide 15: Pricing Tiers ─── */
+  .s15 {
+    background: linear-gradient(160deg, #0D2240 0%, #1E3A5F 100%);
+    padding: 50px 60px;
+    gap: 28px;
+    color: white;
+  }
+  .s15 .slide-label { color: var(--gold-light); }
+  .s15 .slide-title { color: white; }
+  .tiers-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; flex: 1;
+  }
+  .tier-card {
+    border-radius: 20px;
+    padding: 28px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .tier-card.starter { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); }
+  .tier-card.growth { background: rgba(212,160,23,0.1); border: 2px solid var(--gold); }
+  .tier-card.enterprise { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.4); }
+  .tier-popular {
+    position: absolute; top: 14px; right: -22px;
+    background: var(--gold);
+    color: var(--navy);
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    padding: 4px 32px;
+    transform: rotate(45deg);
+    text-transform: uppercase;
+  }
+  .tier-name { font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; }
+  .tier-card.starter .tier-name { color: rgba(255,255,255,0.6); }
+  .tier-card.growth .tier-name { color: var(--gold-light); }
+  .tier-card.enterprise .tier-name { color: #A5B4FC; }
+  .tier-price { font-size: 34px; font-weight: 700; font-family: 'Merriweather', serif; color: white; }
+  .tier-price span { font-size: 14px; font-weight: 400; color: rgba(255,255,255,0.5); font-family: 'Inter', sans-serif; }
+  .tier-limits {
+    display: flex; flex-direction: column; gap: 8px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 14px;
+  }
+  .tl-row {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tl-row .tl-icon { font-size: 14px; }
+  .tl-row .tl-text { font-size: 13px; color: rgba(255,255,255,0.8); }
+  .tl-row .tl-val { font-size: 13px; font-weight: 700; color: white; margin-left: auto; }
+  .tier-cta {
+    margin-top: auto;
+    padding: 10px 0;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer;
+  }
+  .tier-card.starter .tier-cta { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
+  .tier-card.growth .tier-cta { background: var(--gold); color: var(--navy); }
+  .tier-card.enterprise .tier-cta { background: rgba(99,102,241,0.3); color: #A5B4FC; }
+
+  .tiers-note {
+    display: flex; gap: 12px; align-items: center;
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 14px 20px;
+  }
+  .tiers-note p { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+
+  @media print {
+    body { background: white; padding: 0; gap: 0; }
+    .slide { box-shadow: none; border-radius: 0; page-break-after: always; max-width: 100%; height: 100vh; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── SLIDE 1: COVER ─── -->
+<section class="slide s1">
+  <div class="dot-grid"></div>
+  <div class="logo-box">📒</div>
+  <div class="badge">Chit Fund Management</div>
+  <h1>Chit<span>Wise</span></h1>
+  <p class="tagline">Your money. Your group. Managed smartly.</p>
+  <div class="stars">
+    <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+  </div>
+  <span class="slide-footer light">ChitWise — Confidential</span>
+</section>
+
+<!-- ─── SLIDE 2: WHAT IS A CHIT FUND ─── -->
+<section class="slide s2">
+  <div class="slide-header">
+    <span class="slide-label">The Basics</span>
+    <h2 class="slide-title">What is a Chit Fund?</h2>
+  </div>
+  <div class="chit-explain">
+    <div class="chit-card">
+      <div class="icon">👥</div>
+      <h3>A Group Savings Plan</h3>
+      <p>A group of friends, family, or colleagues come together. Each person pays a fixed amount every month. Everyone benefits.</p>
+    </div>
+    <div class="chit-card">
+      <div class="icon">🏆</div>
+      <h3>One Winner Every Month</h3>
+      <p>Every month, one person in the group gets the whole pot of money. By the end, every single person has won once.</p>
+    </div>
+    <div class="chit-card">
+      <div class="icon">🔒</div>
+      <h3>Safe &amp; Organised</h3>
+      <p>ChitWise keeps everything organised — who paid, who won, and who gets paid next. No confusion, no missing money.</p>
+    </div>
+    <div class="chit-card">
+      <div class="icon">📱</div>
+      <h3>Always on Your Phone</h3>
+      <p>Members can check their balance, see payment history, and request cash pickup — all from a phone app, anytime.</p>
+    </div>
+  </div>
+  <div class="example-box">
+    <div>
+      <div class="eg-label">Example</div>
+      <div class="eg-value">10 Members × ₹5,000/month</div>
+      <div class="eg-desc">= ₹50,000 each month · One winner gets the full ₹50,000</div>
+    </div>
+    <div>
+      <div class="eg-label">Duration</div>
+      <div class="eg-value">10 Months</div>
+      <div class="eg-desc">Every person wins exactly once over 10 months</div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">2</span>
+</section>
+
+<!-- ─── SLIDE 3: WHO USES CHIWISE ─── -->
+<section class="slide s3">
+  <div class="slide-header">
+    <span class="slide-label">People &amp; Roles</span>
+    <h2 class="slide-title">Who's Involved?</h2>
+  </div>
+  <div class="roles-grid">
+    <div class="role-card">
+      <div class="role-icon" style="background:rgba(212,160,23,0.15)">👑</div>
+      <h3>Admin</h3>
+      <p>The owner. Sets up chit groups, manages staff, oversees all money, and has full control of the platform.</p>
+    </div>
+    <div class="role-card">
+      <div class="role-icon" style="background:rgba(99,102,241,0.15)">🗂️</div>
+      <h3>Manager</h3>
+      <p>Runs day-to-day operations. Opens monthly draws, manages payouts, and coordinates the field team.</p>
+    </div>
+    <div class="role-card">
+      <div class="role-icon" style="background:rgba(16,185,129,0.15)">🏃</div>
+      <h3>Staff / Worker</h3>
+      <p>Goes to members' homes to collect cash payments. Reports back to the manager after every pickup.</p>
+    </div>
+    <div class="role-card">
+      <div class="role-icon" style="background:rgba(239,68,68,0.15)">🧑‍💼</div>
+      <h3>Member</h3>
+      <p>The chit participant. Pays monthly installments and eventually wins the pot. Has their own mobile app.</p>
+    </div>
+  </div>
+  <div style="background:rgba(255,255,255,0.07); border-radius:14px; padding:20px 28px; display:flex; gap:20px; align-items:center;">
+    <span style="font-size:28px">💡</span>
+    <p style="font-size:15px; color:rgba(255,255,255,0.8); line-height:1.6">
+      <strong style="color:var(--gold-light)">Simple for members.</strong> Powerful for organisers. ChitWise keeps each person's view clean and relevant — members only see what they need, admin sees everything.
+    </p>
+  </div>
+  <span class="slide-footer light">ChitWise</span>
+  <span class="slide-num light">3</span>
+</section>
+
+<!-- ─── SLIDE 4: HOW IT WORKS ─── -->
+<section class="slide s4">
+  <div class="slide-header">
+    <span class="slide-label">Step by Step</span>
+    <h2 class="slide-title">How ChitWise Works</h2>
+  </div>
+  <div class="steps-container">
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Create the Chit Group</h3>
+        <p>Admin sets up a new chit — how many members, how much per month, and how long it runs. Members are added to the group.</p>
+      </div>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Members Pay Every Month</h3>
+        <p>Each month, members pay their installment — by cash (collected at home by a staff worker), bank transfer, or UPI. ChitWise records every payment instantly.</p>
+      </div>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>The Monthly Draw</h3>
+        <p>At the end of each month, the manager opens a draw. One member is selected as the winner (either by lot or by a pre-agreed schedule). The result is recorded in ChitWise.</p>
+      </div>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-row">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Winner Gets Paid</h3>
+        <p>The admin or manager processes the payout. The winner receives the full amount — tracked in ChitWise so everyone can verify it. Can be partial disbursements too.</p>
+      </div>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-row">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Repeat Until Everyone Wins</h3>
+        <p>The process repeats every month until every member has won exactly once. The chit is then marked complete. Full history is kept forever.</p>
+      </div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">4</span>
+</section>
+
+<!-- ─── SLIDE 5: MEMBER PORTAL ─── -->
+<section class="slide s5">
+  <div class="slide-header">
+    <span class="slide-label">For Members</span>
+    <h2 class="slide-title">Your Personal Portal</h2>
+  </div>
+  <div class="flex-row" style="align-items:center; flex:1">
+    <div class="phone-mockup">
+      <div class="pm-header">ChitWise App</div>
+      <div class="pm-avatar">KI</div>
+      <div class="pm-name">Kittu</div>
+      <div class="pm-phone">📞 +91 1234567890</div>
+      <div class="pm-stat-row">
+        <div class="pm-stat"><div class="sv">1</div><div class="sl">Active</div></div>
+        <div class="pm-stat"><div class="sv">3</div><div class="sl">Done</div></div>
+        <div class="pm-stat"><div class="sv">₹71K</div><div class="sl">Due</div></div>
+      </div>
+      <div class="pm-alert">⚠️ Outstanding balance due</div>
+      <div class="pm-stat-row" style="margin-top:8px">
+        <div class="pm-stat" style="background:rgba(22,163,74,0.15)">
+          <div class="sv" style="font-size:10px; color:#4ADE80">💰</div>
+          <div class="sl">Request Pickup</div>
+        </div>
+        <div class="pm-stat" style="background:rgba(212,160,23,0.15)">
+          <div class="sv" style="font-size:10px; color:#FCD34D">🏆</div>
+          <div class="sl">My Payouts</div>
+        </div>
+      </div>
+      <div class="pm-menu">
+        <span>🏠</span><span>📋</span><span>🏆</span><span>💳</span><span>👤</span>
+      </div>
+    </div>
+    <div class="member-features">
+      <div class="feature-item">
+        <div class="fi-icon">🏠</div>
+        <div>
+          <h4>Home Dashboard</h4>
+          <p>See your outstanding balance, active chit count, and completed chits at a glance. Always know where you stand.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">📋</div>
+        <div>
+          <h4>My Chits</h4>
+          <p>View every chit you're enrolled in. See draw results, monthly schedule, and your payment history for each chit.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🏆</div>
+        <div>
+          <h4>My Winnings</h4>
+          <p>Track your payout status — whether it's pending, partially paid, or fully disbursed to your account.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🚐</div>
+        <div>
+          <h4>Request Cash Pickup</h4>
+          <p>Can't come to the office? Request a staff member to come collect your payment at your home. Track who is coming.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">5</span>
+</section>
+
+<!-- ─── SLIDE 6: DRAW DAY ─── -->
+<section class="slide s6">
+  <div class="slide-header">
+    <span class="slide-label">The Big Moment</span>
+    <h2 class="slide-title">Draw Day — How a Winner is Chosen</h2>
+  </div>
+  <div class="draw-visual">
+    <div class="member-bubble">
+      <div class="mb-avatar" style="background:#6366F1">RA</div>
+      <div class="mb-name">Rajan</div>
+    </div>
+    <div class="member-bubble">
+      <div class="mb-avatar mb-winner" style="background:#D4A017">KI</div>
+      <div class="mb-name">Kittu</div>
+      <div class="mb-badge">WINNER</div>
+    </div>
+    <div class="member-bubble">
+      <div class="mb-avatar" style="background:#16A34A">SA</div>
+      <div class="mb-name">Sai</div>
+    </div>
+    <div class="member-bubble">
+      <div class="mb-avatar" style="background:#DC2626">VI</div>
+      <div class="mb-name">Vineeth</div>
+    </div>
+    <div class="draw-arrow">→</div>
+    <div class="draw-result-box">
+      <div class="dr-icon">🎉</div>
+      <h3>Kittu Wins!</h3>
+      <div class="dr-amount">₹50,000</div>
+      <p>Draw #3 · Payout created · Notification sent</p>
+    </div>
+  </div>
+  <div class="draw-types">
+    <div class="dt-card">
+      <h4>🎲 Open Draw (Lucky Dip)</h4>
+      <p>All members who haven't won yet are entered. The system picks one at random. Completely fair — no favouritism.</p>
+      <div class="dt-tag">Fair & Random</div>
+    </div>
+    <div class="dt-card">
+      <h4>📅 Reservation Draw</h4>
+      <p>The winner for each month is pre-agreed when the chit starts. No surprises — everyone knows when their turn is.</p>
+      <div class="dt-tag">Pre-Scheduled</div>
+    </div>
+    <div class="dt-card">
+      <h4>🔔 Instant Notification</h4>
+      <p>The moment a draw is completed, the winner gets a notification on their phone app. Admin and manager are alerted too.</p>
+      <div class="dt-tag">Real-time</div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">6</span>
+</section>
+
+<!-- ─── SLIDE 7: PAYMENTS ─── -->
+<section class="slide s7">
+  <div class="slide-header">
+    <span class="slide-label">Collecting Money</span>
+    <h2 class="slide-title">Multiple Ways to Pay</h2>
+  </div>
+  <div class="payment-modes">
+    <div class="pm-card">
+      <div class="pm-icon">💵</div>
+      <h3>Cash at Home</h3>
+      <p>A staff member comes to your home to collect cash. You get a receipt. The staff then remits it back to the manager.</p>
+      <div class="pm-badge">Most popular</div>
+    </div>
+    <div class="pm-card">
+      <div class="pm-icon">📲</div>
+      <h3>UPI / Online</h3>
+      <p>Transfer directly via PhonePe, GPay, or any UPI app. Payment is recorded against your account automatically.</p>
+      <div class="pm-badge">Instant</div>
+    </div>
+    <div class="pm-card">
+      <div class="pm-icon">🏦</div>
+      <h3>Bank Transfer</h3>
+      <p>NEFT or IMPS to the chit fund's account. The admin records and confirms it in ChitWise with the reference number.</p>
+      <div class="pm-badge">Secure</div>
+    </div>
+  </div>
+  <div class="flow-banner">
+    <div class="fb-step">
+      <span class="fs-icon">🧑</span>
+      <span class="fs-label">Member Pays</span>
+    </div>
+    <div class="fb-arrow">→</div>
+    <div class="fb-step">
+      <span class="fs-icon">🏃</span>
+      <span class="fs-label">Staff Collects</span>
+    </div>
+    <div class="fb-arrow">→</div>
+    <div class="fb-step">
+      <span class="fs-icon">🗂️</span>
+      <span class="fs-label">Manager Reviews</span>
+    </div>
+    <div class="fb-arrow">→</div>
+    <div class="fb-step">
+      <span class="fs-icon">✅</span>
+      <span class="fs-label">ChitWise Records</span>
+    </div>
+    <div class="fb-arrow">→</div>
+    <div class="fb-step">
+      <span class="fs-icon">👑</span>
+      <span class="fs-label">Admin Confirms</span>
+    </div>
+  </div>
+  <span class="slide-footer light">ChitWise</span>
+  <span class="slide-num light">7</span>
+</section>
+
+<!-- ─── SLIDE 8: PAYOUTS ─── -->
+<section class="slide s8">
+  <div class="slide-header">
+    <span class="slide-label">Winning &amp; Getting Paid</span>
+    <h2 class="slide-title">How the Winner Gets Their Money</h2>
+  </div>
+  <div class="payout-flow">
+    <div class="pf-step pf-a">
+      <div class="pf-num">1</div>
+      <div style="font-size:28px">🎯</div>
+      <h4>Draw is Opened</h4>
+      <p>Manager opens the monthly draw. Winner is selected and recorded.</p>
+    </div>
+    <div class="pf-arrow">→</div>
+    <div class="pf-step pf-b">
+      <div class="pf-num">2</div>
+      <div style="font-size:28px">📋</div>
+      <h4>Payout Created</h4>
+      <p>Admin creates a payout record for the winner. Amount is calculated minus any deductions.</p>
+    </div>
+    <div class="pf-arrow">→</div>
+    <div class="pf-step pf-c">
+      <div class="pf-num">3</div>
+      <div style="font-size:28px">💸</div>
+      <h4>Disbursement</h4>
+      <p>Money is sent to the winner — via bank transfer, UPI, or cash. Partial disbursements supported.</p>
+    </div>
+    <div class="pf-arrow">→</div>
+    <div class="pf-step pf-d">
+      <div class="pf-num">4</div>
+      <div style="font-size:28px">✅</div>
+      <h4>Fully Paid</h4>
+      <p>Once fully disbursed, the payout is marked complete. Member can see it on their app.</p>
+    </div>
+  </div>
+  <div style="background:var(--gray-light); border-radius:16px; padding:22px 28px; display:flex; gap:20px; align-items:center;">
+    <span style="font-size:28px">🔍</span>
+    <div>
+      <h4 style="font-size:15px; font-weight:700; color:var(--navy); margin-bottom:4px">Full Audit Trail</h4>
+      <p style="font-size:14px; color:var(--gray); line-height:1.55">Every disbursement is stamped with who approved it and when. Admin can see if it was the manager or admin who processed the payment. Nothing is hidden.</p>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">8</span>
+</section>
+
+<!-- ─── SLIDE 9: TRANSPARENCY ─── -->
+<section class="slide s9">
+  <div class="slide-header">
+    <span class="slide-label">Trust &amp; Safety</span>
+    <h2 class="slide-title">Complete Transparency, Always</h2>
+  </div>
+  <div class="transparency-grid">
+    <div class="tg-card">
+      <div class="tg-icon">📊</div>
+      <h3>Real-time Reports</h3>
+      <p>Admin can view detailed reports — total collections, outstanding dues, pending payouts, and staff performance — all in one screen.</p>
+    </div>
+    <div class="tg-card">
+      <div class="tg-icon">💰</div>
+      <h3>Treasury View</h3>
+      <p>A dedicated treasury screen shows the exact cash balance, what's been collected, what's been paid out, and what's pending. Nothing is hidden.</p>
+    </div>
+    <div class="tg-card">
+      <div class="tg-icon">🔔</div>
+      <h3>Instant Notifications</h3>
+      <p>Members receive real-time push notifications for payment confirmations, draw results, payout updates, and cash pickup assignments.</p>
+    </div>
+    <div class="tg-card">
+      <div class="tg-icon">📱</div>
+      <h3>Member Self-Service</h3>
+      <p>Members can log in with their phone number and see their own history — no need to call the office to ask "Did my payment come through?"</p>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">9</span>
+</section>
+
+<!-- ─── SLIDE 10: MOBILE APP ─── -->
+<section class="slide s10">
+  <div class="mobile-content">
+    <div class="slide-header">
+      <span class="slide-label">On Your Smartphone</span>
+      <h2 class="slide-title">ChitWise Mobile App</h2>
+    </div>
+    <div class="mobile-features">
+      <div class="mf-item">
+        <div class="mfi-icon">📲</div>
+        <div>
+          <h4>Login with Mobile Number</h4>
+          <p>No need to remember a username. Just enter your Indian mobile number (+91) and password to log in instantly.</p>
+        </div>
+      </div>
+      <div class="mf-item">
+        <div class="mfi-icon">🔔</div>
+        <div>
+          <h4>Instant Alerts</h4>
+          <p>Get notified the moment your payment is confirmed, when the monthly draw happens, or when your payout is ready.</p>
+        </div>
+      </div>
+      <div class="mf-item">
+        <div class="mfi-icon">🚐</div>
+        <div>
+          <h4>Request Cash Pickup at Home</h4>
+          <p>Tap one button to request a staff member to come collect cash from your home. Track who's coming and when.</p>
+        </div>
+      </div>
+      <div class="mf-item">
+        <div class="mfi-icon">🕒</div>
+        <div>
+          <h4>Full History, Anytime</h4>
+          <p>See every payment you've made, every draw result, and your winnings — all from your phone, day or night.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="mobile-phones">
+    <div class="phone-frame" style="margin-bottom:40px">
+      <div class="phone-notch"></div>
+      <div class="phone-screen">
+        <div class="ps-header">CHIWISE MEMBER</div>
+        <div class="ps-greeting">Good morning, Kittu! 👋</div>
+        <div class="ps-amount">
+          <div class="psa-label">Outstanding Balance</div>
+          <div class="psa-value">₹71,000</div>
+        </div>
+        <div class="ps-row">
+          <div class="ps-chip"><span class="pc-icon">📋</span>My Chits</div>
+          <div class="ps-chip"><span class="pc-icon">🏆</span>Payouts</div>
+          <div class="ps-chip"><span class="pc-icon">🚐</span>Pickup</div>
+        </div>
+        <div class="ps-notification">
+          <div class="pn-dot"></div>
+          <div class="pn-text">✅ Payment of ₹5,000 confirmed for New Chit · Draw #2</div>
+        </div>
+      </div>
+    </div>
+    <div class="phone-frame tall">
+      <div class="phone-notch"></div>
+      <div class="phone-screen" style="background:#0D2240">
+        <div class="ps-header" style="color:var(--gold-light)">🎉 DRAW RESULT</div>
+        <div style="text-align:center; margin:10px 0">
+          <div style="font-size:40px">🏆</div>
+          <div style="font-size:16px; font-weight:700; color:white; margin-top:6px">You Won!</div>
+          <div style="font-size:11px; color:rgba(255,255,255,0.6)">Draw #3 · New Chit</div>
+        </div>
+        <div style="background:rgba(212,160,23,0.15); border:1px solid rgba(212,160,23,0.3); border-radius:10px; padding:12px; text-align:center">
+          <div style="font-size:10px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px">Your Payout</div>
+          <div style="font-size:28px; font-weight:700; color:var(--gold-light)">₹50,000</div>
+          <div style="font-size:10px; color:rgba(255,255,255,0.5)">Being processed by admin</div>
+        </div>
+        <div class="ps-notification" style="margin-top:8px">
+          <div class="pn-dot"></div>
+          <div class="pn-text">Admin has approved your payout. You'll receive it within 24 hours.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-footer light">ChitWise</span>
+  <span class="slide-num light">10</span>
+</section>
+
+<!-- ─── SLIDE 12: CREATE A CHIT ─── -->
+<section class="slide s12">
+  <div class="slide-header">
+    <span class="slide-label">Admin Action</span>
+    <h2 class="slide-title">How to Create a Chit Group</h2>
+  </div>
+  <div class="create-chit-grid">
+    <div class="cc-step">
+      <div class="cc-num">1</div>
+      <div>
+        <h4>Go to Chits → New Chit</h4>
+        <p>Admin clicks "New Chit" from the Chits page. A form opens to fill in the chit details.</p>
+      </div>
+    </div>
+    <div class="cc-step">
+      <div class="cc-num">2</div>
+      <div>
+        <h4>Set Name &amp; Amount</h4>
+        <p>Give the chit a name (e.g. "Family Gold 2024") and set the monthly contribution amount per member.</p>
+      </div>
+    </div>
+    <div class="cc-step">
+      <div class="cc-num">3</div>
+      <div>
+        <h4>Choose Type &amp; Duration</h4>
+        <p>Pick Open Draw (random winner each month) or Reservation (pre-assigned turns). Set total number of draws.</p>
+      </div>
+    </div>
+    <div class="cc-step">
+      <div class="cc-num">4</div>
+      <div>
+        <h4>Add Members &amp; Org Slots</h4>
+        <p>Add participating members. Optionally reserve slots for the organisation (admin-held positions).</p>
+      </div>
+    </div>
+    <div class="cc-step">
+      <div class="cc-num">5</div>
+      <div>
+        <h4>Activate the Chit</h4>
+        <p>Once all members are confirmed, change the status to ACTIVE. The chit is now live and collecting payments.</p>
+      </div>
+    </div>
+    <div class="cc-step">
+      <div class="cc-num">6</div>
+      <div>
+        <h4>Members Get Notified</h4>
+        <p>All enrolled members receive an instant notification on their phone that the chit has started.</p>
+      </div>
+    </div>
+  </div>
+  <div class="chit-form-preview">
+    <div class="cfp-title">Sample Chit Setup</div>
+    <div class="cfp-fields">
+      <div class="cfp-field"><div class="cff-label">Chit Name</div><div class="cff-value">Family Gold</div></div>
+      <div class="cfp-field"><div class="cff-label">Monthly Amount</div><div class="cff-value">₹5,000</div></div>
+      <div class="cfp-field"><div class="cff-label">Total Draws</div><div class="cff-value">10 months</div></div>
+      <div class="cfp-field"><div class="cff-label">Draw Type</div><div class="cff-value">Open Draw</div></div>
+      <div class="cfp-field"><div class="cff-label">Members</div><div class="cff-value">10 people</div></div>
+      <div class="cfp-field"><div class="cff-label">Total Value</div><div class="cff-value">₹50,000</div></div>
+      <div class="cfp-field"><div class="cff-label">Org Slots</div><div class="cff-value">2 slots</div></div>
+      <div class="cfp-field"><div class="cff-label">Status</div><div class="cff-value" style="color:#4ADE80">ACTIVE ✓</div></div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">12</span>
+</section>
+
+<!-- ─── SLIDE 13: CREATE PAYOUT ─── -->
+<section class="slide s13">
+  <div class="slide-header">
+    <span class="slide-label">After the Draw</span>
+    <h2 class="slide-title">Creating a Payout for the Winner</h2>
+  </div>
+  <div class="payout-create-steps">
+    <div class="pc-step">
+      <div class="pc-icon">🎯</div>
+      <div class="pc-badge">Step 1</div>
+      <h4>Open the Monthly Draw</h4>
+      <p>Manager goes to Draws page and clicks "Open Draw" for the current month. Winner is selected automatically or from the reservation schedule.</p>
+    </div>
+    <div class="pc-arrow">→</div>
+    <div class="pc-step">
+      <div class="pc-icon">📋</div>
+      <div class="pc-badge">Step 2</div>
+      <h4>Go to Payouts</h4>
+      <p>Admin opens the Payouts page. The newly selected winner appears as a pending payout waiting to be created.</p>
+    </div>
+    <div class="pc-arrow">→</div>
+    <div class="pc-step">
+      <div class="pc-icon">✏️</div>
+      <div class="pc-badge">Step 3</div>
+      <h4>Create the Payout</h4>
+      <p>Admin clicks "Create Payout" for the winner. The system calculates the net payout amount (total pot minus any dues the member owes).</p>
+    </div>
+    <div class="pc-arrow">→</div>
+    <div class="pc-step">
+      <div class="pc-icon">🔔</div>
+      <div class="pc-badge">Step 4</div>
+      <h4>Member Notified</h4>
+      <p>The winner gets an instant push notification on their phone: "Your payout of ₹X has been approved and is being processed."</p>
+    </div>
+  </div>
+  <div class="payout-summary-box">
+    <div class="psb-item">
+      <div class="psb-label">Pot Value</div>
+      <div class="psb-value">₹50,000</div>
+    </div>
+    <div class="psb-divider"></div>
+    <div class="psb-item">
+      <div class="psb-label">Member Dues</div>
+      <div class="psb-value" style="color:#FCA5A5">− ₹2,000</div>
+    </div>
+    <div class="psb-divider"></div>
+    <div class="psb-item">
+      <div class="psb-label">Net Payout</div>
+      <div class="psb-value">₹48,000</div>
+    </div>
+    <div class="psb-divider"></div>
+    <div class="psb-note">💡 ChitWise automatically deducts any outstanding dues from the payout amount, so members are always settled fairly before receiving their winnings.</div>
+  </div>
+  <span class="slide-footer light">ChitWise</span>
+  <span class="slide-num light">13</span>
+</section>
+
+<!-- ─── SLIDE 14: DISBURSEMENT ─── -->
+<section class="slide s14">
+  <div class="slide-header">
+    <span class="slide-label">Sending the Money</span>
+    <h2 class="slide-title">Disbursing the Payout to the Winner</h2>
+  </div>
+  <div class="disb-flow">
+    <div class="disb-step">
+      <div class="disb-icon-wrap" style="background:#EFF6FF">💼</div>
+      <h4>Payout Ready</h4>
+      <p>Admin sees the payout in "Pending" status on the Payouts page with the net amount calculated.</p>
+    </div>
+    <div class="disb-connector">→</div>
+    <div class="disb-step">
+      <div class="disb-icon-wrap" style="background:#FFF7ED">🖊️</div>
+      <h4>Record Disbursement</h4>
+      <p>Admin opens the payout, clicks "Add Disbursement", enters the amount sent and the mode (cash/UPI/bank).</p>
+    </div>
+    <div class="disb-connector">→</div>
+    <div class="disb-step">
+      <div class="disb-icon-wrap" style="background:#F0FDF4">✅</div>
+      <h4>Marked Complete</h4>
+      <p>Once 100% of the amount is sent, ChitWise marks the payout as Fully Disbursed automatically.</p>
+    </div>
+    <div class="disb-connector">→</div>
+    <div class="disb-step">
+      <div class="disb-icon-wrap" style="background:#FDF4FF">📱</div>
+      <h4>Member Sees It</h4>
+      <p>The member's app shows the payout as "Completed" with full history of each disbursement.</p>
+    </div>
+  </div>
+  <div class="partial-box">
+    <div class="pb-icon">🔀</div>
+    <div>
+      <h4>Partial Disbursements Supported</h4>
+      <p>If you can't pay the full amount at once, no problem. Send it in parts — ₹20,000 today, ₹28,000 next week. ChitWise tracks each part and shows the member "Partially Paid" until the full amount is cleared.</p>
+    </div>
+  </div>
+  <div class="disb-modes">
+    <div class="dm-chip">
+      <div class="dm-icon">💵</div>
+      <div class="dm-label">Cash</div>
+      <div class="dm-sub">Hand delivered</div>
+    </div>
+    <div class="dm-chip">
+      <div class="dm-icon">📲</div>
+      <div class="dm-label">UPI</div>
+      <div class="dm-sub">Instant transfer</div>
+    </div>
+    <div class="dm-chip">
+      <div class="dm-icon">🏦</div>
+      <div class="dm-label">NEFT / IMPS</div>
+      <div class="dm-sub">Bank to bank</div>
+    </div>
+    <div class="dm-chip">
+      <div class="dm-icon">🧾</div>
+      <div class="dm-label">Cheque</div>
+      <div class="dm-sub">Physical cheque</div>
+    </div>
+  </div>
+  <span class="slide-footer">ChitWise</span>
+  <span class="slide-num">14</span>
+</section>
+
+<!-- ─── SLIDE 15: PRICING TIERS ─── -->
+<section class="slide s15">
+  <div class="slide-header">
+    <span class="slide-label">Plans &amp; Pricing</span>
+    <h2 class="slide-title">Choose the Right Plan for Your Organisation</h2>
+  </div>
+  <div class="tiers-grid">
+    <div class="tier-card starter">
+      <div class="tier-name">Starter</div>
+      <div class="tier-price">Free <span>to begin</span></div>
+      <div class="tier-limits">
+        <div class="tl-row"><span class="tl-icon">👥</span><span class="tl-text">Active Members</span><span class="tl-val">Up to 25</span></div>
+        <div class="tl-row"><span class="tl-icon">📋</span><span class="tl-text">Active Chits</span><span class="tl-val">Up to 2</span></div>
+        <div class="tl-row"><span class="tl-icon">🏃</span><span class="tl-text">Staff Accounts</span><span class="tl-val">2</span></div>
+        <div class="tl-row"><span class="tl-icon">📊</span><span class="tl-text">Reports</span><span class="tl-val">Basic</span></div>
+        <div class="tl-row"><span class="tl-icon">🔔</span><span class="tl-text">Notifications</span><span class="tl-val">✓</span></div>
+        <div class="tl-row"><span class="tl-icon">📱</span><span class="tl-text">Member App</span><span class="tl-val">✓</span></div>
+      </div>
+      <div class="tier-cta">Get Started</div>
+    </div>
+    <div class="tier-card growth">
+      <div class="tier-popular">POPULAR</div>
+      <div class="tier-name">Growth</div>
+      <div class="tier-price">₹999 <span>/ month</span></div>
+      <div class="tier-limits">
+        <div class="tl-row"><span class="tl-icon">👥</span><span class="tl-text">Active Members</span><span class="tl-val">Up to 150</span></div>
+        <div class="tl-row"><span class="tl-icon">📋</span><span class="tl-text">Active Chits</span><span class="tl-val">Up to 10</span></div>
+        <div class="tl-row"><span class="tl-icon">🏃</span><span class="tl-text">Staff Accounts</span><span class="tl-val">10</span></div>
+        <div class="tl-row"><span class="tl-icon">📊</span><span class="tl-text">Reports</span><span class="tl-val">Full + Export</span></div>
+        <div class="tl-row"><span class="tl-icon">🔔</span><span class="tl-text">Priority Alerts</span><span class="tl-val">✓</span></div>
+        <div class="tl-row"><span class="tl-icon">🏦</span><span class="tl-text">Treasury View</span><span class="tl-val">✓</span></div>
+      </div>
+      <div class="tier-cta">Start Free Trial</div>
+    </div>
+    <div class="tier-card enterprise">
+      <div class="tier-name">Enterprise</div>
+      <div class="tier-price">Custom <span>pricing</span></div>
+      <div class="tier-limits">
+        <div class="tl-row"><span class="tl-icon">👥</span><span class="tl-text">Active Members</span><span class="tl-val">Unlimited</span></div>
+        <div class="tl-row"><span class="tl-icon">📋</span><span class="tl-text">Active Chits</span><span class="tl-val">Unlimited</span></div>
+        <div class="tl-row"><span class="tl-icon">🏃</span><span class="tl-text">Staff Accounts</span><span class="tl-val">Unlimited</span></div>
+        <div class="tl-row"><span class="tl-icon">🤝</span><span class="tl-text">Dedicated Support</span><span class="tl-val">✓</span></div>
+        <div class="tl-row"><span class="tl-icon">🔐</span><span class="tl-text">Custom Domain</span><span class="tl-val">✓</span></div>
+        <div class="tl-row"><span class="tl-icon">📞</span><span class="tl-text">On-boarding Help</span><span class="tl-val">✓</span></div>
+      </div>
+      <div class="tier-cta">Contact Us</div>
+    </div>
+  </div>
+  <div class="tiers-note">
+    <span style="font-size:24px">💡</span>
+    <p>Plans are controlled by the number of <strong style="color:var(--gold-light)">active members</strong> and <strong style="color:var(--gold-light)">active chits</strong> in your organisation at any time. Upgrade or downgrade anytime — no lock-in. All plans include the member mobile app, secure login, and real-time notifications.</p>
+  </div>
+  <span class="slide-footer light">ChitWise</span>
+  <span class="slide-num light">15</span>
+</section>
+
+<!-- ─── SLIDE 11: CTA ─── -->
+<section class="slide s11">
+  <div class="logo-box" style="background:var(--navy); color:var(--gold); font-size:38px; width:80px; height:80px; border-radius:20px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 30px rgba(0,0,0,0.2)">📒</div>
+  <h2>Ready to Start Your Chit Fund?</h2>
+  <p>ChitWise makes saving as a group simple, safe, and stress-free — for everyone involved.</p>
+  <div class="cta-boxes">
+    <div class="cta-box">
+      <div class="cb-icon">📞</div>
+      <h4>Talk to Us</h4>
+      <p>Get a demo today</p>
+    </div>
+    <div class="cta-box">
+      <div class="cb-icon">📱</div>
+      <h4>Download App</h4>
+      <p>iOS &amp; Android</p>
+    </div>
+    <div class="cta-box">
+      <div class="cb-icon">🌐</div>
+      <h4>Web Portal</h4>
+      <p>Manage anywhere</p>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px; margin-top:8px">
+    <span style="font-size:20px">★★★★★</span>
+    <span style="font-size:16px; color:rgba(30,58,95,0.7); font-weight:500">"Simple, safe, and always on time."</span>
+  </div>
+</section>
+
+</body>
+</html>

@@ -27,5 +27,8 @@ public enum SettlementPaymentStatus {
     FULLY_DISBURSED,
 
     /** netAmount == 0 — nothing to collect or disburse; accounts are balanced. */
-    BALANCED
+    BALANCED,
+
+    /** Settlement was voided by an admin — all associated payment records reverted to OUTSTANDING. */
+    VOIDED
 }

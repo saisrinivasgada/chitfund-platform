@@ -21,6 +21,9 @@ public class MemberPaymentSummary {
     @Column(length = 36)
     private String id;
 
+    @Column(name = "tenant_id", nullable = false, length = 36)
+    private String tenantId;
+
     @Column(name = "chit_id", nullable = false, length = 36)
     private String chitId;
 
@@ -63,9 +66,10 @@ public class MemberPaymentSummary {
     @Column(name = "last_updated", nullable = false)
     private Instant lastUpdated;
 
-    public static MemberPaymentSummary create(String memberId, String chitId) {
+    public static MemberPaymentSummary create(String memberId, String chitId, String tenantId) {
         return MemberPaymentSummary.builder()
                 .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
                 .memberId(memberId)
                 .chitId(chitId)
                 .totalDue(BigDecimal.ZERO)

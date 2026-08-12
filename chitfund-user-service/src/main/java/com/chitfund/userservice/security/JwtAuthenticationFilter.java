@@ -1,5 +1,6 @@
 package com.chitfund.userservice.security;
 
+import com.chitfund.common.context.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,18 +55,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String token = extractToken(request);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
-            String userId = jwtTokenProvider.extractUserId(token);
-            UserDetails userDetails = userDetailsService.loadUserById(userId);
+        try {
+            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+                // Reject pre-scope tokens from accessing protected endpoints
+                String scope = jwtTokenProvider.extractScope(token);
+                if ("TENANT_SELECT".equals(scope)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                String userId = jwtTokenProvider.extractUserId(token);
+                UserDetails userDetails = userDetailsService.loadUserById(userId);
 
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                String tenantId = jwtTokenProvider.extractTenantId(token);
+                if (tenantId != null) TenantContext.set(tenantId);
+            }
+
+            filterChain.doFilter(request, response);
+        } finally {
+            TenantContext.clear();
         }
-
-        filterChain.doFilter(request, response);
     }
 
     private String extractToken(HttpServletRequest request) {

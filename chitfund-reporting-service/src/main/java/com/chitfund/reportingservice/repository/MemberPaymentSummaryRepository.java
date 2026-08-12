@@ -10,7 +10,7 @@ public interface MemberPaymentSummaryRepository extends JpaRepository<MemberPaym
 
     Optional<MemberPaymentSummary> findByMemberIdAndChitId(String memberId, String chitId);
 
-    List<MemberPaymentSummary> findByChitIdOrderByMemberNameAsc(String chitId);
+    List<MemberPaymentSummary> findByTenantIdAndChitIdOrderByMemberNameAsc(String tenantId, String chitId);
 
-    List<MemberPaymentSummary> findByMemberIdOrderByChitIdAsc(String memberId);
+    List<MemberPaymentSummary> findByTenantIdAndMemberIdOrderByChitIdAsc(String tenantId, String memberId);
 }

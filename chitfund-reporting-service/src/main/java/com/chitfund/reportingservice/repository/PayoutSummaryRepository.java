@@ -10,7 +10,7 @@ public interface PayoutSummaryRepository extends JpaRepository<PayoutSummary, St
 
     Optional<PayoutSummary> findByChitIdAndMonthNumber(String chitId, Integer monthNumber);
 
-    List<PayoutSummary> findByChitIdOrderByMonthNumberAsc(String chitId);
+    List<PayoutSummary> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, String chitId);
 
-    List<PayoutSummary> findByMemberIdOrderByChitIdAsc(String memberId);
+    List<PayoutSummary> findByTenantIdAndMemberIdOrderByChitIdAsc(String tenantId, String memberId);
 }

@@ -11,6 +11,12 @@ interface UIState {
   activityLastSeenAt: string | null;
   markActivitySeen: () => void;
   loadActivityLastSeen: () => Promise<void>;
+  // Plan expiry
+  planExpiredVisible: boolean;
+  showPlanExpired: () => void;
+  hidePlanExpired: () => void;
+  isExpired: boolean;
+  setIsExpired: (v: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -28,4 +34,9 @@ export const useUIStore = create<UIState>((set) => ({
     const v = await AsyncStorage.getItem(ACTIVITY_KEY);
     set({ activityLastSeenAt: v ?? new Date().toISOString() });
   },
+  planExpiredVisible: false,
+  showPlanExpired: () => set({ planExpiredVisible: true }),
+  hidePlanExpired: () => set({ planExpiredVisible: false }),
+  isExpired: false,
+  setIsExpired: (v) => set({ isExpired: v }),
 }));

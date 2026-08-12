@@ -47,6 +47,9 @@ public class SettlementResponse {
 
     private List<ChitItemDetail> chitItems;
 
+    private LocalDateTime voidedAt;
+    private UUID voidedBy;
+
     @Data
     @Builder
     public static class ChitItemDetail {

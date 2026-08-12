@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
-import { getMe, mobileLookup, loginByMobile } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant } from '../../services/api';
+import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
@@ -128,6 +128,136 @@ function SwitchRoleModal({ phone, altRole, altLabel, onClose }) {
   );
 }
 
+function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [tenants, setTenants] = useState(null);
+  const [loginToken, setLoginToken] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await generateTransferToken();
+        setLoginToken(data.loginToken);
+        setTenants((data.tenants ?? []).filter((t) => t.tenantId !== currentTenantId));
+      } catch (err) {
+        setError(err?.response?.data?.message ?? 'Could not load your organizations.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [currentTenantId]);
+
+  async function handleSwitch(tenant) {
+    setSwitching(tenant.tenantId);
+    try {
+      const data = await selectTenant({ loginToken, tenantId: tenant.tenantId });
+      const accessToken = data.accessToken ?? data.token;
+      // AuthResponse has no tenant fields — use the tenant object from the list
+      login(accessToken, {
+        name: data.user?.fullName ?? data.user?.username,
+        role: data.user?.role,
+        id: data.user?.id,
+        mustChangePassword: data.user?.mustChangePassword ?? false,
+      }, {
+        tenantId: tenant.tenantId,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
+        tenantPlan: tenant.plan ?? 'BASIC',
+        tenantStatus: tenant.status ?? 'ACTIVE',
+        planExpiresAt: tenant.planExpiresAt ?? null,
+      });
+      onClose();
+      navigate('/member', { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.message ?? 'Failed to switch organization.');
+      setSwitching(null);
+    }
+  }
+
+  return (
+    <Modal title="Switch Organization" onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">
+          Currently viewing <span className="font-semibold text-gray-700">{currentTenantName}</span>. Select another organization to switch to.
+        </p>
+
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-6 h-6 border-2 border-[#1E3A5F] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {error && (
+          <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && tenants?.length === 0 && (
+          <div className="text-center py-6">
+            <Building2 size={32} className="mx-auto text-gray-300 mb-3" />
+            <p className="text-sm text-gray-500">You're not a member of any other organization.</p>
+          </div>
+        )}
+
+        {!loading && tenants?.length > 0 && (
+          <div className="space-y-2">
+            {tenants.map((tenant) => {
+              const isExpired = tenant.planExpiresAt && new Date(tenant.planExpiresAt) < new Date();
+              const isSuspended = tenant.status === 'SUSPENDED';
+              const isBlocked = isExpired || isSuspended;
+              const blockLabel = isSuspended ? 'Suspended' : 'Plan expired';
+              return (
+                <button
+                  key={tenant.tenantId}
+                  onClick={() => !isBlocked && handleSwitch(tenant)}
+                  disabled={!!switching || isBlocked}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all text-left ${
+                    isBlocked
+                      ? 'border-gray-100 bg-gray-50 opacity-70 cursor-not-allowed'
+                      : 'border-gray-200 hover:border-[#1E3A5F] hover:bg-[#EFF4FA] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0"
+                    style={{ backgroundColor: isBlocked ? '#9CA3AF' : '#1E3A5F', color: 'white' }}
+                  >
+                    {(tenant.name ?? '?').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{tenant.name}</p>
+                    {isBlocked ? (
+                      <p className="text-xs text-red-500 mt-0.5 font-medium">{blockLabel} — contact admin</p>
+                    ) : (
+                      <p className="text-xs text-gray-400 mt-0.5">{tenant.plan} plan</p>
+                    )}
+                  </div>
+                  {switching === tenant.tenantId ? (
+                    <div className="w-4 h-4 border-2 border-[#1E3A5F] border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  ) : (
+                    <ChevronDown size={16} className={`${isBlocked ? 'text-gray-300' : 'text-gray-400'} -rotate-90 flex-shrink-0`} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="pt-1">
+          <Button variant="muted" size="md" className="w-full" onClick={onClose} disabled={!!switching}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 const ROLE_LABELS = {
   WORKER: 'Staff',
   MANAGER: 'Manager',
@@ -137,8 +267,9 @@ const ROLE_LABELS = {
 };
 
 export default function MemberPortalLayout() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, tenantId, tenantName, logout } = useAuth();
   const [showSwitch, setShowSwitch] = useState(false);
+  const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
@@ -155,7 +286,7 @@ export default function MemberPortalLayout() {
   });
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user?.role !== 'MEMBER') return <Navigate to="/" replace />;
+  if (user?.role !== 'MEMBER') return <Navigate to="/dashboard" replace />;
   if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;
 
   const displayName = user?.fullName ?? user?.name ?? user?.username ?? 'M';
@@ -196,6 +327,19 @@ export default function MemberPortalLayout() {
               {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
             <NotificationBell />
+
+            {/* Company switcher — shows current org name, click to switch */}
+            <button
+              onClick={() => setShowSwitchOrg(true)}
+              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
+              title="Switch organization"
+            >
+              <Building2 size={13} className="flex-shrink-0" />
+              {tenantName && (
+                <span className="hidden sm:inline max-w-[120px] truncate">{tenantName}</span>
+              )}
+              <ChevronDown size={11} className="hidden sm:block text-gray-400 flex-shrink-0" />
+            </button>
 
             {/* Role switch button — only shown when user has a staff account on same phone */}
             {altLabel && (
@@ -242,6 +386,13 @@ export default function MemberPortalLayout() {
           altRole={altRole}
           altLabel={altLabel}
           onClose={() => setShowSwitch(false)}
+        />
+      )}
+      {showSwitchOrg && (
+        <SwitchOrgModal
+          currentTenantId={tenantId}
+          currentTenantName={tenantName}
+          onClose={() => setShowSwitchOrg(false)}
         />
       )}
       {showSignOut && (

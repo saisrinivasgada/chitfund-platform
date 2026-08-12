@@ -70,6 +70,7 @@ public class ProxyService {
                 tenantId.toString(),
                 tenant.getSlug(),
                 tenant.getPlan() != null ? tenant.getPlan() : "BASIC",
+                tenant.getStatus() != null ? tenant.getStatus() : "ACTIVE",
                 targetRole.name(),
                 memberId
         );

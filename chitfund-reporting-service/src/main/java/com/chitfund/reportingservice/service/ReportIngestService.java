@@ -37,8 +37,9 @@ public class ReportIngestService {
     public void ingestCollectionSnapshot(CollectionSnapshotEvent event) {
         MonthlyCollectionSnapshot snapshot = snapshotRepository
                 .findByChitIdAndMonthNumber(event.chitId(), event.monthNumber())
-                .orElseGet(() -> MonthlyCollectionSnapshot.create(event.chitId()));
+                .orElseGet(() -> MonthlyCollectionSnapshot.create(event.chitId(), event.tenantId()));
 
+        if (event.tenantId() != null) snapshot.setTenantId(event.tenantId());
         snapshot.setChitName(event.chitName());
         snapshot.setMonthNumber(event.monthNumber());
         snapshot.setDueDate(event.dueDate());
@@ -63,8 +64,9 @@ public class ReportIngestService {
     public void ingestMemberPayment(MemberPaymentEvent event) {
         MemberPaymentSummary summary = memberSummaryRepository
                 .findByMemberIdAndChitId(event.memberId(), event.chitId())
-                .orElseGet(() -> MemberPaymentSummary.create(event.memberId(), event.chitId()));
+                .orElseGet(() -> MemberPaymentSummary.create(event.memberId(), event.chitId(), event.tenantId()));
 
+        if (event.tenantId() != null) summary.setTenantId(event.tenantId());
         summary.setMemberName(event.memberName());
         summary.setMemberPhone(event.memberPhone());
         summary.setTotalDue(event.totalDue());
@@ -87,8 +89,9 @@ public class ReportIngestService {
     public void ingestPayout(PayoutEvent event) {
         PayoutSummary summary = payoutSummaryRepository
                 .findByChitIdAndMonthNumber(event.chitId(), event.monthNumber())
-                .orElseGet(() -> PayoutSummary.create(event.chitId(), event.memberId(), event.monthNumber()));
+                .orElseGet(() -> PayoutSummary.create(event.chitId(), event.memberId(), event.monthNumber(), event.tenantId()));
 
+        if (event.tenantId()      != null) summary.setTenantId(event.tenantId());
         if (event.memberId()      != null) summary.setMemberId(event.memberId());
         if (event.memberName()    != null) summary.setMemberName(event.memberName());
         if (event.winningAmount() != null) summary.setWinningAmount(event.winningAmount());

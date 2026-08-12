@@ -19,6 +19,30 @@ public interface CashPaymentRequestRepository extends JpaRepository<CashPaymentR
     @Query("SELECT r FROM CashPaymentRequest r WHERE r.id = :id")
     Optional<CashPaymentRequest> findByIdForUpdate(@Param("id") UUID id);
 
+    // ── Tenant-scoped queries (use for all public/admin endpoints) ───────────────
+    List<CashPaymentRequest> findByTenantIdAndStatusOrderByRequestedAtAsc(String tenantId, CashRequestStatus status);
+
+    List<CashPaymentRequest> findByTenantIdAndStatusInOrderByRequestedAtAsc(String tenantId, List<CashRequestStatus> statuses);
+
+    List<CashPaymentRequest> findByTenantIdAndAssignedStaffIdAndStatusInOrderByAssignedAtAsc(String tenantId, UUID staffId, List<CashRequestStatus> statuses);
+
+    List<CashPaymentRequest> findByTenantIdAndMemberIdOrderByRequestedAtDesc(String tenantId, UUID memberId);
+
+    List<CashPaymentRequest> findByTenantIdAndAssignedStaffIdOrderByRequestedAtDesc(String tenantId, UUID staffId);
+
+    List<CashPaymentRequest> findByTenantIdAndAssignedStaffIdAndStatusInOrderByUpdatedAtDesc(String tenantId, UUID staffId, List<CashRequestStatus> statuses);
+
+    long countByTenantIdAndStatus(String tenantId, CashRequestStatus status);
+
+    @Query("SELECT COUNT(r) FROM CashPaymentRequest r WHERE r.tenantId = :tenantId AND r.status = :status AND r.updatedAt >= :start")
+    long countByTenantIdAndStatusAndUpdatedAtAfter(@Param("tenantId") String tenantId, @Param("status") CashRequestStatus status, @Param("start") LocalDateTime start);
+
+    @Query("SELECT COUNT(r) FROM CashPaymentRequest r WHERE r.tenantId = :tenantId AND r.requestedAt >= :start")
+    long countByTenantIdAndRequestedAtAfter(@Param("tenantId") String tenantId, @Param("start") LocalDateTime start);
+
+    List<CashPaymentRequest> findByTenantIdAndStatusOrderByUpdatedAtDesc(String tenantId, CashRequestStatus status);
+
+    // ── Cross-tenant fallbacks (kept for super-admin/internal use) ───────────────
     List<CashPaymentRequest> findByStatusOrderByRequestedAtAsc(CashRequestStatus status);
 
     List<CashPaymentRequest> findByStatusInOrderByRequestedAtAsc(List<CashRequestStatus> statuses);

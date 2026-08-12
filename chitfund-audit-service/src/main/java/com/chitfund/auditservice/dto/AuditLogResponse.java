@@ -6,6 +6,7 @@ import java.time.Instant;
 
 public record AuditLogResponse(
         String id,
+        String tenantId,
         String serviceName,
         String entityType,
         String entityId,
@@ -21,7 +22,7 @@ public record AuditLogResponse(
 ) {
     public static AuditLogResponse from(AuditLog log) {
         return new AuditLogResponse(
-                log.getId(), log.getServiceName(),
+                log.getId(), log.getTenantId(), log.getServiceName(),
                 log.getEntityType(), log.getEntityId(), log.getChitId(),
                 log.getAction(),
                 log.getActorId(), log.getActorRole(), log.getActorIp(),

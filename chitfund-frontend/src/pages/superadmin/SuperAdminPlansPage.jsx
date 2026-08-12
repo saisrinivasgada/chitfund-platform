@@ -8,7 +8,7 @@ import {
 import {
   Plus, Edit2, Trash2, X, RefreshCw, Tag,
   Users, BarChart2, HeadphonesIcon, Zap, Radio,
-  GripVertical, Eye, Check, ChevronRight,
+  GripVertical, Eye, Check, ChevronRight, ChevronLeft,
 } from 'lucide-react';
 
 const INPUT = 'w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 bg-white';
@@ -41,7 +41,7 @@ function PlanCard({ plan }) {
 
   return (
     <div
-      className="relative flex flex-col h-full rounded-2xl border border-gray-200 bg-white text-gray-900"
+      className="relative flex flex-col rounded-2xl border border-gray-200 bg-white text-gray-900"
       style={{ minWidth: 220, maxWidth: 280 }}
     >
       <div className="p-6 flex-1">
@@ -95,6 +95,19 @@ function PlanCard({ plan }) {
 
 function PlanPreviewModal({ plans, onClose }) {
   const live = plans.filter(p => p.isPublic && p.isActive);
+  const scrollRef = useRef(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const check = () => { setCanLeft(el.scrollLeft > 4); setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4); };
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
+  }, [live.length]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-auto" onClick={onClose}>
@@ -112,10 +125,24 @@ function PlanPreviewModal({ plans, onClose }) {
               <p className="text-sm">No live plans to preview — mark some plans as Live first</p>
             </div>
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-2 items-stretch">
+            <div className="relative">
+              {canLeft && (
+                <button type="button" onClick={() => scrollRef.current?.scrollBy({ left: -280, behavior: 'smooth' })}
+                  className="scroll-arrow-glow absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              {canRight && (
+                <button type="button" onClick={() => scrollRef.current?.scrollBy({ left: 280, behavior: 'smooth' })}
+                  className="scroll-arrow-glow absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                  <ChevronRight size={18} />
+                </button>
+              )}
+              <div ref={scrollRef} className="flex gap-4 overflow-x-auto pb-2 items-stretch" style={{ scrollbarWidth: 'none' }}>
               {live.map((plan) => (
                 <PlanCard key={plan.plan} plan={plan} />
               ))}
+              </div>
             </div>
           )}
         </div>

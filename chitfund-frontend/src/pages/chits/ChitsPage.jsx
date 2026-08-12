@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary, getMyTenantLimits } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -11,7 +11,8 @@ import FormField, { Input, Select, Textarea, DateInput } from '../../components/
 import { CardGridSkeleton } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Ban } from 'lucide-react';
+import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check } from 'lucide-react';
+import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 
 const MODE_LABELS = {
   AUCTION: 'Auction',
@@ -20,10 +21,9 @@ const MODE_LABELS = {
 };
 
 const BOARD_COLUMNS = [
-  { status: 'DRAFT',     label: 'Draft',     color: 'bg-slate-100 border-slate-200',  dot: 'bg-slate-400' },
-  { status: 'ACTIVE',    label: 'Active',    color: 'bg-green-50 border-green-200',   dot: 'bg-green-500' },
-  { status: 'PAUSED',    label: 'Paused',    color: 'bg-amber-50 border-amber-200',   dot: 'bg-amber-500' },
-  { status: 'COMPLETED', label: 'Completed', color: 'bg-blue-50 border-blue-200',     dot: 'bg-blue-500' },
+  { status: 'DRAFT',  label: 'Draft',  color: 'bg-slate-100 border-slate-200', dot: 'bg-slate-400' },
+  { status: 'ACTIVE', label: 'Active', color: 'bg-green-50 border-green-200',  dot: 'bg-green-500' },
+  { status: 'PAUSED', label: 'Paused', color: 'bg-amber-50 border-amber-200',  dot: 'bg-amber-500' },
 ];
 
 // ─── Chit Type selection cards ────────────────────────────────────────────────
@@ -33,21 +33,18 @@ const CHIT_TYPES = [
     icon: BookMarked,
     label: 'Reservation Chit',
     desc: 'Members pre-book a month. Schedule is fixed upfront.',
-    available: true,
   },
   {
     type: 'LOTTERY',
     icon: Shuffle,
     label: 'Lottery Chit',
     desc: 'Winner drawn randomly each month.',
-    available: false,
   },
   {
     type: 'AUCTION',
     icon: Gavel,
     label: 'Auction Chit',
     desc: 'Highest bidder wins the monthly pot.',
-    available: false,
   },
 ];
 
@@ -88,8 +85,16 @@ function CreateChitModal({ onClose }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToastContext();
+  const { tenantPlan } = useAuth();
+  const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
   const [step, setStep] = useState(1);          // 1=type 2=basic 3=contribution 4=schedule
   const [chitType, setChitType] = useState('');
+
+  // Fetch plan limits to check allowed chit types
+  const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
+  const allowedTypes = tenantLimits?.allowedChitTypes
+    ? tenantLimits.allowedChitTypes.split(',').map((t) => t.trim())
+    : ['RESERVATION', 'LOTTERY', 'AUCTION']; // fail open if limits unavailable
 
   // numberOfMonths is always equal to numberOfMembers for reservation chits
   const [basic, setBasic] = useState({
@@ -166,6 +171,7 @@ function CreateChitModal({ onClose }) {
       navigate(`/chits/${chit.id}`);
     },
     onError: (err) => {
+      if (handlePlanError(err)) return;
       toast.error(err.response?.data?.message ?? 'Failed to create chit fund');
     },
   });
@@ -208,6 +214,7 @@ function CreateChitModal({ onClose }) {
   const fmtINR = (n) => n ? Number(n).toLocaleString('en-IN') : null;
 
   return (
+    <>
     <Modal title="Create New Chit Fund" onClose={onClose} size="xl">
 
       {/* ── Step indicator ─────────────────────────────────────────────────── */}
@@ -243,39 +250,47 @@ function CreateChitModal({ onClose }) {
         <div className="space-y-4">
           <p className="text-sm text-gray-500">Choose how the monthly winner is determined.</p>
           <div className="space-y-2">
-            {CHIT_TYPES.map(({ type, icon: Icon, label, desc, available }) => (
-              <button
-                key={type}
-                type="button"
-                disabled={!available}
-                onClick={() => setChitType(type)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-lg border text-left transition-all cursor-pointer ${
-                  !available
-                    ? 'opacity-40 cursor-not-allowed border-gray-200 bg-gray-50'
-                    : chitType === type
-                    ? 'border-[#1E3A5F] border-2 bg-slate-50'
-                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {/* Gold left accent bar — visible only when selected */}
-                <div className={`self-stretch w-[3px] rounded-full flex-shrink-0 transition-colors ${
-                  chitType === type ? 'bg-[#D4A017]' : 'bg-transparent'
-                }`} />
-                <Icon size={17} className={`flex-shrink-0 ${chitType === type ? 'text-[#1E3A5F]' : 'text-gray-400'}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className={`font-semibold text-sm ${chitType === type ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{label}</p>
-                    {!available && <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Coming soon</span>}
+            {CHIT_TYPES.map(({ type, icon: Icon, label, desc }) => {
+              const onPlan = allowedTypes.includes(type);
+              const selected = chitType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={!onPlan}
+                  onClick={() => onPlan && setChitType(type)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-lg border text-left transition-all ${
+                    !onPlan
+                      ? 'opacity-50 cursor-not-allowed border-gray-200 bg-gray-50'
+                      : selected
+                      ? 'border-[#1E3A5F] border-2 bg-slate-50 cursor-pointer'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 cursor-pointer'
+                  }`}
+                >
+                  <div className={`self-stretch w-[3px] rounded-full flex-shrink-0 transition-colors ${selected ? 'bg-[#D4A017]' : 'bg-transparent'}`} />
+                  <Icon size={17} className={`flex-shrink-0 ${selected ? 'text-[#1E3A5F]' : 'text-gray-400'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`font-semibold text-sm ${selected ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{label}</p>
+                      {!onPlan && (
+                        <span className="text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                          Not on your plan
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {desc}
+                      {!onPlan && ' — Upgrade your plan to unlock this chit type.'}
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-                </div>
-                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
-                  chitType === type ? 'border-[#1E3A5F] bg-[#1E3A5F]' : 'border-gray-300'
-                }`}>
-                  {chitType === type && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                </div>
-              </button>
-            ))}
+                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                    selected ? 'border-[#1E3A5F] bg-[#1E3A5F]' : 'border-gray-300'
+                  }`}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </button>
+              );
+            })}
           </div>
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
@@ -350,7 +365,7 @@ function CreateChitModal({ onClose }) {
               <div className="h-px bg-gray-100" />
               <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-sm">
                 {basic.chitValue && (
-                  <span className="text-gray-500">Fund total: <strong className="text-gray-800 font-semibold">&#8377;{fmtINR(basic.chitValue)}</strong></span>
+                  <span className="text-gray-500">Fund total: <strong className="text-gray-800 font-semibold">₹{fmtINR(basic.chitValue)}</strong></span>
                 )}
                 {basic.numberOfMembers && <span className="text-gray-300">|</span>}
                 {basic.numberOfMembers && (
@@ -359,7 +374,7 @@ function CreateChitModal({ onClose }) {
                 {basic.installmentAmount && basic.numberOfMembers && (
                   <>
                     <span className="text-gray-300">|</span>
-                    <span className="text-gray-500">Monthly collection: <strong className="text-gray-800 font-semibold">&#8377;{(Number(basic.installmentAmount) * Number(basic.numberOfMembers)).toLocaleString('en-IN')}</strong></span>
+                    <span className="text-gray-500">Monthly collection: <strong className="text-gray-800 font-semibold">₹{(Number(basic.installmentAmount) * Number(basic.numberOfMembers)).toLocaleString('en-IN')}</strong></span>
                   </>
                 )}
               </div>
@@ -383,14 +398,14 @@ function CreateChitModal({ onClose }) {
       {step === 3 && (
         <div className="space-y-5">
           <p className="text-sm text-gray-600">
-            After a member receives their payout{basic.chitValue ? ` (&#8377;${fmtINR(basic.chitValue)})` : ''}, do they pay a <strong>different</strong> monthly installment for the rest of the chit?
+            After a member receives their payout{basic.chitValue ? ` (₹${fmtINR(basic.chitValue)})` : ''}, do they pay a <strong>different</strong> monthly installment for the rest of the chit?
           </p>
           <div className="space-y-2">
             {[
               {
                 val: false,
                 label: 'Same amount throughout',
-                sublabel: `&#8377;${fmtINR(basic.installmentAmount) || '—'} / month for all members`,
+                sublabel: `₹${fmtINR(basic.installmentAmount) || '—'} / month for all members`,
               },
               {
                 val: true,
@@ -421,10 +436,10 @@ function CreateChitModal({ onClose }) {
             ))}
           </div>
           {contrib.enabled && (
-            <FormField label="Post-payout monthly contribution (&#8377;)" required>
+            <FormField label="Post-payout monthly contribution (₹)" required>
               <Input type="number" min="0" placeholder="12000" value={contrib.amount}
                 onChange={(e) => setContrib((c) => ({ ...c, amount: e.target.value }))} />
-              <p className="text-xs text-gray-400 mt-1">Normal installment: &#8377;{fmtINR(basic.installmentAmount) || '—'} / month &middot; Can be overridden per slot in schedule</p>
+              <p className="text-xs text-gray-400 mt-1">Normal installment: ₹{fmtINR(basic.installmentAmount) || '—'} / month &middot; Can be overridden per slot in schedule</p>
             </FormField>
           )}
           <div className="flex gap-3 pt-1">
@@ -485,7 +500,7 @@ function CreateChitModal({ onClose }) {
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-10">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Draw</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
-                      <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout (&#8377;)</th>
+                      <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout (₹)</th>
                       <th className="w-8 px-2 py-2.5" />
                     </tr>
                   </thead>
@@ -577,6 +592,8 @@ function CreateChitModal({ onClose }) {
         </div>
       )}
     </Modal>
+    {planModal}
+    </>
   );
 }
 
@@ -596,100 +613,102 @@ function ChitCard({ chit, onClick, isBehind }) {
 
   return (
     <div
-      className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-[#1E3A5F]/20 transition-all cursor-pointer group"
+      className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md hover:border-[#1E3A5F]/20 transition-all cursor-pointer group"
       onClick={onClick}
     >
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex-1 min-w-0 pr-2">
-            <h3
-              className="font-semibold text-gray-900 truncate group-hover:text-[#1E3A5F] transition-colors"
-              style={{ fontFamily: 'Inter, sans-serif' }}
-            >
-              {chit.name}
-            </h3>
-            {chit.description && (
-              <p className="text-xs text-gray-400 mt-0.5 truncate">{chit.description}</p>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {isBehind && (
-              <span title="Draw not opened for current month"
-                className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
-                Draw due
-              </span>
-            )}
-            <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
-          </div>
+      <div className="p-3.5">
+        {/* Name — full, no truncation */}
+        <h3
+          className="font-semibold text-gray-900 text-sm leading-snug group-hover:text-[#1E3A5F] transition-colors mb-1"
+          style={{ fontFamily: 'Inter, sans-serif' }}
+        >
+          {chit.name}
+        </h3>
+        {/* Badges row */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+          <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
+          {isBehind && (
+            <span title="Draw not opened for current month"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
+              Due
+            </span>
+          )}
+          {chit.description && (
+            <p className="text-xs text-gray-400 truncate w-full mt-0.5">{chit.description}</p>
+          )}
         </div>
 
-        <dl className="space-y-2 mt-4">
-          <div className="flex items-center justify-between text-sm">
-            <dt className="text-gray-500 flex items-center gap-1.5">
-              <span className="text-xs">&#8377;</span> Installment
-            </dt>
-            <dd className="font-semibold text-gray-900">&#8377;{chit.installmentAmount?.toLocaleString()}</dd>
+        {/* Stats row: horizontal */}
+        <div className="flex items-center gap-3 text-xs border-t border-gray-50 pt-2.5">
+          <div className="flex-1 min-w-0">
+            <span className="text-gray-400">₹/mo </span>
+            <span className="font-semibold text-gray-800">₹{chit.installmentAmount?.toLocaleString()}</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <dt className="text-gray-500 flex items-center gap-1.5">
-              <Users size={13} /> Members
-            </dt>
-            <dd className="font-medium text-gray-700">{chit.totalMembers}</dd>
+          <div className="flex items-center gap-1 text-gray-500">
+            <Users size={11} />
+            <span className="font-medium text-gray-700">{chit.totalMembers}</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <dt className="text-gray-500">Mode</dt>
-            <dd className="font-medium text-gray-700">{MODE_LABELS[chit.winnerSelectionMode] ?? chit.winnerSelectionMode}</dd>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <dt className="text-gray-500 flex items-center gap-1.5">
-              <Calendar size={13} /> Start Date
-            </dt>
-            <dd className="font-medium text-gray-700">{chit.startDate}</dd>
-          </div>
-        </dl>
+          {(chit.chitType ?? chit.winnerSelectionMode) && (() => {
+            const type = chit.chitType ?? chit.winnerSelectionMode;
+            const typeStyle = type === 'RESERVATION' ? 'text-blue-600 bg-blue-50'
+              : type === 'LOTTERY' ? 'text-purple-600 bg-purple-50'
+              : type === 'AUCTION' ? 'text-amber-600 bg-amber-50'
+              : 'text-gray-500 bg-gray-100';
+            return (
+              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${typeStyle}`}>
+                {MODE_LABELS[type] ?? type}
+              </span>
+            );
+          })()}
+        </div>
 
-        {/* Outstanding dues banner — only for completed chits with lingering dues */}
-        {isCompleted && hasOutstanding && (
-          <div className="mt-3 flex items-center gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-red-700">
-                ₹{Number(outstanding.totalOutstanding).toLocaleString('en-IN')} outstanding
-              </p>
-              <p className="text-xs text-red-500 mt-0.5">
-                {outstanding.membersWithOutstanding} member{outstanding.membersWithOutstanding !== 1 ? 's' : ''} with dues
-              </p>
-            </div>
-          </div>
-        )}
-        {isCompleted && outstanding && Number(outstanding.totalOutstanding) === 0 && (
-          <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-            All dues cleared
-          </div>
-        )}
+        {/* Second stats row: draws + post payout */}
+        <div className="flex items-center gap-3 text-xs pt-1.5">
+          {(chit.durationMonths ?? chit.totalDraws) && (
+            <span className="text-gray-400">
+              Draws <strong className="text-gray-600">{chit.winnersAssigned ?? chit.currentDraw ?? 0}/{chit.durationMonths ?? chit.totalDraws}</strong>
+            </span>
+          )}
+          {chit.postPayoutContributionEnabled !== undefined && (
+            <span className="text-gray-400">
+              Post-payout <strong className={chit.postPayoutContributionEnabled ? 'text-green-600' : 'text-gray-500'}>
+                {chit.postPayoutContributionEnabled ? 'Yes' : 'No'}
+              </strong>
+            </span>
+          )}
+        </div>
 
-        <div className="mt-4 pt-3 border-t border-gray-50 flex items-center justify-between">
+        {/* Total + arrow */}
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
           <span className="text-xs text-gray-400">
-            Total: <strong className="text-gray-600">&#8377;{totalAmount.toLocaleString()}</strong>
+            Total <strong className="text-gray-600">₹{totalAmount.toLocaleString()}</strong>
           </span>
-          <ArrowRight size={15} className="text-gray-400 group-hover:text-[#1E3A5F] transition-colors" />
+          <ArrowRight size={13} className="text-gray-300 group-hover:text-[#1E3A5F] transition-colors" />
         </div>
       </div>
     </div>
   );
 }
 
+const COL_INITIAL = 8;
+
 // ─── Board View ───────────────────────────────────────────────────────────────
 function BoardView({ chits, onChitClick, behindChitIds }) {
+  const [colExpanded, setColExpanded] = useState({});
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" style={{ minHeight: '60vh' }}>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {BOARD_COLUMNS.map((col) => {
-        const items = chits.filter((c) => (c.status ?? 'DRAFT') === col.status && c.status !== 'DELETED');
+        const items = chits.filter((c) => (c.status ?? 'DRAFT') === col.status);
+        const expanded = colExpanded[col.status] ?? false;
+        const visible = expanded ? items : items.slice(0, COL_INITIAL);
+        const remaining = items.length - COL_INITIAL;
+
         return (
-          <div key={col.status} className={`rounded-xl border ${col.color} p-4 flex flex-col h-full`}>
-            {/* Column header — pinned, never scrolls */}
-            <div className="flex items-center gap-2 pb-3 flex-shrink-0">
+          <div key={col.status} className={`rounded-xl border ${col.color} p-4 flex flex-col`}>
+            {/* Column header */}
+            <div className="flex items-center gap-2 pb-3">
               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${col.dot}`} />
               <span className="text-sm font-semibold text-gray-700">{col.label}</span>
               <span className="ml-auto text-xs font-semibold text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">
@@ -697,15 +716,33 @@ function BoardView({ chits, onChitClick, behindChitIds }) {
               </span>
             </div>
 
-            {/* Cards — fills remaining column height and scrolls independently */}
-            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 pr-0.5">
+            {/* Cards */}
+            <div className="flex flex-col gap-2">
               {items.length === 0 ? (
                 <p className="text-xs text-gray-400 text-center py-8">No {col.label.toLowerCase()} chits</p>
               ) : (
-                items.map((c) => (
+                visible.map((c) => (
                   <ChitCard key={c.id} chit={c} onClick={() => onChitClick(c.id)}
                     isBehind={behindChitIds.has(c.id)} />
                 ))
+              )}
+
+              {/* Show more / less */}
+              {remaining > 0 && !expanded && (
+                <button
+                  onClick={() => setColExpanded((prev) => ({ ...prev, [col.status]: true }))}
+                  className="mt-1 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-white/70 hover:bg-white border border-gray-200 rounded-lg py-2 transition-colors"
+                >
+                  Show {remaining} more
+                </button>
+              )}
+              {expanded && items.length > COL_INITIAL && (
+                <button
+                  onClick={() => setColExpanded((prev) => ({ ...prev, [col.status]: false }))}
+                  className="mt-1 text-xs font-semibold text-gray-400 hover:text-gray-600 bg-white/70 hover:bg-white border border-gray-200 rounded-lg py-2 transition-colors"
+                >
+                  Show less
+                </button>
               )}
             </div>
           </div>
@@ -723,8 +760,10 @@ function SortIcon({ field, sortField, sortDir }) {
     : <ArrowDown size={13} className="text-[#1E3A5F]" />;
 }
 
+const LIST_PAGE_SIZE = 20;
+
 // ─── List View ────────────────────────────────────────────────────────────────
-function ListView({ chits, onChitClick, behindChitIds }) {
+function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
   const [sortField, setSortField] = useState('createdAt');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -735,6 +774,7 @@ function ListView({ chits, onChitClick, behindChitIds }) {
       setSortField(field);
       setSortDir('asc');
     }
+    setPage(0);
   }
 
   const sorted = [...chits].sort((a, b) => {
@@ -748,6 +788,10 @@ function ListView({ chits, onChitClick, behindChitIds }) {
     if (av > bv) return sortDir === 'asc' ? 1 : -1;
     return 0;
   });
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / LIST_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems = sorted.slice(safePage * LIST_PAGE_SIZE, (safePage + 1) * LIST_PAGE_SIZE);
 
   function SortTh({ field, children }) {
     return (
@@ -779,7 +823,7 @@ function ListView({ chits, onChitClick, behindChitIds }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {sorted.map((c) => (
+            {pageItems.map((c) => (
               <tr
                 key={c.id}
                 onClick={() => onChitClick(c.id)}
@@ -802,7 +846,7 @@ function ListView({ chits, onChitClick, behindChitIds }) {
                 </Td>
                 <Td>{MODE_LABELS[c.winnerSelectionMode] ?? c.winnerSelectionMode}</Td>
                 <Td>{c.totalMembers}</Td>
-                <Td className="font-semibold">&#8377;{c.installmentAmount?.toLocaleString()}</Td>
+                <Td className="font-semibold">₹{c.installmentAmount?.toLocaleString()}</Td>
                 <Td>{c.startDate ?? '—'}</Td>
                 <Td>
                   <Badge variant={statusBadge(c.status)}>{c.status ?? 'DRAFT'}</Badge>
@@ -814,6 +858,93 @@ function ListView({ chits, onChitClick, behindChitIds }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-gray-100">
+          <span className="text-sm text-gray-500">
+            Page {safePage + 1} of {totalPages} &middot; {sorted.length} chits
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={safePage >= totalPages - 1}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── More view list row ───────────────────────────────────────────────────────
+function MoreListItem({ chit, onClick }) {
+  const isCompleted = chit.status === 'COMPLETED';
+  const isDeleted   = chit.status === 'DELETED';
+
+  const { data: outstanding } = useQuery({
+    queryKey: ['chit-outstanding', chit.id],
+    queryFn: () => getChitOutstandingSummary(chit.id),
+    enabled: isCompleted,
+    staleTime: 5 * 60_000,
+  });
+
+  const hasOutstanding = isCompleted && outstanding && Number(outstanding.totalOutstanding) > 0;
+  const allCleared     = isCompleted && outstanding && Number(outstanding.totalOutstanding) === 0;
+
+  return (
+    <div
+      onClick={onClick}
+      className={`flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-gray-50 transition-all ${isDeleted ? 'opacity-60' : ''}`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`font-semibold text-sm text-gray-900 truncate ${isDeleted ? 'line-through text-gray-500' : ''}`}>
+            {chit.name}
+          </p>
+          <Badge variant={statusBadge(chit.status)}>{chit.status}</Badge>
+        </div>
+        {chit.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{chit.description}</p>}
+        <p className="text-xs text-gray-400 mt-0.5">
+          ₹{chit.chitValue?.toLocaleString()} &middot; {chit.totalMembers} members
+          {chit.startDate ? ` · ${chit.startDate}` : ''}
+        </p>
+      </div>
+
+      <div className="ml-4 flex-shrink-0 text-right">
+        {hasOutstanding && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-1.5">
+            <div>
+              <p className="text-xs font-semibold text-red-700">
+                ₹{Number(outstanding.totalOutstanding).toLocaleString('en-IN')} outstanding
+              </p>
+              <p className="text-xs text-red-500">
+                {outstanding.membersWithOutstanding} member{outstanding.membersWithOutstanding !== 1 ? 's' : ''} with dues
+              </p>
+            </div>
+          </div>
+        )}
+        {allCleared && (
+          <div className="inline-flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-100 rounded-lg px-3 py-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+            All dues cleared
+          </div>
+        )}
+        {(chit.status === 'DELETED' || chit.status === 'CANCELLED') && (
+          <p className="text-xs text-gray-400">
+            {new Date(chit.deletedAt ?? chit.updatedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -831,14 +962,17 @@ function monthsElapsed(startDateStr) {
 export default function ChitsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, planExpiresAt } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
+  const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const canSeeDeleted = isAdmin || isManager;
   const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState('board');
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [showCancelled, setShowCancelled] = useState(false);
+  const [listPage, setListPage] = useState(0);
+  const [showMore, setShowMore] = useState(false);
+  const [moreFilter, setMoreFilter] = useState('all');
+  const [morePage, setMorePage] = useState(0);
 
   useEffect(() => {
     if (location.state?.openAdd && isAdmin) {
@@ -852,19 +986,50 @@ export default function ChitsPage() {
     queryFn: () => getChits(),
   });
 
+  const { data: limits } = useQuery({
+    queryKey: ['myTenantLimits'],
+    queryFn: getMyTenantLimits,
+    staleTime: 60_000,
+    enabled: isAdmin,
+  });
+  const maxActiveChits = limits?.maxActiveChits ?? -1;
+  const activeChitCount = chits.filter(c => c.status === 'ACTIVE').length;
+  const isAtChitLimit = maxActiveChits !== -1 && activeChitCount >= maxActiveChits;
+
   const { data: deletedData = { content: [] }, isLoading: loadingDeleted } = useQuery({
     queryKey: ['chits', 'deleted'],
     queryFn: () => getDeletedChits({ size: 100 }),
-    enabled: showDeleted && canSeeDeleted,
+    enabled: showMore && canSeeDeleted,
   });
   const deletedChits = deletedData.content ?? [];
 
   const { data: cancelledData = { content: [] }, isLoading: loadingCancelled } = useQuery({
     queryKey: ['chits', 'cancelled'],
     queryFn: () => getCancelledChits({ size: 100 }),
-    enabled: showCancelled && canSeeDeleted,
+    enabled: showMore && canSeeDeleted,
   });
   const cancelledChits = cancelledData.content ?? [];
+
+  // Derived lists for board/list view (exclude COMPLETED — it lives in More)
+  const boardChits = chits.filter((c) => c.status !== 'COMPLETED');
+  const completedChits = chits.filter((c) => c.status === 'COMPLETED');
+
+  // More view combined + filtered list
+  const moreAllItems = [
+    ...completedChits,
+    ...(canSeeDeleted ? cancelledChits : []),
+    ...(canSeeDeleted ? deletedChits : []),
+  ];
+  const moreItems =
+    moreFilter === 'completed'  ? completedChits :
+    moreFilter === 'deleted'    ? deletedChits :
+    moreFilter === 'cancelled'  ? cancelledChits :
+    moreAllItems;
+
+  const MORE_PAGE_SIZE = 20;
+  const moreTotalPages = Math.max(1, Math.ceil(moreItems.length / MORE_PAGE_SIZE));
+  const safeMorePage = Math.min(morePage, moreTotalPages - 1);
+  const morePageItems = moreItems.slice(safeMorePage * MORE_PAGE_SIZE, (safeMorePage + 1) * MORE_PAGE_SIZE);
 
   // IDs of ACTIVE chits that have a start date — we need cycle status for these
   const activeChitIds = chits
@@ -894,7 +1059,7 @@ export default function ChitsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h2
             className="text-2xl font-bold"
@@ -902,35 +1067,16 @@ export default function ChitsPage() {
           >
             Chit Funds
           </h2>
-          <p className="text-sm text-gray-500 mt-1">{chits.length} total chit funds</p>
+          <p className="text-sm text-gray-500 mt-1">{boardChits.length} chit funds</p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {canSeeDeleted && (
+        <div className="flex flex-wrap items-center gap-3">
+          {!showMore && (
             <>
-              <Button
-                variant={showCancelled ? 'secondary' : 'secondary'}
-                className={showCancelled ? 'border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100' : ''}
-                onClick={() => { setShowCancelled((v) => !v); setShowDeleted(false); }}
-              >
-                <Ban size={14} />
-                {showCancelled ? 'Show Active' : 'Show Cancelled'}
-              </Button>
-              <Button
-                variant={showDeleted ? 'danger' : 'secondary'}
-                onClick={() => { setShowDeleted((v) => !v); setShowCancelled(false); }}
-              >
-                <Trash2 size={14} />
-                {showDeleted ? 'Show Active' : 'Show Deleted'}
-              </Button>
-            </>
-          )}
-          {!showDeleted && !showCancelled && (
-            <div className="flex items-center gap-3">
               {/* View toggle — iOS-style segmented control */}
               <div className="flex items-center bg-gray-200 rounded-full p-1">
                 <button
-                  onClick={() => setViewMode('board')}
+                  onClick={() => { setViewMode('board'); setListPage(0); }}
                   className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
                     viewMode === 'board'
                       ? 'bg-white text-[#1E3A5F] shadow-sm'
@@ -940,7 +1086,7 @@ export default function ChitsPage() {
                   <LayoutGrid size={14} /> Board
                 </button>
                 <button
-                  onClick={() => setViewMode('list')}
+                  onClick={() => { setViewMode('list'); setListPage(0); }}
                   className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
                     viewMode === 'list'
                       ? 'bg-white text-[#1E3A5F] shadow-sm'
@@ -952,118 +1098,120 @@ export default function ChitsPage() {
               </div>
 
               {!isManager && (
-                <Button onClick={() => setShowModal(true)}>
+                <Button
+                  onClick={() => setShowModal(true)}
+                  disabled={isExpired || isAtChitLimit}
+                  title={
+                    isExpired
+                      ? 'Plan expired — renew to create chit funds'
+                      : isAtChitLimit
+                      ? `Active chit limit reached (${maxActiveChits} max on this plan)`
+                      : undefined
+                  }
+                >
                   <Plus size={16} /> New Chit Fund
                 </Button>
               )}
-            </div>
+            </>
           )}
+
+          <Button
+            variant="secondary"
+            onClick={() => { setShowMore((v) => !v); setMorePage(0); setMoreFilter('all'); }}
+          >
+            {showMore ? (
+              <><ChevronLeft size={14} /> Chit Funds</>
+            ) : (
+              <>More {completedChits.length > 0 && <span className="ml-1 text-xs font-semibold bg-gray-200 text-gray-600 rounded-full px-1.5 py-0.5">{completedChits.length}</span>}</>
+            )}
+          </Button>
         </div>
       </div>
 
       {/* Content */}
-      {showCancelled ? (
-        loadingCancelled ? (
-          <CardGridSkeleton cards={6} />
-        ) : cancelledChits.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <EmptyState
-              icon={Ban}
-              title="No cancelled chits"
-              message="No chit funds have been cancelled yet."
-            />
+      {showMore ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {/* Filter pills */}
+          <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-2">
+            {[
+              { key: 'all',       label: `All (${moreAllItems.length})` },
+              { key: 'completed', label: `Completed (${completedChits.length})` },
+              ...(canSeeDeleted ? [
+                { key: 'cancelled', label: `Cancelled (${cancelledChits.length})` },
+                { key: 'deleted',   label: `Deleted (${deletedChits.length})` },
+              ] : []),
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => { setMoreFilter(key); setMorePage(0); }}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  moreFilter === key
+                    ? 'bg-[#1E3A5F] text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700">Cancelled Chit Funds</h3>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {cancelledChits.map((c) => (
-                <div
-                  key={c.id}
-                  onClick={() => navigate(`/chits/${c.id}`)}
-                  className="flex items-center justify-between px-6 py-4 opacity-60 hover:opacity-80 cursor-pointer hover:bg-gray-50 transition-all"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-500">{c.name}</p>
-                    {c.description && <p className="text-xs text-gray-400">{c.description}</p>}
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      &#8377;{c.chitValue?.toLocaleString()} &middot; {c.totalMembers} members
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <Badge variant="warning">Cancelled</Badge>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {c.updatedAt
-                        ? new Date(c.updatedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })
-                        : '—'}
-                    </p>
+
+          {(loadingDeleted || loadingCancelled) && moreFilter !== 'completed' ? (
+            <div className="px-6 py-12 text-center text-sm text-gray-400">Loading…</div>
+          ) : morePageItems.length === 0 ? (
+            <EmptyState
+              icon={BookOpen}
+              title="Nothing here"
+              message={moreFilter === 'completed' ? 'No completed chit funds yet.' : 'Nothing to show for this filter.'}
+            />
+          ) : (
+            <>
+              <div className="divide-y divide-gray-50">
+                {morePageItems.map((c) => (
+                  <MoreListItem key={c.id} chit={c} onClick={() => navigate(`/chits/${c.id}`)} />
+                ))}
+              </div>
+              {moreTotalPages > 1 && (
+                <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-t border-gray-100">
+                  <span className="text-sm text-gray-500">
+                    Page {safeMorePage + 1} of {moreTotalPages} &middot; {moreItems.length} chits
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setMorePage((p) => Math.max(0, p - 1))}
+                      disabled={safeMorePage === 0}
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => setMorePage((p) => Math.min(moreTotalPages - 1, p + 1))}
+                      disabled={safeMorePage >= moreTotalPages - 1}
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )
-      ) : showDeleted ? (
-        loadingDeleted ? (
-          <CardGridSkeleton cards={6} />
-        ) : deletedChits.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-            <EmptyState
-              icon={Trash2}
-              title="No deleted chits"
-              message="No chit funds have been deleted yet."
-            />
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700">Deleted Chit Funds</h3>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {deletedChits.map((c) => (
-                <div
-                  key={c.id}
-                  onClick={() => navigate(`/chits/${c.id}`)}
-                  className="flex items-center justify-between px-6 py-4 opacity-60 hover:opacity-80 cursor-pointer hover:bg-gray-50 transition-all"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-gray-500 line-through">{c.name}</p>
-                    {c.description && <p className="text-xs text-gray-400">{c.description}</p>}
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      &#8377;{c.chitValue?.toLocaleString()} &middot; {c.totalMembers} members
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <Badge variant="danger">Deleted</Badge>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {c.deletedAt
-                        ? new Date(c.deletedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })
-                        : '—'}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
+              )}
+            </>
+          )}
+        </div>
       ) : isLoading ? (
         <CardGridSkeleton cards={6} />
-      ) : chits.length === 0 ? (
+      ) : boardChits.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <EmptyState
             icon={BookOpen}
             title="No chit funds yet"
             message="Create your first chit fund to get started."
-            action={!isManager ? 'Create Chit Fund' : undefined}
-            onAction={!isManager ? () => setShowModal(true) : undefined}
+            action={!isManager && !isExpired ? 'Create Chit Fund' : undefined}
+            onAction={!isManager && !isExpired ? () => setShowModal(true) : undefined}
           />
         </div>
       ) : viewMode === 'board' ? (
-        <BoardView chits={chits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} />
+        <BoardView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} />
       ) : (
-        <ListView chits={chits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} />
+        <ListView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} page={listPage} setPage={setListPage} />
       )}
 
       {showModal && <CreateChitModal onClose={() => setShowModal(false)} />}

@@ -40,7 +40,8 @@ public class AuditEventConsumer {
                     event.collectedByUserId(), "ROLE_STAFF", null,
                     null,
                     "{\"amount\":" + event.amount() + ",\"memberId\":\"" + event.memberId() + "\"}",
-                    null
+                    null,
+                    event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to audit CASH_COLLECTED: {}", e.getMessage(), e);
@@ -58,7 +59,8 @@ public class AuditEventConsumer {
                     null,
                     "{\"amount\":" + event.amount() + ",\"mode\":\"" + event.paymentMode()
                             + "\",\"memberId\":\"" + event.memberId() + "\"}",
-                    null
+                    null,
+                    event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to audit PAYMENT_COMPLETED: {}", e.getMessage(), e);
@@ -79,7 +81,8 @@ public class AuditEventConsumer {
                     null,
                     "{\"monthNumber\":" + event.monthNumber()
                             + ",\"payoutAmount\":" + event.payoutAmount() + "}",
-                    null
+                    null,
+                    event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to audit ORG_RESERVATION_CREATED: {}", e.getMessage(), e);
@@ -96,7 +99,8 @@ public class AuditEventConsumer {
                     event.realizedBy(), "ROLE_ADMIN", null,
                     "{\"status\":\"RESERVED\"}",
                     "{\"status\":\"PROCESSED\",\"payoutAmount\":" + event.payoutAmount() + "}",
-                    null
+                    null,
+                    event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to audit ORG_PAYOUT_REALIZED: {}", e.getMessage(), e);

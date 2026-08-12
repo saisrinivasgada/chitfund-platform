@@ -1,5 +1,7 @@
 package com.chitfund.chitservice.security;
 
+import com.chitfund.common.context.PlanContext;
+import com.chitfund.common.context.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -18,20 +20,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * WHY no UserDetailsService / DB lookup in this filter?
- * In a downstream microservice, the JWT is self-contained — it already carries
- * userId and role as claims. There's no reason to hit user-service's DB on
- * every request to chit-service. The JWT's cryptographic signature is sufficient proof.
- *
- * This is the correct pattern for microservices:
- * - user-service: generates tokens, owns user data
- * - downstream services: validate token signature, read claims, done
- *
- * INTERVIEW: "In a microservices JWT setup, each service validates the token
- * independently using the shared secret. The token carries all the claims you
- * need (userId, role). No inter-service call needed for authentication."
- */
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -43,20 +31,46 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String token = extractToken(request);
+        try {
+            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+                Claims claims = jwtTokenProvider.extractClaims(token);
+                UUID userId   = UUID.fromString(claims.getSubject());
+                String role      = claims.get("role",       String.class);
+                String tenantId  = claims.get("tenantId",   String.class);
+                String tenantPlan= claims.get("tenantPlan", String.class);
+                String scope     = claims.get("scope",      String.class);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
-            Claims claims = jwtTokenProvider.extractClaims(token);
-            UUID userId = UUID.fromString(claims.getSubject());
-            String role = claims.get("role", String.class);
+                List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+                if ("SUPER_ADMIN".equals(scope) || "SUPER_ADMIN".equals(role)) {
+                    authorities.add(new SimpleGrantedAuthority("SUPER_ADMIN"));
+                }
 
-            // Principal is the userId UUID — controllers access it via authentication.getPrincipal()
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(auth);
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        userId, null, authorities);
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+
+                if (tenantId != null) TenantContext.set(tenantId);
+                if (tenantPlan != null) PlanContext.set(tenantPlan);
+
+                String tenantStatus = claims.get("tenantStatus", String.class);
+                if (("PENDING".equals(tenantStatus) || "SUSPENDED".equals(tenantStatus)) && isWriteMethod(request.getMethod())) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"Organisation inactive\",\"message\":\"This organisation is " + ("PENDING".equals(tenantStatus) ? "pending activation" : "suspended") + ".\"}");
+                    return;
+                }
+            }
+            chain.doFilter(request, response);
+        } finally {
+            TenantContext.clear();
+            PlanContext.clear();
         }
+    }
 
-        chain.doFilter(request, response);
+    private static boolean isWriteMethod(String method) {
+        return "POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method) || "PATCH".equals(method);
     }
 
     private String extractToken(HttpServletRequest request) {

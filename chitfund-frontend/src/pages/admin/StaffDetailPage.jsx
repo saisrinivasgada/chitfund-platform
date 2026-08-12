@@ -393,7 +393,7 @@ export default function StaffDetailPage() {
   const totalCashPending = pendingBatches.reduce((sum, b) => sum + Number(b.totalAmount ?? 0), 0);
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-8">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-8">
 
       {/* Back */}
       <button
@@ -519,7 +519,7 @@ export default function StaffDetailPage() {
 
       {/* Worker + Manager: live status summary */}
       {isCollector && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className={`rounded-2xl border p-5 ${currentAssignments.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
             <p className={`text-3xl font-extrabold ${currentAssignments.length > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
               {currentAssignments.length}

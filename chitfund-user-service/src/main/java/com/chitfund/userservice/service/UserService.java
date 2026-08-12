@@ -1,5 +1,6 @@
 package com.chitfund.userservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -100,6 +101,16 @@ public class UserService {
         List<Role> staffRoles = caller != null && caller.getRole() == Role.MANAGER
                 ? List.of(Role.MANAGER, Role.STAFF, Role.AGENT)
                 : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
+
+        String tenantId = TenantContext.get();
+        if (tenantId != null) {
+            List<User> users = includeDeleted
+                    ? userRepository.findByTenantIdAndRoleInAndDeletedAtIsNotNull(tenantId, staffRoles)
+                    : userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(tenantId, staffRoles);
+            return users.stream().map(userMapper::toResponse).toList();
+        }
+
+        // Fallback for super-admin context (no tenant)
         List<User> users = includeDeleted
                 ? userRepository.findByRoleInAndDeletedAtIsNotNull(staffRoles)
                 : userRepository.findByRoleInAndDeletedAtIsNull(staffRoles);

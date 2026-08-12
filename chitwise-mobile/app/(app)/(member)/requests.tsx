@@ -89,6 +89,8 @@ export default function MemberRequestsScreen() {
     staleTime: 5 * 60_000,
   });
 
+  const activeChits = (chits as any[]).filter((c: any) => ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status));
+
   // Fetch balances for ALL chits in parallel once profile + chit list are ready
   const balanceResults = useQueries({
     queries: activeChits.map((c: any) => ({
@@ -169,7 +171,6 @@ export default function MemberRequestsScreen() {
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
   });
 
-  const activeChits = (chits as any[]).filter((c: any) => ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status));
   const activeRequests = (requests as any[]).filter((r: any) => ['PENDING', 'ASSIGNED', 'PICKED_UP', 'PARTIALLY_COLLECTED'].includes(r.status));
   const isLoading = reqLoading || chitsLoading;
 

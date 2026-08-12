@@ -84,6 +84,9 @@ public class User implements UserDetails {
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private Role role;
 
+    @Column(columnDefinition = "char(36)")
+    private String tenantId;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = true;
@@ -103,6 +106,10 @@ public class User implements UserDetails {
     // Populated by admin password-reset. Cleared when user logs in with their real password.
     // Lets the user choose which credential to use; only temp-password login forces a change.
     private String tempPasswordHash;
+
+    // Plain-text copy of the temp password — visible to super-admin until admin sets their own.
+    // Cleared when mustChangePassword is satisfied.
+    private String tempPassword;
 
     private LocalDateTime lastLoginAt;
 

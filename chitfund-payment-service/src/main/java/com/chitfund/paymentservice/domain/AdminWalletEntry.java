@@ -20,6 +20,9 @@ public class AdminWalletEntry {
     @Id
     private UUID id;
 
+    @Column(name = "tenant_id", nullable = false)
+    private String tenantId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "account_type", nullable = false)
     private AccountType accountType;
@@ -35,6 +38,9 @@ public class AdminWalletEntry {
 
     @Column(columnDefinition = "TEXT")
     private String description;
+
+    @Column(name = "reference_id")
+    private UUID referenceId;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

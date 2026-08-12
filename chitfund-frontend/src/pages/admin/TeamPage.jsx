@@ -11,7 +11,10 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import { ListSkeleton } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Phone, Mail, AtSign, Copy, Check, AlertTriangle } from 'lucide-react';
+import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Mail, AtSign, Copy, Check, AlertTriangle, Users } from 'lucide-react';
+import PhoneInput from '../../components/ui/PhoneInput';
+import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import { getMyTenantLimits } from '../../services/api';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
@@ -20,7 +23,7 @@ const ROLE_BADGE = {
   AGENT:   { label: 'Agent',   variant: 'info' },
 };
 
-const INITIAL_FORM = { username: '', email: '', fullName: '', phone: '', role: 'STAFF' };
+const INITIAL_FORM = { username: '', email: '', fullName: '', phone: '', phoneCountryCode: '+91', role: 'STAFF' };
 
 const ROLE_OPTIONS = [
   {
@@ -52,7 +55,7 @@ const ROLE_OPTIONS = [
   },
 ];
 
-function StyledInput({ icon: Icon, ...props }) {
+function StyledInput({ icon: Icon, error, ...props }) {
   return (
     <div className="relative">
       {Icon && (
@@ -61,13 +64,16 @@ function StyledInput({ icon: Icon, ...props }) {
         </span>
       )}
       <input
-        className="w-full py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 transition-all text-gray-900 placeholder-gray-400"
+        className={`w-full py-2.5 text-sm rounded-xl border focus:outline-none focus:ring-2 transition-all text-gray-900 placeholder-gray-400 ${
+          error ? 'border-red-400 focus:ring-red-200' : 'border-gray-200 focus:ring-[#1E3A5F]/20'
+        }`}
         style={{
           paddingLeft: Icon ? '2.25rem' : '0.875rem',
           paddingRight: '0.875rem',
         }}
         {...props}
       />
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }
@@ -139,10 +145,12 @@ function CredentialRow({ label, value, mono }) {
 function AddStaffModal({ onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, tenantPlan } = useAuth();
   const isManager = currentUser?.role === 'MANAGER';
   const [form, setForm] = useState(INITIAL_FORM);
   const [tempPass, setTempPass] = useState(null);
+  const [fe, setFe] = useState({});
+  const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
 
   const availableRoles = ROLE_OPTIONS.filter((r) =>
     isManager ? r.value === 'STAFF' : true
@@ -157,11 +165,19 @@ function AddStaffModal({ onClose }) {
       toast.success(`${label} account created`);
     },
     onError: (err) => {
-      toast.error(err.response?.data?.message ?? 'Failed to create account');
+      if (handlePlanError(err)) return;
+      const errors = err.response?.data?.fieldErrors;
+      if (errors && Object.keys(errors).length > 0) { setFe(errors); return; }
+      const code = err.response?.data?.errorCode;
+      const msg  = err.response?.data?.message ?? '';
+      if (code === 'USER_002') { setFe({ username: 'This username is already taken. Try a different one.' }); return; }
+      if (code === 'USER_003') { setFe({ email: 'This email is already in use by another account.' }); return; }
+      if (msg.toLowerCase().includes('number exists')) { setFe({ phone: 'A staff account with this mobile number already exists.' }); return; }
+      toast.error(msg || 'Failed to create account');
     },
   });
 
-  function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+  function set(key, val) { setForm((f) => ({ ...f, [key]: val })); setFe((f) => ({ ...f, [key]: undefined })); }
 
   if (tempPass) {
     return (
@@ -199,8 +215,10 @@ function AddStaffModal({ onClose }) {
   }
 
   return (
+    <>
+    {planModal}
     <Modal title="Add Team Member" onClose={onClose} size="md">
-      <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(form); }} className="space-y-5">
+      <form onSubmit={(e) => { e.preventDefault(); setFe({}); mutation.mutate(form); }} className="space-y-5">
 
         {/* Role selector */}
         <div>
@@ -260,28 +278,29 @@ function AddStaffModal({ onClose }) {
           </div>
         )}
         <br></br>
-        {/* Name + Phone */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
-            <StyledInput
-              icon={User}
-              placeholder="Sai Srinivas"
-              value={form.fullName}
-              onChange={(e) => set('fullName', e.target.value)}
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Phone</label>
-            <StyledInput
-              icon={Phone}
-              placeholder="9876543210"
-              value={form.phone}
-              onChange={(e) => set('phone', e.target.value.replace(/\D/g, '').slice(0, 15))}
-            />
-          </div>
+        {/* Full Name */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Full Name <span className="text-red-500">*</span></label>
+          <StyledInput
+            icon={User}
+            placeholder="Sai Srinivas"
+            value={form.fullName}
+            onChange={(e) => set('fullName', e.target.value)}
+            error={fe.fullName}
+            required
+          />
         </div>
+
+        {/* Phone */}
+        <PhoneInput
+          label="Mobile Number *"
+          countryCode={form.phoneCountryCode}
+          phone={form.phone}
+          onCountryChange={(code) => set('phoneCountryCode', code)}
+          onPhoneChange={(v) => set('phone', v)}
+          error={fe.phone}
+          required
+        />
 
         {/* Username */}
         <div className="flex flex-col gap-1.5">
@@ -291,9 +310,10 @@ function AddStaffModal({ onClose }) {
             placeholder="sai.staff"
             value={form.username}
             onChange={(e) => set('username', e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, ''))}
+            error={fe.username}
             required
           />
-          <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>
+          {!fe.username && <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>}
         </div>
 
         {/* Email */}
@@ -305,6 +325,7 @@ function AddStaffModal({ onClose }) {
             placeholder="sai@example.com"
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
+            error={fe.email}
           />
         </div>
 
@@ -317,15 +338,17 @@ function AddStaffModal({ onClose }) {
         </div>
       </form>
     </Modal>
+    </>
   );
 }
 
 export default function TeamPage() {
   const navigate = useNavigate();
   const toast = useToastContext();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, tenantName, planExpiresAt } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
+  const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
@@ -335,6 +358,15 @@ export default function TeamPage() {
     queryKey: ['staff', { deleted: showDeleted }],
     queryFn: () => listStaff({ deleted: showDeleted }),
   });
+
+  const { data: limits } = useQuery({
+    queryKey: ['myTenantLimits'],
+    queryFn: getMyTenantLimits,
+    staleTime: 60_000,
+  });
+
+  const activeStaffCount = staff.filter((s) => !s.deletedAt && s.enabled && (s.role === 'MANAGER' || s.role === 'STAFF')).length;
+  const maxStaff = limits?.maxStaff ?? null;
 
   const toggleMutation = useMutation({
     mutationFn: ({ type, id }) =>
@@ -367,18 +399,33 @@ export default function TeamPage() {
   const visibleStaff = isManager ? staff.filter((s) => s.role !== 'ADMIN') : staff;
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
             Team
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          {tenantName && (
+            <p className="text-base font-semibold text-gray-700 mt-0.5">{tenantName}</p>
+          )}
+          <p className="text-sm text-gray-500 mt-0.5">
             {isManager ? 'View managers and staff' : 'Manage admins, managers and staff'}
           </p>
+          {maxStaff !== null && maxStaff !== -1 && (
+            <div className={`inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-xs font-semibold ${
+              activeStaffCount >= maxStaff
+                ? 'bg-red-50 text-red-600 border border-red-200'
+                : activeStaffCount >= maxStaff - 1
+                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                : 'bg-gray-100 text-gray-600 border border-gray-200'
+            }`}>
+              <Users size={12} />
+              {activeStaffCount} / {maxStaff} staff slots used
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {isAdmin && (
             <Button
               variant={showDeleted ? 'danger' : 'secondary'}
@@ -389,7 +436,19 @@ export default function TeamPage() {
             </Button>
           )}
           {!showDeleted && (
-            <Button variant="primary" size="md" onClick={() => setShowAdd(true)}>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => setShowAdd(true)}
+              disabled={isExpired || (maxStaff !== null && maxStaff !== -1 && activeStaffCount >= maxStaff)}
+              title={
+                isExpired
+                  ? 'Plan expired — renew to add team members'
+                  : maxStaff !== null && maxStaff !== -1 && activeStaffCount >= maxStaff
+                  ? `Staff limit reached (${maxStaff} max on this plan)`
+                  : undefined
+              }
+            >
               <Plus size={16} className="mr-1.5" />
               Add Team Member
             </Button>
@@ -407,7 +466,7 @@ export default function TeamPage() {
               : 'Add staff and managers to start assigning cash collection tasks.'
           }
           action={!showDeleted ? 'Add first member' : undefined}
-          onAction={!showDeleted ? () => setShowAdd(true) : undefined}
+          onAction={!showDeleted && !isExpired ? () => setShowAdd(true) : undefined}
         />
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">

@@ -16,10 +16,11 @@ import java.util.UUID;
 
 public interface AdminWalletRepository extends JpaRepository<AdminWalletEntry, UUID> {
 
-    List<AdminWalletEntry> findAllByOrderByCreatedAtDesc();
-    Page<AdminWalletEntry> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    List<AdminWalletEntry> findByTenantIdOrderByCreatedAtDesc(String tenantId);
+    Page<AdminWalletEntry> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
 
-    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM AdminWalletEntry e WHERE e.accountType = :accountType AND e.entryType = :entryType")
-    BigDecimal sumByAccountTypeAndEntryType(@Param("accountType") AccountType accountType,
-                                            @Param("entryType") WalletEntryType entryType);
+    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM AdminWalletEntry e WHERE e.tenantId = :tenantId AND e.accountType = :accountType AND e.entryType = :entryType")
+    BigDecimal sumByTenantAndAccountTypeAndEntryType(@Param("tenantId") String tenantId,
+                                                      @Param("accountType") AccountType accountType,
+                                                      @Param("entryType") WalletEntryType entryType);
 }

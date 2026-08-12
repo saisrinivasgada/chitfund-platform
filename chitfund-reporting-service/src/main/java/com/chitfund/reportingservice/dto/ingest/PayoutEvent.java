@@ -20,5 +20,6 @@ public record PayoutEvent(
         @NotNull BigDecimal netPayoutAmount,
         @NotBlank String status,
         String disbursementMode,
-        LocalDate disbursedAt
+        LocalDate disbursedAt,
+        String tenantId
 ) {}

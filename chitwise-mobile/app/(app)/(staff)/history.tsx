@@ -15,7 +15,7 @@ export default function StaffHistoryScreen() {
     refetchOnMount: 'always',
   });
 
-  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
+  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers() });
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
 
   const memberMap: Record<string, string> = {};

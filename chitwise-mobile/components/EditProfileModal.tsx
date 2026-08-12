@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '../store/authStore';
+import { useRouter } from 'expo-router';
+import { useAuthStore, StoredAccount } from '../store/authStore';
 import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
@@ -55,7 +56,8 @@ function passwordStrength(pw: string) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { user, logout } = useAuthStore();
+  const { user, logout, accounts, switchToAccount, removeAccount } = useAuthStore();
+  const router = useRouter();
   const qc = useQueryClient();
   const role = user?.role ?? 'MEMBER';
 
@@ -63,7 +65,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const { data: me } = useQuery({ queryKey: ['edit-profile-me'], queryFn: getMe, enabled: visible });
   const { data: memberMe } = useQuery({ queryKey: ['edit-profile-member-me'], queryFn: getMyMemberProfile, enabled: visible && role === 'MEMBER' });
 
-  const [tab, setTab] = useState<'profile' | 'security' | 'history'>('profile');
+  const [tab, setTab] = useState<'profile' | 'security' | 'history' | 'accounts'>('profile');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   // Profile fields
@@ -194,23 +196,28 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
           </TouchableOpacity>
         </View>
 
-        {/* Tab switcher — History only for ADMIN (profile history is admin-only) */}
-        <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}>
+        {/* Tab switcher */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}
+        >
           {([
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
+            { id: 'accounts', label: `Accounts${accounts.length > 1 ? ` (${accounts.length})` : ''}` },
             ...(role === 'ADMIN' ? [{ id: 'history', label: 'My Changes' }] : []),
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{
-              flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
+              paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
               backgroundColor: tab === id ? C.white : 'transparent',
             }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: tab === id ? C.navy : C.gray400 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: tab === id ? C.navy : C.gray400, whiteSpace: 'nowrap' } as any}>
                 {label}
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -261,6 +268,111 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 )}
                 <Field label="Confirm New Password" value={confPwd} onChangeText={setConfPwd} placeholder="Repeat new password" secureTextEntry autoCapitalize="none"
                   hint={confPwd && newPwd !== confPwd ? 'Passwords do not match' : confPwd && newPwd === confPwd ? '✓ Passwords match' : undefined} />
+              </>
+            )}
+
+            {/* ── Accounts tab ────────────────────────────────────────────── */}
+            {tab === 'accounts' && (
+              <>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>
+                  SAVED ACCOUNTS
+                </Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 14 }}>
+                  Switch between accounts on this device without re-entering your password.
+                </Text>
+
+                {accounts.map((acc: StoredAccount) => {
+                  const isCurrent = acc.userId === user?.id;
+                  const initials = (acc.fullName || acc.username || '?')[0].toUpperCase();
+                  return (
+                    <View key={acc.userId} style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 12,
+                      backgroundColor: isCurrent ? C.navy50 : C.white,
+                      borderRadius: 14, padding: 14, marginBottom: 10,
+                      borderWidth: 1.5,
+                      borderColor: isCurrent ? C.navy + '40' : C.gray200,
+                    }}>
+                      {/* Avatar */}
+                      <View style={{
+                        width: 42, height: 42, borderRadius: 21,
+                        backgroundColor: isCurrent ? C.navy : C.gray200,
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: isCurrent ? '#fff' : C.gray600 ?? C.gray500 }}>
+                          {initials}
+                        </Text>
+                      </View>
+
+                      {/* Info */}
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: isCurrent ? C.navy : C.gray900 }}>
+                            {acc.fullName || acc.username}
+                          </Text>
+                          {isCurrent && (
+                            <View style={{ backgroundColor: C.navy, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>ACTIVE</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>@{acc.username} · {acc.role}</Text>
+                      </View>
+
+                      {/* Actions */}
+                      {!isCurrent && (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const ok = await switchToAccount(acc.userId);
+                              if (ok) {
+                                onClose();
+                              } else {
+                                Alert.alert('Switch Failed', 'Could not switch account. Please log in again.');
+                              }
+                            }}
+                            style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Switch</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => Alert.alert(
+                              'Remove Account',
+                              `Remove @${acc.username} from this device?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Remove', style: 'destructive', onPress: () => removeAccount(acc.userId) },
+                              ]
+                            )}
+                            style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#DC2626' }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {/* Add account button */}
+                <TouchableOpacity
+                  onPress={() => {
+                    onClose();
+                    // Navigate to login with "add account" mode
+                    router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
+                  }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    borderWidth: 1.5, borderColor: C.navy, borderRadius: 14,
+                    padding: 14, marginTop: 4,
+                  }}
+                >
+                  <Text style={{ fontSize: 20, color: C.navy }}>+</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>Add Another Account</Text>
+                </TouchableOpacity>
+
+                <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 12 }}>
+                  Accounts are stored securely on this device. Removing an account only removes access on this device — it doesn't delete the account.
+                </Text>
               </>
             )}
 
@@ -317,6 +429,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
 
           {/* Footer */}
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200, gap: 10 }}>
+            {tab === 'accounts' && null}
             {tab === 'profile' && (
               <TouchableOpacity
                 onPress={() => profileMut.mutate()}

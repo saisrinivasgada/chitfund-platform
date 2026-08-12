@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.CashRequestEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -48,6 +49,12 @@ public class CashRequestService {
     private final MemberServiceClient memberServiceClient;
     private final UserServiceClient userServiceClient;
     private final PaymentEventPublisher eventPublisher;
+    private final PlanExpiryChecker planExpiryChecker;
+
+    private String tenantId() {
+        String tid = TenantContext.get();
+        return tid != null ? tid : "10000000-0000-0000-0000-000000000001";
+    }
 
     // ─── Audit helper ────────────────────────────────────────────────────────
 
@@ -69,7 +76,9 @@ public class CashRequestService {
 
     @Transactional
     public CashRequestResponse createRequest(UUID memberId, CreateCashRequestRequest dto) {
+        planExpiryChecker.assertNotExpired();
         CashPaymentRequest req = CashPaymentRequest.builder()
+                .tenantId(tenantId())
                 .memberId(memberId)
                 .chitId(dto.getChitId())
                 .requestedAmount(dto.getRequestedAmount())
@@ -100,13 +109,14 @@ public class CashRequestService {
 
     public List<CashRequestResponse> getPendingRequests() {
         return requestRepository
-                .findByStatusOrderByRequestedAtAsc(CashRequestStatus.PENDING)
+                .findByTenantIdAndStatusOrderByRequestedAtAsc(tenantId(), CashRequestStatus.PENDING)
                 .stream().map(this::toResponse).toList();
     }
 
     public List<CashRequestResponse> getActiveRequests() {
         return requestRepository
-                .findByStatusInOrderByRequestedAtAsc(
+                .findByTenantIdAndStatusInOrderByRequestedAtAsc(
+                        tenantId(),
                         List.of(CashRequestStatus.PENDING, CashRequestStatus.SCHEDULED,
                                 CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP,
                                 CashRequestStatus.PARTIALLY_COLLECTED))
@@ -115,6 +125,7 @@ public class CashRequestService {
 
     @Transactional
     public CashRequestResponse createRequestByAdmin(UUID memberProfileId, UUID staffId, CreateCashRequestRequest dto, UUID adminId, String assigneeRole) {
+        planExpiryChecker.assertNotExpired();
         // memberProfileId is the member-service UUID (from admin dropdown).
         // We must store the user-service UUID as memberId so the member can find
         // this request via /my-requests (which queries by JWT principal = user-service UUID).
@@ -125,6 +136,7 @@ public class CashRequestService {
                 : dto.getScheduledFor() != null ? CashRequestStatus.SCHEDULED
                 : CashRequestStatus.PENDING;
         CashPaymentRequest req = CashPaymentRequest.builder()
+                .tenantId(tenantId())
                 .memberId(memberId)
                 .chitId(dto.getChitId())
                 .requestedAmount(dto.getRequestedAmount())
@@ -167,6 +179,7 @@ public class CashRequestService {
 
     @Transactional
     public CashRequestResponse assignStaff(UUID requestId, AssignWorkerRequest dto, UUID assignerId, String assignerRole) {
+        planExpiryChecker.assertNotExpired();
         CashPaymentRequest req = findOrThrow(requestId);
         if (req.getStatus() != CashRequestStatus.PENDING && req.getStatus() != CashRequestStatus.SCHEDULED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -213,28 +226,30 @@ public class CashRequestService {
 
     public List<CashRequestResponse> getMyAssignedRequests(UUID staffId) {
         return requestRepository
-                .findByAssignedStaffIdAndStatusInOrderByAssignedAtAsc(
-                        staffId, List.of(CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP,
+                .findByTenantIdAndAssignedStaffIdAndStatusInOrderByAssignedAtAsc(
+                        tenantId(), staffId,
+                        List.of(CashRequestStatus.ASSIGNED, CashRequestStatus.PICKED_UP,
                                 CashRequestStatus.PARTIALLY_COLLECTED))
                 .stream().map(this::toResponse).toList();
     }
 
     public List<CashRequestResponse> getMyRequestHistory(UUID staffId) {
         return requestRepository
-                .findByAssignedStaffIdAndStatusInOrderByUpdatedAtDesc(
-                        staffId, List.of(CashRequestStatus.COLLECTED, CashRequestStatus.CANCELLED))
+                .findByTenantIdAndAssignedStaffIdAndStatusInOrderByUpdatedAtDesc(
+                        tenantId(), staffId,
+                        List.of(CashRequestStatus.COLLECTED, CashRequestStatus.CANCELLED))
                 .stream().map(this::toResponse).toList();
     }
 
     public List<CashRequestResponse> getStaffRequests(UUID staffId) {
         return requestRepository
-                .findByAssignedStaffIdOrderByRequestedAtDesc(staffId)
+                .findByTenantIdAndAssignedStaffIdOrderByRequestedAtDesc(tenantId(), staffId)
                 .stream().map(this::toResponse).toList();
     }
 
     public List<CashRequestResponse> getMyRequests(UUID memberId) {
         return requestRepository
-                .findByMemberIdOrderByRequestedAtDesc(memberId)
+                .findByTenantIdAndMemberIdOrderByRequestedAtDesc(tenantId(), memberId)
                 .stream().map(this::toResponse).toList();
     }
 
@@ -508,28 +523,30 @@ public class CashRequestService {
     }
 
     public CashRequestSummaryResponse getSummary() {
+        String tid = tenantId();
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         return CashRequestSummaryResponse.builder()
-                .pending(requestRepository.countByStatus(CashRequestStatus.PENDING))
-                .assigned(requestRepository.countByStatus(CashRequestStatus.ASSIGNED))
-                .pickedUp(requestRepository.countByStatus(CashRequestStatus.PICKED_UP))
-                .partiallyCollected(requestRepository.countByStatus(CashRequestStatus.PARTIALLY_COLLECTED))
-                .cancelled(requestRepository.countByStatus(CashRequestStatus.CANCELLED))
-                .collected(requestRepository.countByStatus(CashRequestStatus.COLLECTED))
-                .todayCancelled(requestRepository.countByStatusAndUpdatedAtAfter(CashRequestStatus.CANCELLED, todayStart))
-                .todayCollected(requestRepository.countByStatusAndUpdatedAtAfter(CashRequestStatus.COLLECTED, todayStart))
-                .todayRequested(requestRepository.countRequestedAfter(todayStart))
+                .pending(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.PENDING))
+                .assigned(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.ASSIGNED))
+                .pickedUp(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.PICKED_UP))
+                .partiallyCollected(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.PARTIALLY_COLLECTED))
+                .cancelled(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.CANCELLED))
+                .collected(requestRepository.countByTenantIdAndStatus(tid, CashRequestStatus.COLLECTED))
+                .todayCancelled(requestRepository.countByTenantIdAndStatusAndUpdatedAtAfter(tid, CashRequestStatus.CANCELLED, todayStart))
+                .todayCollected(requestRepository.countByTenantIdAndStatusAndUpdatedAtAfter(tid, CashRequestStatus.COLLECTED, todayStart))
+                .todayRequested(requestRepository.countByTenantIdAndRequestedAtAfter(tid, todayStart))
                 .build();
     }
 
     public List<CashRequestResponse> getCancelledRequests() {
         return requestRepository
-                .findByStatusOrderByUpdatedAtDesc(CashRequestStatus.CANCELLED)
+                .findByTenantIdAndStatusOrderByUpdatedAtDesc(tenantId(), CashRequestStatus.CANCELLED)
                 .stream().map(this::toResponse).toList();
     }
 
     @Transactional
     public CashRequestResponse rescheduleRequest(UUID requestId, UUID staffId, LocalDateTime scheduledFor) {
+        planExpiryChecker.assertNotExpired();
         CashPaymentRequest req = findOrThrow(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
@@ -786,7 +803,9 @@ public class CashRequestService {
             // In that case fall back to memberId itself as the userId so the event always has a memberUserId.
             String memberUserId = memberServiceClient.getMemberUserId(req.getMemberId());
             if (memberUserId == null) memberUserId = req.getMemberId().toString();
+            String tenantId = com.chitfund.common.context.TenantContext.get();
             CashRequestEvent event = new CashRequestEvent(
+                    tenantId,
                     req.getId().toString(), eventType,
                     req.getMemberId().toString(), memberUserId,
                     req.getAssignedStaffId() != null ? req.getAssignedStaffId().toString() : null,

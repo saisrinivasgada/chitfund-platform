@@ -47,6 +47,8 @@ public class InternalNotifyController {
         "WINNER_SELECTED",        "PAYOUTS_UPDATED",
         "PAYOUT_DISBURSED",       "PAYOUTS_UPDATED"
     );
+    // Renewal requests are not in Map.of (10-entry limit) — checked separately
+    private static final java.util.Set<String> RENEWAL_TYPES = java.util.Set.of("RENEWAL_REQUEST");
 
     @PostMapping
     public ResponseEntity<ApiResponse<NotificationResponse>> notify(
@@ -86,6 +88,7 @@ public class InternalNotifyController {
             inAppService.create(recipientId, title, message, type, meta, link);
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
             if (wsEvent != null) broadcaster.broadcast(wsEvent);
+            if (RENEWAL_TYPES.contains(type)) broadcaster.broadcast("RENEWAL_REQUESTS_UPDATED");
             broadcaster.broadcast("IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {

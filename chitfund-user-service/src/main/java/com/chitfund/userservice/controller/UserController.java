@@ -8,12 +8,21 @@ import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.ChangePasswordRequest;
 import com.chitfund.userservice.dto.request.CreateMemberLoginRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
+import com.chitfund.userservice.dto.request.SendPhoneOtpRequest;
 import com.chitfund.userservice.dto.request.UpdateUserProfileRequest;
+import com.chitfund.userservice.dto.request.VerifyPhoneOtpRequest;
+import com.chitfund.userservice.service.OtpService;
 import com.chitfund.userservice.dto.response.AuthResponse;
 import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
+import com.chitfund.userservice.dto.response.BillingInfoResponse;
 import com.chitfund.userservice.dto.response.UserResponse;
+import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.userservice.service.AuthService;
+import com.chitfund.userservice.service.PlanService;
+import com.chitfund.userservice.service.PromotionService;
+import com.chitfund.userservice.service.TenantService;
 import com.chitfund.userservice.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,12 +51,59 @@ public class UserController {
 
     private final UserService userService;
     private final AuthService authService;
+    private final OtpService otpService;
+    private final PlanService planService;
+    private final TenantService tenantService;
+    private final PromotionService promotionService;
 
     // Any authenticated user can fetch their own profile
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser(Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success(
                 userService.getCurrentUser(authentication.getName())));
+    }
+
+    @GetMapping("/me/billing-info")
+    public ResponseEntity<ApiResponse<BillingInfoResponse>> getMyBillingInfo() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.getBillingInfo(java.util.UUID.fromString(tenantId))));
+    }
+
+    @GetMapping("/me/effective-limits")
+    public ResponseEntity<ApiResponse<EffectiveLimitsResponse>> getMyEffectiveLimits() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.getEffectiveLimits(tenantId)));
+    }
+
+    @GetMapping("/me/referral")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getMyReferralInfo() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) {
+            return ResponseEntity.ok(ApiResponse.success(Map.of()));
+        }
+        UUID tid = UUID.fromString(tenantId);
+        String code = promotionService.getReferralCode(tid);
+        java.math.BigDecimal credit = promotionService.getCreditBalance(tid);
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "referralCode", code != null ? code : "",
+                "creditBalanceInr", credit
+        )));
+    }
+
+    // Returns effective plan limits for the current user's tenant (for frontend gating)
+    @GetMapping("/me/tenant-limits")
+    public ResponseEntity<ApiResponse<EffectiveLimitsResponse>> getMyTenantLimits() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) {
+            return ResponseEntity.ok(ApiResponse.success(
+                    EffectiveLimitsResponse.builder().plan("UNLIMITED").maxActiveChits(-1)
+                            .maxMembers(-1).maxStaff(-1).analyticsEnabled(true).prioritySupport(true).build()));
+        }
+        return ResponseEntity.ok(ApiResponse.success(tenantService.getEffectiveLimits(tenantId)));
     }
 
     @GetMapping("/{id}")
@@ -73,7 +129,7 @@ public class UserController {
      * Returns the plaintext password — shown to admin once, never stored again.
      */
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasAuthority('ADMIN') or hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<ResetPasswordResponse>> resetPassword(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(authService.resetPassword(id), "Temporary password generated"));
     }
@@ -117,7 +173,28 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userService.updateMyProfile(user.getId(), request)));
     }
 
-    // ── Member login creation ─────────────────────────────────────────────────
+    // ── Phone OTP for authenticated users (phone change) ─────────────────────
+
+    @PostMapping("/me/phone/send-otp")
+    public ResponseEntity<ApiResponse<Void>> sendPhoneChangeOtp(
+            @Valid @RequestBody SendPhoneOtpRequest req, Authentication auth) {
+        User user = (User) auth.getPrincipal();
+        otpService.sendOtp(req.getPhone(), req.getCountryCode(), "PHONE_CHANGE", user.getId().toString());
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
+    }
+
+    @PostMapping("/me/phone/verify-otp")
+    public ResponseEntity<ApiResponse<UserResponse>> verifyPhoneChangeOtp(
+            @Valid @RequestBody VerifyPhoneOtpRequest req, Authentication auth) {
+        User user = (User) auth.getPrincipal();
+        otpService.verifyOtp(req.getPhone(), "PHONE_CHANGE", req.getCode());
+        UpdateUserProfileRequest update = new UpdateUserProfileRequest();
+        update.setPhone(req.getPhone());
+        update.setPhoneCountryCode(req.getCountryCode() != null ? req.getCountryCode() : "+91");
+        return ResponseEntity.ok(ApiResponse.success(userService.updateMyProfile(user.getId(), update)));
+    }
+
+    // ── Member login / setup-link management ─────────────────────────────────
 
     /**
      * Admin creates an app login for a member. Idempotent: if the email is already
@@ -130,6 +207,20 @@ public class UserController {
             @Valid @RequestBody CreateMemberLoginRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(authService.createMemberLogin(request), "Member login created"));
+    }
+
+    /**
+     * Admin regenerates a setup link for a member who already has a user account.
+     * Returns a raw setup token the admin can copy/send to the member.
+     * The token is hashed before storage; only this plaintext response contains it.
+     */
+    @PostMapping("/{userId}/resend-setup-link")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, String>>> resendSetupLink(@PathVariable UUID userId) {
+        String token = authService.generateSetupToken(userId);
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("setupToken", token, "userId", userId.toString()),
+                "Setup link regenerated"));
     }
 
     // ── Staff management (ADMIN / MANAGER / WORKER accounts) ─────────────────
@@ -162,6 +253,11 @@ public class UserController {
         if (isManager && request.getRole() != Role.STAFF) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Managers can only create Staff accounts");
+        }
+        // Enforce staff limit for non-ADMIN accounts
+        if (request.getRole() != Role.ADMIN) {
+            String tenantId = TenantContext.get();
+            if (tenantId != null) planService.checkStaffLimit(tenantId);
         }
         User actor = (User) authentication.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)

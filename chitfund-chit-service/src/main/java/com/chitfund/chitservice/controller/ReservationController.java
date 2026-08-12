@@ -2,6 +2,7 @@ package com.chitfund.chitservice.controller;
 
 import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
+import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
 import com.chitfund.chitservice.dto.request.SwapSlotsRequest;
@@ -9,6 +10,7 @@ import com.chitfund.chitservice.dto.response.MonthReservationResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
+import com.chitfund.chitservice.service.PlanLimitChecker;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -39,6 +41,7 @@ public class ReservationController {
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
     private final AuditClient auditClient;
+    private final PlanLimitChecker planLimitChecker;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
@@ -55,6 +58,7 @@ public class ReservationController {
             @PathVariable UUID chitId,
             @Valid @RequestBody ReservationSlotRequest request,
             Authentication auth) {
+        planLimitChecker.checkNotExpired();
         UUID adminId = (UUID) auth.getPrincipal();
         var chit = chitService.findById(chitId);
 
@@ -101,7 +105,11 @@ public class ReservationController {
 
         MonthReservation saved = reservationRepository.save(slot);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_CREATED", adminId.toString(), "ADMIN", null, slotSnapshot(saved));
+                "SLOT_CREATED", adminId.toString(), "ADMIN", null, slotSnapshot(saved),
+                com.chitfund.common.context.TenantContext.get());
+        if (chit.getStatus() == ChitStatus.ACTIVE && saved.getMemberId() != null) {
+            chitService.syncEnrollmentForMember(chit, saved.getMemberId());
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(chitMapper.toReservationResponse(saved), "Slot added"));
     }
@@ -120,6 +128,7 @@ public class ReservationController {
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
 
         Map<String, Object> beforeSnap = slotSnapshot(r);
+        UUID oldMemberId = r.getMemberId();
 
         boolean isOrg = Boolean.TRUE.equals(request.getOrgHeld());
         if (isOrg && !r.isOrgHeld()) {
@@ -142,7 +151,15 @@ public class ReservationController {
 
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved));
+                "SLOT_UPDATED", adminId.toString(), actorRole, beforeSnap, slotSnapshot(saved),
+                com.chitfund.common.context.TenantContext.get());
+        var chit = chitService.findById(chitId);
+        if (chit.getStatus() == ChitStatus.ACTIVE) {
+            UUID newMemberId = saved.getMemberId();
+            if (oldMemberId != null) chitService.syncEnrollmentForMember(chit, oldMemberId);
+            if (newMemberId != null && !newMemberId.equals(oldMemberId))
+                chitService.syncEnrollmentForMember(chit, newMemberId);
+        }
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot updated"));
     }
@@ -166,7 +183,8 @@ public class ReservationController {
         r.setUpdatedBy(adminId);
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved));
+                "SLOT_PROCESSED", adminId.toString(), actorRole, null, slotSnapshot(saved),
+                com.chitfund.common.context.TenantContext.get());
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Slot marked as processed"));
     }
@@ -183,6 +201,7 @@ public class ReservationController {
                 .orElseThrow(() -> new ResourceNotFoundException("Reservation", reservationId));
         Map<String, Object> beforeVoidSnap = slotSnapshot(r);
 
+        UUID voidedMemberId = r.getMemberId();
         r.setStatus(ReservationStatus.VOIDED);
         r.setVoidReason(reason);
         r.setVoidedAt(LocalDateTime.now());
@@ -190,7 +209,13 @@ public class ReservationController {
         r.setUpdatedBy(adminId);
         MonthReservation saved = reservationRepository.save(r);
         auditClient.log("RESERVATION_SLOT", saved.getId().toString(), chitId.toString(),
-                "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved));
+                "SLOT_VOIDED", adminId.toString(), "ADMIN", beforeVoidSnap, slotSnapshot(saved),
+                com.chitfund.common.context.TenantContext.get());
+        if (voidedMemberId != null) {
+            var chit = chitService.findById(chitId);
+            if (chit.getStatus() == ChitStatus.ACTIVE)
+                chitService.syncEnrollmentForMember(chit, voidedMemberId);
+        }
         return ResponseEntity.ok(ApiResponse.success(null, "Reservation voided"));
     }
 
@@ -265,14 +290,17 @@ public class ReservationController {
         reservationRepository.save(a);
         reservationRepository.save(b);
 
+        String tenantId = com.chitfund.common.context.TenantContext.get();
         auditClient.log("RESERVATION_SLOT", a.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
                 java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", b.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", b.getId().toString()));
+                java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", b.getId().toString()),
+                tenantId);
         auditClient.log("RESERVATION_SLOT", b.getId().toString(), chitId.toString(),
                 "SLOT_SWAPPED", adminId.toString(), "ADMIN",
                 java.util.Map.of("memberId", String.valueOf(memberB), "swappedWithSlot", a.getId().toString()),
-                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()));
+                java.util.Map.of("memberId", String.valueOf(memberA), "swappedWithSlot", a.getId().toString()),
+                tenantId);
 
         return ResponseEntity.ok(ApiResponse.success(null, "Slots swapped"));
     }
@@ -307,7 +335,8 @@ public class ReservationController {
         auditClient.log("ORG_RESERVATION", saved.getId().toString(), chitId.toString(),
                 "ORG_PAYOUT_REALIZED", adminId.toString(), "ADMIN",
                 Map.of("status", "RESERVED"),
-                Map.of("status", "PROCESSED", "payoutAmount", String.valueOf(saved.getPayoutAmount())));
+                Map.of("status", "PROCESSED", "payoutAmount", String.valueOf(saved.getPayoutAmount())),
+                com.chitfund.common.context.TenantContext.get());
 
         return ResponseEntity.ok(ApiResponse.success(
                 chitMapper.toReservationResponse(saved), "Org payout realized to treasury"));

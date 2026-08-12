@@ -1,24 +1,18 @@
 package com.chitfund.userservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
-import com.chitfund.userservice.dto.request.ChangePasswordRequest;
-import com.chitfund.userservice.dto.request.CreateMemberLoginRequest;
-import com.chitfund.userservice.dto.request.LoginRequest;
-import com.chitfund.userservice.dto.request.MobileLoginRequest;
-import com.chitfund.userservice.dto.request.RefreshTokenRequest;
-import com.chitfund.userservice.dto.request.RegisterRequest;
-import com.chitfund.userservice.dto.response.AuthResponse;
-import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
-import com.chitfund.userservice.dto.response.MobileLookupResponse;
-import com.chitfund.userservice.dto.response.ResetPasswordResponse;
+import com.chitfund.userservice.dto.request.*;
+import com.chitfund.userservice.dto.response.*;
 import com.chitfund.userservice.mapper.UserMapper;
-import com.chitfund.userservice.repository.RefreshTokenRepository;
-import com.chitfund.userservice.repository.UserRepository;
+import com.chitfund.userservice.repository.*;
 import com.chitfund.userservice.security.JwtTokenProvider;
+import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -29,32 +23,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Core auth business logic: register, login, token refresh, logout.
- *
- * WHY @Transactional on the class?
- * All public methods participate in a transaction by default. If a method throws
- * any RuntimeException, the transaction rolls back automatically.
- * This means: if saving the user succeeds but saving the refresh token fails,
- * the whole operation rolls back — no orphaned user without a token.
- *
- * WHY AuthenticationManager.authenticate() for login instead of manual password check?
- * AuthenticationManager:
- * 1. Calls UserDetailsService.loadUserByUsername()
- * 2. Calls PasswordEncoder.matches(rawPassword, encodedPassword)
- * 3. Checks isEnabled(), isAccountNonLocked() etc.
- * 4. Throws AuthenticationException if any check fails — Spring Security handles the response
- * This is the correct, tested, battle-hardened path. Don't re-implement it manually.
- *
- * INTERVIEW: "We never store plaintext passwords. BCrypt hashes are one-way.
- * Even we (the developers) can't see users' passwords. On login, we hash what they
- * typed and compare hashes — never decrypt the stored hash."
- */
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -62,10 +38,13 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final AccountSetupTokenRepository setupTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthenticationManager authenticationManager;
     private final UserMapper userMapper;
+    private final TenantService tenantService;
+    private final OtpService otpService;
 
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
@@ -73,62 +52,200 @@ public class AuthService {
     @Value("${jwt.refresh-token-expiry-days}")
     private int refreshTokenExpiryDays;
 
+    // ── Org self-registration (public) ───────────────────────────────────────
+
+    public TenantResponse registerOrg(RegisterOrgRequest req) {
+        return tenantService.registerOrg(req);
+    }
+
+    public boolean slugExists(String slug) {
+        return tenantService.slugExists(slug);
+    }
+
+    // ── Standard login → returns LoginResponse ───────────────────────────────
+    // SUPER_ADMIN: returns full AuthResponse inside LoginResponse (no tenant pick)
+    // Others: returns pre-scope token + tenant list; frontend calls select-tenant next
+
+    public LoginResponse login(LoginRequest request) {
+        User user = userRepository.findByUsername(request.getUsername())
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        user = authenticateUser(user, request.getPassword());
+        updateLoginState(user, false);
+        userRepository.save(user);
+
+        return buildLoginResponse(user);
+    }
+
+    public LoginResponse loginByMobile(MobileLoginRequest request) {
+        List<User> accounts = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(
+                request.getPhone(), request.getPhoneCountryCode());
+        if (accounts.isEmpty()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
+                    "No account found for this mobile number");
+        }
+        User user;
+        if (accounts.size() == 1) {
+            user = accounts.get(0);
+        } else {
+            if (request.getRole() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Multiple accounts — please specify your role",
+                        HttpStatus.CONFLICT);
+            }
+            user = accounts.stream()
+                    .filter(u -> u.getRole() == request.getRole())
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                            "No " + request.getRole() + " account for this number"));
+        }
+
+        user = authenticateUser(user, request.getPassword());
+        updateLoginState(user, false);
+        userRepository.save(user);
+
+        return buildLoginResponse(user);
+    }
+
+    // ── Step 2: exchange pre-scope token → scoped AuthResponse ───────────────
+
+    public AuthResponse selectTenant(SelectTenantRequest request) {
+        if (!jwtTokenProvider.validateToken(request.getLoginToken())) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Login token expired or invalid");
+        }
+        String scope = jwtTokenProvider.extractScope(request.getLoginToken());
+        if (!"TENANT_SELECT".equals(scope)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Not a pre-scope token");
+        }
+
+        String userId = jwtTokenProvider.extractUserId(request.getLoginToken());
+        User user = userRepository.findById(UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        List<TenantInfo> tenants = jwtTokenProvider.extractTenants(request.getLoginToken());
+        TenantInfo selected = tenants.stream()
+                .filter(t -> t.getTenantId().equals(request.getTenantId()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN,
+                        "You are not a member of this organization"));
+
+        return buildScopedAuthResponse(user, selected);
+    }
+
+    // ── Cross-subdomain transfer: generate a fresh pre-scope token ───────────
+    // Called by the current subdomain; the token is passed in the redirect URL
+
+    public PreScopeAuthResponse generateTransferToken(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        List<TenantInfo> tenants = tenantService.buildTenantInfoList(userId);
+        String loginToken = jwtTokenProvider.generatePreScopeToken(user, tenants);
+        return PreScopeAuthResponse.builder()
+                .loginToken(loginToken)
+                .tenants(tenants)
+                .build();
+    }
+
+    // ── Account setup (member opens SMS link and sets password) ──────────────
+
+    public AuthResponse setupAccount(SetupAccountRequest request) {
+        String tokenHash = sha256(request.getToken());
+        AccountSetupToken setupToken = setupTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID,
+                        "Setup link is invalid or expired"));
+
+        if (setupToken.isUsed()) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Setup link has already been used");
+        }
+        if (setupToken.isExpired()) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Setup link has expired");
+        }
+
+        User user = userRepository.findById(setupToken.getUserId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setMustChangePassword(false);
+        user.setTempPasswordHash(null);
+        if (request.getFullName() != null && !request.getFullName().isBlank()) {
+            user.setFullName(request.getFullName());
+        }
+        userRepository.save(user);
+
+        setupToken.setUsedAt(LocalDateTime.now());
+        setupTokenRepository.save(setupToken);
+
+        // Issue a scoped response — auto-select their tenant (or show picker)
+        return buildLoginResponse(user).getAuthResponse();
+    }
+
+    // ── Account setup token generation (called by InternalUserController) ───
+
+    public String generateSetupToken(UUID userId) {
+        String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+        String hash = sha256(rawToken);
+        AccountSetupToken token = AccountSetupToken.builder()
+                .userId(userId)
+                .tokenHash(hash)
+                .expiresAt(LocalDateTime.now().plusHours(72))
+                .build();
+        setupTokenRepository.save(token);
+        return rawToken; // returned to caller to put in SMS URL
+    }
+
+    // ── Staff registration (admin-only) ──────────────────────────────────────
+
     public AuthResponse register(RegisterRequest request, UUID createdBy) {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(ErrorCode.USERNAME_TAKEN);
         }
-        // Resolve email: use provided value, otherwise null (staff accounts don't require email)
         String email = (request.getEmail() != null && !request.getEmail().isBlank())
                 ? request.getEmail() : null;
-
         if (email != null && userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.EMAIL_TAKEN);
         }
-
-        // One phone number may have at most 1 MEMBER account AND at most 1 staff account.
-        // MEMBER + WORKER is fine. WORKER + MANAGER is not — both are staff.
-        String phone = (request.getPhone() != null && !request.getPhone().isBlank()) ? request.getPhone() : null;
+        String phone = (request.getPhone() != null && !request.getPhone().isBlank())
+                ? request.getPhone() : null;
         Role role = request.getRole() != null ? request.getRole() : Role.MEMBER;
         if (phone != null) {
             List<Role> sameCategory = role == Role.MEMBER
                     ? List.of(Role.MEMBER)
                     : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
             if (userRepository.existsByPhoneAndRoleInAndDeletedAtIsNull(phone, sameCategory)) {
-                String categoryLabel = role == Role.MEMBER ? "member" : "staff (staff/manager)";
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "A " + categoryLabel + " account with this mobile number already exists",
-                        org.springframework.http.HttpStatus.CONFLICT);
+                        "A " + (role == Role.MEMBER ? "member" : "staff") + " account with this number exists",
+                        HttpStatus.CONFLICT);
             }
         }
 
-        // Admin omits password when creating member accounts → auto-generate a temp
         boolean isTempPassword = (request.getPassword() == null || request.getPassword().isBlank());
         String plainPassword = isTempPassword ? generateTempPassword() : request.getPassword();
+
+        String tenantId = TenantContext.get();
 
         User user = User.builder()
                 .username(request.getUsername())
                 .email(email)
                 .fullName(request.getFullName())
                 .phone(request.getPhone())
+                .phoneCountryCode(request.getPhoneCountryCode())
                 .passwordHash(passwordEncoder.encode(plainPassword))
                 .role(request.getRole())
+                .tenantId(tenantId)
                 .mustChangePassword(isTempPassword)
                 .createdBy(createdBy)
                 .updatedBy(createdBy)
                 .build();
-
         userRepository.save(user);
+
         return buildAuthResponse(user, isTempPassword ? plainPassword : null);
     }
 
-    // Admin creates a login for a member. Idempotent: if the email already exists as
-    // an active MEMBER account (from a previous partial attempt where register succeeded
-    // but link failed), we reuse that user and issue a fresh temp password instead of
-    // failing with EMAIL_TAKEN. This makes the create-login flow safe to retry.
+    // ── Existing flows (unchanged) ────────────────────────────────────────────
+
     public CreateMemberLoginResponse createMemberLogin(CreateMemberLoginRequest request) {
         String email = (request.getEmail() != null && !request.getEmail().isBlank())
                 ? request.getEmail().trim() : null;
-
         if (email != null) {
             User existing = userRepository
                     .findByEmailAndRoleAndDeletedAtIsNull(email, Role.MEMBER)
@@ -148,11 +265,9 @@ public class AuthService {
                         "This email is already used by a staff account");
             }
         }
-
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(ErrorCode.USERNAME_TAKEN);
         }
-
         String tempPassword = generateTempPassword();
         String phone = (request.getPhone() != null && !request.getPhone().isBlank()) ? request.getPhone() : null;
         String countryCode = (request.getPhoneCountryCode() != null && !request.getPhoneCountryCode().isBlank())
@@ -167,61 +282,16 @@ public class AuthService {
                 .mustChangePassword(true)
                 .build();
         userRepository.save(user);
-
         return CreateMemberLoginResponse.builder()
                 .userId(user.getId())
                 .tempPassword(tempPassword)
                 .build();
     }
 
-    public AuthResponse login(LoginRequest request) {
-        // Load user first so we can check the temp password before delegating to Spring Security.
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-
-        boolean usedTempPassword = false;
-
-        if (user.getTempPasswordHash() != null
-                && passwordEncoder.matches(request.getPassword(), user.getTempPasswordHash())) {
-            // User logged in with the admin-generated temp password.
-            // Validate account state manually (Spring Security checks these in authenticate()).
-            if (!user.isEnabled() || user.isLocked())
-                throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
-            usedTempPassword = true;
-        } else {
-            // Normal path — let Spring Security validate against the real password hash.
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-            );
-            user = (User) authentication.getPrincipal();
-        }
-
-        user.setFailedLoginAttempts(0);
-        user.setLastLoginAt(LocalDateTime.now());
-
-        if (usedTempPassword) {
-            // Temp password used → force a password change on first session.
-            user.setMustChangePassword(true);
-        } else {
-            // Real password used → clear any admin-generated temp hash.
-            // mustChangePassword is intentionally NOT cleared here — that is only done
-            // in changePassword() after the user actually sets a new password.
-            user.setTempPasswordHash(null);
-        }
-
-        userRepository.save(user);
-        return buildAuthResponse(user, null);
-    }
-
-    // Admin generates a new temp password alongside the user's existing real password.
-    // The user can still log in with the old password (no forced change) OR with the temp
-    // password (forces a change on first login). Returns the plaintext temp — shown once.
     public ResetPasswordResponse resetPassword(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
-                        "User not found: " + userId));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found: " + userId));
         String tempPassword = generateTempPassword();
-        // Store the temp separately — real passwordHash is unchanged so old password still works.
         user.setTempPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
         org.springframework.security.core.Authentication auth =
@@ -237,12 +307,9 @@ public class AuthService {
                 .build();
     }
 
-    // Member changes their own password. Clears mustChangePassword and temp hash.
     public void changePassword(UUID userId, ChangePasswordRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
-                        "User not found: " + userId));
-        // Accept either the real password or the temp password as "current password".
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found: " + userId));
         boolean matchesReal = passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash());
         boolean matchesTemp = user.getTempPasswordHash() != null
                 && passwordEncoder.matches(request.getCurrentPassword(), user.getTempPasswordHash());
@@ -253,7 +320,6 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setTempPasswordHash(null);
         user.setMustChangePassword(false);
-        // Rotate sessions after password change — new login required
         refreshTokenRepository.revokeAllActiveByUser(user);
         userRepository.save(user);
     }
@@ -261,21 +327,15 @@ public class AuthService {
     public AuthResponse refresh(RefreshTokenRequest request) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken())
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
-
         if (refreshToken.isRevoked()) {
-            // Token reuse detected — revoke ALL sessions for this user (token theft mitigation)
             refreshTokenRepository.revokeAllActiveByUser(refreshToken.getUser());
             throw new BusinessException(ErrorCode.TOKEN_INVALID);
         }
-
         if (refreshToken.isExpired()) {
             throw new BusinessException(ErrorCode.REFRESH_TOKEN_EXPIRED);
         }
-
-        // Revoke the used refresh token (rotation: one-time use)
         refreshToken.setRevoked(true);
         refreshTokenRepository.save(refreshToken);
-
         return buildAuthResponse(refreshToken.getUser(), null);
     }
 
@@ -287,22 +347,17 @@ public class AuthService {
                 });
     }
 
-    private List<User> findByPhone(String phone, String countryCode) {
-        return userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, countryCode);
-    }
-
-    // Returns which account types are registered under this mobile number.
-    // Frontend uses this to decide whether to show a role picker before the password step.
     public MobileLookupResponse lookupByMobile(String phone, String phoneCountryCode) {
-        List<User> accounts = findByPhone(phone, phoneCountryCode);
+        List<User> accounts = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, phoneCountryCode);
         List<MobileLookupResponse.AccountOption> options = accounts.stream()
                 .map(u -> MobileLookupResponse.AccountOption.builder()
                         .role(u.getRole())
                         .displayLabel(switch (u.getRole()) {
-                            case MEMBER  -> "Member account";
+                            case MEMBER      -> "Member account";
                             case STAFF, AGENT -> "Staff account";
-                            case MANAGER -> "Manager account";
-                            case ADMIN   -> "Admin account";
+                            case MANAGER     -> "Manager account";
+                            case ADMIN       -> "Admin account";
+                            case SUPER_ADMIN -> "Super Admin";
                         })
                         .build())
                 .toList();
@@ -312,70 +367,119 @@ public class AuthService {
                 .build();
     }
 
-    // Login with mobile number + password (+ optional role for disambiguation).
-    public AuthResponse loginByMobile(MobileLoginRequest request) {
-        List<User> accounts = findByPhone(request.getPhone(), request.getPhoneCountryCode());
-        if (accounts.isEmpty()) {
-            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
-                    "No account found for this mobile number");
-        }
-        User user;
-        if (accounts.size() == 1) {
-            user = accounts.get(0);
-        } else {
-            // Multiple accounts — role is mandatory to identify which one to log in as
-            if (request.getRole() == null) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Multiple accounts exist for this number — please specify your role",
-                        org.springframework.http.HttpStatus.CONFLICT);
-            }
-            user = accounts.stream()
-                    .filter(u -> u.getRole() == request.getRole())
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
-                            "No " + request.getRole() + " account found for this mobile number"));
-        }
+    // ── Self-service password reset via OTP ──────────────────────────────────
 
-        // Authenticate password against this specific user (same logic as username login)
+    public void sendForgotPasswordOtp(String phone, String countryCode) {
+        String cc = (countryCode != null && !countryCode.isBlank()) ? countryCode : "+91";
+        List<User> users = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, cc);
+        if (users.isEmpty()) {
+            // Return success even on miss to avoid user enumeration
+            return;
+        }
+        // Send to any matching account (typically one per phone for non-members)
+        User user = users.stream().filter(u -> u.getRole() != Role.MEMBER).findFirst()
+                .orElse(users.get(0));
+        otpService.sendOtp(phone, cc, "FORGOT_PASSWORD", user.getId().toString());
+    }
+
+    public void resetPasswordViaOtp(ForgotPasswordResetRequest req) {
+        String cc = (req.getCountryCode() != null && !req.getCountryCode().isBlank()) ? req.getCountryCode() : "+91";
+        // verifyOtp throws BusinessException if invalid/expired/max-attempts
+        otpService.verifyOtp(req.getPhone(), "FORGOT_PASSWORD", req.getOtpCode());
+
+        List<User> users = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(req.getPhone(), cc);
+        if (users.isEmpty()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND, "No account found for this mobile number");
+        }
+        // Apply to all accounts on this phone (rare to have multiple, but safe)
+        for (User user : users) {
+            user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
+            user.setTempPasswordHash(null);
+            user.setMustChangePassword(false);
+            refreshTokenRepository.revokeAllActiveByUser(user);
+            userRepository.save(user);
+        }
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private User authenticateUser(User user, String password) {
         boolean usedTempPassword = false;
         if (user.getTempPasswordHash() != null
-                && passwordEncoder.matches(request.getPassword(), user.getTempPasswordHash())) {
+                && passwordEncoder.matches(password, user.getTempPasswordHash())) {
             if (!user.isEnabled() || user.isLocked())
                 throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
             usedTempPassword = true;
-        } else {
-            try {
-                authenticationManager.authenticate(
-                        new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
-            } catch (Exception e) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Invalid password", org.springframework.http.HttpStatus.UNAUTHORIZED);
-            }
-        }
-
-        user.setFailedLoginAttempts(0);
-        user.setLastLoginAt(LocalDateTime.now());
-        if (usedTempPassword) {
             user.setMustChangePassword(true);
         } else {
-            user.setTempPasswordHash(null);
-            user.setMustChangePassword(false);
+            try {
+                Authentication authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(user.getUsername(), password));
+                user = (User) authentication.getPrincipal();
+                user.setTempPasswordHash(null);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Invalid password", HttpStatus.UNAUTHORIZED);
+            }
         }
-        userRepository.save(user);
-        return buildAuthResponse(user, null);
+        return user;
+    }
+
+    private void updateLoginState(User user, boolean usedTempPassword) {
+        user.setFailedLoginAttempts(0);
+        user.setLastLoginAt(LocalDateTime.now());
+    }
+
+    private LoginResponse buildLoginResponse(User user) {
+        if (user.getRole() == Role.SUPER_ADMIN) {
+            // Super admin: issue full token immediately, no tenant selection
+            AuthResponse auth = buildSuperAdminAuthResponse(user);
+            return LoginResponse.builder()
+                    .requiresTenantSelection(false)
+                    .authResponse(auth)
+                    .build();
+        }
+
+        List<TenantInfo> tenants = tenantService.buildTenantInfoList(user.getId());
+        String loginToken = jwtTokenProvider.generatePreScopeToken(user, tenants);
+        return LoginResponse.builder()
+                .requiresTenantSelection(true)
+                .loginToken(loginToken)
+                .tenants(tenants)
+                .build();
+    }
+
+    private AuthResponse buildSuperAdminAuthResponse(User user) {
+        String accessToken = jwtTokenProvider.generateSuperAdminToken(user);
+        String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
+        saveRefreshToken(user, refreshTokenValue);
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshTokenValue)
+                .tokenType("Bearer")
+                .expiresIn(accessTokenExpiryMs / 1000)
+                .user(userMapper.toResponse(user))
+                .build();
+    }
+
+    private AuthResponse buildScopedAuthResponse(User user, TenantInfo tenant) {
+        String accessToken = jwtTokenProvider.generateScopedToken(
+                user, tenant.getTenantId(), tenant.getSlug(), tenant.getPlan(), tenant.getStatus(), tenant.getRole(), tenant.getMemberId());
+        String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
+        saveRefreshToken(user, refreshTokenValue);
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshTokenValue)
+                .tokenType("Bearer")
+                .expiresIn(accessTokenExpiryMs / 1000)
+                .user(userMapper.toResponse(user))
+                .build();
     }
 
     private AuthResponse buildAuthResponse(User user, String tempPassword) {
         String accessToken = jwtTokenProvider.generateAccessToken(user);
         String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
-
-        RefreshToken refreshToken = RefreshToken.builder()
-                .token(refreshTokenValue)
-                .user(user)
-                .expiresAt(LocalDateTime.now().plusDays(refreshTokenExpiryDays))
-                .build();
-        refreshTokenRepository.save(refreshToken);
-
+        saveRefreshToken(user, refreshTokenValue);
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshTokenValue)
@@ -386,14 +490,30 @@ public class AuthService {
                 .build();
     }
 
-    // No ambiguous chars (0/O, 1/l/I) — readable when shown to admin
+    private void saveRefreshToken(User user, String tokenValue) {
+        RefreshToken refreshToken = RefreshToken.builder()
+                .token(tokenValue)
+                .user(user)
+                .expiresAt(LocalDateTime.now().plusDays(refreshTokenExpiryDays))
+                .build();
+        refreshTokenRepository.save(refreshToken);
+    }
+
+    private String sha256(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("SHA-256 failed", e);
+        }
+    }
+
     private String generateTempPassword() {
         String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
         SecureRandom random = new SecureRandom();
         StringBuilder sb = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
-        }
+        for (int i = 0; i < 10; i++) sb.append(chars.charAt(random.nextInt(chars.length())));
         return sb.toString();
     }
 }

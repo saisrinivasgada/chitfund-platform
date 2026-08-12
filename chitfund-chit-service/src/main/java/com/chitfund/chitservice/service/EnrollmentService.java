@@ -26,9 +26,11 @@ public class EnrollmentService {
     private final ChitService chitService;
     private final ChitEnrollmentRepository enrollmentRepository;
     private final ChitMapper chitMapper;
+    private final PlanLimitChecker planLimitChecker;
 
     @Transactional
     public ChitEnrollmentResponse enrollMember(UUID chitId, EnrollMemberRequest request) {
+        planLimitChecker.checkNotExpired();
         Chit chit = chitService.findById(chitId);
 
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {

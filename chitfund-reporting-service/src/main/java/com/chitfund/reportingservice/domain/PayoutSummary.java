@@ -21,6 +21,9 @@ public class PayoutSummary {
     @Column(length = 36)
     private String id;
 
+    @Column(name = "tenant_id", nullable = false, length = 36)
+    private String tenantId;
+
     @Column(name = "chit_id", nullable = false, length = 36)
     private String chitId;
 
@@ -54,9 +57,10 @@ public class PayoutSummary {
     @Column(name = "last_updated", nullable = false)
     private Instant lastUpdated;
 
-    public static PayoutSummary create(String chitId, String memberId, Integer monthNumber) {
+    public static PayoutSummary create(String chitId, String memberId, Integer monthNumber, String tenantId) {
         return PayoutSummary.builder()
                 .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
                 .chitId(chitId)
                 .memberId(memberId)
                 .monthNumber(monthNumber)

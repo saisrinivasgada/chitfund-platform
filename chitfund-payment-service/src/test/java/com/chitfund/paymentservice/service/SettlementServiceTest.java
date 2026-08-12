@@ -584,7 +584,7 @@ class SettlementServiceTest {
         // Verify AdminWalletService was called (member owes → IN entry)
         ArgumentCaptor<com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest> walletCaptor =
                 ArgumentCaptor.forClass(com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest.class);
-        verify(adminWalletService).addEntry(walletCaptor.capture(), eq(ADMIN_ID));
+        verify(adminWalletService).addEntry(walletCaptor.capture(), eq(ADMIN_ID), any());
         com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest walletReq = walletCaptor.getValue();
         assertThat(walletReq.getEntryType()).isEqualTo(com.chitfund.paymentservice.domain.enums.WalletEntryType.IN);
         assertThat(walletReq.getCategory()).isEqualTo("SETTLEMENT");
@@ -641,6 +641,6 @@ class SettlementServiceTest {
         settlementService.confirm(req, ADMIN_ID);
 
         // Net = 0 → no wallet entry
-        verify(adminWalletService, never()).addEntry(any(), any());
+        verify(adminWalletService, never()).addEntry(any(), any(), any());
     }
 }

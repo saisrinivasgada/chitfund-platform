@@ -509,7 +509,7 @@ export default function StaffTasksScreen() {
     refetchInterval: 30_000,
   });
 
-  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
+  const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: getMembers });
   const { data: chits = [] }   = useQuery({ queryKey: ['chits'],   queryFn: getChits });
   const { data: staff = [] }   = useQuery({ queryKey: ['staff'],   queryFn: listStaff, staleTime: 5 * 60_000 });
   const { data: pendingBatches = [] } = useQuery({

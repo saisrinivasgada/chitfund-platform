@@ -32,11 +32,12 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
+  Receipt,
 } from 'lucide-react';
 
 const ALL_NAV = [
-  { to: '/',          icon: LayoutDashboard, label: 'Dashboard',   roles: ['ADMIN', 'MANAGER'] },
-  { to: '/',          icon: LayoutDashboard, label: 'Home',        roles: ['STAFF'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',   roles: ['ADMIN', 'MANAGER'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Home',        roles: ['STAFF'] },
   { to: '/tasks',     icon: ClipboardList,   label: 'My Tasks',    roles: ['STAFF'] },
   { to: '/pickups',   icon: HandCoins,       label: 'My Pickups',  roles: ['MANAGER'] },
   { to: '/members',   icon: Users,           label: 'Members',     roles: ['ADMIN', 'MANAGER'] },
@@ -44,10 +45,11 @@ const ALL_NAV = [
   { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
-  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'] },
+  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], requiresAnalytics: true },
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
   { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'] },
   { to: '/team',       icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
+  { to: '/billing',    icon: Receipt,         label: 'Billing & Plan', roles: ['ADMIN'] },
 ];
 
 // ─── Quick Notes (ADMIN + MANAGER — real DB via team-notes API) ───────────────
@@ -504,8 +506,8 @@ function SignOutModal({ onConfirm, onClose }) {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-export default function Sidebar({ open = false, onClose }) {
-  const { user, logout } = useAuth();
+export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse }) {
+  const { user, logout, analyticsEnabled, tenantName } = useAuth();
   const navigate = useNavigate();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const role = user?.role ?? 'ADMIN';
@@ -528,27 +530,36 @@ export default function Sidebar({ open = false, onClose }) {
   const memberAccount = lookup?.accounts?.find((a) => a.role === 'MEMBER');
   const altPhone = me?.phone;
 
-  const nav = ALL_NAV.filter((item) => !item.roles || item.roles.includes(role));
+  const nav = ALL_NAV.filter((item) => {
+    if (item.roles && !item.roles.includes(role)) return false;
+    if (item.requiresAnalytics && !analyticsEnabled) return false;
+    return true;
+  });
 
   return (
     <aside
       className={[
-        // ── Shared layout ──────────────────────────────────────────────
-        'flex flex-col bg-white print:hidden',
-
-        // ── Mobile / tablet: fixed drawer with slide transition ────────
+        'flex flex-col bg-white print:hidden transition-all duration-300 ease-in-out relative',
+        // Mobile: fixed drawer
         'fixed inset-y-0 left-0 z-50 w-72',
-        'transition-transform duration-300 ease-in-out',
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
-
-        // ── Desktop (lg+): static, always visible, no shadow ──────────
-        // These override the fixed/translate rules above at ≥1024px.
-        'lg:relative lg:translate-x-0 lg:w-64 lg:z-auto',
-        'lg:flex-shrink-0 lg:shadow-none lg:border-r lg:border-gray-200',
+        // Desktop: static sidebar, width depends on collapsed state
+        collapsed
+          ? 'lg:relative lg:translate-x-0 lg:w-16 lg:z-auto lg:shadow-none lg:border-r lg:border-gray-200 lg:flex-shrink-0'
+          : 'lg:relative lg:translate-x-0 lg:w-64 lg:z-auto lg:shadow-none lg:border-r lg:border-gray-200 lg:flex-shrink-0',
       ].join(' ')}
     >
-      {/* ── Logo row + close button (mobile) + notification bell (desktop) ─ */}
-      <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+      {/* ── Collapse toggle — desktop only, floats on right edge at vertical center ── */}
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="hidden lg:flex absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-6 h-6 items-center justify-center rounded-full bg-white border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 shadow-sm transition-colors cursor-pointer"
+      >
+        {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+      </button>
+      {/* ── Logo row ─────────────────────────────────────────────────────── */}
+      <div className={`py-4 border-b border-gray-100 flex items-center flex-shrink-0 ${collapsed ? 'lg:justify-center lg:px-0 px-4 justify-between' : 'px-4 justify-between'}`}>
         <div className="flex items-center gap-2.5">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -556,23 +567,34 @@ export default function Sidebar({ open = false, onClose }) {
           >
             <BookOpen size={16} className="text-white" />
           </div>
-          <div>
-            <h1
-              className="text-base font-bold leading-tight"
-              style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
-            >
-              ChitWise
-            </h1>
-            <p className="text-xs text-gray-400">Management Platform</p>
+          {!collapsed && (
+            <div className="hidden lg:block">
+              <h1
+                className="text-base font-bold leading-tight"
+                style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
+              >
+                ChitWise
+              </h1>
+              <p className="text-xs text-gray-400 truncate max-w-[140px]" title={tenantName || 'Management Platform'}>
+                {tenantName || 'Management Platform'}
+              </p>
+            </div>
+          )}
+          {/* Always show on mobile */}
+          <div className="lg:hidden">
+            <h1 className="text-base font-bold leading-tight" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitWise</h1>
+            <p className="text-xs text-gray-400 truncate max-w-[140px]">{tenantName || 'Management Platform'}</p>
           </div>
         </div>
 
-        {/* Desktop: notification bell stays here */}
-        <div className="hidden lg:block">
-          <NotificationBell />
-        </div>
+        {/* Desktop: notification bell */}
+        {!collapsed && (
+          <div className="hidden lg:block">
+            <NotificationBell />
+          </div>
+        )}
 
-        {/* Mobile/tablet: close (X) button */}
+        {/* Mobile: close (X) button */}
         <button
           type="button"
           onClick={onClose}
@@ -583,8 +605,22 @@ export default function Sidebar({ open = false, onClose }) {
         </button>
       </div>
 
-      {/* Role badge */}
-      <div className="px-6 py-2 border-b border-gray-100 flex-shrink-0">
+      {/* Role badge — hidden when collapsed on desktop */}
+      {!collapsed && (
+        <div className="px-6 py-2 border-b border-gray-100 flex-shrink-0 hidden lg:block">
+          <span
+            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+            style={{
+              backgroundColor: role === 'ADMIN' ? '#EFF3F8' : role === 'MANAGER' ? '#FEF3C7' : '#ECFDF5',
+              color: role === 'ADMIN' ? '#1E3A5F' : role === 'MANAGER' ? '#D97706' : '#16A34A',
+            }}
+          >
+            {role}
+          </span>
+        </div>
+      )}
+      {/* Role badge on mobile always shown */}
+      <div className="px-6 py-2 border-b border-gray-100 flex-shrink-0 lg:hidden">
         <span
           className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
           style={{
@@ -596,7 +632,14 @@ export default function Sidebar({ open = false, onClose }) {
         </span>
       </div>
 
-      {/* Navigation — scrollable if many items */}
+      {/* Notification bell in nav when collapsed on desktop */}
+      {collapsed && (
+        <div className="hidden lg:flex justify-center pt-3 pb-1">
+          <NotificationBell />
+        </div>
+      )}
+
+      {/* Navigation */}
       <nav
         className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto min-h-0"
         style={{ WebkitOverflowScrolling: 'touch' }}
@@ -607,76 +650,106 @@ export default function Sidebar({ open = false, onClose }) {
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-3 lg:py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-                isActive
-                  ? 'text-white'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              `flex items-center py-3 lg:py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                collapsed ? 'justify-center px-2' : 'gap-3 px-3'
+              } ${
+                isActive ? 'text-white' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
               }`
             }
-            style={({ isActive }) =>
-              isActive ? { backgroundColor: '#1E3A5F' } : {}
-            }
+            style={({ isActive }) => isActive ? { backgroundColor: '#1E3A5F' } : {}}
+            title={collapsed ? label : undefined}
           >
-            <Icon size={18} />
-            {label}
+            <Icon size={18} className="flex-shrink-0" />
+            {!collapsed && <span className="hidden lg:block">{label}</span>}
+            <span className="lg:hidden">{label}</span>
           </NavLink>
         ))}
       </nav>
 
       {/* User + Logout */}
-      <div className="px-3 py-4 border-t border-gray-100 flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => { navigate('/my-account'); onClose?.(); }}
-          className="flex items-center gap-3 px-3 mb-2 w-full hover:bg-gray-50 rounded-lg py-2 transition-colors cursor-pointer text-left"
-          title="My Account"
-        >
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{ backgroundColor: '#D4A017' }}
-          >
-            {initials}
+      <div className={`py-4 border-t border-gray-100 flex-shrink-0 ${collapsed ? 'lg:px-2 px-3' : 'px-3'}`}>
+        {collapsed ? (
+          /* Collapsed footer — just icon buttons */
+          <div className="hidden lg:flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { navigate('/my-account'); }}
+              title={user?.name ?? user?.username ?? 'My Account'}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold hover:opacity-80 cursor-pointer flex-shrink-0"
+              style={{ backgroundColor: '#D4A017' }}
+            >
+              {initials}
+            </button>
+            <button
+              onClick={toggleHidden}
+              title={hidden ? 'Show amounts' : 'Hide amounts'}
+              className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors cursor-pointer"
+            >
+              {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
+            </button>
+            <button
+              onClick={() => setShowSignOut(true)}
+              title="Sign out"
+              className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">
-              {user?.name ?? user?.username ?? 'User'}
-            </p>
-            <p className="text-xs text-[#1E3A5F] truncate font-medium flex items-center gap-1">
-              <UserCircle size={10} /> My Account
-            </p>
-          </div>
-        </button>
-        {/* Switch to Member — only when a linked member account exists */}
-        {memberAccount && altPhone && (
-          <button
-            onClick={() => setShowSwitch(true)}
-            className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-1"
-          >
-            <RefreshCw size={18} />
-            Switch to Member
-          </button>
-        )}
+        ) : null}
 
-        <div className="flex gap-2 mt-1">
+        {/* Full footer — always on mobile, on desktop only when expanded */}
+        <div className={collapsed ? 'lg:hidden' : ''}>
           <button
-            onClick={toggleHidden}
-            title={hidden ? 'Show amounts' : 'Hide amounts'}
-            className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-colors cursor-pointer"
+            type="button"
+            onClick={() => { navigate('/my-account'); onClose?.(); }}
+            className="flex items-center gap-3 px-3 mb-2 w-full hover:bg-gray-50 rounded-lg py-2 transition-colors cursor-pointer text-left"
+            title="My Account"
           >
-            {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
-            <span className="text-[10px] font-medium">{hidden ? 'Show' : 'Hide'}</span>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ backgroundColor: '#D4A017' }}
+            >
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">
+                {user?.name ?? user?.username ?? 'User'}
+              </p>
+              <p className="text-xs text-[#1E3A5F] truncate font-medium flex items-center gap-1">
+                <UserCircle size={10} /> My Account
+              </p>
+            </div>
           </button>
-          {(role === 'ADMIN' || role === 'MANAGER') && (
-            <QuickNotes role={role} />
+          {memberAccount && altPhone && (
+            <button
+              onClick={() => setShowSwitch(true)}
+              className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-1"
+            >
+              <RefreshCw size={18} />
+              Switch to Member
+            </button>
           )}
-          <button
-            onClick={() => setShowSignOut(true)}
-            title="Sign out"
-            className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors cursor-pointer"
-          >
-            <LogOut size={16} />
-            <span className="text-[10px] font-medium">Sign out</span>
-          </button>
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={toggleHidden}
+              title={hidden ? 'Show amounts' : 'Hide amounts'}
+              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-colors cursor-pointer"
+            >
+              {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
+              <span className="text-[10px] font-medium">{hidden ? 'Show' : 'Hide'}</span>
+            </button>
+            {(role === 'ADMIN' || role === 'MANAGER') && (
+              <QuickNotes role={role} />
+            )}
+            <button
+              onClick={() => setShowSignOut(true)}
+              title="Sign out"
+              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors cursor-pointer"
+            >
+              <LogOut size={16} />
+              <span className="text-[10px] font-medium">Sign out</span>
+            </button>
+          </div>
         </div>
       </div>
 

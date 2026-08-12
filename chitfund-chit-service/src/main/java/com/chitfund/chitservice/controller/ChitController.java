@@ -1,8 +1,10 @@
 package com.chitfund.chitservice.controller;
 
+import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
+import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
@@ -10,6 +12,7 @@ import com.chitfund.chitservice.dto.response.MonthReservationResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.dto.PagedResponse;
 import jakarta.validation.Valid;
@@ -35,6 +38,7 @@ public class ChitController {
     private final ChitService chitService;
     private final MonthReservationRepository reservationRepository;
     private final ChitMapper chitMapper;
+    private final AuditClient auditClient;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -54,10 +58,16 @@ public class ChitController {
     @GetMapping
     public ResponseEntity<ApiResponse<PagedResponse<ChitResponse>>> listChits(
             @RequestParam(required = false) ChitStatus status,
+            @RequestParam(required = false) String tenantFilter,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            Authentication auth) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        return ResponseEntity.ok(ApiResponse.success(chitService.listChits(status, pageable)));
+        // Super-admin can pass ?tenantFilter= to scope by a specific org
+        boolean isSuperAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("SUPER_ADMIN"));
+        return ResponseEntity.ok(ApiResponse.success(
+                chitService.listChits(status, isSuperAdmin ? tenantFilter : null, pageable)));
     }
 
     @GetMapping("/updated-today")
@@ -80,6 +90,31 @@ public class ChitController {
             @PathVariable UUID memberId,
             @RequestParam(required = false) ChitStatus status) {
         return ResponseEntity.ok(ApiResponse.success(chitService.listChitsForMember(memberId, status)));
+    }
+
+    @PatchMapping("/{id}/details")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ChitResponse>> updateDetails(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateChitDetailsRequest request,
+            Authentication auth) {
+        UUID actorId = (UUID) auth.getPrincipal();
+        ChitResponse before = chitService.getChit(id);
+        ChitResponse updated = chitService.updateDetails(id, request, actorId);
+        auditClient.log("CHIT", id.toString(), id.toString(),
+                "CHIT_DETAILS_UPDATED", actorId.toString(), "ADMIN",
+                java.util.Map.of(
+                    "name", before.getName() != null ? before.getName() : "",
+                    "chitValue", before.getChitValue() != null ? before.getChitValue() : 0,
+                    "installmentAmount", before.getInstallmentAmount() != null ? before.getInstallmentAmount() : 0
+                ),
+                java.util.Map.of(
+                    "name", updated.getName() != null ? updated.getName() : "",
+                    "chitValue", updated.getChitValue() != null ? updated.getChitValue() : 0,
+                    "installmentAmount", updated.getInstallmentAmount() != null ? updated.getInstallmentAmount() : 0
+                ),
+                TenantContext.get());
+        return ResponseEntity.ok(ApiResponse.success(updated, "Chit updated"));
     }
 
     @PatchMapping("/{id}/name")

@@ -1,7 +1,6 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
-import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.RecordSettlementTransactionRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
@@ -17,6 +16,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.UUID;
@@ -70,14 +73,26 @@ public class SettlementController {
     }
 
     /**
-     * Returns past settlements for a member, newest first.
-     * Used in the Settlement history section of the frontend.
+     * Returns past settlements for a member, newest first — paginated.
      */
     @GetMapping("/member/{memberId}")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<List<SettlementResponse>>> getMemberSettlements(
-            @PathVariable UUID memberId) {
-        return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId)));
+    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getMemberSettlements(
+            @PathVariable UUID memberId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
+        return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId, pr)));
+    }
+
+    /**
+     * Returns a single settlement by ID.
+     */
+    @GetMapping("/{settlementId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<SettlementResponse>> getById(
+            @PathVariable UUID settlementId) {
+        return ResponseEntity.ok(ApiResponse.success(settlementService.getById(settlementId)));
     }
 
     /**
@@ -116,16 +131,44 @@ public class SettlementController {
     }
 
     /**
-     * Returns all settlements that still have outstanding payment obligations —
-     * i.e., money has not yet been fully collected from or disbursed to the member.
-     *
+     * Returns all settlements for the current tenant, newest first.
+     * Used for the admin "All Settlement History" view.
+     */
+    @GetMapping("/all")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getAllSettlements(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
+        return ResponseEntity.ok(ApiResponse.success(settlementService.getAllSettlements(pr)));
+    }
+
+    /**
+     * Voids a settlement — reverts all SETTLEMENT_CLEARED payment records to OUTSTANDING.
+     * Admin-only: this is a financially significant, irreversible (soft) action.
+     */
+    @PostMapping("/{settlementId}/void")
+    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ApiResponse<SettlementResponse>> voidSettlement(
+            @PathVariable UUID settlementId,
+            Authentication auth) {
+        UUID adminId = (UUID) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(
+                settlementService.voidSettlement(settlementId, adminId), "Settlement voided"));
+    }
+
+    /**
+     * Returns paginated settlements that still have outstanding payment obligations —
+     * money not yet fully collected from or disbursed to the member.
      * Excludes FULLY_COLLECTED, FULLY_DISBURSED, BALANCED.
-     * Used by the "Pending Payments" dashboard tab.
      */
     @GetMapping("/pending-payments")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<List<Settlement>>> getPendingPayments() {
+    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getPendingPayments(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
         return ResponseEntity.ok(
-                ApiResponse.success(settlementTransactionService.getPendingSettlements()));
+                ApiResponse.success(settlementTransactionService.getPendingSettlements(pr)));
     }
 }

@@ -139,6 +139,25 @@ public class MemberServiceClient {
     }
 
     /**
+     * Marks a member INACTIVE after settlement is confirmed.
+     * Fails silently — settlement is already committed; member status is best-effort.
+     */
+    @SuppressWarnings("unchecked")
+    public void deactivateMember(UUID memberId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            restTemplate.exchange(
+                    memberServiceUrl + "/internal/members/" + memberId + "/deactivate",
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(headers),
+                    Map.class);
+        } catch (RestClientException e) {
+            log.warn("member-service unreachable for deactivate memberId={}: {}", memberId, e.getMessage());
+        }
+    }
+
+    /**
      * Batch-resolves member profile IDs → user IDs for notification delivery.
      * Returns empty map on any error (notifications are best-effort, never block the main flow).
      */

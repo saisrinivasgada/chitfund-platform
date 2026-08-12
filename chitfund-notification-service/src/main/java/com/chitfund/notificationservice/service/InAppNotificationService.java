@@ -23,15 +23,11 @@ public class InAppNotificationService {
 
     private final InAppNotificationRepository repo;
     private final ObjectMapper objectMapper;
+    private final ExpoPushService expoPushService;
 
     /**
-     * Create and persist a new in-app notification for a recipient.
-     *
-     * @param recipientId  UUID of the user who should see this notification
-     * @param title        Short headline (e.g. "Cash Picked Up")
-     * @param message      Full sentence (e.g. "₹2,000 collected from Ravi")
-     * @param type         Event type string for icon mapping on the client
-     * @param metadata     Key-value bag: memberId, workerId, chitId, amount, etc.
+     * Create and persist a new in-app notification for a recipient,
+     * then fire a native device push notification via Expo Push API.
      */
     public void create(UUID recipientId, String title, String message,
                        String type, Map<String, String> metadata, String link) {
@@ -46,6 +42,9 @@ public class InAppNotificationService {
                     .link(link)
                     .build();
             repo.save(n);
+
+            // Fire native device push (no-op if user has no registered tokens)
+            expoPushService.sendToUser(recipientId, title, message);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize notification metadata: {}", e.getMessage());
         }

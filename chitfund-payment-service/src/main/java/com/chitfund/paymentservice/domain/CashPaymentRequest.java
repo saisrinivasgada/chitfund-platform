@@ -20,6 +20,9 @@ public class CashPaymentRequest {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(nullable = false, length = 36)
+    private String tenantId;
+
     @Column(nullable = false)
     private UUID memberId;
 

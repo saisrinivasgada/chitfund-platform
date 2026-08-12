@@ -10,5 +10,5 @@ public interface MonthlyCollectionSnapshotRepository extends JpaRepository<Month
 
     Optional<MonthlyCollectionSnapshot> findByChitIdAndMonthNumber(String chitId, Integer monthNumber);
 
-    List<MonthlyCollectionSnapshot> findByChitIdOrderByMonthNumberAsc(String chitId);
+    List<MonthlyCollectionSnapshot> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, String chitId);
 }

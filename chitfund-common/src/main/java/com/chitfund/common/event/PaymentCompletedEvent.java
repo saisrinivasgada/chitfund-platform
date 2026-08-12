@@ -31,5 +31,6 @@ public record PaymentCompletedEvent(
         Integer monthsWaived,
         LocalDate lastPaymentDate,
         String completedByUserId,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

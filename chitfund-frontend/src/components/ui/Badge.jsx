@@ -29,7 +29,7 @@ export function statusBadge(status) {
   if (s === 'paused') return 'paused';
   if (s === 'draft') return 'draft';
   if (s === 'pending') return 'pending';
-  if (s === 'inactive' || s === 'suspended') return 'danger';
+  if (s === 'inactive' || s === 'suspended' || s === 'blacklisted') return 'danger';
   if (s === 'disbursed') return 'success';
   if (s === 'cancelled' || s === 'canceled') return 'danger';
   return 'default';

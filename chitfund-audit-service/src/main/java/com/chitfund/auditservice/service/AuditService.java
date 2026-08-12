@@ -22,10 +22,10 @@ public class AuditService {
 
     private final AuditLogRepository auditLogRepository;
 
-    @Transactional
-    public void record(AuditLogRequest req) {
-        AuditLog log = AuditLog.builder()
+    private AuditLog buildLog(AuditLogRequest req) {
+        return AuditLog.builder()
                 .id(UUID.randomUUID().toString())
+                .tenantId(req.tenantId() != null ? req.tenantId() : "SYSTEM")
                 .serviceName(req.serviceName())
                 .entityType(req.entityType())
                 .entityId(req.entityId())
@@ -39,61 +39,48 @@ public class AuditService {
                 .metadata(req.metadata())
                 .createdAt(Instant.now())
                 .build();
+    }
 
-        auditLogRepository.save(log);
+    @Transactional
+    public void record(AuditLogRequest req) {
+        auditLogRepository.save(buildLog(req));
     }
 
     @Transactional
     public void recordBatch(List<AuditLogRequest> requests) {
-        List<AuditLog> logs = requests.stream().map(req ->
-                AuditLog.builder()
-                        .id(UUID.randomUUID().toString())
-                        .serviceName(req.serviceName())
-                        .entityType(req.entityType())
-                        .entityId(req.entityId())
-                        .chitId(req.chitId())
-                        .action(req.action())
-                        .actorId(req.actorId())
-                        .actorRole(req.actorRole())
-                        .actorIp(req.actorIp())
-                        .beforeState(req.beforeState())
-                        .afterState(req.afterState())
-                        .metadata(req.metadata())
-                        .createdAt(Instant.now())
-                        .build()
-        ).toList();
-
+        List<AuditLog> logs = requests.stream().map(this::buildLog).toList();
         auditLogRepository.saveAll(logs);
         log.info("Recorded {} audit events in batch", logs.size());
     }
 
     @Transactional(readOnly = true)
-    public Page<AuditLogResponse> search(String entityType, String entityId, String chitId,
-                                         String actorId, String action,
+    public Page<AuditLogResponse> search(String tenantId, String entityType, String entityId,
+                                         String chitId, String actorId, String action,
                                          Instant from, Instant to, Pageable pageable) {
         return auditLogRepository
-                .search(entityType, entityId, chitId, actorId, action, from, to, pageable)
+                .search(tenantId, entityType, entityId, chitId, actorId, action, from, to, pageable)
                 .map(AuditLogResponse::from);
     }
 
     @Transactional(readOnly = true)
-    public Page<AuditLogResponse> getEntityHistory(String entityType, String entityId, Pageable pageable) {
+    public Page<AuditLogResponse> getEntityHistory(String entityType, String entityId,
+                                                    String tenantId, Pageable pageable) {
         return auditLogRepository
-                .findByEntityTypeAndEntityIdOrderByCreatedAtDesc(entityType, entityId, pageable)
+                .findByEntityTypeAndEntityId(entityType, entityId, tenantId, pageable)
                 .map(AuditLogResponse::from);
     }
 
     @Transactional(readOnly = true)
-    public Page<AuditLogResponse> getChitHistory(String chitId, Pageable pageable) {
+    public Page<AuditLogResponse> getChitHistory(String chitId, String tenantId, Pageable pageable) {
         return auditLogRepository
-                .findByChitIdOrderByCreatedAtDesc(chitId, pageable)
+                .findByChitId(chitId, tenantId, pageable)
                 .map(AuditLogResponse::from);
     }
 
     @Transactional(readOnly = true)
-    public Page<AuditLogResponse> getActorHistory(String actorId, Pageable pageable) {
+    public Page<AuditLogResponse> getActorHistory(String actorId, String tenantId, Pageable pageable) {
         return auditLogRepository
-                .findByActorIdOrderByCreatedAtDesc(actorId, pageable)
+                .findByActorId(actorId, tenantId, pageable)
                 .map(AuditLogResponse::from);
     }
 }

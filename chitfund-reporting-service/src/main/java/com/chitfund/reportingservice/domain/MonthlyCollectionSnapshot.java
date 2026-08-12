@@ -22,6 +22,9 @@ public class MonthlyCollectionSnapshot {
     @Column(length = 36)
     private String id;
 
+    @Column(name = "tenant_id", nullable = false, length = 36)
+    private String tenantId;
+
     @Column(name = "chit_id", nullable = false, length = 36)
     private String chitId;
 
@@ -67,9 +70,10 @@ public class MonthlyCollectionSnapshot {
     @Column(name = "last_updated", nullable = false)
     private Instant lastUpdated;
 
-    public static MonthlyCollectionSnapshot create(String chitId) {
+    public static MonthlyCollectionSnapshot create(String chitId, String tenantId) {
         return MonthlyCollectionSnapshot.builder()
                 .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
                 .chitId(chitId)
                 .settledCount(0)
                 .partiallyPaidCount(0)

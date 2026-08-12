@@ -4,7 +4,7 @@ import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '⌂', chits: '≡', requests: '◉', payouts: '₹' };
+  const icons: Record<string, string> = { index: '⌂', chits: '≡', requests: '◉', payouts: '₹', payments: '⊡' };
   return (
     <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
       {icons[name] ?? '●'}
@@ -39,6 +39,7 @@ export default function MemberLayout() {
       <Tabs.Screen name="chits"    options={{ title: 'My Chits' }} />
       <Tabs.Screen name="requests" options={{ title: 'Requests' }} />
       <Tabs.Screen name="payouts"  options={{ title: 'Payouts' }} />
+      <Tabs.Screen name="payments" options={{ title: 'Payments' }} />
     </Tabs>
   );
 }

@@ -10,6 +10,7 @@ import java.util.List;
  * All members and workers need to be notified; chit-service needs to extend the end date.
  */
 public record ChitMonthSkippedEvent(
+        String tenantId,
         String chitId,
         String chitName,
         Integer monthNumber,

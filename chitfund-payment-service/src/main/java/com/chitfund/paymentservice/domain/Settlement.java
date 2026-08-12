@@ -39,6 +39,9 @@ public class Settlement {
     private UUID id;
 
     @Column(nullable = false, columnDefinition = "varchar(36)")
+    private String tenantId;
+
+    @Column(nullable = false, columnDefinition = "varchar(36)")
     private UUID memberId;
 
     // Admin who confirmed and executed the settlement
@@ -96,6 +99,12 @@ public class Settlement {
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "voided_at")
+    private LocalDateTime voidedAt;
+
+    @Column(name = "voided_by", columnDefinition = "varchar(36)")
+    private UUID voidedBy;
 
     @OneToMany(mappedBy = "settlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

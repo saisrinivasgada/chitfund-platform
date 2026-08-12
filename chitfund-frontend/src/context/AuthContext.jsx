@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 
-const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes of inactivity
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
 
 const AuthContext = createContext(null);
@@ -11,19 +11,42 @@ function normalizeUser(userData) {
   return userData;
 }
 
+// Proxy sessions use sessionStorage (tab-isolated); real sessions use localStorage.
+// sessionStorage takes priority if present so the main tab's localStorage is never touched.
+function readStore(key, fallback = null) {
+  return sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? fallback;
+}
+
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('token'));
-  const [user, setUser] = useState(() => {
-    try { return normalizeUser(JSON.parse(localStorage.getItem('user'))); } catch { return null; }
+  const [isProxySession, setIsProxySession] = useState(() => !!sessionStorage.getItem('token'));
+  const [token, setToken]       = useState(() => readStore('token'));
+  const [user, setUser]         = useState(() => {
+    try { return normalizeUser(JSON.parse(readStore('user'))); } catch { return null; }
   });
-  const idleTimer = useRef(null);
+  const [tenantId, setTenantId] = useState(() => readStore('tenantId'));
+  const [tenantSlug, setTenantSlug] = useState(() => readStore('tenantSlug'));
+  const [tenantName, setTenantName] = useState(() => readStore('tenantName'));
+  const [tenantPlan, setTenantPlan] = useState(() => readStore('tenantPlan') ?? 'BASIC');
+  const [tenantStatus, setTenantStatus] = useState(() => readStore('tenantStatus') ?? 'ACTIVE');
+  const [planExpiresAt, setPlanExpiresAt] = useState(() => readStore('planExpiresAt') ?? null);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => readStore('analyticsEnabled') !== 'false');
+
+  const idleTimer    = useRef(null);
   const lastActivity = useRef(Date.now());
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+      .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     setToken(null);
     setUser(null);
+    setTenantId(null);
+    setTenantSlug(null);
+    setTenantName(null);
+    setTenantPlan('BASIC');
+    setTenantStatus('ACTIVE');
+    setPlanExpiresAt(null);
+    setAnalyticsEnabled(true);
+    setIsProxySession(false);
     if (idleTimer.current) clearTimeout(idleTimer.current);
   }, []);
 
@@ -35,7 +58,6 @@ export function AuthProvider({ children }) {
         logoutFn();
         window.location.href = '/login';
       } else {
-        // Timer fired early (browser throttled it) — reschedule for remaining time
         scheduleIdleCheck(logoutFn);
       }
     }, IDLE_TIMEOUT_MS);
@@ -46,17 +68,14 @@ export function AuthProvider({ children }) {
     scheduleIdleCheck(logout);
   }, [logout, scheduleIdleCheck]);
 
-  // Start idle timer when user is logged in
   useEffect(() => {
     if (!token) return;
     resetIdleTimer();
     ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, resetIdleTimer, { passive: true }));
 
-    // When tab becomes visible again, check if 30 min has already elapsed
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible') {
-        const elapsed = Date.now() - lastActivity.current;
-        if (elapsed >= IDLE_TIMEOUT_MS) {
+        if (Date.now() - lastActivity.current >= IDLE_TIMEOUT_MS) {
           logout();
           window.location.href = '/login';
         }
@@ -71,15 +90,42 @@ export function AuthProvider({ children }) {
     };
   }, [token, resetIdleTimer, logout]);
 
-  function login(tokenValue, userData) {
+  // Called after step 2 (select-tenant) with the full scoped AuthResponse.
+  // Pass { proxy: true } for proxy sessions — writes to sessionStorage only so the
+  // real session in other tabs (localStorage) is never touched.
+  function login(tokenValue, userData, tenantData = {}, { proxy = false } = {}) {
+    const store = proxy ? sessionStorage : localStorage;
+    if (!proxy) {
+      // Real login: clear any leftover proxy state
+      ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+        .forEach((k) => sessionStorage.removeItem(k));
+    }
     const normalized = normalizeUser(userData);
-    localStorage.setItem('token', tokenValue);
-    localStorage.setItem('user', JSON.stringify(normalized));
+    store.setItem('token', tokenValue);
+    store.setItem('user', JSON.stringify(normalized));
+    if (tenantData.tenantId)     { store.setItem('tenantId',     tenantData.tenantId);     setTenantId(tenantData.tenantId); }
+    if (tenantData.tenantSlug)   { store.setItem('tenantSlug',   tenantData.tenantSlug);   setTenantSlug(tenantData.tenantSlug); }
+    if (tenantData.tenantName)   { store.setItem('tenantName',   tenantData.tenantName);   setTenantName(tenantData.tenantName); }
+    if (tenantData.tenantPlan)   { store.setItem('tenantPlan',   tenantData.tenantPlan);   setTenantPlan(tenantData.tenantPlan); }
+    if (tenantData.tenantStatus) { store.setItem('tenantStatus', tenantData.tenantStatus); setTenantStatus(tenantData.tenantStatus); }
+    if (tenantData.planExpiresAt !== undefined) {
+      if (tenantData.planExpiresAt) {
+        store.setItem('planExpiresAt', tenantData.planExpiresAt);
+        setPlanExpiresAt(tenantData.planExpiresAt);
+      } else {
+        store.removeItem('planExpiresAt');
+        setPlanExpiresAt(null);
+      }
+    }
+    if (tenantData.analyticsEnabled !== undefined) {
+      store.setItem('analyticsEnabled', String(tenantData.analyticsEnabled));
+      setAnalyticsEnabled(tenantData.analyticsEnabled);
+    }
+    setIsProxySession(proxy);
     setToken(tokenValue);
     setUser(normalized);
   }
 
-  // Patch specific fields in the stored user (e.g., clear mustChangePassword after password change)
   function updateUser(changes) {
     setUser((prev) => {
       const updated = { ...prev, ...changes };
@@ -89,7 +135,13 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, updateUser, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{
+      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled,
+      login, logout, updateUser,
+      isAuthenticated: !!token,
+      isSuperAdmin: user?.role === 'SUPER_ADMIN',
+      isProxySession,
+    }}>
       {children}
     </AuthContext.Provider>
   );

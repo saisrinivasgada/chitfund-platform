@@ -1,5 +1,6 @@
 package com.chitfund.payoutservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.PayoutCreatedEvent;
 import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
@@ -77,6 +78,7 @@ public class PayoutService {
 
         BigDecimal zero = BigDecimal.ZERO;
         Payout payout = Payout.builder()
+                .tenantId(TenantContext.get())
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .monthNumber(request.getMonthNumber())
@@ -124,7 +126,8 @@ public class PayoutService {
                 payout.getDiscountAmount(),
                 payout.getNetPayoutAmount(),
                 adminId.toString(),
-                Instant.now()
+                Instant.now(),
+                TenantContext.get()
         );
         publishAfterCommit(() -> eventPublisher.publish(createdEvent));
 
@@ -133,7 +136,8 @@ public class PayoutService {
                 null,
                 Map.of("memberId", payout.getMemberId().toString(),
                         "monthNumber", payout.getMonthNumber(),
-                        "netAmount", payout.getNetPayoutAmount().toPlainString()));
+                        "netAmount", payout.getNetPayoutAmount().toPlainString()),
+                TenantContext.get());
 
         return toResponse(payout);
     }
@@ -208,7 +212,8 @@ public class PayoutService {
                     payout.getDisbursementMode().name(),
                     payout.getReferenceNumber(),
                     adminId.toString(),
-                    Instant.now()
+                    Instant.now(),
+                    TenantContext.get()
             );
             publishAfterCommit(() -> eventPublisher.publish(disbursedEvent));
 
@@ -226,7 +231,8 @@ public class PayoutService {
                 Map.of("status", payout.getStatus().name(),
                         "amount", thisAmount.toPlainString(),
                         "totalDisbursed", newDisbursed.toPlainString(),
-                        "mode", request.getDisbursementMode().name()));
+                        "mode", request.getDisbursementMode().name()),
+                TenantContext.get());
 
         return toResponse(payout);
     }
@@ -274,7 +280,8 @@ public class PayoutService {
         auditClient.log("PAYOUT", payoutId.toString(), payout.getChitId().toString(),
                 "PAYOUT_VOIDED", adminId.toString(), "ADMIN",
                 Map.of("status", "DISBURSED"),
-                Map.of("status", "VOIDED", "reason", request.getReason() != null ? request.getReason() : ""));
+                Map.of("status", "VOIDED", "reason", request.getReason() != null ? request.getReason() : ""),
+                TenantContext.get());
 
         return toResponse(payout);
     }
@@ -312,7 +319,8 @@ public class PayoutService {
         auditClient.log("PAYOUT", payoutId.toString(), payout.getChitId().toString(),
                 "PAYOUT_CANCELLED", adminId.toString(), "ADMIN",
                 Map.of("status", "PENDING"),
-                Map.of("status", "CANCELLED", "reason", request.getReason() != null ? request.getReason() : ""));
+                Map.of("status", "CANCELLED", "reason", request.getReason() != null ? request.getReason() : ""),
+                TenantContext.get());
 
         return toResponse(payout);
     }
@@ -325,7 +333,8 @@ public class PayoutService {
     // Admin dashboard: PENDING + PARTIALLY_DISBURSED payouts that still need action
     @Transactional(readOnly = true)
     public List<PayoutResponse> getPendingPayouts() {
-        return payoutRepository.findByStatusInOrderByCreatedAtAsc(
+        return payoutRepository.findByTenantIdAndStatusInOrderByCreatedAtAsc(
+                TenantContext.get(),
                 List.of(PayoutStatus.PENDING, PayoutStatus.PARTIALLY_DISBURSED))
                 .stream().map(this::toResponse).toList();
     }
@@ -333,30 +342,31 @@ public class PayoutService {
     // Full history for a chit — month 1 through N, who got paid, how much, when
     @Transactional(readOnly = true)
     public List<PayoutResponse> getPayoutsForChit(UUID chitId) {
-        return payoutRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+        return payoutRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(TenantContext.get(), chitId)
                 .stream().map(this::toResponse).toList();
     }
 
     // Member's complete winning history across all chits they've participated in
     @Transactional(readOnly = true)
     public List<PayoutResponse> getPayoutsForMember(UUID memberId) {
-        return payoutRepository.findByMemberIdOrderByCreatedAtDesc(memberId)
+        return payoutRepository.findByTenantIdAndMemberIdOrderByCreatedAtDesc(TenantContext.get(), memberId)
                 .stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<PayoutResponse> getAllPayouts(UUID chitId, LocalDate fromDate, LocalDate toDate) {
+        String tid = TenantContext.get();
         if (fromDate != null || toDate != null) {
             LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
             LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
-            return payoutRepository.findByDateRange(start, end, chitId)
+            return payoutRepository.findByTenantIdAndDateRange(tid, start, end, chitId)
                     .stream().map(this::toResponse).toList();
         }
         if (chitId != null) {
-            return payoutRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+            return payoutRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(tid, chitId)
                     .stream().map(this::toResponse).toList();
         }
-        return payoutRepository.findAllByOrderByCreatedAtDesc()
+        return payoutRepository.findByTenantIdOrderByCreatedAtDesc(tid)
                 .stream().map(this::toResponse).toList();
     }
 
@@ -364,7 +374,7 @@ public class PayoutService {
     public List<PayoutResponse> getTodaysPayouts() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);
-        return payoutRepository.findTodaysPayouts(start, end)
+        return payoutRepository.findByTenantIdAndTodaysPayouts(TenantContext.get(), start, end)
                 .stream().map(this::toResponse).toList();
     }
 

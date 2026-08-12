@@ -13,5 +13,6 @@ public record CashCollectedEvent(
         String memberId,
         BigDecimal amount,
         String collectedByUserId,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

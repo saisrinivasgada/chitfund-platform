@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.CashCollectedEvent;
 import com.chitfund.common.event.PaymentCompletedEvent;
 import com.chitfund.common.exception.BusinessException;
@@ -58,6 +59,14 @@ public class PaymentService {
     private final PaymentBatchRepository batchRepository;
     private final PaymentRecordRepository paymentRecordRepository;
     private final PaymentAllocationRepository allocationRepository;
+    private final PlanExpiryChecker planExpiryChecker;
+
+    private String tenantId() {
+        String tid = TenantContext.get();
+        if (tid == null) throw new com.chitfund.common.exception.BusinessException(
+                com.chitfund.common.exception.ErrorCode.UNAUTHORIZED, "No tenant context");
+        return tid;
+    }
     private final PaymentEventPublisher eventPublisher;
     private final MemberServiceClient memberServiceClient;
     private final ChitServiceClient chitServiceClient;
@@ -86,6 +95,7 @@ public class PaymentService {
 
     @Transactional
     public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin, String idempotencyKey, boolean skipMemberCheck) {
+        planExpiryChecker.assertNotExpired();
         if (idempotencyKey != null) {
             var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
@@ -107,6 +117,7 @@ public class PaymentService {
         boolean adminSelfCollect = callerIsAdmin && request.getOverrideCollectedBy() == null;
 
         PaymentBatch batch = PaymentBatch.builder()
+                .tenantId(tenantId())
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .totalAmount(request.getAmount())
@@ -138,7 +149,8 @@ public class PaymentService {
                 request.getMemberId().toString(),
                 request.getAmount(),
                 workerId.toString(),
-                Instant.now()
+                Instant.now(),
+                TenantContext.get()
         );
         publishAfterCommit(() -> eventPublisher.publish(collectedEvent));
 
@@ -156,6 +168,7 @@ public class PaymentService {
 
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
+        planExpiryChecker.assertNotExpired();
         if (idempotencyKey != null) {
             var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
@@ -172,6 +185,7 @@ public class PaymentService {
         // CASH via this endpoint = admin collected directly (COMPLETED immediately, no remittance step)
         // Worker-collected CASH still goes through POST /payments/collect → AWAITING_REMITTANCE
         PaymentBatch batch = PaymentBatch.builder()
+                .tenantId(tenantId())
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .totalAmount(request.getAmount())
@@ -341,7 +355,7 @@ public class PaymentService {
             debit.setAmount(batch.getTotalAmount());
             debit.setCategory("PAYMENT_VOID");
             debit.setDescription(descBuilder.toString());
-            adminWalletService.addEntry(debit, adminId);
+            adminWalletService.addEntry(debit, adminId, tenantId());
         }
 
         log.info("Admin {} voided batch {} (₹{}) for member {} — reason: {}",
@@ -485,7 +499,7 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPaymentBatches(UUID memberId, UUID chitId) {
         // Primary batches: recorded directly for this chit
-        List<PaymentBatch> primary = batchRepository.findByMemberIdAndChitIdOrderByCreatedAtDesc(memberId, chitId);
+        List<PaymentBatch> primary = batchRepository.findByTenantIdAndMemberIdAndChitIdOrderByCreatedAtDesc(tenantId(), memberId, chitId);
         Set<UUID> seen = new HashSet<>();
         primary.forEach(b -> seen.add(b.getId()));
 
@@ -509,7 +523,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getAllBatchesForMember(UUID memberId) {
-        List<PaymentBatch> batches = batchRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
+        List<PaymentBatch> batches = batchRepository.findByTenantIdAndMemberIdOrderByCreatedAtDesc(tenantId(), memberId);
         return batches.stream()
                 .map(b -> toBatchResponse(b, allocationRepository.findByBatchId(b.getId())))
                 .toList();
@@ -519,6 +533,10 @@ public class PaymentService {
     public PaymentBatchResponse getBatchById(UUID batchId) {
         PaymentBatch batch = batchRepository.findById(batchId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND, "Batch not found: " + batchId));
+        // Return 404 for cross-tenant access (no existence disclosure)
+        if (!tenantId().equals(batch.getTenantId())) {
+            throw new BusinessException(ErrorCode.PAYMENT_NOT_FOUND, "Batch not found: " + batchId);
+        }
         return toBatchResponse(batch, allocationRepository.findByBatchId(batchId));
     }
 
@@ -527,6 +545,11 @@ public class PaymentService {
      * CASH → AccountType.CASH; UPI / BANK_TRANSFER / CHEQUE → AccountType.BANK
      */
     private void creditWallet(PaymentBatch batch, UUID actorId, List<PaymentAllocation> allocations) {
+        // CREDIT mode = no cash changes hands; credits were consumed in applyFifo Step 1
+        if (batch.getPaymentMode() == PaymentMode.CREDIT
+                || batch.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
         AccountType accountType = batch.getPaymentMode() == PaymentMode.CASH
                 ? AccountType.CASH : AccountType.BANK;
 
@@ -544,7 +567,7 @@ public class PaymentService {
         entry.setAmount(batch.getTotalAmount());
         entry.setCategory("PAYMENT");
         entry.setDescription("Payment received — member " + batch.getMemberId() + ", chit " + batch.getChitId() + drawPart);
-        adminWalletService.addEntry(entry, actorId);
+        adminWalletService.addEntry(entry, actorId, tenantId());
     }
 
     /**
@@ -724,18 +747,19 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getAllBatches(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate) {
         List<PaymentBatch> batches;
+        String tid = tenantId();
         if (fromDate != null || toDate != null) {
             LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
             LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
-            batches = batchRepository.findByDateRange(start, end, chitId, memberId);
+            batches = batchRepository.findByTenantAndDateRange(tid, start, end, chitId, memberId);
         } else if (chitId != null && memberId != null) {
-            batches = batchRepository.findByChitIdAndMemberIdOrderByCreatedAtDesc(chitId, memberId);
+            batches = batchRepository.findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(tid, chitId, memberId);
         } else if (chitId != null) {
-            batches = batchRepository.findByChitIdOrderByCreatedAtDesc(chitId);
+            batches = batchRepository.findByTenantIdAndChitIdOrderByCreatedAtDesc(tid, chitId);
         } else if (memberId != null) {
-            batches = batchRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
+            batches = batchRepository.findByTenantIdAndMemberIdOrderByCreatedAtDesc(tid, memberId);
         } else {
-            batches = batchRepository.findAllByOrderByCreatedAtDesc();
+            batches = batchRepository.findByTenantIdOrderByCreatedAtDesc(tid);
         }
         return batches.stream()
                 .map(batch -> {
@@ -748,19 +772,20 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public PagedResponse<PaymentBatchResponse> getAllBatchesPaged(UUID chitId, UUID memberId, LocalDate fromDate, LocalDate toDate, int page, int size) {
         PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        String tid = tenantId();
         Page<PaymentBatch> result;
         if (fromDate != null || toDate != null) {
             LocalDateTime start = fromDate != null ? fromDate.atStartOfDay() : LocalDate.of(2000, 1, 1).atStartOfDay();
             LocalDateTime end   = toDate   != null ? toDate.plusDays(1).atStartOfDay() : LocalDate.now().plusDays(1).atStartOfDay();
-            result = batchRepository.findByDateRangePaged(start, end, chitId, memberId, pr);
+            result = batchRepository.findByTenantAndDateRangePaged(tid, start, end, chitId, memberId, pr);
         } else if (chitId != null && memberId != null) {
-            result = batchRepository.findByChitIdAndMemberIdOrderByCreatedAtDesc(chitId, memberId, pr);
+            result = batchRepository.findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(tid, chitId, memberId, pr);
         } else if (chitId != null) {
-            result = batchRepository.findByChitIdOrderByCreatedAtDesc(chitId, pr);
+            result = batchRepository.findByTenantIdAndChitIdOrderByCreatedAtDesc(tid, chitId, pr);
         } else if (memberId != null) {
-            result = batchRepository.findByMemberIdOrderByCreatedAtDesc(memberId, pr);
+            result = batchRepository.findByTenantIdAndMemberIdOrderByCreatedAtDesc(tid, memberId, pr);
         } else {
-            result = batchRepository.findAllByOrderByCreatedAtDesc(pr);
+            result = batchRepository.findByTenantIdOrderByCreatedAtDesc(tid, pr);
         }
         List<PaymentBatchResponse> content = result.getContent().stream()
                 .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
@@ -778,14 +803,14 @@ public class PaymentService {
     public List<PaymentBatchResponse> getTodaysBatches() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);
-        return batchRepository.findTodaysActivity(start, end).stream()
+        return batchRepository.findTodaysActivityByTenant(tenantId(), start, end).stream()
                 .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getBatchesByCollector(UUID collectorId) {
-        return batchRepository.findByCollectedByOrderByCreatedAtDesc(collectorId)
+        return batchRepository.findByTenantIdAndCollectedByOrderByCreatedAtDesc(tenantId(), collectorId)
                 .stream()
                 .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
                 .toList();
@@ -793,7 +818,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getMyPendingBatches(UUID collectorId) {
-        return batchRepository.findByCollectedByAndStatusOrderByCollectedAtDesc(collectorId, BatchStatus.AWAITING_REMITTANCE)
+        return batchRepository.findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(tenantId(), collectorId, BatchStatus.AWAITING_REMITTANCE)
                 .stream()
                 .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
                 .toList();
@@ -801,7 +826,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPendingRemittances() {
-        return batchRepository.findByStatusOrderByCreatedAtAsc(BatchStatus.AWAITING_REMITTANCE).stream()
+        return batchRepository.findByTenantIdAndStatusOrderByCreatedAtAsc(tenantId(), BatchStatus.AWAITING_REMITTANCE).stream()
                 .map(batch -> {
                     List<PaymentAllocation> allocs = allocationRepository.findByBatchId(batch.getId());
                     return toBatchResponse(batch, allocs);
@@ -878,7 +903,8 @@ public class PaymentService {
                 (int) settled, (int) partial, (int) outstanding, (int) waived,
                 LocalDate.now(),
                 actorId.toString(),
-                Instant.now()
+                Instant.now(),
+                TenantContext.get()
         );
     }
 

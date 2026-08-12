@@ -93,6 +93,24 @@ public class InternalMemberController {
     }
 
     /**
+     * Called by payment-service after settlement is confirmed.
+     * Marks the member INACTIVE so they no longer appear as eligible for new chits.
+     */
+    @PatchMapping("/{memberId}/deactivate")
+    public ResponseEntity<Map<String, Object>> deactivateMember(
+            @PathVariable UUID memberId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        return memberRepository.findById(memberId).map(m -> {
+            m.setStatus(MemberStatus.INACTIVE);
+            memberRepository.save(m);
+            return ResponseEntity.ok(Map.<String, Object>of("success", true));
+        }).orElse(ResponseEntity.ok(Map.of("success", false, "reason", "not found")));
+    }
+
+    /**
      * Batch-resolve member profile IDs → user IDs for notification delivery.
      * Returns a map of { memberId → userId } for members that have an app account.
      */

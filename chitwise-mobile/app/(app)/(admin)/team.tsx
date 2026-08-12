@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import {
   listStaff, createStaff, activateStaff, deactivateStaff, changeStaffRole,
   resetMemberPassword, getUserById, getStaffRequests, getBatchesByCollector, getMembers,
@@ -11,6 +12,7 @@ import {
 import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
+import { useUIStore } from '../../../store/uiStore';
 
 const ROLES = ['STAFF', 'MANAGER', 'ADMIN'] as const;
 type Role = typeof ROLES[number];
@@ -35,6 +37,8 @@ function fmtDate(d?: string) {
 }
 
 export default function AdminTeamScreen() {
+  const router = useRouter();
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -184,15 +188,20 @@ export default function AdminTeamScreen() {
         ListHeaderComponent={
           <View style={{ marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <View>
-                <Text style={T.h1}>Team</Text>
-                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-                  {admins.length} admin · {managers.length} manager · {workers.length} staff
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
+                </TouchableOpacity>
+                <View>
+                  <Text style={T.h1}>Team</Text>
+                  <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
+                    {admins.length} admin · {managers.length} manager · {workers.length} staff
+                  </Text>
+                </View>
               </View>
               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                <TouchableOpacity onPress={() => setShowCreate(true)}
-                  style={{ backgroundColor: C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}>
+                <TouchableOpacity onPress={() => !isExpired && setShowCreate(true)}
+                  style={{ backgroundColor: isExpired ? C.gray300 : C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}>
                   <Text style={{ color: C.white, fontWeight: '700', fontSize: 13 }}>+ Add Staff</Text>
                 </TouchableOpacity>
                 <ProfileAvatarButton size={34} />
@@ -641,7 +650,7 @@ export default function AdminTeamScreen() {
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Staff Member" variant="primary" fullWidth
               onPress={() => createMut.mutate()} loading={createMut.isPending}
-              disabled={!cFullName || !cUsername || !cPassword} />
+              disabled={isExpired || !cFullName || !cUsername || !cPassword} />
           </View>
         </SafeAreaView>
       </Modal>

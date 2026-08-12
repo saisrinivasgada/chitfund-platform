@@ -18,6 +18,7 @@ public class AdminWalletEntryResponse {
     private BigDecimal amount;
     private String category;
     private String description;
+    private UUID referenceId;
     private LocalDateTime createdAt;
     private UUID createdBy;
 }

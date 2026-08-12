@@ -32,7 +32,7 @@ public class ReportingEventConsumer {
                     event.installmentAmount(), event.totalMembers(),
                     0, 0, event.totalMembers(), 0,
                     BigDecimal.ZERO, totalOutstanding,
-                    "OPEN", null
+                    "OPEN", null, event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED for reporting: {}", e.getMessage(), e);
@@ -48,7 +48,7 @@ public class ReportingEventConsumer {
                     event.installmentAmount(), event.totalMembers(),
                     0, 0, 0, event.totalMembers(),
                     BigDecimal.ZERO, BigDecimal.ZERO,
-                    "SKIPPED", event.skipReason()
+                    "SKIPPED", event.skipReason(), event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED for reporting: {}", e.getMessage(), e);
@@ -65,7 +65,7 @@ public class ReportingEventConsumer {
                     event.totalDue(), event.totalPaid(), event.totalOutstanding(),
                     event.monthsSettled(), event.monthsPartiallyPaid(),
                     event.monthsOutstanding(), event.monthsWaived(),
-                    event.lastPaymentDate(), event.amount()
+                    event.lastPaymentDate(), event.amount(), event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED for reporting: {}", e.getMessage(), e);
@@ -79,7 +79,7 @@ public class ReportingEventConsumer {
             ingestService.ingestPayout(new PayoutEvent(
                     event.chitId(), event.memberId(), null,
                     event.monthNumber(), event.winningAmount(), event.discountAmount(),
-                    event.netPayoutAmount(), "PENDING", null, null
+                    event.netPayoutAmount(), "PENDING", null, null, event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED for reporting: {}", e.getMessage(), e);
@@ -97,7 +97,8 @@ public class ReportingEventConsumer {
                     event.disbursementMode(),
                     event.occurredAt() != null
                             ? java.time.LocalDate.ofInstant(event.occurredAt(), java.time.ZoneOffset.UTC)
-                            : java.time.LocalDate.now()
+                            : java.time.LocalDate.now(),
+                    event.tenantId()
             ));
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED for reporting: {}", e.getMessage(), e);

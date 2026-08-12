@@ -36,7 +36,10 @@ export default function ChangePasswordPage() {
     try {
       await changePassword({ currentPassword: form.currentPassword, newPassword: form.newPassword });
       updateUser({ mustChangePassword: false });
-      navigate(user?.role === 'MEMBER' ? '/member' : '/');
+      if (user?.role === 'SUPER_ADMIN') navigate('/superadmin');
+      else if (user?.role === 'MEMBER') navigate('/member');
+      else if (user?.role === 'STAFF') navigate('/tasks');
+      else navigate('/dashboard');
     } catch (err) {
       setError(err.response?.data?.message ?? 'Failed to change password. Please try again.');
     } finally {

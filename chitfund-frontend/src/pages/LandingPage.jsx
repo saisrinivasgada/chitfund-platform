@@ -8,7 +8,7 @@ import {
   LogIn, Building2, UserCheck, ClipboardList, Trophy, IndianRupee, Calendar,
   Bell, FileText, PieChart, LayoutDashboard, CreditCard, Banknote,
   Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
-  TrendingUp, Layers, HandCoins, ChevronRight, ArrowLeft,
+  TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
 } from 'lucide-react';
 
 const P = '#1E3A5F';
@@ -193,6 +193,9 @@ export default function LandingPage() {
   const [scrollY, setScrollY] = useState(0);
   const [planCards, setPlanCards] = useState([]);
   const [selectedPlan, setSelectedPlan] = useState('GROWTH');
+  const planScrollRef = useRef(null);
+  const [planCanLeft, setPlanCanLeft] = useState(false);
+  const [planCanRight, setPlanCanRight] = useState(true);
 
   useEffect(() => {
     const handler = () => setScrollY(window.scrollY);
@@ -205,6 +208,20 @@ export default function LandingPage() {
       .then(data => { if (data?.length) setPlanCards(data.map(p => apiPlanToCard(p, data))); })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const el = planScrollRef.current;
+    if (!el) return;
+    const check = () => {
+      setPlanCanLeft(el.scrollLeft > 4);
+      setPlanCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+    };
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
+  }, [planCards]);
 
   const navScrolled = scrollY > 60;
 
@@ -815,15 +832,28 @@ export default function LandingPage() {
             </div>
           </Reveal>
           {planCards.length > 0 ? (
-            <div className="flex gap-6 overflow-x-auto pb-4 -mx-2 px-2">
+            <div className="relative">
+              {planCanLeft && (
+                <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })}
+                  className="scroll-arrow-glow absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              {planCanRight && (
+                <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })}
+                  className="scroll-arrow-glow absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                  <ChevronRight size={18} />
+                </button>
+              )}
+            <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
               {planCards.map(({ plan, label, tagline, price, sub, badge, features, isCustom }, i) => {
                 const active = plan === selectedPlan;
                 return (
-                <Reveal key={plan} delay={i * 0.1}>
+                <Reveal key={plan} delay={i * 0.1} className="flex-shrink-0 flex flex-col">
                   <motion.div
                     onClick={() => setSelectedPlan(plan)}
                     style={{ minWidth: 260, ...(active ? { transform: 'scale(1.04)', transformOrigin: 'center' } : {}) }}
-                    className={`relative rounded-3xl p-7 flex flex-col cursor-pointer flex-shrink-0 ${
+                    className={`relative rounded-3xl p-7 flex flex-col cursor-pointer flex-1 ${
                       active ? 'bg-white shadow-2xl' :
                       isCustom ? 'bg-white/5 border-2 border-dashed border-white/20' : 'bg-white/10 border border-white/20'
                     }`}
@@ -860,6 +890,7 @@ export default function LandingPage() {
                 </Reveal>
                 );
               })}
+            </div>
             </div>
           ) : (
             <div className="text-center text-white/40 py-12">Loading plans…</div>

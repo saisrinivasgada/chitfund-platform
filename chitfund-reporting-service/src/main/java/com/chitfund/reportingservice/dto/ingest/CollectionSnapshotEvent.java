@@ -28,5 +28,6 @@ public record CollectionSnapshotEvent(
         @NotNull BigDecimal totalCollected,
         @NotNull BigDecimal totalOutstanding,
         @NotBlank String cycleStatus,
-        String skipReason
+        String skipReason,
+        String tenantId
 ) {}

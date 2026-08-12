@@ -33,6 +33,9 @@ public class AuditLog {
     @Column(length = 36)
     private String id;
 
+    @Column(name = "tenant_id", nullable = false, length = 36)
+    private String tenantId;
+
     @Column(name = "service_name", nullable = false, length = 50)
     private String serviceName;
 

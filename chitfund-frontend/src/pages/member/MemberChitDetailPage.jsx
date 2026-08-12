@@ -320,7 +320,7 @@ export default function MemberChitDetailPage() {
         </div>
 
         {/* Summary strip */}
-        <div className="grid grid-cols-4 gap-2 mt-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-5">
           {[
             { label: 'Chit Value', value: ha(chit.chitValue) },
             { label: 'Monthly',    value: ha(chit.installmentAmount) },

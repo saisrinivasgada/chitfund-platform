@@ -1,5 +1,6 @@
 package com.chitfund.memberservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.MemberUpdatedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -12,6 +13,7 @@ import com.chitfund.memberservice.dto.request.UpdateMemberRequest;
 import com.chitfund.memberservice.dto.request.UpdateStatusRequest;
 import com.chitfund.memberservice.dto.response.MemberResponse;
 import com.chitfund.memberservice.client.AuditClient;
+import com.chitfund.memberservice.client.UserServiceClient;
 import com.chitfund.memberservice.messaging.MemberEventPublisher;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,27 +37,40 @@ public class MemberService {
     private final MemberRepository memberRepository;
     private final MemberEventPublisher memberEventPublisher;
     private final AuditClient auditClient;
+    private final UserServiceClient userServiceClient;
+    private final PlanLimitChecker planLimitChecker;
+
+    private String tenantId() {
+        String tid = TenantContext.get();
+        // Fallback to Kethaki tenant for backward compatibility during migration
+        return tid != null ? tid : "10000000-0000-0000-0000-000000000001";
+    }
 
     @Transactional
     public MemberResponse createMember(CreateMemberRequest request, UUID adminId) {
-        if (memberRepository.existsByPhoneAndDeletedAtIsNull(request.getPhone())) {
+        planLimitChecker.checkCanAddMember();
+
+        String tid = tenantId();
+        String cc = request.getPhoneCountryCode() != null ? request.getPhoneCountryCode() : "+91";
+
+        if (memberRepository.existsByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(
+                request.getPhone(), cc, tid)) {
             throw new BusinessException(ErrorCode.MEMBER_PHONE_TAKEN,
                     "A member with phone " + request.getPhone() + " already exists");
         }
-
-        if (request.getUserId() != null && memberRepository.existsByUserId(request.getUserId())) {
+        if (request.getUserId() != null && memberRepository.existsByUserIdAndTenantId(request.getUserId(), tid)) {
             throw new BusinessException(ErrorCode.MEMBER_USER_ALREADY_LINKED,
                     "This user account is already linked to another member");
         }
-
         if (request.getReferredById() != null && !memberRepository.existsById(request.getReferredById())) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
 
         Member member = Member.builder()
+                .tenantId(tid)
                 .fullName(request.getFullName())
                 .phone(request.getPhone())
-                .phoneCountryCode(request.getPhoneCountryCode() != null ? request.getPhoneCountryCode() : "+91")
+                .phoneCountryCode(cc)
                 .email(request.getEmail())
                 .address(request.getAddress())
                 .city(request.getCity())
@@ -71,30 +86,54 @@ public class MemberService {
                 .build();
 
         memberRepository.save(member);
-        log.info("Admin {} created member {} ({})", adminId, member.getId(), member.getPhone());
-        return toResponse(member);
+        log.info("Admin {} created member {} ({}) in tenant {}", adminId, member.getId(), member.getPhone(), tid);
+
+        // Auto link-or-create a user account for this member
+        String setupToken = null;
+        try {
+            java.util.Map<String, String> userResult = userServiceClient.linkOrCreate(
+                    tid, member.getId(), member.getPhone(), member.getPhoneCountryCode(),
+                    member.getFullName(), member.getEmail());
+            if (userResult != null && userResult.get("userId") != null) {
+                UUID linkedUserId = UUID.fromString(userResult.get("userId"));
+                member.setUserId(linkedUserId);
+                memberRepository.save(member);
+                setupToken = userResult.get("setupToken");
+                log.info("Linked member {} to user {} (new={})", member.getId(), linkedUserId, userResult.get("isNew"));
+            }
+        } catch (Exception e) {
+            log.warn("link-or-create failed for member {}: {}", member.getId(), e.getMessage());
+        }
+
+        MemberResponse response = toResponse(member);
+        response.setSetupToken(setupToken);
+        return response;
     }
 
     @Transactional(readOnly = true)
     public MemberResponse getById(UUID id) {
-        return toResponse(findOrThrow(id));
+        Member member = findOrThrow(id);
+        // Tenant isolation check: member must belong to current tenant
+        if (!tenantId().equals(member.getTenantId())) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
+        }
+        return toResponse(member);
     }
 
     @Transactional(readOnly = true)
     public MemberResponse getByPhone(String phone) {
+        String tid = tenantId();
         return memberRepository.findByPhoneAndDeletedAtIsNull(phone)
+                .filter(m -> tid.equals(m.getTenantId()))
                 .map(this::toResponse)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member found with phone " + phone));
     }
 
-    /**
-     * Used by the /me endpoint — member's JWT contains userId, not memberId.
-     * This bridges the gap between auth identity and chit fund identity.
-     */
     @Transactional(readOnly = true)
     public MemberResponse getByUserId(UUID userId) {
-        return memberRepository.findByUserId(userId)
+        String tid = tenantId();
+        return memberRepository.findByUserIdAndTenantId(userId, tid)
                 .map(this::toResponse)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member profile linked to this user account"));
@@ -102,17 +141,17 @@ public class MemberService {
 
     @Transactional(readOnly = true)
     public Page<MemberResponse> search(String search, MemberStatus status, Pageable pageable) {
-        return memberRepository.search(search, status, pageable).map(this::toResponse);
+        return memberRepository.search(tenantId(), search, status, pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
     public Page<MemberResponse> searchDeleted(String search, Pageable pageable) {
-        return memberRepository.searchDeleted(search, pageable).map(this::toResponse);
+        return memberRepository.searchDeleted(tenantId(), search, pageable).map(this::toResponse);
     }
 
     @Transactional
     public MemberResponse softDelete(UUID id, UUID deletedBy) {
-        Member member = findOrThrow(id);
+        Member member = findOrThrowScoped(id);
         if (member.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Member is already deleted");
         }
@@ -125,15 +164,15 @@ public class MemberService {
 
     @Transactional
     public MemberResponse updateMember(UUID id, UpdateMemberRequest request, UUID actorId) {
-        Member member = findOrThrow(id);
-
-        // Snapshot before-state for audit log
+        Member member = findOrThrowScoped(id);
         java.util.Map<String, Object> before = profileSnapshot(member);
 
         if (request.getFullName() != null) member.setFullName(request.getFullName());
 
         if (request.getPhone() != null && !request.getPhone().equals(member.getPhone())) {
-            if (memberRepository.existsByPhoneAndDeletedAtIsNull(request.getPhone())) {
+            String cc = request.getPhoneCountryCode() != null ? request.getPhoneCountryCode() : member.getPhoneCountryCode();
+            if (memberRepository.existsByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(
+                    request.getPhone(), cc, tenantId())) {
                 throw new BusinessException(ErrorCode.MEMBER_PHONE_TAKEN,
                         "A member with phone " + request.getPhone() + " already exists");
             }
@@ -161,29 +200,23 @@ public class MemberService {
         memberRepository.save(member);
         log.info("Member {} updated by {}", id, actorId);
 
-        // Direct audit-service write (works in local dev without SQS)
         java.util.Map<String, Object> after = profileSnapshot(member);
         auditClient.log("MEMBER", id.toString(), "PROFILE_UPDATED",
-                actorId != null ? actorId.toString() : null, "ROLE_ADMIN", before, after);
+                actorId != null ? actorId.toString() : null, "ROLE_ADMIN", before, after,
+                com.chitfund.common.context.TenantContext.get());
 
-        // Still publish SQS event for referral changes (consumed by audit-service in prod for legacy path)
         if (!Objects.equals(oldReferredById, newReferredById)) {
             String prevName = oldReferredById != null
-                    ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null)
-                    : null;
+                    ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null) : null;
             String newName = newReferredById != null
-                    ? memberRepository.findById(newReferredById).map(Member::getFullName).orElse(null)
-                    : null;
+                    ? memberRepository.findById(newReferredById).map(Member::getFullName).orElse(null) : null;
             memberEventPublisher.publish(new MemberUpdatedEvent(
-                    id.toString(),
-                    "referredById",
+                    id.toString(), "referredById",
                     oldReferredById != null ? oldReferredById.toString() : null,
                     newReferredById != null ? newReferredById.toString() : null,
-                    prevName,
-                    newName,
+                    prevName, newName,
                     actorId != null ? actorId.toString() : null,
-                    Instant.now()
-            ));
+                    Instant.now()));
         }
 
         return toResponse(member);
@@ -214,16 +247,13 @@ public class MemberService {
                     "A reason is required when blacklisting a member",
                     HttpStatus.BAD_REQUEST);
         }
-
-        Member member = findOrThrow(id);
+        Member member = findOrThrowScoped(id);
         MemberStatus previous = member.getStatus();
         member.setStatus(request.getStatus());
-
         if (request.getStatus() == MemberStatus.BLACKLISTED && request.getReason() != null) {
             String note = "[BLACKLISTED] " + request.getReason();
             member.setNotes(member.getNotes() != null ? member.getNotes() + "\n" + note : note);
         }
-
         memberRepository.save(member);
         log.info("Member {} status changed {} → {}", id, previous, request.getStatus());
         return toResponse(member);
@@ -231,36 +261,29 @@ public class MemberService {
 
     @Transactional
     public MemberResponse linkUserAccount(UUID memberId, LinkUserRequest request) {
-        Member member = findOrThrow(memberId);
-
-        // Idempotent: already linked to this exact user → return success
-        if (request.getUserId().equals(member.getUserId())) {
-            return toResponse(member);
-        }
-
-        // Reject if this userId is already linked to a DIFFERENT member
-        if (memberRepository.existsByUserId(request.getUserId())) {
+        Member member = findOrThrowScoped(memberId);
+        if (request.getUserId().equals(member.getUserId())) return toResponse(member);
+        if (memberRepository.existsByUserIdAndTenantId(request.getUserId(), tenantId())) {
             throw new BusinessException(ErrorCode.MEMBER_USER_ALREADY_LINKED,
                     "This user account is already linked to another member");
         }
-
         member.setUserId(request.getUserId());
         memberRepository.save(member);
-        log.info("Member {} linked to user account {}", memberId, request.getUserId());
         return toResponse(member);
     }
 
     @Transactional
     public MemberResponse updateMyProfile(UUID userId, UpdateMemberProfileRequest request) {
-        Member member = memberRepository.findByUserId(userId)
+        String tid = tenantId();
+        Member member = memberRepository.findByUserIdAndTenantId(userId, tid)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member profile linked to this user account"));
 
         java.util.Map<String, Object> before = profileSnapshot(member);
-
         if (request.getFullName() != null) member.setFullName(request.getFullName());
         if (request.getPhone() != null && !request.getPhone().equals(member.getPhone())) {
-            if (memberRepository.existsByPhoneAndDeletedAtIsNull(request.getPhone())) {
+            String cc = request.getPhoneCountryCode() != null ? request.getPhoneCountryCode() : member.getPhoneCountryCode();
+            if (memberRepository.existsByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(request.getPhone(), cc, tid)) {
                 throw new BusinessException(ErrorCode.MEMBER_PHONE_TAKEN);
             }
             member.setPhone(request.getPhone());
@@ -272,7 +295,8 @@ public class MemberService {
 
         MemberResponse result = toResponse(memberRepository.save(member));
         auditClient.log("MEMBER", member.getId().toString(), "PROFILE_UPDATED",
-                userId.toString(), "ROLE_MEMBER", before, profileSnapshot(member));
+                userId.toString(), "ROLE_MEMBER", before, profileSnapshot(member),
+                com.chitfund.common.context.TenantContext.get());
         return result;
     }
 
@@ -282,13 +306,19 @@ public class MemberService {
                         "Member not found: " + id));
     }
 
+    // Tenant-scoped findOrThrow: returns 404 for cross-tenant access (no existence disclosure)
+    private Member findOrThrowScoped(UUID id) {
+        Member m = findOrThrow(id);
+        if (!tenantId().equals(m.getTenantId())) {
+            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
+        }
+        return m;
+    }
+
     private MemberResponse toResponse(Member m) {
         String referredByName = m.getReferredById() != null
-                ? memberRepository.findById(m.getReferredById())
-                        .map(Member::getFullName)
-                        .orElse(null)
+                ? memberRepository.findById(m.getReferredById()).map(Member::getFullName).orElse(null)
                 : null;
-
         return MemberResponse.builder()
                 .id(m.getId())
                 .fullName(m.getFullName())

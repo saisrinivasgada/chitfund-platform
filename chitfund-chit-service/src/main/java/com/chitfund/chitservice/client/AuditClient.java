@@ -29,18 +29,19 @@ public class AuditClient {
 
     public void log(String entityType, String entityId, String chitId,
                     String action, String actorId, String actorRole,
-                    Object before, Object after) {
+                    Object before, Object after, String tenantId) {
         try {
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("serviceName", "chit-service");
             body.put("entityType", entityType);
             body.put("entityId", entityId);
-            if (chitId != null) body.put("chitId", chitId);
+            if (chitId != null)    body.put("chitId", chitId);
             body.put("action", action);
-            if (actorId != null) body.put("actorId", actorId);
+            if (actorId != null)   body.put("actorId", actorId);
             if (actorRole != null) body.put("actorRole", actorRole);
-            if (before != null) body.put("beforeState", objectMapper.writeValueAsString(before));
-            if (after  != null) body.put("afterState",  objectMapper.writeValueAsString(after));
+            if (before != null)    body.put("beforeState", objectMapper.writeValueAsString(before));
+            if (after  != null)    body.put("afterState",  objectMapper.writeValueAsString(after));
+            if (tenantId != null)  body.put("tenantId", tenantId);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);

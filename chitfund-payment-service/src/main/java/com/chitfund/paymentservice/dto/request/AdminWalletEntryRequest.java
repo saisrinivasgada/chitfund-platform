@@ -23,4 +23,6 @@ public class AdminWalletEntryRequest {
 
     private String category;
     private String description;
+    private String tenantId; // set by controller from TenantContext or internal call body
+    private java.util.UUID referenceId;
 }

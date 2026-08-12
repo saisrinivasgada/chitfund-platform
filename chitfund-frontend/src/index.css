@@ -15,10 +15,12 @@
   --color-muted: #64748B;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html {
@@ -90,4 +92,19 @@ aside {
   @page {
     margin: 0;
   }
+}
+
+/* Glowing scroll arrows */
+@keyframes scroll-arrow-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(96,165,250,0.3), 0 0 14px rgba(96,165,250,0.8), 0 0 28px rgba(59,130,246,0.45); }
+  50%       { box-shadow: 0 0 0 3px rgba(96,165,250,0.5), 0 0 22px rgba(96,165,250,1),   0 0 44px rgba(59,130,246,0.65); }
+}
+.scroll-arrow-glow {
+  background: linear-gradient(135deg, #60A5FA 0%, #2563EB 100%);
+  animation: scroll-arrow-pulse 2s ease-in-out infinite;
+}
+.scroll-arrow-glow:hover {
+  transform: translateY(-50%) scale(1.15) !important;
+  animation-play-state: paused;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.55), 0 0 24px rgba(96,165,250,1), 0 0 48px rgba(59,130,246,0.7) !important;
 }

@@ -3,19 +3,19 @@ package com.chitfund.userservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
-import com.chitfund.userservice.dto.request.LoginRequest;
-import com.chitfund.userservice.dto.request.MobileLoginRequest;
-import com.chitfund.userservice.dto.request.RefreshTokenRequest;
-import com.chitfund.userservice.dto.request.RegisterRequest;
-import com.chitfund.userservice.dto.response.AuthResponse;
-import com.chitfund.userservice.dto.response.MobileLookupResponse;
+import com.chitfund.userservice.dto.request.*;
+import com.chitfund.userservice.dto.response.*;
 import com.chitfund.userservice.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -24,11 +24,25 @@ public class AuthController {
 
     private final AuthService authService;
 
-    /**
-     * Public endpoint — used only for MEMBER account creation (admin creates a login for a member).
-     * Staff roles (ADMIN, MANAGER, WORKER) must be created through POST /api/users/staff
-     * which requires an authenticated ADMIN token. This prevents anonymous privilege escalation.
-     */
+    // ── Public: org self-registration ────────────────────────────────────────
+
+    @GetMapping("/check-slug")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> checkSlug(
+            @RequestParam String slug) {
+        boolean available = !authService.slugExists(slug);
+        return ResponseEntity.ok(ApiResponse.success(
+                java.util.Map.of("slug", slug, "available", available), "ok"));
+    }
+
+    @PostMapping("/register-org")
+    public ResponseEntity<ApiResponse<TenantResponse>> registerOrg(
+            @Valid @RequestBody RegisterOrgRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(authService.registerOrg(request), "Organization registered — pending activation"));
+    }
+
+    // ── Public: staff account creation (admin-only in practice via role check) ──
+
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
         Role role = request.getRole();
@@ -40,10 +54,45 @@ public class AuthController {
                 .body(ApiResponse.success(authService.register(request, null), "Registration successful"));
     }
 
+    // ── Step 1: login → pre-scope token + tenant list ────────────────────────
+
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(ApiResponse.success(authService.login(request), "Login successful"));
     }
+
+    // ── Step 2: select tenant → scoped access token ──────────────────────────
+
+    @PostMapping("/select-tenant")
+    public ResponseEntity<ApiResponse<AuthResponse>> selectTenant(
+            @Valid @RequestBody SelectTenantRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                authService.selectTenant(request), "Tenant selected"));
+    }
+
+    // ── Account setup (member clicks SMS link) ───────────────────────────────
+
+    @PostMapping("/setup-account")
+    public ResponseEntity<ApiResponse<AuthResponse>> setupAccount(
+            @Valid @RequestBody SetupAccountRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                authService.setupAccount(request), "Account activated"));
+    }
+
+    // ── Transfer token: generate pre-scope JWT for cross-subdomain switch ────
+    // Caller must be authenticated with a valid scoped token
+
+    @PostMapping("/transfer-token")
+    public ResponseEntity<ApiResponse<PreScopeAuthResponse>> generateTransferToken(
+            @AuthenticationPrincipal User user) {
+        if (user == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+                authService.generateTransferToken(user.getId()), "Transfer token ready"));
+    }
+
+    // ── Token refresh ────────────────────────────────────────────────────────
 
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<AuthResponse>> refresh(@Valid @RequestBody RefreshTokenRequest request) {
@@ -56,8 +105,24 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(null, "Logged out successfully"));
     }
 
-    // Step 1 of mobile login: check how many accounts exist for this phone number.
-    // Returns 0, 1, or 2 account options — frontend shows role picker only when 2.
+    // ── Self-service password reset via mobile OTP ───────────────────────────
+
+    @PostMapping("/forgot-password/send")
+    public ResponseEntity<ApiResponse<Void>> sendForgotPasswordOtp(
+            @Valid @RequestBody SendPhoneOtpRequest req) {
+        authService.sendForgotPasswordOtp(req.getPhone(), req.getCountryCode());
+        return ResponseEntity.ok(ApiResponse.success(null, "If an account exists for this number, an OTP has been sent"));
+    }
+
+    @PostMapping("/forgot-password/reset")
+    public ResponseEntity<ApiResponse<Void>> resetPasswordViaOtp(
+            @Valid @RequestBody ForgotPasswordResetRequest req) {
+        authService.resetPasswordViaOtp(req);
+        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. Please sign in with your new password."));
+    }
+
+    // ── Mobile login (2-step) ────────────────────────────────────────────────
+
     @PostMapping("/mobile-lookup")
     public ResponseEntity<ApiResponse<MobileLookupResponse>> mobileLookup(
             @RequestParam String phone,
@@ -65,9 +130,8 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(authService.lookupByMobile(phone, phoneCountryCode)));
     }
 
-    // Step 2 of mobile login: authenticate with phone + password (+ role if 2 accounts exist).
     @PostMapping("/login-mobile")
-    public ResponseEntity<ApiResponse<AuthResponse>> loginByMobile(
+    public ResponseEntity<ApiResponse<LoginResponse>> loginByMobile(
             @Valid @RequestBody MobileLoginRequest request) {
         return ResponseEntity.ok(ApiResponse.success(authService.loginByMobile(request), "Login successful"));
     }

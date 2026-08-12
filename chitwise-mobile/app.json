@@ -33,7 +33,16 @@
       "expo-router",
       "expo-secure-store",
       "expo-font",
-      "expo-updates"
+      "expo-updates",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1E3A5F",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/2f8475ef-05ac-4966-99bb-c957113b85da",

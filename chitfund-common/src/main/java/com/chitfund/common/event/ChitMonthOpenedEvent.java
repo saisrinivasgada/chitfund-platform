@@ -15,6 +15,7 @@ import java.util.List;
  * will have a local phone cache and won't need to call anyone.
  */
 public record ChitMonthOpenedEvent(
+        String tenantId,
         String chitId,
         String chitName,
         Integer monthNumber,

@@ -12,6 +12,7 @@ import java.time.Instant;
  * in the consumer.
  */
 public record CashRequestEvent(
+        String tenantId,
         String requestId,
         String eventType,      // CREATED | ASSIGNED | PICKED_UP | COLLECTED | PARTIALLY_COLLECTED | MEMBER_APPROVED | MEMBER_REJECTED
         String memberId,       // member profile UUID (for metadata/audit)

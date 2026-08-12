@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/authStore';
 import { LoadingScreen } from '../components/ui';
 import { ToastRoot } from '../components/Toast';
 import { useRealtimeUpdates } from '../hooks/useRealtimeUpdates';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,10 +16,11 @@ const queryClient = new QueryClient({
 
 // Maps each role to the ONLY route group that role is allowed to access.
 const ROLE_GROUP: Record<string, string> = {
-  ADMIN:   '(admin)',
-  MANAGER: '(manager)',
-  STAFF:   '(staff)',
-  MEMBER:  '(member)',
+  ADMIN:       '(admin)',
+  MANAGER:     '(manager)',
+  STAFF:       '(staff)',
+  MEMBER:      '(member)',
+  SUPER_ADMIN: '(superadmin)',
 };
 
 function redirectByRole(role: string, router: any) {
@@ -33,6 +35,7 @@ function redirectByRole(role: string, router: any) {
 function RealtimeUpdater() {
   const { user } = useAuthStore();
   useRealtimeUpdates(!!user);
+  usePushNotifications(!!user);
   return null;
 }
 

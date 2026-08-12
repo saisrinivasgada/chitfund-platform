@@ -3,6 +3,8 @@ package com.chitfund.paymentservice.repository;
 import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -14,11 +16,11 @@ import java.util.UUID;
 
 public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
 
-    // All settlements for a member, newest first
-    List<Settlement> findByMemberIdOrderBySettledAtDesc(UUID memberId);
+    // All settlements for a member within a tenant, newest first — paginated
+    Page<Settlement> findByMemberIdAndTenantIdOrderBySettledAtDesc(UUID memberId, String tenantId, Pageable pageable);
 
-    // True if the member has any settlement not in the given terminal statuses (i.e. still active)
-    boolean existsByMemberIdAndPaymentStatusNotIn(UUID memberId, List<SettlementPaymentStatus> terminalStatuses);
+    // True if the member has any active settlement in this tenant
+    boolean existsByMemberIdAndTenantIdAndPaymentStatusNotIn(UUID memberId, String tenantId, List<SettlementPaymentStatus> terminalStatuses);
 
     /**
      * Loads a Settlement with a database-level pessimistic write lock.
@@ -44,8 +46,16 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
      * We want "anything that is not complete" — expressing it as an exclusion list means
      * newly added terminal statuses automatically fall out without changing this query.
      */
-    @Query("SELECT s FROM Settlement s WHERE s.paymentStatus NOT IN :terminalStatuses ORDER BY s.settledAt DESC")
-    List<Settlement> findByPaymentStatusNotIn(
-            @Param("terminalStatuses") List<SettlementPaymentStatus> terminalStatuses);
+    // All settlements for a tenant, newest first
+    @Query(value = "SELECT s FROM Settlement s WHERE s.tenantId = :tenantId ORDER BY s.settledAt DESC",
+           countQuery = "SELECT COUNT(s) FROM Settlement s WHERE s.tenantId = :tenantId")
+    Page<Settlement> findAllByTenant(@Param("tenantId") String tenantId, Pageable pageable);
+
+    @Query(value = "SELECT s FROM Settlement s WHERE s.tenantId = :tenantId AND s.paymentStatus NOT IN :terminalStatuses",
+           countQuery = "SELECT COUNT(s) FROM Settlement s WHERE s.tenantId = :tenantId AND s.paymentStatus NOT IN :terminalStatuses")
+    Page<Settlement> findPendingByTenant(
+            @Param("tenantId") String tenantId,
+            @Param("terminalStatuses") List<SettlementPaymentStatus> terminalStatuses,
+            Pageable pageable);
 }
 

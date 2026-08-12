@@ -12,5 +12,6 @@ public record OrgPayoutRealizedEvent(
         Integer monthNumber,
         BigDecimal payoutAmount,
         String realizedBy,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

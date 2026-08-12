@@ -1,5 +1,6 @@
 package com.chitfund.reportingservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.reportingservice.dto.response.ChitCollectionReport;
@@ -25,7 +26,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public List<ChitCollectionReport> getChitCollectionReport(String chitId) {
-        return snapshotRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+        return snapshotRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(TenantContext.get(), chitId)
                 .stream()
                 .map(ChitCollectionReport::from)
                 .toList();
@@ -43,7 +44,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public List<MemberStatementReport> getChitMemberStatements(String chitId) {
-        return memberSummaryRepository.findByChitIdOrderByMemberNameAsc(chitId)
+        return memberSummaryRepository.findByTenantIdAndChitIdOrderByMemberNameAsc(TenantContext.get(), chitId)
                 .stream()
                 .map(MemberStatementReport::from)
                 .toList();
@@ -51,7 +52,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public List<MemberStatementReport> getMemberStatement(String memberId) {
-        return memberSummaryRepository.findByMemberIdOrderByChitIdAsc(memberId)
+        return memberSummaryRepository.findByTenantIdAndMemberIdOrderByChitIdAsc(TenantContext.get(), memberId)
                 .stream()
                 .map(MemberStatementReport::from)
                 .toList();
@@ -59,7 +60,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public List<PayoutSummaryReport> getChitPayouts(String chitId) {
-        return payoutSummaryRepository.findByChitIdOrderByMonthNumberAsc(chitId)
+        return payoutSummaryRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(TenantContext.get(), chitId)
                 .stream()
                 .map(PayoutSummaryReport::from)
                 .toList();
@@ -67,7 +68,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public List<PayoutSummaryReport> getMemberPayouts(String memberId) {
-        return payoutSummaryRepository.findByMemberIdOrderByChitIdAsc(memberId)
+        return payoutSummaryRepository.findByTenantIdAndMemberIdOrderByChitIdAsc(TenantContext.get(), memberId)
                 .stream()
                 .map(PayoutSummaryReport::from)
                 .toList();

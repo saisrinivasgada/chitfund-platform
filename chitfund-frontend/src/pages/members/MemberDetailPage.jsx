@@ -3,9 +3,11 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
-  getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit, createMemberLogin,
-  linkMemberUser, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
+  getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit,
+  resendSetupLink, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests,
+  getMemberSettlements, recordSettlementTransaction, voidSettlement,
+  getMemberPaymentHistoryByChit,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -20,7 +22,7 @@ import {
   ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
-  Layers, ExternalLink, ClipboardList,
+  Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight, Banknote,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -43,7 +45,6 @@ function InfoRow({ label, value, children }) {
 const STATUS_OPTIONS = [
   { value: 'ACTIVE',      label: 'Active',      color: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
   { value: 'INACTIVE',    label: 'Inactive',    color: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB' },
-  { value: 'SUSPENDED',   label: 'Suspended',   color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
   { value: 'BLACKLISTED', label: 'Blacklisted', color: '#DC2626', bg: '#FFF5F5', border: '#FECACA' },
 ];
 
@@ -229,7 +230,7 @@ function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onRe
               icon={<UserPlus size={14} />}
               onClick={() => { onCreateLogin(); setOpen(false); }}
             >
-              Create Login
+              Resend Setup Link
             </MenuButton>
           )}
           {isAdmin && (
@@ -479,38 +480,54 @@ function TempPasswordDisplay({ tempPassword, username, label }) {
   );
 }
 
-// ─── Create login modal ───────────────────────────────────────────────────────
+// ─── Resend setup link modal ──────────────────────────────────────────────────
 function CreateLoginModal({ member, onClose }) {
-  const qc = useQueryClient();
   const toast = useToastContext();
-  const [form, setForm] = useState({ username: '', email: member.email ?? '' });
-  const [step, setStep] = useState('form');
-  const [tempPassword, setTempPassword] = useState('');
+  const [step, setStep] = useState('confirm');
+  const [setupToken, setSetupToken] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  const setupUrl = setupToken ? `${window.location.origin}/setup-account?token=${setupToken}` : '';
+
+  async function handleSend() {
     setStep('loading');
     try {
-      const loginData = await createMemberLogin({ username: form.username, email: form.email, phone: member.phone, phoneCountryCode: member.phoneCountryCode ?? '+91' });
-      const newUserId = loginData?.userId;
-      if (!newUserId) throw new Error('Failed to create login — no user ID returned');
-      await linkMemberUser({ memberId: member.id, userId: newUserId });
-      qc.invalidateQueries({ queryKey: ['member', member.id] });
-      qc.invalidateQueries({ queryKey: ['members'] });
-      setTempPassword(loginData?.tempPassword ?? '');
+      if (!member.userId) throw new Error('This member has no linked user account. Create a member login first.');
+      const result = await resendSetupLink(member.userId);
+      setSetupToken(result?.setupToken ?? '');
       setStep('done');
     } catch (err) {
-      toast.error(err.response?.data?.message ?? err.message ?? 'Failed to create login');
-      setStep('form');
+      toast.error(err.response?.data?.message ?? err.message ?? 'Failed to generate setup link');
+      setStep('confirm');
     }
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(setupUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   if (step === 'done') {
     return (
-      <Modal title="Login Created" onClose={onClose} size="sm">
+      <Modal title="Setup Link Generated" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">App account created for <strong>{member.fullName}</strong>.</p>
-          {tempPassword && <TempPasswordDisplay username={form.username} tempPassword={tempPassword} />}
+          <p className="text-sm text-gray-600">
+            Share this link with <strong>{member.fullName}</strong> to let them set up their account password.
+            The link expires in 72 hours.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-3 font-mono text-xs text-gray-700 break-all border border-gray-200">
+            {setupUrl}
+          </div>
+          <button
+            type="button"
+            onClick={copyLink}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-medium cursor-pointer hover:bg-[#EFF4FA] transition-colors"
+          >
+            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+            {copied ? 'Copied!' : 'Copy link'}
+          </button>
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
       </Modal>
@@ -518,35 +535,18 @@ function CreateLoginModal({ member, onClose }) {
   }
 
   return (
-    <Modal title="Create Member Login" onClose={onClose} size="sm">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal title="Resend Setup Link" onClose={onClose} size="sm">
+      <div className="space-y-4">
         <p className="text-sm text-gray-500">
-          Create an app account for <strong>{member.fullName}</strong>. A temporary password will be generated.
+          Generate a new setup link for <strong>{member.fullName}</strong>. They can use it to set a password and activate their account. Any previous setup link will be invalidated.
         </p>
-        <FormField label="Username" required>
-          <Input
-            value={form.username}
-            onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-            placeholder="e.g. sai_srinivas"
-            pattern="^[a-zA-Z0-9_]+$"
-            required
-          />
-        </FormField>
-        <FormField label="Email" required>
-          <Input
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-            required
-          />
-        </FormField>
         <div className="flex gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button type="submit" loading={step === 'loading'} className="flex-1">
-            <UserPlus size={14} /> Create Login
+          <Button onClick={handleSend} loading={step === 'loading'} className="flex-1">
+            <UserPlus size={14} /> Generate Link
           </Button>
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }
@@ -1092,6 +1092,399 @@ function PaymentHistorySection({ memberId }) {
   );
 }
 
+// ─── Settlement History + Payment Collection ──────────────────────────────────
+function PendingSettlementCard({ memberId }) {
+  const { hidden } = useHiddenAmounts();
+  const navigate = useNavigate();
+
+  const { data: settlementPage } = useQuery({
+    queryKey: ['memberSettlements', memberId],
+    queryFn: () => getMemberSettlements(memberId, 0, 20),
+    enabled: !!memberId,
+  });
+  const settlements = settlementPage?.content ?? [];
+  const TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
+  const pendingOnes = settlements.filter((s) => !TERMINAL.has(s.status));
+
+  if (pendingOnes.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      {pendingOnes.map((s) => {
+        const remaining = Math.abs(Number(s.remainingAmount ?? 0));
+        const isCollect = Number(s.totalAmount ?? 0) > 0;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => navigate(`/settlement?memberId=${memberId}&settlementId=${s.id}`)}
+            className="w-full bg-amber-50 rounded-xl border border-amber-200 p-4 flex items-center gap-3 text-left hover:border-amber-400 transition-all cursor-pointer"
+          >
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-100">
+              <AlertTriangle size={16} className="text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800">
+                Settlement {isCollect ? 'Payment Pending' : 'Disbursement Pending'}
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                {hidden ? '••••••' : `₹${remaining.toLocaleString('en-IN')}`} remaining to {isCollect ? 'collect' : 'disburse'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 text-xs font-semibold text-amber-700">
+              Record <ArrowRight size={12} />
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettlementHistorySection({ memberId }) {
+  const { hidden } = useHiddenAmounts();
+  const qc = useQueryClient();
+  const toast = useToastContext();
+
+  const { data: settlementPage, isLoading } = useQuery({
+    queryKey: ['memberSettlements', memberId],
+    queryFn: () => getMemberSettlements(memberId, 0, 20),
+    enabled: !!memberId,
+  });
+  const settlements = settlementPage?.content ?? [];
+
+  const [activeId, setActiveId] = useState(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payMode, setPayMode] = useState('');
+  const [payRef, setPayRef] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+  const [expandedSettlement, setExpandedSettlement] = useState(null);
+  const [expandedChitId, setExpandedChitId] = useState(null);
+  const [voidId, setVoidId] = useState(null);
+
+  const payMutation = useMutation({
+    mutationFn: (vars) => recordSettlementTransaction(vars),
+    onSuccess: () => {
+      toast.success('Payment recorded');
+      qc.invalidateQueries({ queryKey: ['memberSettlements', memberId] });
+      setActiveId(null);
+      setPayAmount('');
+      setPayMode('');
+      setPayRef('');
+      setPayNotes('');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
+  });
+
+  const voidMutation = useMutation({
+    mutationFn: (settlementId) => voidSettlement(settlementId),
+    onSuccess: () => {
+      toast.success('Settlement voided — payment records reverted to Outstanding');
+      qc.invalidateQueries({ queryKey: ['memberSettlements', memberId] });
+      qc.invalidateQueries({ queryKey: ['members'] });
+      setVoidId(null);
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to void settlement'),
+  });
+
+  // Draw-level payment details when a chit row is expanded
+  const { data: drawDetails = [], isLoading: drawLoading } = useQuery({
+    queryKey: ['draw-details', memberId, expandedChitId],
+    queryFn: () => getMemberPaymentHistoryByChit(memberId, expandedChitId),
+    enabled: !!(memberId && expandedChitId),
+  });
+
+  const TERMINAL = ['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED'];
+  const statusCfg = {
+    PENDING:              { bg: 'bg-amber-100', text: 'text-amber-700',  label: 'Pending' },
+    PARTIALLY_COLLECTED:  { bg: 'bg-blue-100',  text: 'text-blue-700',   label: 'Partial (Collect)' },
+    PARTIALLY_DISBURSED:  { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Partial (Pay)' },
+    FULLY_COLLECTED:      { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Collected' },
+    FULLY_DISBURSED:      { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Disbursed' },
+    BALANCED:             { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Balanced' },
+    VOIDED:               { bg: 'bg-red-100',    text: 'text-red-600',    label: 'Voided' },
+  };
+
+  if (isLoading) return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <HandCoins size={18} className="text-[#1E3A5F]" />
+        <h3 className="font-semibold text-gray-900">Settlement History</h3>
+      </div>
+      <PageSpinner />
+    </div>
+  );
+
+  if (settlements.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <HandCoins size={18} className="text-[#1E3A5F]" />
+          <h3 className="font-semibold text-gray-900">Settlement History</h3>
+          <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+            {settlements.length}
+          </span>
+        </div>
+      </div>
+
+      <div className="divide-y divide-gray-100">
+        {settlements.map((s) => {
+          const net = Number(s.netAmount);
+          const absNet = Math.abs(net);
+          const isCollect = net > 0;
+          const moved = isCollect ? Number(s.collectedAmount ?? 0) : Number(s.disbursedAmount ?? 0);
+          const remaining = Math.max(0, absNet - moved);
+          const isTerminal = TERMINAL.includes(s.paymentStatus);
+          const isVoided = s.paymentStatus === 'VOIDED';
+          const cfg = statusCfg[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: s.paymentStatus };
+          const isOpen = activeId === s.id;
+          const isExpanded = expandedSettlement === s.id;
+
+          return (
+            <div key={s.id} className={isVoided ? 'opacity-60' : ''}>
+              {/* Settlement row */}
+              <div className="px-6 py-4 flex items-center gap-4">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isCollect ? 'bg-red-50' : 'bg-green-50'}`}>
+                  {isCollect
+                    ? <TrendingUp size={16} className="text-red-600" />
+                    : <TrendingDown size={16} className="text-green-600" />}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {hidden ? '••••••' : `₹${absNet.toLocaleString('en-IN')}`}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {isCollect ? 'to collect from member' : 'to pay to member'}
+                    </span>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-400 flex-wrap">
+                    <span>{new Date(s.settledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    {!isTerminal && remaining > 0 && (
+                      <span className={isCollect ? 'text-red-500 font-medium' : 'text-green-600 font-medium'}>
+                        {hidden ? '••••••' : `₹${remaining.toLocaleString('en-IN')}`} remaining
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Expand / collapse chit details */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedSettlement(isExpanded ? null : s.id);
+                      setExpandedChitId(null);
+                    }}
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                  {!isTerminal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveId(isOpen ? null : s.id);
+                        setPayAmount('');
+                        setPayMode('');
+                        setPayRef('');
+                        setPayNotes('');
+                      }}
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 transition-colors"
+                    >
+                      {isOpen ? 'Cancel' : 'Record Payment'}
+                    </button>
+                  )}
+                  {!isVoided && (
+                    <button
+                      type="button"
+                      onClick={() => setVoidId(s.id)}
+                      className="text-xs text-red-500 hover:text-red-700 px-2.5 py-1.5 rounded-lg border border-red-100 hover:bg-red-50 transition-colors"
+                    >
+                      Void
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Chit breakdown (expanded) */}
+              {isExpanded && (s.chitItems ?? []).length > 0 && (
+                <div className="mx-6 mb-3 rounded-xl border border-gray-200 overflow-hidden">
+                  {(s.chitItems ?? []).map((item) => {
+                    const itemNet = Number(item.netAmount);
+                    const isItemCollect = itemNet >= 0;
+                    const isChitExpanded = expandedChitId === item.chitId;
+                    const drawStatusCfg = {
+                      SETTLED:            { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Paid' },
+                      OUTSTANDING:        { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Outstanding' },
+                      PARTIALLY_PAID:     { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Partial' },
+                      WAIVED:             { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Waived' },
+                      PAYOUT_DEDUCTED:    { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Deducted' },
+                      SETTLEMENT_CLEARED: { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Settlement Cleared' },
+                    };
+                    return (
+                      <div key={item.chitId} className="border-b border-gray-100 last:border-0">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedChitId(isChitExpanded ? null : item.chitId)}
+                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-600">{item.settlementCase?.replace('CASE_','')}</span>
+                            <span className="text-sm font-medium text-gray-800 truncate">{item.chitName}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-bold ${isItemCollect ? 'text-red-600' : 'text-green-700'}`}>
+                              {isItemCollect ? '+' : '−'}{hidden ? '••••••' : `₹${Math.abs(itemNet).toLocaleString('en-IN')}`}
+                            </span>
+                            {isChitExpanded ? <ChevronUp size={13} className="text-gray-400" /> : <ChevronDown size={13} className="text-gray-400" />}
+                          </div>
+                        </button>
+                        {isChitExpanded && (
+                          <div className="bg-gray-50 px-4 py-3 border-t border-gray-100">
+                            {item.description && <p className="text-xs text-gray-500 mb-2 italic">{item.description}</p>}
+                            <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                              {Number(item.unpaidDues ?? 0) > 0 && <div><span className="text-gray-500">Unpaid Dues</span><p className="font-semibold text-red-600">₹{Number(item.unpaidDues).toLocaleString('en-IN')}</p></div>}
+                              {Number(item.futureInstallments ?? 0) > 0 && <div><span className="text-gray-500">Future Install.</span><p className="font-semibold text-red-600">₹{Number(item.futureInstallments).toLocaleString('en-IN')}</p></div>}
+                              {Number(item.payoutCredit ?? 0) > 0 && <div><span className="text-gray-500">Payout Credit</span><p className="font-semibold text-green-700">₹{Number(item.payoutCredit).toLocaleString('en-IN')}</p></div>}
+                              {Number(item.totalPaid ?? 0) > 0 && <div><span className="text-gray-500">Total Paid</span><p className="font-semibold text-green-700">₹{Number(item.totalPaid).toLocaleString('en-IN')}</p></div>}
+                            </div>
+                            <p className="text-xs font-semibold text-gray-500 mb-2">Draw-wise payments</p>
+                            {drawLoading ? (
+                              <p className="text-xs text-gray-400 text-center py-2">Loading draws…</p>
+                            ) : drawDetails.length === 0 ? (
+                              <p className="text-xs text-gray-400 text-center py-2">No draw records found</p>
+                            ) : (
+                              <div className="space-y-1 max-h-48 overflow-y-auto">
+                                {drawDetails.map((draw) => {
+                                  const dc = drawStatusCfg[draw.status] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: draw.status };
+                                  return (
+                                    <div key={draw.id ?? draw.monthNumber} className="flex items-center gap-2 py-1 border-b border-gray-100 last:border-0">
+                                      <div className="w-6 h-6 rounded-full bg-[#1E3A5F] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                                        {draw.monthNumber}
+                                      </div>
+                                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${dc.bg} ${dc.text}`}>{dc.label}</span>
+                                      <span className="flex-1" />
+                                      <span className="text-xs font-semibold text-gray-700">{hidden ? '••••••' : `₹${Number(draw.amountPaid ?? 0).toLocaleString('en-IN')}`}</span>
+                                      <span className="text-xs text-gray-400">/ {hidden ? '••••••' : `₹${Number(draw.amountDue ?? 0).toLocaleString('en-IN')}`}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Inline payment form */}
+              {isOpen && (
+                <div className="mx-6 mb-4 p-4 rounded-xl bg-blue-50 border border-blue-200">
+                  <p className="text-xs font-semibold text-blue-800 mb-3">
+                    Record {isCollect ? 'collection from' : 'disbursement to'} member
+                    {remaining > 0 && !hidden && ` — ₹${remaining.toLocaleString('en-IN')} remaining`}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Amount (₹) *</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={remaining}
+                        step="0.01"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        placeholder={`Max ₹${remaining.toLocaleString('en-IN')}`}
+                        className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Payment Mode *</label>
+                      <select
+                        value={payMode}
+                        onChange={(e) => setPayMode(e.target.value)}
+                        className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="">Select mode…</option>
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                        <option value="CHEQUE">Cheque</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Reference No.</label>
+                      <input
+                        type="text"
+                        value={payRef}
+                        onChange={(e) => setPayRef(e.target.value)}
+                        placeholder="UPI txn / cheque no."
+                        className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Notes</label>
+                      <input
+                        type="text"
+                        value={payNotes}
+                        onChange={(e) => setPayNotes(e.target.value)}
+                        placeholder="Optional note"
+                        className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    disabled={!payAmount || !payMode || payMutation.isPending}
+                    loading={payMutation.isPending}
+                    onClick={() =>
+                      payMutation.mutate({
+                        settlementId: s.id,
+                        amount: Number(payAmount),
+                        mode: payMode,
+                        referenceNumber: payRef || null,
+                        notes: payNotes || null,
+                        idempotencyKey: crypto.randomUUID(),
+                      })
+                    }
+                  >
+                    Confirm Payment
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Void confirm dialog */}
+      {voidId && (
+        <ConfirmDialog
+          variant="danger"
+          title="Void Settlement"
+          description="This will void the settlement and revert all SETTLEMENT_CLEARED payment records to Outstanding. The member can be re-settled after voiding. This cannot be undone."
+          actionLabel="Void Settlement"
+          loading={voidMutation.isPending}
+          onConfirm={() => voidMutation.mutate(voidId)}
+          onClose={() => setVoidId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function MemberDetailPage() {
   const { id } = useParams();
@@ -1375,9 +1768,9 @@ export default function MemberDetailPage() {
       </div>
 
       {/* Info Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div>
         {/* Personal Info */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 lg:col-span-2">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-4">
             <User size={18} className="text-[#1E3A5F]" />
             <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -1511,6 +1904,39 @@ export default function MemberDetailPage() {
 
       {/* Balances */}
       <BalancesSection memberId={id} />
+
+      {/* Credit Balance Card */}
+      {!isDeleted && creditBalance > 0 && (
+        <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100">
+              <Banknote size={18} className="text-emerald-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Credit Balance</p>
+              <p className="text-2xl font-bold text-emerald-700 mt-0.5">
+                {hidden ? '••••••' : `₹${creditBalance.toLocaleString('en-IN')}`}
+              </p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                Will auto-apply to any outstanding dues when next payment is recorded.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate(`/payments?memberId=${id}`)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-white border border-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-50 transition-colors cursor-pointer"
+            >
+              Apply <ArrowRight size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Settlement Quick-Action Card */}
+      <PendingSettlementCard memberId={id} />
+
+      {/* Settlement History + payment collection */}
+      <SettlementHistorySection memberId={id} />
 
       {/* Payment History */}
       <PaymentHistorySection memberId={id} />

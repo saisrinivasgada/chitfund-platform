@@ -18,6 +18,7 @@ package com.chitfund.userservice.domain.enums;
  * 'MANAGER can only see chits they created', that's when you graduate to ABAC."
  */
 public enum Role {
+    SUPER_ADMIN,  // platform-level; no tenantId in JWT; manages all orgs
     ADMIN,
     MANAGER,
     STAFF,

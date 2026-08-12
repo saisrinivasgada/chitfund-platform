@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Outlet, Navigate, useLocation } from 'react-router-dom';
+import { Outlet, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Sidebar from './Sidebar';
 import Toast from '../ui/Toast';
 import NotificationBell from '../notifications/NotificationBell';
 import useToast from '../../hooks/useToast';
 import { createContext, useContext } from 'react';
-import { Menu, BookOpen, Eye, EyeOff } from 'lucide-react';
+import { Menu, BookOpen, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import Modal from '../ui/Modal';
+import Button from '../ui/Button';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
 
@@ -14,12 +16,30 @@ const ToastContext = createContext(null);
 export const useToastContext = () => useContext(ToastContext);
 
 export default function AppLayout() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, tenantName } = useAuth();
   const { toasts, toast, dismiss } = useToast();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebarCollapsed') === 'true'
+  );
+  function toggleSidebarCollapse() {
+    setSidebarCollapsed(c => {
+      const next = !c;
+      localStorage.setItem('sidebarCollapsed', next);
+      return next;
+    });
+  }
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   useRealtimeUpdates(isAuthenticated);
+  const navigate = useNavigate();
+  const [planExpiredOpen, setPlanExpiredOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setPlanExpiredOpen(true);
+    window.addEventListener('plan-expired', handler);
+    return () => window.removeEventListener('plan-expired', handler);
+  }, []);
 
   // Close drawer whenever the route changes (tapping a nav link on mobile)
   useEffect(() => {
@@ -48,7 +68,7 @@ export default function AppLayout() {
       ['/my-account', 'My Account'],
       ['/staff/', 'Staff Detail'],
       ['/transactions/', 'Transaction Detail'],
-      ['/', 'Dashboard'],
+      ['/dashboard', 'Dashboard'],
     ];
     const match = titles.find(([prefix]) => p === prefix || p.startsWith(prefix));
     document.title = match ? `${match[1]} — ChitWise` : 'ChitWise';
@@ -81,7 +101,7 @@ export default function AppLayout() {
         />
 
         {/* ── Sidebar ───────────────────────────────────────────────────── */}
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebarCollapse} />
 
         {/* ── Main column ───────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -97,7 +117,7 @@ export default function AppLayout() {
               <Menu size={22} />
             </button>
 
-            {/* Centre: logo */}
+            {/* Centre: logo + org name */}
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -105,12 +125,17 @@ export default function AppLayout() {
               >
                 <BookOpen size={14} className="text-white" />
               </div>
-              <span
-                className="text-base font-bold"
-                style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
-              >
-                ChitWise
-              </span>
+              <div className="flex flex-col leading-tight">
+                <span
+                  className="text-base font-bold"
+                  style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
+                >
+                  ChitWise
+                </span>
+                {tenantName && (
+                  <span className="text-xs text-gray-400 truncate max-w-[140px]">{tenantName}</span>
+                )}
+              </div>
             </div>
 
             {/* Right: notification bell + hide toggle */}
@@ -140,6 +165,32 @@ export default function AppLayout() {
 
 
         <Toast toasts={toasts} onDismiss={dismiss} />
+
+        {planExpiredOpen && (
+          <Modal title="Subscription Expired" onClose={() => setPlanExpiredOpen(false)} size="sm">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                style={{ backgroundColor: '#FEE2E2' }}>
+                <AlertCircle size={26} style={{ color: '#DC2626' }} />
+              </div>
+              <p className="text-sm font-semibold text-gray-800 mb-2">Your subscription has expired</p>
+              <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                This action is not available while your plan is inactive. Renew your subscription to continue managing chits, members, and transactions.
+              </p>
+              <div className="flex gap-3">
+                <Button variant="ghost" onClick={() => setPlanExpiredOpen(false)} className="flex-1">Dismiss</Button>
+                <button
+                  type="button"
+                  onClick={() => { setPlanExpiredOpen(false); navigate('/billing'); }}
+                  className="flex-1 py-2 rounded-xl text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: '#DC2626' }}
+                >
+                  Renew Plan
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </div>
     </ToastContext.Provider>
   );

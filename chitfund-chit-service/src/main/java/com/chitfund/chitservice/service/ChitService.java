@@ -2,6 +2,7 @@ package com.chitfund.chitservice.service;
 
 import com.chitfund.chitservice.client.NotificationClient;
 import com.chitfund.chitservice.domain.entity.Chit;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
@@ -9,6 +10,7 @@ import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import com.chitfund.chitservice.dto.request.CreateChitRequest;
 import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
+import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
@@ -50,9 +52,12 @@ public class ChitService {
     private final ChitMapper chitMapper;
     private final ChitAttributeService attributeService;
     private final NotificationClient notificationClient;
+    private final PlanLimitChecker planLimitChecker;
 
     @Transactional
     public ChitResponse createChit(CreateChitRequest req, UUID createdBy) {
+        planLimitChecker.checkCanCreateChit(req.getChitType());
+
         BigDecimal installment = req.getInstallmentAmount() != null
                 ? req.getInstallmentAmount()
                 : req.getChitValue().divide(BigDecimal.valueOf(req.getNumberOfMembers()), 2, RoundingMode.HALF_UP);
@@ -66,6 +71,7 @@ public class ChitService {
                 : null;
 
         Chit chit = Chit.builder()
+                .tenantId(TenantContext.get())
                 .chitType(req.getChitType())
                 .name(req.getName())
                 .description(req.getDescription())
@@ -100,26 +106,38 @@ public class ChitService {
     }
 
     public ChitResponse getChit(UUID id) {
-        return enrich(findById(id));
+        Chit chit = findById(id);
+        String tid = TenantContext.get();
+        if (tid != null && !tid.equals(chit.getTenantId())) {
+            throw new com.chitfund.common.exception.ResourceNotFoundException("Chit", id);
+        }
+        return enrich(chit);
     }
 
     public PagedResponse<ChitResponse> listChits(ChitStatus status, Pageable pageable) {
+        return listChits(status, null, pageable);
+    }
+
+    public PagedResponse<ChitResponse> listChits(ChitStatus status, String tenantFilter, Pageable pageable) {
+        String tid = (tenantFilter != null && !tenantFilter.isBlank()) ? tenantFilter : TenantContext.get();
         var page = (status != null)
-                ? chitRepository.findByStatusAndDeletedAtIsNull(status, pageable)
-                : chitRepository.findByDeletedAtIsNull(pageable);
+                ? chitRepository.findByTenantIdAndStatusAndDeletedAtIsNull(tid, status, pageable)
+                : chitRepository.findByTenantIdAndDeletedAtIsNull(tid, pageable);
         return PagedResponse.from(page.map(this::enrich));
     }
 
     public PagedResponse<ChitResponse> listDeletedChits(Pageable pageable) {
-        return PagedResponse.from(chitRepository.findByDeletedAtIsNotNull(pageable).map(this::enrich));
+        return PagedResponse.from(
+                chitRepository.findByTenantIdAndDeletedAtIsNotNull(TenantContext.get(), pageable).map(this::enrich));
     }
 
     public List<ChitResponse> listChitsForMember(UUID memberId, ChitStatus status) {
         List<UUID> chitIds = enrollmentRepository.findDistinctChitIdsByMemberId(memberId);
         if (chitIds.isEmpty()) return List.of();
+        String tid = TenantContext.get();
         List<Chit> chits = (status != null)
-                ? chitRepository.findByIdInAndStatusAndDeletedAtIsNull(chitIds, status)
-                : chitRepository.findByIdInAndDeletedAtIsNull(chitIds);
+                ? chitRepository.findByTenantIdAndIdInAndStatusAndDeletedAtIsNull(tid, chitIds, status)
+                : chitRepository.findByTenantIdAndIdInAndDeletedAtIsNull(tid, chitIds);
         return chits.stream().map(this::enrich).toList();
     }
 
@@ -128,6 +146,10 @@ public class ChitService {
         Chit chit = findById(id);
         boolean activatingFromDraft = request.getStatus() == ChitStatus.ACTIVE
                 && chit.getStatus() == ChitStatus.DRAFT;
+
+        if (activatingFromDraft) {
+            planLimitChecker.checkCanActivateChit();
+        }
         boolean completing = request.getStatus() == ChitStatus.COMPLETED;
         boolean revertingToDraft = request.getStatus() == ChitStatus.DRAFT
                 && chit.getStatus() == ChitStatus.ACTIVE;
@@ -221,6 +243,25 @@ public class ChitService {
     }
 
     @Transactional
+    public void syncEnrollmentForMember(Chit chit, UUID memberId) {
+        boolean hasActiveSlot = reservationRepository.existsByChitIdAndMemberIdAndStatusNot(
+                chit.getId(), memberId, ReservationStatus.VOIDED);
+        List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndMemberIdAndActiveTrue(chit.getId(), memberId);
+        if (hasActiveSlot) {
+            if (existing.isEmpty()) {
+                enrollmentRepository.save(ChitEnrollment.builder().chit(chit).memberId(memberId).build());
+                log.info("Chit {} — enrolled member {} after slot assignment", chit.getId(), memberId);
+            }
+        } else {
+            existing.forEach(e -> e.setActive(false));
+            if (!existing.isEmpty()) {
+                enrollmentRepository.saveAll(existing);
+                log.info("Chit {} — deactivated enrollment for member {} (no active slots)", chit.getId(), memberId);
+            }
+        }
+    }
+
+    @Transactional
     public ChitResponse updateName(UUID id, UpdateChitNameRequest request) {
         Chit chit = findById(id);
         chit.setName(request.getName().trim());
@@ -230,6 +271,52 @@ public class ChitService {
         chit = chitRepository.save(chit);
         log.info("Chit {} name updated to '{}'", id, chit.getName());
         return enrich(chit);
+    }
+
+    @Transactional
+    public ChitResponse updateDetails(UUID id, UpdateChitDetailsRequest req, UUID updatedBy) {
+        Chit chit = findById(id);
+        ChitStatus status = chit.getStatus();
+        if (status == ChitStatus.COMPLETED || status == ChitStatus.CANCELLED || status == ChitStatus.DELETED) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Cannot edit details of a " + status + " chit");
+        }
+        boolean isDraft = status == ChitStatus.DRAFT;
+
+        if (req.getName() != null && !req.getName().isBlank()) {
+            chit.setName(req.getName().trim());
+        }
+        if (req.getDescription() != null) {
+            chit.setDescription(req.getDescription().isBlank() ? null : req.getDescription().trim());
+        }
+        if (req.getChitValue() != null) {
+            chit.setChitValue(req.getChitValue());
+            chit.setTotalAmount(req.getChitValue());
+        }
+        if (req.getInstallmentAmount() != null) {
+            chit.setInstallmentAmount(req.getInstallmentAmount());
+        } else if (req.getChitValue() != null && chit.getTotalMembers() != null && chit.getTotalMembers() > 0) {
+            chit.setInstallmentAmount(chit.getChitValue()
+                    .divide(BigDecimal.valueOf(chit.getTotalMembers()), 2, RoundingMode.HALF_UP));
+        }
+        if (req.getMonthlyDueDate() != null) chit.setMonthlyDueDate(req.getMonthlyDueDate());
+        if (req.getPostPayoutContributionEnabled() != null)
+            chit.setPostPayoutContributionEnabled(req.getPostPayoutContributionEnabled());
+        if (req.getDefaultPostPayoutContribution() != null)
+            chit.setDefaultPostPayoutContribution(req.getDefaultPostPayoutContribution());
+
+        if (isDraft) {
+            if (req.getNumberOfMembers() != null) chit.setTotalMembers(req.getNumberOfMembers());
+            if (req.getNumberOfMonths() != null) chit.setDurationMonths(req.getNumberOfMonths());
+            if (req.getOrgHeldSpotsCount() != null) chit.setOrgHeldSpotsCount(req.getOrgHeldSpotsCount());
+            if (req.getStartDate() != null) {
+                chit.setStartDate(req.getStartDate());
+                chit.setEndDate(req.getStartDate().plusMonths(chit.getDurationMonths()));
+            }
+        }
+
+        chit.setUpdatedBy(updatedBy);
+        return enrich(chitRepository.save(chit));
     }
 
     @Transactional
@@ -325,9 +412,9 @@ public class ChitService {
     public List<ChitResponse> listUpdatedToday() {
         LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
         LocalDateTime twelveHoursAgo = LocalDateTime.now().minusHours(12);
-        // Use whichever window is wider: today since midnight vs last 12 hours
         LocalDateTime since = twelveHoursAgo.isBefore(startOfDay) ? twelveHoursAgo : startOfDay;
-        return chitRepository.findByUpdatedAtBetweenAndDeletedAtIsNull(since, LocalDateTime.now().plusMinutes(1))
+        return chitRepository.findByTenantIdAndUpdatedAtBetweenAndDeletedAtIsNull(
+                        TenantContext.get(), since, LocalDateTime.now().plusMinutes(1))
                 .stream().map(this::enrich).toList();
     }
 

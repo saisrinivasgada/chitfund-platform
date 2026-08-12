@@ -22,14 +22,14 @@ public class ReportController {
     // ─── Collection reports (chit-level) ────────────────────────────────────
 
     @GetMapping("/chit/{chitId}/collections")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<ChitCollectionReport>>> getChitCollections(
             @PathVariable String chitId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitCollectionReport(chitId)));
     }
 
     @GetMapping("/chit/{chitId}/collections/{monthNumber}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<ChitCollectionReport>> getMonthSnapshot(
             @PathVariable String chitId,
             @PathVariable Integer monthNumber) {
@@ -38,22 +38,15 @@ public class ReportController {
 
     // ─── Member statement reports ────────────────────────────────────────────
 
-    /**
-     * Admin view: all members' balances for a chit (outstanding list).
-     */
     @GetMapping("/chit/{chitId}/members")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<MemberStatementReport>>> getChitMemberStatements(
             @PathVariable String chitId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitMemberStatements(chitId)));
     }
 
-    /**
-     * Member's own statement across all their chits.
-     * Admin can also call this for any member.
-     */
     @GetMapping("/member/{memberId}/statement")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER', 'ROLE_MEMBER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<MemberStatementReport>>> getMemberStatement(
             @PathVariable String memberId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getMemberStatement(memberId)));
@@ -62,14 +55,14 @@ public class ReportController {
     // ─── Payout reports ──────────────────────────────────────────────────────
 
     @GetMapping("/chit/{chitId}/payouts")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<PayoutSummaryReport>>> getChitPayouts(
             @PathVariable String chitId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitPayouts(chitId)));
     }
 
     @GetMapping("/member/{memberId}/payouts")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_WORKER', 'ROLE_MEMBER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PayoutSummaryReport>>> getMemberPayouts(
             @PathVariable String memberId) {
         return ResponseEntity.ok(ApiResponse.success(queryService.getMemberPayouts(memberId)));

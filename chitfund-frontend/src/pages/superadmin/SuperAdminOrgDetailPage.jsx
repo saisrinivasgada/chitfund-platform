@@ -22,6 +22,7 @@ import {
   superAdminGetDiscount,
   superAdminSetDiscount,
   superAdminRemoveDiscount,
+  superAdminSetTenantStatus,
   resetMemberPassword,
   superAdminProxyAs,
 } from '../../services/api';
@@ -49,16 +50,18 @@ const ROLE_CONFIG = {
 };
 
 const PLAN_LIMITS = {
-  BASIC:      { chits: 1, members: 20,  staff: 0, chitTypes: 'STANDARD only' },
+  BASIC:      { chits: 1, members: 20,  staff: 0, chitTypes: 'RESERVATION only' },
   GROWTH:     { chits: 2, members: 30,  staff: 2, chitTypes: 'Standard' },
   PRO:        { chits: 20, members: 1000, staff: 0, chitTypes: 'Standard, Post-Payout, Reservation' },
   ENTERPRISE: { chits: 3, members: 50,  staff: 3, chitTypes: 'All types' },
 };
 
 const PLAN_CHIT_TYPES = {
-  BASIC:      ['STANDARD'],
-  PRO:        ['STANDARD', 'POST_PAYOUT', 'RESERVATION'],
-  ENTERPRISE: ['STANDARD', 'POST_PAYOUT', 'RESERVATION', 'FLEXI'],
+  BASIC:      ['RESERVATION'],
+  GROWTH:     ['RESERVATION'],
+  ENTERPRISE: ['RESERVATION'],
+  'ENTERPRISE+': ['RESERVATION'],
+  CUSTOM:     ['RESERVATION', 'LOTTERY', 'AUCTION'],
   CUSTOM:     [],
 };
 
@@ -431,7 +434,7 @@ function SetExpiryModal({ tenantId, currentExpiry, onClose, onSuccess }) {
   );
 }
 
-const CHIT_TYPE_OPTIONS = ['STANDARD', 'POST_PAYOUT', 'RESERVATION', 'FLEXI'];
+const CHIT_TYPE_OPTIONS = ['RESERVATION', 'LOTTERY', 'AUCTION'];
 
 function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const [form, setForm] = useState({
@@ -441,8 +444,8 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
     analyticsEnabled: existing?.analyticsEnabled ?? false,
     prioritySupport: existing?.prioritySupport ?? false,
     allowedChitTypes: existing?.allowedChitTypes
-      ? existing.allowedChitTypes.split(',').map((s) => s.trim())
-      : ['STANDARD'],
+      ? existing.allowedChitTypes.split(',').map((s) => s.trim()).filter(t => ['RESERVATION','LOTTERY','AUCTION'].includes(t))
+      : ['RESERVATION'],
     priceMonthlyInr: existing?.priceMonthlyInr ? existing.priceMonthlyInr / 100 : 0,
     notes: existing?.notes ?? '',
   });
@@ -453,7 +456,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const [plans, setPlans] = useState([]);
 
   useEffect(() => {
-    superAdminListPlans().then(setPlans).catch(() => {});
+    superAdminListPlans().then(all => setPlans(all.filter(p => p.isPublic && p.isActive))).catch(() => {});
   }, []);
 
   async function handleReset() {
@@ -748,25 +751,74 @@ export default function SuperAdminOrgDetailPage() {
   const [resetCredentials, setResetCredentials] = useState(null); // { username, password } shown after reset
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [proxyingUserId, setProxyingUserId] = useState(null);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [statusChanging, setStatusChanging] = useState(false);
 
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
   }
 
+  async function handleStatusChange(newStatus) {
+    if (newStatus === tenant.status) { setShowStatusDropdown(false); return; }
+    if (newStatus === 'ACTIVE' && tenant.status === 'PENDING') {
+      // Activating a pending org — use the existing billing+activation flow
+      setShowStatusDropdown(false);
+      setBillingModal({
+        type: 'PURCHASE',
+        toPlan: tenant.plan ?? 'BASIC',
+        afterSave: async () => {
+          const activationResult = await superAdminActivateTenant(tenantId);
+          showToast('Org activated and payment recorded');
+          if (activationResult?.adminUsername) {
+            setResetCredentials({
+              username: activationResult.adminUsername,
+              password: activationResult.adminTempPassword,
+              title: 'Org Activated',
+              subtitle: activationResult.adminAlreadyExisted
+                ? 'Admin account credentials — share with the org owner'
+                : 'Auto-created admin credentials — share with the org owner',
+            });
+          }
+          loadAll();
+        },
+      });
+      return;
+    }
+    setStatusChanging(true);
+    try {
+      const updated = await superAdminSetTenantStatus(tenantId, newStatus);
+      setTenant((prev) => ({ ...prev, status: updated.status }));
+      showToast(`Status changed to ${updated.status}`);
+    } catch (err) {
+      showToast(err.response?.data?.message ?? 'Failed to change status');
+    } finally {
+      setStatusChanging(false);
+      setShowStatusDropdown(false);
+    }
+  }
+
   async function handleProxy(user) {
     setProxyingUserId(user.userId);
+    // Open a blank window synchronously (direct user gesture) so popup blocker doesn't fire.
+    // After the async API call we navigate it to the proxy URL.
+    const proxyWin = window.open('', '_blank');
     try {
       const result = await superAdminProxyAs(tenantId, user.role, user.userId);
       const params = new URLSearchParams({
         token: result.token,
         tenantId: result.tenantId,
         tenantSlug: result.tenantSlug,
+        tenantName: tenant?.name ?? '',
         role: result.proxyRole,
-        ...(result.planExpiresAt ? { planExpiresAt: result.planExpiresAt } : {}),
       });
-      window.open(`/proxy?${params}`, '_blank');
+      if (proxyWin) {
+        proxyWin.location.href = `/proxy?${params}`;
+      } else {
+        window.open(`/proxy?${params}`, '_blank');
+      }
     } catch (err) {
+      proxyWin?.close();
       showToast(err.response?.data?.message ?? 'Proxy failed');
     } finally {
       setProxyingUserId(null);
@@ -808,8 +860,18 @@ export default function SuperAdminOrgDetailPage() {
         type: 'PURCHASE',
         toPlan: tenant.plan ?? 'BASIC',
         afterSave: async () => {
-          await superAdminActivateTenant(tenantId);
+          const activationResult = await superAdminActivateTenant(tenantId);
           showToast('Org activated and payment recorded');
+          if (activationResult?.adminUsername) {
+            setResetCredentials({
+              username: activationResult.adminUsername,
+              password: activationResult.adminTempPassword,
+              title: 'Org Activated',
+              subtitle: activationResult.adminAlreadyExisted
+                ? 'Admin account credentials — share with the org owner'
+                : 'Auto-created admin credentials — share with the org owner',
+            });
+          }
           loadAll();
         },
       });
@@ -911,7 +973,38 @@ export default function SuperAdminOrgDetailPage() {
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className="text-sm text-gray-500 font-mono">@{tenant.slug}</span>
-                  <StatusBadge status={tenant.status} />
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusDropdown((v) => !v)}
+                      disabled={statusChanging}
+                      className="inline-flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity disabled:opacity-50"
+                      title="Click to change status"
+                    >
+                      <StatusBadge status={tenant.status} />
+                      <ChevronDown size={11} className="text-gray-400 -ml-0.5" />
+                    </button>
+                    {showStatusDropdown && (
+                      <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 min-w-[140px]">
+                        {['ACTIVE', 'PENDING', 'SUSPENDED'].map((s) => {
+                          const cfg = STATUS_CONFIG[s];
+                          const Icon = cfg.icon;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => handleStatusChange(s)}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-gray-50 cursor-pointer transition-colors ${s === tenant.status ? 'opacity-40 cursor-default' : ''}`}
+                            >
+                              <Icon size={12} className={cfg.cls.includes('emerald') ? 'text-emerald-600' : cfg.cls.includes('amber') ? 'text-amber-600' : 'text-red-600'} />
+                              {cfg.label}
+                              {s === tenant.status && <span className="ml-auto text-gray-400">✓</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
                     {tenant.plan}
                   </span>
@@ -1087,6 +1180,45 @@ export default function SuperAdminOrgDetailPage() {
             );
           }
           return null;
+        })()}
+
+        {/* Pending admin banner — shown for PENDING orgs so super-admin can see who registered */}
+        {tenant.status === 'PENDING' && (() => {
+          const pendingAdmin = users.find(u => u.role === 'ADMIN');
+          if (!pendingAdmin) return null;
+          return (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-wrap gap-4 items-center">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">Registered Admin Account</p>
+                <div className="flex flex-wrap gap-4">
+                  <div>
+                    <p className="text-xs text-amber-600">Username</p>
+                    <p className="text-sm font-mono font-semibold text-gray-900">{pendingAdmin.username}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-amber-600">Full Name</p>
+                    <p className="text-sm font-semibold text-gray-900">{pendingAdmin.fullName ?? '—'}</p>
+                  </div>
+                  {pendingAdmin.email && (
+                    <div>
+                      <p className="text-xs text-amber-600">Email</p>
+                      <p className="text-sm text-gray-700">{pendingAdmin.email}</p>
+                    </div>
+                  )}
+                  {pendingAdmin.phone && (
+                    <div>
+                      <p className="text-xs text-amber-600">Phone</p>
+                      <p className="text-sm text-gray-700">{pendingAdmin.phone}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs text-amber-600 bg-amber-100 rounded-xl px-3 py-2 text-center">
+                <p className="font-semibold">Pending Activation</p>
+                <p className="mt-0.5">Activate to enable login</p>
+              </div>
+            </div>
+          );
         })()}
 
         {/* Info grid: Org Details | Subscription | Admin Contacts */}
@@ -1271,7 +1403,7 @@ export default function SuperAdminOrgDetailPage() {
                       )}
                       <p className="text-xs text-gray-300 mt-0.5">
                         {u.lastLoginAt
-                          ? `Last login: ${new Date(u.lastLoginAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                          ? `Last login: ${new Date(u.lastLoginAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                           : 'Never logged in'}
                       </p>
                     </div>
@@ -1354,7 +1486,7 @@ export default function SuperAdminOrgDetailPage() {
                           {u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                         </td>
                         <td className="px-4 py-3.5 text-xs text-gray-400">
-                          {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : <span className="text-gray-300">Never</span>}
+                          {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : <span className="text-gray-300">Never</span>}
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
@@ -1509,8 +1641,8 @@ export default function SuperAdminOrgDetailPage() {
         <CredentialsPopup
           username={resetCredentials.username}
           password={resetCredentials.password}
-          title="Password Reset"
-          subtitle="New temporary credentials — share with the user"
+          title={resetCredentials.title ?? 'Password Reset'}
+          subtitle={resetCredentials.subtitle ?? 'New temporary credentials — share with the user'}
           onDone={() => setResetCredentials(null)}
         />
       )}

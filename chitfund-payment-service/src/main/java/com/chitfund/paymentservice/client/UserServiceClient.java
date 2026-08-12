@@ -27,6 +27,25 @@ public class UserServiceClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getEffectiveLimits(String tenantId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            ResponseEntity<Map> resp = restTemplate.exchange(
+                    userServiceUrl + "/internal/tenants/" + tenantId + "/effective-limits",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                return resp.getBody();
+            }
+        } catch (RestClientException e) {
+            log.warn("Could not fetch effective limits for tenant {}: {}", tenantId, e.getMessage());
+        }
+        return null;
+    }
+
     /**
      * Returns a user's full name (worker/admin) for notification messages.
      * Returns empty string on any error — callers fall back to generic phrases.

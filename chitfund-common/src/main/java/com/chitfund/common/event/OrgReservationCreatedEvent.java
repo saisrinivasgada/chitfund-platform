@@ -12,5 +12,6 @@ public record OrgReservationCreatedEvent(
         Integer monthNumber,
         BigDecimal payoutAmount,
         String createdBy,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 // ─── Shared styled input ──────────────────────────────────────────────────────
-function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeholder, maxLength, disabled, rightSlot }) {
+function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeholder, maxLength, disabled, rightSlot, error }) {
   const inputId = useId();
   const [focused, setFocused] = useState(false);
 
@@ -22,7 +22,7 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeh
       <label
         htmlFor={inputId}
         className="text-sm font-medium"
-        style={{ color: focused ? '#1E3A5F' : '#374151', transition: 'color 150ms' }}
+        style={{ color: error ? '#EF4444' : focused ? '#1E3A5F' : '#374151', transition: 'color 150ms' }}
       >
         {label}
       </label>
@@ -30,7 +30,7 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeh
         {Icon && (
           <span
             className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ color: focused ? '#1E3A5F' : '#9CA3AF', transition: 'color 150ms' }}
+            style={{ color: error ? '#EF4444' : focused ? '#1E3A5F' : '#9CA3AF', transition: 'color 150ms' }}
           >
             <Icon size={15} />
           </span>
@@ -49,8 +49,8 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeh
           style={{
             paddingLeft:  Icon      ? '2.5rem'  : '0.875rem',
             paddingRight: rightSlot ? '3rem'    : '0.875rem',
-            borderColor: focused ? '#1E3A5F' : '#E5E7EB',
-            boxShadow: focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
+            borderColor: error ? '#EF4444' : focused ? '#1E3A5F' : '#E5E7EB',
+            boxShadow: error ? '0 0 0 3px rgba(239,68,68,0.12)' : focused ? '0 0 0 3px rgba(30,58,95,0.10)' : 'none',
             backgroundColor: disabled ? '#F9FAFB' : '#FFFFFF',
             color: disabled ? '#9CA3AF' : '#111827',
           }}
@@ -59,7 +59,7 @@ function Field({ label, icon: Icon, type = 'text', value, onChange, hint, placeh
           <span className="absolute right-3.5 top-1/2 -translate-y-1/2">{rightSlot}</span>
         )}
       </div>
-      {hint && <p className="text-xs text-gray-400 pl-0.5">{hint}</p>}
+      {error ? <p className="text-xs text-red-500 pl-0.5">{error}</p> : hint && <p className="text-xs text-gray-400 pl-0.5">{hint}</p>}
     </div>
   );
 }
@@ -90,7 +90,7 @@ function PasswordField({ label, value, onChange, hint }) {
 }
 
 // ─── Username field with live availability check ──────────────────────────────
-function UsernameField({ value, currentUsername, onChange }) {
+function UsernameField({ value, currentUsername, onChange, error }) {
   const inputId = useId();
   const [status, setStatus] = useState('idle');
   const [focused, setFocused] = useState(false);
@@ -118,7 +118,8 @@ function UsernameField({ value, currentUsername, onChange }) {
     idle:      null,
   }[status];
 
-  const borderColor = status === 'available' ? '#22C55E'
+  const borderColor = error ? '#EF4444'
+    : status === 'available' ? '#22C55E'
     : status === 'taken' ? '#EF4444'
     : focused ? '#1E3A5F'
     : '#E5E7EB';
@@ -159,7 +160,10 @@ function UsernameField({ value, currentUsername, onChange }) {
           <span className="absolute right-3.5 top-1/2 -translate-y-1/2">{indicator}</span>
         )}
       </div>
-      <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>
+      {error
+        ? <p className="text-xs text-red-500 pl-0.5">{error}</p>
+        : <p className="text-xs text-gray-400 pl-0.5">Letters, numbers, _ and . only</p>
+      }
     </div>
   );
 }
@@ -228,6 +232,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const [profileError,  setProfileError]  = useState('');
+  const [profileFe,     setProfileFe]     = useState({});
   const [securityError, setSecurityError] = useState('');
   const [profileSaved,  setProfileSaved]  = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
@@ -293,6 +298,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
 
   async function handleSaveProfile() {
     setProfileError('');
+    setProfileFe({});
     try {
       const ops = [];
       const cu = currentUser ?? {};
@@ -331,7 +337,14 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
       setProfileSaved(true);
       setTimeout(onClose, 900);
     } catch (err) {
-      setProfileError(err.response?.data?.message ?? 'Failed to save changes. Please try again.');
+      const errors = err.response?.data?.fieldErrors;
+      if (errors && Object.keys(errors).length > 0) { setProfileFe(errors); return; }
+      const code = err.response?.data?.errorCode;
+      const msg  = err.response?.data?.message ?? '';
+      if (code === 'USER_002') { setProfileFe({ username: 'This username is already taken. Try a different one.' }); return; }
+      if (code === 'USER_003') { setProfileFe({ email: 'This email is already in use by another account.' }); return; }
+      if (msg.toLowerCase().includes('phone') || msg.toLowerCase().includes('number')) { setProfileFe({ phone: msg }); return; }
+      setProfileError(msg || 'Failed to save changes. Please try again.');
     }
   }
 
@@ -401,13 +414,15 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                 icon={UserCircle}
                 placeholder="Sai Srinivas"
                 value={role === 'MEMBER' ? memberFullName : fullName}
-                onChange={role === 'MEMBER' ? setMemberFullName : setFullName}
+                onChange={(v) => { (role === 'MEMBER' ? setMemberFullName : setFullName)(v); setProfileFe((f) => ({ ...f, fullName: undefined })); }}
+                error={profileFe.fullName}
               />
 
               <UsernameField
                 value={username}
                 currentUsername={currentUser?.username}
-                onChange={setUsername}
+                onChange={(v) => { setUsername(v); setProfileFe((f) => ({ ...f, username: undefined })); }}
+                error={profileFe.username}
               />
 
               <Field
@@ -416,7 +431,8 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                 type="email"
                 placeholder="sai@example.com"
                 value={email}
-                onChange={setEmail}
+                onChange={(v) => { setEmail(v); setProfileFe((f) => ({ ...f, email: undefined })); }}
+                error={profileFe.email}
               />
 
               {role === 'MEMBER' ? (
@@ -425,7 +441,8 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                   countryCode={memberPhoneCountryCode}
                   phone={memberPhone}
                   onCountryChange={setMemberPhoneCountryCode}
-                  onPhoneChange={setMemberPhone}
+                  onPhoneChange={(v) => { setMemberPhone(v); setProfileFe((f) => ({ ...f, phone: undefined })); }}
+                  error={profileFe.phone}
                 />
               ) : (
                 <PhoneInput
@@ -433,7 +450,8 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                   countryCode={phoneCountryCode}
                   phone={phone}
                   onCountryChange={setPhoneCountryCode}
-                  onPhoneChange={setPhone}
+                  onPhoneChange={(v) => { setPhone(v); setProfileFe((f) => ({ ...f, phone: undefined })); }}
+                  error={profileFe.phone}
                 />
               )}
 

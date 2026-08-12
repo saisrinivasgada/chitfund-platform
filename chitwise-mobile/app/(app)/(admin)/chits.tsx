@@ -15,9 +15,10 @@ import {
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot, hardDeleteReservationSlot,
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
-  listStaff, updateChitName,
+  listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
+import { useUIStore } from '../../../store/uiStore';
 import { toast } from '../../../components/Toast';
 
 // Statuses that count as "cleared" (no payment needed)
@@ -32,16 +33,17 @@ const PAY_STATUS_LABEL: Record<string, string> = {
 };
 
 // Compute ISO due date for a given cycle number relative to chit start date
-function computeDueDate(startDateStr: string | null | undefined, cycleNum: number): string {
+function computeDueDate(startDateStr: string | null | undefined, cycleNum: number, monthlyDueDate?: number | null): string {
   if (!startDateStr) return '';
   const parts = startDateStr.split('-').map(Number);
   if (parts.length < 3) return '';
   const [y, m, d] = parts;
+  const dueDay = (monthlyDueDate && monthlyDueDate >= 1 && monthlyDueDate <= 28) ? monthlyDueDate : d;
   const targetMonth = m - 1 + (cycleNum - 1);
   const targetYear = y + Math.floor(targetMonth / 12);
   const targetMon = targetMonth % 12;
   const lastDay = new Date(targetYear, targetMon + 1, 0).getDate();
-  const day = Math.min(d, lastDay);
+  const day = Math.min(dueDay, lastDay);
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
@@ -139,18 +141,30 @@ const SLOT_COLOR: Record<string, string> = {
   UNALLOCATED: C.gray400, RESERVED: C.navy, VOIDED: C.red, PROCESSED: C.green,
 };
 
-type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule';
+type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule' | 'audit';
 
 export default function AdminChitsScreen() {
+  const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const params = useLocalSearchParams<{ openChitId?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('info');
-  const [editingChitName, setEditingChitName] = useState(false);
-  const [chitNameInput, setChitNameInput] = useState('');
-  const [chitDescInput, setChitDescInput] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editActiveConfirmed, setEditActiveConfirmed] = useState(false);
+  // Edit form state
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editChitValue, setEditChitValue] = useState('');
+  const [editInstallment, setEditInstallment] = useState('');
+  const [editMonthlyDueDate, setEditMonthlyDueDate] = useState('');
+  const [editOrgSpots, setEditOrgSpots] = useState('');
+  const [editMembers, setEditMembers] = useState('');
+  const [editMonths, setEditMonths] = useState('');
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editPostPayoutEnabled, setEditPostPayoutEnabled] = useState(false);
+  const [editPostPayoutAmount, setEditPostPayoutAmount] = useState('');
 
   // ── Create form (4-step wizard matching web) ──────────────────────────────
   const [createStep, setCreateStep] = useState(1);       // 1=type 2=details 3=contribution 4=schedule
@@ -178,11 +192,13 @@ export default function AdminChitsScreen() {
   const [showWinner, setShowWinner] = useState(false);
   const [winnerMemberId, setWinnerMemberId] = useState('');
   const [winnerDraw, setWinnerDraw] = useState('');
+  const [winnerWinningAmount, setWinnerWinningAmount] = useState('');
 
   // ── Draws tab ──────────────────────────────────────────────────────────────
   const [showOpenDraw, setShowOpenDraw] = useState(false);
   const [odWinnerIds, setOdWinnerIds] = useState<string[]>([]);
   const [odDrawNum, setOdDrawNum] = useState('');
+  const [odDueDate, setOdDueDate] = useState('');
   const toggleOdWinner = (mid: string) =>
     setOdWinnerIds((prev) => prev.includes(mid) ? prev.filter((id) => id !== mid) : [...prev, mid]);
   const [showSkipDraw, setShowSkipDraw] = useState(false);
@@ -244,6 +260,10 @@ export default function AdminChitsScreen() {
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: chits = [], isLoading, refetch } = useQuery({ queryKey: ['a-chits'], queryFn: getChits });
   const { data: members = [] } = useQuery({ queryKey: ['a-members'], queryFn: getMembers });
+  const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
+  const allowedChitTypes: string[] = tenantLimits?.allowedChitTypes
+    ? (tenantLimits.allowedChitTypes as string).split(',').map((t: string) => t.trim())
+    : ['RESERVATION', 'LOTTERY', 'AUCTION'];
 
   // Auto-open chit when navigated from member detail with openChitId param
   useEffect(() => {
@@ -285,6 +305,12 @@ export default function AdminChitsScreen() {
     enabled: !!selected?.id && detailTab === 'draws',
   });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
+  const { data: chitAudit = [] } = useQuery({
+    queryKey: ['a-chit-audit', selected?.id],
+    queryFn: () => getChitAuditHistory(selected!.id),
+    enabled: !!selected?.id && detailTab === 'audit',
+    staleTime: 30_000,
+  });
 
   // ── Mutations: list/create ─────────────────────────────────────────────────
   function buildMonthRows(startDateStr: string, count: number, defaultPayout: string) {
@@ -392,11 +418,12 @@ export default function AdminChitsScreen() {
   });
 
   const winnerMut = useMutation({
-    mutationFn: ({ chitId, memberId, monthNumber }: any) =>
-      recordWinner(chitId, { memberId, monthNumber: Number(monthNumber) }),
+    mutationFn: ({ chitId, winnerId, monthNumber, winningAmount }: any) =>
+      recordWinner(chitId, { winnerId, monthNumber: Number(monthNumber), winningAmount: Number(winningAmount) || Number(selected?.chitValue ?? 0), discountAmount: 0 }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-winners', selected?.id] });
-      setShowWinner(false); setWinnerMemberId(''); setWinnerDraw('');
+      qc.invalidateQueries({ queryKey: ['a-draws', selected?.id] });
+      setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount('');
       toast.saved('Winner recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -406,7 +433,17 @@ export default function AdminChitsScreen() {
   const openDrawMut = useMutation({
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
-      await openDraw({ chitId: selected.id, drawNumber: drawNum });
+      const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.totalMembers ?? 1)));
+      const uniqueMembers = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))] as string[];
+      const dueDate = odDueDate.trim() || computeDueDate(selected?.startDate, drawNum, selected?.monthlyDueDate);
+      await openDraw({
+        chitId: selected.id,
+        monthNumber: drawNum,
+        dueDate,
+        installmentAmount: baseInstallment,
+        maxCycles: selected?.totalMembers ?? drawNum,
+        members: uniqueMembers.map((mid: string) => ({ memberId: mid, amountDue: baseInstallment })),
+      });
       // Record each winner separately
       const chitValue = Number(selected?.chitValue ?? 0);
       for (const mid of odWinnerIds) {
@@ -422,7 +459,7 @@ export default function AdminChitsScreen() {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
       if (odWinnerIds.length > 0) qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
-      setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum('');
+      setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setOdDueDate('');
       toast.noted('Draw opened');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -443,7 +480,7 @@ export default function AdminChitsScreen() {
       const monthNum = Number(sdDrawNum);
       const baseInstallment = Number(selected.installmentAmount ?? (Number(selected.chitValue ?? 0) / Number(selected.totalMembers ?? 1)));
       const uniqueMemberIds = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))];
-      const dueDate = computeDueDate(selected.startDate, monthNum);
+      const dueDate = computeDueDate(selected.startDate, monthNum, selected.monthlyDueDate);
       await skipDraw({
         chitId: selected.id,
         monthNumber: monthNum,
@@ -514,6 +551,7 @@ export default function AdminChitsScreen() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       setShowAddSlot(false); setAsMonth(''); setAsMemberId('');
       toast.created('Reservation slot added');
     },
@@ -524,6 +562,7 @@ export default function AdminChitsScreen() {
     mutationFn: () => removeReservationSlot(selected.id, vsSlot.id, vsReason || undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       setShowVoidSlot(false); setVsSlot(null); setVsReason('');
       toast.voided('Slot voided');
     },
@@ -569,6 +608,7 @@ export default function AdminChitsScreen() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       setEditingSlotId(null);
       toast.saved('Slot updated');
     },
@@ -617,15 +657,17 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Disburse Failed', e.response?.data?.message ?? 'Disbursement failed. Please try again.'),
   });
 
-  const renameMut = useMutation({
-    mutationFn: () => updateChitName(selected!.id, chitNameInput.trim(), chitDescInput.trim() || undefined),
+  const updateDetailsMut = useMutation({
+    mutationFn: (body: any) => updateChitDetails(selected!.id, body),
     onSuccess: (updated: any) => {
-      qc.setQueryData(['a-chits'], (old: any[]) => old?.map((c) => c.id === updated.id ? updated : c));
+      qc.setQueryData(['a-chits'], (old: any[]) => old?.map((c: any) => c.id === updated.id ? updated : c));
+      qc.invalidateQueries({ queryKey: ['a-chit-audit', selected?.id] });
       setSelected(updated);
-      setEditingChitName(false);
-      toast.saved('Chit name updated');
+      setShowEditModal(false);
+      setEditActiveConfirmed(false);
+      toast.saved('Chit details updated');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update name'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update details'),
   });
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -647,11 +689,13 @@ export default function AdminChitsScreen() {
   const draft     = (chits as any[]).filter((c) => c.status === 'DRAFT');
   const cancelled = (chits as any[]).filter((c) => c.status === 'CANCELLED');
 
+  const chitLimitHit = !!(tenantLimits?.maxChits > 0 && active.length >= tenantLimits.maxChits);
+  const chitCreateOff = isExpired || chitLimitHit;
+
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [chitShowCount, setChitShowCount] = useState(15);
   const [sortBy, setSortBy] = useState<'name' | 'amount' | 'members'>('name');
 
-  const allDisplayChits = [...(chits as any[])].filter((c) =>
+  const displayChits = [...(chits as any[])].filter((c) =>
     statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
   )
     .sort((a, b) => {
@@ -659,7 +703,6 @@ export default function AdminChitsScreen() {
       if (sortBy === 'members') return Number(b.enrolledCount ?? b.totalMembers ?? 0) - Number(a.enrolledCount ?? a.totalMembers ?? 0);
       return (a.name ?? '').localeCompare(b.name ?? '');
     });
-  const displayChits = allDisplayChits.slice(0, chitShowCount);
 
   function openDetail(c: any) {
     setSelected(c); setDetailTab('info'); setShowDetail(true);
@@ -671,6 +714,7 @@ export default function AdminChitsScreen() {
     { key: 'draws', label: 'Draws' },
     { key: 'schedule', label: 'Schedule' },
     { key: 'winners', label: 'Winners' },
+    { key: 'audit', label: 'Audit' },
   ];
 
   if (isLoading) return <LoadingScreen />;
@@ -685,10 +729,10 @@ export default function AdminChitsScreen() {
         ListHeaderComponent={
           <View style={{ marginBottom: 16 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <Text style={T.h1}>Chit Funds</Text>
+              <Text style={T.h1}>Chits</Text>
               <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                <TouchableOpacity onPress={() => setShowCreate(true)}
-                  style={{ backgroundColor: C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 }}>
+                <TouchableOpacity onPress={() => !chitCreateOff && setShowCreate(true)}
+                  style={{ backgroundColor: chitCreateOff ? C.gray300 : C.navy, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, opacity: chitCreateOff ? 0.5 : 1 }}>
                   <Text style={{ color: C.white, fontWeight: '700', fontSize: 13 }}>+ Create</Text>
                 </TouchableOpacity>
                 <ProfileAvatarButton size={34} />
@@ -707,7 +751,7 @@ export default function AdminChitsScreen() {
                 ].map((s) => {
                   const isActive = statusFilter === s.status;
                   return (
-                    <TouchableOpacity key={s.label} onPress={() => { setStatusFilter(s.status); setChitShowCount(15); }}
+                    <TouchableOpacity key={s.label} onPress={() => setStatusFilter(s.status)}
                       style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 2,
                         borderColor: isActive ? s.color : C.gray200,
                         backgroundColor: isActive ? s.color + '15' : C.white, alignItems: 'center', minWidth: 64 }}>
@@ -735,22 +779,30 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         }
-        ListEmptyComponent={<EmptyState title="No chit funds" message={statusFilter === 'ALL' ? 'Create your first chit fund.' : `No ${statusFilter.toLowerCase()} chit funds.`} />}
-        ListFooterComponent={allDisplayChits.length > chitShowCount ? (
-          <TouchableOpacity onPress={() => setChitShowCount(c => c + 15)}
-            style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({allDisplayChits.length - chitShowCount} remaining)</Text>
-          </TouchableOpacity>
-        ) : allDisplayChits.length > 15 ? (
-          <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>All {allDisplayChits.length} chit funds shown</Text>
+        ListEmptyComponent={<EmptyState title="No chits" message={statusFilter === 'ALL' ? 'Create your first chit.' : `No ${statusFilter.toLowerCase()} chits.`} />}
+        ListFooterComponent={displayChits.length > 0 ? (
+          <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>
+            {displayChits.length} chit{displayChits.length !== 1 ? 's' : ''}
+          </Text>
         ) : null}
         renderItem={({ item: c }) => (
           <TouchableOpacity onPress={() => openDetail(c)} activeOpacity={0.75}>
             <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: STATUS_COLOR[c.status] ?? C.gray300 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }} numberOfLines={1}>{c.name}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }}>{c.name}</Text>
                 <Badge status={c.status} />
               </View>
+              {(() => {
+                const type = c.chitType ?? c.winnerSelectionMode;
+                if (!type) return null;
+                const typeColor = type === 'RESERVATION' ? '#2563EB' : type === 'LOTTERY' ? '#7C3AED' : type === 'AUCTION' ? '#D97706' : C.gray400;
+                const typeBg   = type === 'RESERVATION' ? '#EFF6FF' : type === 'LOTTERY' ? '#F5F3FF' : type === 'AUCTION' ? '#FFFBEB' : C.gray100;
+                return (
+                  <View style={{ alignSelf: 'flex-start', backgroundColor: typeBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: typeColor }}>{type}</Text>
+                  </View>
+                );
+              })()}
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Monthly</Text>
@@ -772,6 +824,14 @@ export default function AdminChitsScreen() {
                     <Amount value={c.totalAmount ?? c.chitValue ?? 0} size="sm" color={C.green} />
                   </View>
                 )}
+                {c.postPayoutContributionEnabled !== undefined && (
+                  <View>
+                    <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Post-Payout</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: c.postPayoutContributionEnabled ? C.green : C.gray400 }}>
+                      {c.postPayoutContributionEnabled ? 'Yes' : 'No'}
+                    </Text>
+                  </View>
+                )}
               </View>
             </Card>
           </TouchableOpacity>
@@ -785,51 +845,69 @@ export default function AdminChitsScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           {/* Header */}
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
-            {editingChitName ? (
-              <View>
-                <TextInput
-                  autoFocus
-                  value={chitNameInput}
-                  onChangeText={setChitNameInput}
-                  style={{ fontSize: 18, fontWeight: '700', color: C.navy, borderBottomWidth: 2, borderBottomColor: C.navy, paddingBottom: 4, marginBottom: 8 }}
-                  placeholder="Chit name…"
-                  returnKeyType="next"
-                />
-                <TextInput
-                  value={chitDescInput}
-                  onChangeText={setChitDescInput}
-                  style={{ fontSize: 13, color: C.gray500, borderBottomWidth: 1, borderBottomColor: C.gray300, paddingBottom: 4, marginBottom: 10 }}
-                  placeholder="Description (optional)…"
-                />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Button label="Save" size="sm" loading={renameMut.isPending} disabled={!chitNameInput.trim()} onPress={() => renameMut.mutate()} />
-                  <Button label="Cancel" size="sm" variant="outline" onPress={() => setEditingChitName(false)} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[T.h2, { flex: 1 }]} numberOfLines={1}>{selected?.name}</Text>
+                  {selected?.status !== 'DELETED' && selected?.status !== 'COMPLETED' && selected?.status !== 'CANCELLED' && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (selected?.status === 'DRAFT' || editActiveConfirmed) {
+                          setEditName(selected?.name ?? '');
+                          setEditDesc(selected?.description ?? '');
+                          setEditChitValue(String(selected?.chitValue ?? ''));
+                          setEditInstallment(String(selected?.installmentAmount ?? ''));
+                          setEditMonthlyDueDate(String(selected?.monthlyDueDate ?? ''));
+                          setEditOrgSpots(String(selected?.orgHeldSpotsCount ?? '0'));
+                          setEditMembers(String(selected?.totalMembers ?? ''));
+                          setEditMonths(String(selected?.durationMonths ?? ''));
+                          setEditStartDate(selected?.startDate ?? '');
+                          setEditPostPayoutEnabled(selected?.postPayoutContributionEnabled ?? false);
+                          setEditPostPayoutAmount(String(selected?.defaultPostPayoutContribution ?? ''));
+                          setShowEditModal(true);
+                        } else {
+                          Alert.alert(
+                            'Chit is Active',
+                            'This chit is already active. Editing details may affect member payments and draws. Continue anyway?',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Continue',
+                                onPress: () => {
+                                  setEditActiveConfirmed(true);
+                                  setEditName(selected?.name ?? '');
+                                  setEditDesc(selected?.description ?? '');
+                                  setEditChitValue(String(selected?.chitValue ?? ''));
+                                  setEditInstallment(String(selected?.installmentAmount ?? ''));
+                                  setEditMonthlyDueDate(String(selected?.monthlyDueDate ?? ''));
+                                  setEditOrgSpots(String(selected?.orgHeldSpotsCount ?? '0'));
+                                  setEditMembers(String(selected?.totalMembers ?? ''));
+                                  setEditMonths(String(selected?.durationMonths ?? ''));
+                                  setEditStartDate(selected?.startDate ?? '');
+                                  setEditPostPayoutEnabled(selected?.postPayoutContributionEnabled ?? false);
+                                  setEditPostPayoutAmount(String(selected?.defaultPostPayoutContribution ?? ''));
+                                  setShowEditModal(true);
+                                },
+                              },
+                            ]
+                          );
+                        }
+                      }}
+                      style={{ padding: 4 }}
+                    >
+                      <Text style={{ fontSize: 16, color: C.gray400 }}>⚙</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <Badge status={selected?.status ?? 'DRAFT'} />
+                  {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
                 </View>
               </View>
-            ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={[T.h2, { flex: 1 }]} numberOfLines={1}>{selected?.name}</Text>
-                    {selected?.status !== 'DELETED' && (
-                      <TouchableOpacity
-                        onPress={() => { setChitNameInput(selected?.name ?? ''); setChitDescInput(selected?.description ?? ''); setEditingChitName(true); }}
-                        style={{ padding: 4 }}
-                      >
-                        <Text style={{ fontSize: 16, color: C.gray400 }}>✎</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <Badge status={selected?.status ?? 'DRAFT'} />
-                    {selected?.totalAmount && <Amount value={selected.totalAmount} size="sm" color={C.green} />}
-                  </View>
-                </View>
-                <TouchableOpacity onPress={() => setShowDetail(false)}>
-                  <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+              <TouchableOpacity onPress={() => { setShowDetail(false); setEditActiveConfirmed(false); }}>
+                <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Sub-tabs (scrollable) — no extra margin, border is on tab row itself */}
@@ -895,13 +973,27 @@ export default function AdminChitsScreen() {
             )}
 
             {/* ── MEMBERS TAB ──────────────────────────────────────────────── */}
-            {detailTab === 'members' && (
+            {detailTab === 'members' && (() => {
+              const isDraft = selected?.status === 'DRAFT';
+              return (
               <>
-                <View style={{ marginBottom: 12 }}>
-                  <Button label="+ Enroll Member" variant="primary" size="sm" onPress={() => setShowEnroll(true)} />
-                </View>
+                {!isDraft && (
+                  <View style={{ marginBottom: 12 }}>
+                    <Button label="+ Enroll Member" variant="primary" size="sm" disabled={isExpired} onPress={() => setShowEnroll(true)} />
+                  </View>
+                )}
                 {(enrollments as any[]).length === 0 ? (
-                  <EmptyState title="No members enrolled" message="Enroll members to start this chit." />
+                  isDraft ? (
+                    <EmptyState
+                      title="No members yet"
+                      message="Once this chit is activated, members from the scheduled slots will appear here."
+                    />
+                  ) : (
+                    <EmptyState
+                      title="No members enrolled"
+                      message={selected?.status === 'ACTIVE' ? 'No members have been enrolled in this chit yet.' : 'Enroll members to start this chit.'}
+                    />
+                  )
                 ) : (
                   (enrollments as any[]).map((e: any) => {
                     const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
@@ -926,13 +1018,14 @@ export default function AdminChitsScreen() {
                   })
                 )}
               </>
-            )}
+              );
+            })()}
 
             {/* ── WINNERS TAB ──────────────────────────────────────────────── */}
             {detailTab === 'winners' && (
               <>
                 <View style={{ marginBottom: 12 }}>
-                  <Button label="+ Record Winner" variant="gold" size="sm" onPress={() => setShowWinner(true)} />
+                  <Button label="+ Record Winner" variant="gold" size="sm" disabled={isExpired} onPress={() => setShowWinner(true)} />
                 </View>
                 {(winners as any[]).length === 0 ? (
                   <EmptyState title="No winners yet" message="Record draw winners here." />
@@ -1083,13 +1176,13 @@ export default function AdminChitsScreen() {
               <>
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
                   <View style={{ flex: 1 }}>
-                    <Button label="+ Open New Draw" variant="primary" size="sm" onPress={() => {
+                    <Button label="+ Open New Draw" variant="primary" size="sm" disabled={isExpired} onPress={() => {
                       setOdDrawNum(String(nextDrawNum));
                       setShowOpenDraw(true);
                     }} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Button label="Skip Draw" variant="ghost" size="sm" onPress={() => {
+                    <Button label="Skip Draw" variant="ghost" size="sm" disabled={isExpired} onPress={() => {
                       setSdDrawNum(String(nextDrawNum - 1 || 1));
                       setShowSkipDraw(true);
                     }} />
@@ -1525,7 +1618,265 @@ export default function AdminChitsScreen() {
                 )}
               </>
             )}
+
+            {/* ── AUDIT TAB ─────────────────────────────────────────────────── */}
+            {detailTab === 'audit' && (() => {
+              function buildAuditLabel(action: string): string {
+                const labels: Record<string, string> = {
+                  CHIT_DETAILS_UPDATED: 'Chit Edited',
+                  CHIT_CREATED: 'Chit Created',
+                  STATUS_CHANGED: 'Status Changed',
+                  MEMBER_ENROLLED: 'Member Enrolled',
+                  MEMBER_REMOVED: 'Member Removed',
+                  DRAW_OPENED: 'Draw Opened',
+                  DRAW_CLOSED: 'Draw Closed',
+                  DRAW_SKIPPED: 'Draw Skipped',
+                  WINNER_RECORDED: 'Winner Recorded',
+                  PAYOUT_CREATED: 'Payout Created',
+                  PAYOUT_DISBURSED: 'Payout Disbursed',
+                };
+                return labels[action] ?? action.replace(/_/g, ' ');
+              }
+              function buildAuditSummary(entry: any): string | null {
+                if (entry.action !== 'CHIT_DETAILS_UPDATED') return entry.description ?? null;
+                const b = entry.oldValue ?? entry.beforeValue ?? {};
+                const a = entry.newValue ?? entry.afterValue ?? {};
+                const parts: string[] = [];
+                if (b.name !== a.name && a.name) parts.push(`Name: "${b.name}" → "${a.name}"`);
+                if (b.chitValue !== undefined && b.chitValue !== a.chitValue)
+                  parts.push(`Value: ₹${Number(b.chitValue).toLocaleString('en-IN')} → ₹${Number(a.chitValue).toLocaleString('en-IN')}`);
+                if (b.installmentAmount !== undefined && b.installmentAmount !== a.installmentAmount)
+                  parts.push(`Installment: ₹${Number(b.installmentAmount).toLocaleString('en-IN')} → ₹${Number(a.installmentAmount).toLocaleString('en-IN')}`);
+                return parts.length > 0 ? parts.join(' · ') : 'Chit details updated';
+              }
+              function getAuditColor(action: string): string {
+                if (action === 'CHIT_DETAILS_UPDATED') return '#6366F1';
+                if (action?.includes('CREATED') || action?.includes('ENROLLED')) return C.green;
+                if (action?.includes('REMOVED') || action?.includes('CANCELLED') || action?.includes('VOID')) return C.red;
+                return C.navy;
+              }
+              return (
+              <>
+                {(chitAudit as any[]).length === 0 ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 32, marginBottom: 8 }}>◈</Text>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>No audit events</Text>
+                    <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center' }}>Actions on this chit will appear here.</Text>
+                  </View>
+                ) : (
+                  (chitAudit as any[]).map((entry: any, i: number) => {
+                    const label = buildAuditLabel(entry.action ?? entry.eventType ?? '');
+                    const summary = buildAuditSummary(entry);
+                    const color = getAuditColor(entry.action ?? '');
+                    return (
+                      <View key={entry.id ?? i} style={{ marginBottom: 10, borderLeftWidth: 2, borderLeftColor: color, paddingLeft: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 2 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, flex: 1 }}>{label}</Text>
+                          <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 8 }}>
+                            {fmtDateTime(entry.createdAt ?? entry.timestamp)}
+                          </Text>
+                        </View>
+                        {summary && (
+                          <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{summary}</Text>
+                        )}
+                        {entry.performedBy && (
+                          <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>by {entry.performedBy}</Text>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+              </>
+              );
+            })()}
           </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          EDIT CHIT DETAILS MODAL
+      ════════════════════════════════════════════════════════════════════════ */}
+      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
+        onRequestClose={() => setShowEditModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+              <Text style={T.h2}>Edit Chit Details</Text>
+              <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+            {selected?.status !== 'DRAFT' && (
+              <View style={{ margin: 16, marginBottom: 0, padding: 12, backgroundColor: '#FFFBEB', borderRadius: 10, borderWidth: 1, borderColor: '#F59E0B' }}>
+                <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
+                  This chit is {selected?.status}. Editing core details may affect member payments and draws. Structural fields (members, months, start date) are locked.
+                </Text>
+              </View>
+            )}
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {/* Name + Description */}
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>BASIC INFO</Text>
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Name</Text>
+                <TextInput
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Chit name…"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                />
+              </View>
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Description (optional)</Text>
+                <TextInput
+                  value={editDesc}
+                  onChangeText={setEditDesc}
+                  placeholder="Description…"
+                  placeholderTextColor={C.gray400}
+                  multiline
+                  numberOfLines={2}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60 }}
+                />
+              </View>
+              {/* Financial details */}
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8, borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 16 }}>FINANCIAL DETAILS</Text>
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Value (₹)</Text>
+                <TextInput
+                  value={editChitValue}
+                  onChangeText={setEditChitValue}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                />
+              </View>
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Installment Amount (₹ / member / month)</Text>
+                <TextInput
+                  value={editInstallment}
+                  onChangeText={setEditInstallment}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                />
+              </View>
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Monthly Due Date (1–28)</Text>
+                <TextInput
+                  value={editMonthlyDueDate}
+                  onChangeText={setEditMonthlyDueDate}
+                  keyboardType="numeric"
+                  placeholder="e.g. 5"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                />
+              </View>
+              {/* Structural fields — DRAFT only */}
+              {selected?.status === 'DRAFT' && (
+                <>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8, borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 16 }}>STRUCTURE (DRAFT ONLY)</Text>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Number of Members</Text>
+                    <TextInput
+                      value={editMembers}
+                      onChangeText={setEditMembers}
+                      keyboardType="numeric"
+                      placeholder="e.g. 20"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                    />
+                  </View>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Duration (months)</Text>
+                    <TextInput
+                      value={editMonths}
+                      onChangeText={setEditMonths}
+                      keyboardType="numeric"
+                      placeholder="e.g. 20"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                    />
+                  </View>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Org Held Spots</Text>
+                    <TextInput
+                      value={editOrgSpots}
+                      onChangeText={setEditOrgSpots}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                    />
+                  </View>
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Start Date (YYYY-MM-DD)</Text>
+                    <TextInput
+                      value={editStartDate}
+                      onChangeText={setEditStartDate}
+                      placeholder="e.g. 2025-06-01"
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                    />
+                  </View>
+                </>
+              )}
+              {/* Post-payout contribution */}
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8, borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 16 }}>POST-PAYOUT CONTRIBUTION</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Enable Post-Payout</Text>
+                <TouchableOpacity
+                  onPress={() => setEditPostPayoutEnabled(!editPostPayoutEnabled)}
+                  style={{ paddingHorizontal: 16, paddingVertical: 6, borderRadius: 8, backgroundColor: editPostPayoutEnabled ? C.navy : C.gray200 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: editPostPayoutEnabled ? C.white : C.gray500 }}>
+                    {editPostPayoutEnabled ? 'ON' : 'OFF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {editPostPayoutEnabled && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Default Contribution (₹)</Text>
+                  <TextInput
+                    value={editPostPayoutAmount}
+                    onChangeText={setEditPostPayoutAmount}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={C.gray400}
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                  />
+                </View>
+              )}
+            </ScrollView>
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+              <Button
+                label="Save Changes"
+                variant="primary"
+                fullWidth
+                loading={updateDetailsMut.isPending}
+                disabled={!editName.trim()}
+                onPress={() => {
+                  const n = (v: string) => { const x = Number(v); return isNaN(x) || v === '' ? undefined : x; };
+                  const isDraft = selected?.status === 'DRAFT';
+                  updateDetailsMut.mutate({
+                    name: editName.trim() || undefined,
+                    description: editDesc.trim() || null,
+                    chitValue: n(editChitValue),
+                    installmentAmount: n(editInstallment),
+                    monthlyDueDate: n(editMonthlyDueDate),
+                    postPayoutContributionEnabled: editPostPayoutEnabled,
+                    defaultPostPayoutContribution: editPostPayoutEnabled ? n(editPostPayoutAmount) : undefined,
+                    ...(isDraft ? {
+                      numberOfMembers: n(editMembers),
+                      numberOfMonths: n(editMonths),
+                      orgHeldSpotsCount: n(editOrgSpots),
+                      startDate: editStartDate.trim() || undefined,
+                    } : {}),
+                  });
+                }}
+              />
+            </View>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
 
@@ -1571,42 +1922,46 @@ export default function AdminChitsScreen() {
                   Choose how the monthly winner is determined.
                 </Text>
                 {[
-                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw in advance. Most common for family chits.', available: true },
-                  { type: 'LOTTERY',     label: 'Lottery',     desc: 'Winner is randomly drawn each month. Coming soon.', available: false },
-                  { type: 'AUCTION',     label: 'Auction',     desc: 'Members bid for the payout each month. Coming soon.', available: false },
-                ].map(({ type, label, desc, available }) => (
-                  <TouchableOpacity key={type} disabled={!available}
-                    onPress={() => setCChitType(type)}
-                    activeOpacity={available ? 0.7 : 1}
-                    style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 12,
-                      borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
-                      borderColor: cChitType === type ? C.navy : C.gray200,
-                      backgroundColor: !available ? C.gray50 : cChitType === type ? C.navy50 : C.white,
-                      opacity: available ? 1 : 0.45,
-                    }}>
-                    {/* Gold accent bar */}
-                    <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: cChitType === type ? C.amber : 'transparent' }} />
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '700', color: cChitType === type ? C.navy : C.gray900 }}>{label}</Text>
-                        {!available && (
-                          <View style={{ backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                            <Text style={{ fontSize: 10, fontWeight: '700', color: C.amber }}>Coming Soon</Text>
-                          </View>
-                        )}
+                  { type: 'RESERVATION', label: 'Reservation', desc: 'Each member reserves a specific draw in advance. Most common for family chits.' },
+                  { type: 'LOTTERY',     label: 'Lottery',     desc: 'Winner is randomly drawn each month.' },
+                  { type: 'AUCTION',     label: 'Auction',     desc: 'Members bid for the payout each month.' },
+                ].map(({ type, label, desc }) => {
+                  const onPlan = allowedChitTypes.includes(type);
+                  const selected = cChitType === type;
+                  return (
+                    <TouchableOpacity key={type} disabled={!onPlan}
+                      onPress={() => onPlan && setCChitType(type)}
+                      activeOpacity={onPlan ? 0.7 : 1}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 12,
+                        borderRadius: 12, borderWidth: 2, padding: 14, marginBottom: 10,
+                        borderColor: selected ? C.navy : C.gray200,
+                        backgroundColor: !onPlan ? C.gray50 : selected ? C.navy50 : C.white,
+                        opacity: onPlan ? 1 : 0.5,
+                      }}>
+                      <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: selected ? C.amber : 'transparent' }} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: selected ? C.navy : C.gray900 }}>{label}</Text>
+                          {!onPlan && (
+                            <View style={{ backgroundColor: '#EDE9FE', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#7C3AED' }}>Not on your plan</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 12, color: C.gray500 }}>
+                          {desc}{!onPlan ? ' — Upgrade your plan to unlock.' : ''}
+                        </Text>
                       </View>
-                      <Text style={{ fontSize: 12, color: C.gray500 }}>{desc}</Text>
-                    </View>
-                    {/* Radio */}
-                    <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
-                      borderColor: cChitType === type ? C.navy : C.gray300,
-                      backgroundColor: cChitType === type ? C.navy : 'transparent',
-                      alignItems: 'center', justifyContent: 'center' }}>
-                      {cChitType === type && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.white }} />}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                      <View style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+                        borderColor: selected ? C.navy : C.gray300,
+                        backgroundColor: selected ? C.navy : 'transparent',
+                        alignItems: 'center', justifyContent: 'center' }}>
+                        {selected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.white }} />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </>
             )}
 
@@ -1934,11 +2289,20 @@ export default function AdminChitsScreen() {
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>Select the member who won this draw</Text>
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw # (draw number)</Text>
-              <TextInput value={winnerDraw} onChangeText={setWinnerDraw} keyboardType="numeric" placeholder="e.g. 3"
-                placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw #</Text>
+                <TextInput value={winnerDraw} onChangeText={setWinnerDraw} keyboardType="numeric" placeholder="e.g. 3"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Winning Amount (₹)</Text>
+                <TextInput value={winnerWinningAmount} onChangeText={setWinnerWinningAmount} keyboardType="numeric"
+                  placeholder={`${selected?.chitValue ?? ''}`}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+              </View>
             </View>
             <ScrollView style={{ maxHeight: 200 }}>
               {(enrollments as any[]).map((e: any) => {
@@ -1955,10 +2319,10 @@ export default function AdminChitsScreen() {
               })}
             </ScrollView>
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); }} /></View>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowWinner(false); setWinnerMemberId(''); setWinnerDraw(''); setWinnerWinningAmount(''); }} /></View>
               <View style={{ flex: 1 }}>
                 <Button label="Record Winner" variant="gold" disabled={!winnerMemberId || !winnerDraw} loading={winnerMut.isPending}
-                  onPress={() => winnerMut.mutate({ chitId: selected.id, memberId: winnerMemberId, monthNumber: winnerDraw })} />
+                  onPress={() => winnerMut.mutate({ chitId: selected.id, winnerId: winnerMemberId, monthNumber: winnerDraw, winningAmount: winnerWinningAmount })} />
               </View>
             </View>
           </View>
@@ -1982,6 +2346,17 @@ export default function AdminChitsScreen() {
                   placeholderTextColor={C.gray400}
                   style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
                 <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Next suggested: #{nextDrawNum}</Text>
+              </View>
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payment Due Date</Text>
+                <TextInput
+                  value={odDueDate}
+                  onChangeText={setOdDueDate}
+                  placeholder={computeDueDate(selected?.startDate, Number(odDrawNum) || nextDrawNum, selected?.monthlyDueDate)}
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }}
+                />
+                <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Auto-computed · Override by typing YYYY-MM-DD</Text>
               </View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
               <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
@@ -2029,7 +2404,7 @@ export default function AdminChitsScreen() {
                       : `Open Draw #${odDrawNum || nextDrawNum}`}
                     variant="success"
                     onPress={() => openDrawMut.mutate()} loading={openDrawMut.isPending}
-                    disabled={!odDrawNum} />
+                    disabled={openDrawMut.isPending} />
                 </View>
               </View>
             </ScrollView>

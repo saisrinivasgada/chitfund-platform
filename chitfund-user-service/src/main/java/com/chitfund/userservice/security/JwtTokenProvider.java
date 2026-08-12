@@ -1,8 +1,12 @@
 package com.chitfund.userservice.security;
 
 import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.dto.response.TenantInfo;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -10,35 +14,15 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
-/**
- * Handles all JWT operations: generate, validate, extract claims.
- *
- * WHY JWT for access tokens?
- * - STATELESS: The resource server (chit-service, payment-service) can verify the token
- *   using only the shared secret — no DB lookup, no network call to user-service.
- *   This is critical for microservice performance.
- * - Contains user ID + role → downstream services know WHO is calling without DB hit.
- * - Trade-off: JWTs can't be revoked before expiry. Solution: short expiry (15 min)
- *   + opaque refresh tokens (revocable, stored in DB).
- *
- * WHY JJWT 0.12.x API vs 0.11.x?
- * - 0.12.x: Jwts.parser() replaces deprecated Jwts.parserBuilder()
- * - 0.12.x: .subject() replaces .setSubject() (builder uses fluent setters now)
- * - Always use the API jar at compile time, impl jar at runtime — clean separation.
- *
- * WHY HS256 (HMAC-SHA256) not RS256 (RSA)?
- * - HS256: one shared secret, fast, simple. All services must share the secret.
- * - RS256: public/private key pair. Services only need the public key to verify.
- *   Better for zero-trust architectures where you don't want all services holding the secret.
- * - For this monorepo with controlled services: HS256 is fine.
- * - INTERVIEW: "At Netflix/Google scale you'd use RS256 with a JWKS endpoint so
- *   any service can fetch the public key and verify without sharing secrets."
- */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class JwtTokenProvider {
+
+    private final ObjectMapper objectMapper;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -46,6 +30,7 @@ public class JwtTokenProvider {
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
 
+    // ── Scoped token (normal login after tenant selection) ───────────────────
     public String generateAccessToken(User user) {
         return Jwts.builder()
                 .subject(user.getId().toString())
@@ -57,7 +42,57 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    // Refresh token is just a random UUID — opaque, stored in DB, revocable
+    // Super-admin token: no tenantId (they manage all tenants globally)
+    public String generateSuperAdminToken(User user) {
+        return Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("username", user.getUsername())
+                .claim("role", user.getRole().name())
+                .claim("scope", "SUPER_ADMIN")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + accessTokenExpiryMs))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    // Scoped token — includes tenantId, tenantSlug, tenantPlan, tenantStatus, memberId for downstream isolation
+    public String generateScopedToken(User user, String tenantId, String tenantSlug, String tenantPlan, String tenantStatus, String tenantRole, String memberId) {
+        var builder = Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("username", user.getUsername())
+                .claim("role", tenantRole)
+                .claim("tenantId", tenantId)
+                .claim("tenantSlug", tenantSlug)
+                .claim("tenantPlan", tenantPlan != null ? tenantPlan.toUpperCase() : "BASIC")
+                .claim("tenantStatus", tenantStatus != null ? tenantStatus.toUpperCase() : "ACTIVE")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + accessTokenExpiryMs));
+        if (memberId != null) {
+            builder.claim("memberId", memberId);
+        }
+        return builder.signWith(getSigningKey()).compact();
+    }
+
+    // Pre-scope token — 5 min, carries tenant list, used only at /auth/select-tenant
+    public String generatePreScopeToken(User user, List<TenantInfo> tenants) {
+        try {
+            String tenantsJson = objectMapper.writeValueAsString(tenants);
+            return Jwts.builder()
+                    .subject(user.getId().toString())
+                    .claim("username", user.getUsername())
+                    .claim("role", user.getRole().name())
+                    .claim("scope", "TENANT_SELECT")
+                    .claim("tenants", tenantsJson)
+                    .issuedAt(new Date())
+                    .expiration(new Date(System.currentTimeMillis() + 5 * 60 * 1000L)) // 5 min
+                    .signWith(getSigningKey())
+                    .compact();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate pre-scope token", e);
+        }
+    }
+
+    // Transfer token for cross-subdomain switching: 30 seconds, opaque UUID stored in Redis/DB
     public String generateRefreshTokenValue() {
         return UUID.randomUUID().toString();
     }
@@ -72,6 +107,24 @@ public class JwtTokenProvider {
 
     public String extractUserId(String token) {
         return extractClaims(token).getSubject();
+    }
+
+    public String extractTenantId(String token) {
+        return extractClaims(token).get("tenantId", String.class);
+    }
+
+    public String extractScope(String token) {
+        return extractClaims(token).get("scope", String.class);
+    }
+
+    public List<TenantInfo> extractTenants(String token) {
+        try {
+            String tenantsJson = extractClaims(token).get("tenants", String.class);
+            if (tenantsJson == null) return List.of();
+            return objectMapper.readValue(tenantsJson, new TypeReference<>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     public boolean validateToken(String token) {

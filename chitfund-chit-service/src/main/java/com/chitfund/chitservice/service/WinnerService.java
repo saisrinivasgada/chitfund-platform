@@ -39,9 +39,11 @@ public class WinnerService {
     private final WinnerSelectionStrategyFactory strategyFactory;
     private final ChitMapper chitMapper;
     private final com.chitfund.chitservice.client.AuditClient auditClient;
+    private final PlanLimitChecker planLimitChecker;
 
     @Transactional
     public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
+        planLimitChecker.checkNotExpired();
         Chit chit = chitService.findById(chitId);
 
         if (chit.getStatus() != ChitStatus.ACTIVE && chit.getStatus() != ChitStatus.COMPLETED) {
@@ -99,7 +101,8 @@ public class WinnerService {
                 Map.of("monthNumber", saved.getMonthNumber(),
                         "memberId", String.valueOf(winnerId),
                         "winningAmount", winningAmount.toPlainString(),
-                        "mode", String.valueOf(chit.getWinnerSelectionMode())));
+                        "mode", String.valueOf(chit.getWinnerSelectionMode())),
+                com.chitfund.common.context.TenantContext.get());
 
         return chitMapper.toWinnerResponse(saved);
     }

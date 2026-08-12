@@ -83,7 +83,21 @@ public enum ErrorCode {
     // ─── User ─────────────────────────────────────────────────────────────
     USER_NOT_FOUND("USER_001", "User not found"),
     USERNAME_TAKEN("USER_002", "Username is already taken"),
-    EMAIL_TAKEN("USER_003", "Email is already registered");
+    EMAIL_TAKEN("USER_003", "Email is already registered"),
+
+    // ─── OTP ──────────────────────────────────────────────────────────────
+    OTP_RATE_LIMITED("OTP_001", "Please wait before requesting another OTP"),
+    OTP_EXPIRED("OTP_002", "OTP expired or not found — please request a new one"),
+    OTP_INVALID("OTP_003", "Incorrect OTP"),
+    OTP_MAX_ATTEMPTS("OTP_004", "Too many incorrect attempts — please request a new OTP"),
+
+    // ─── Plan Limits ──────────────────────────────────────────────────────
+    PLAN_LIMIT_EXCEEDED("PLAN_001", "Your current plan limit has been reached — upgrade to continue"),
+    PLAN_EXPIRED("PLAN_002", "Your subscription has expired — please renew to continue"),
+
+    // ─── Billing ──────────────────────────────────────────────────────────
+    BILLING_PAYMENT_NOT_FOUND("BILLING_001", "Payment record not found"),
+    BILLING_ALREADY_REFUNDED("BILLING_002", "This payment has already been refunded");
 
     private final String code;
     private final String defaultMessage;

@@ -1,5 +1,6 @@
 package com.chitfund.reportingservice.security;
 
+import com.chitfund.common.context.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -30,18 +31,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain chain) throws ServletException, IOException {
         String token = extractToken(request);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
-            Claims claims = jwtTokenProvider.extractClaims(token);
-            UUID userId = UUID.fromString(claims.getSubject());
-            String role = claims.get("role", String.class);
+        try {
+            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+                Claims claims = jwtTokenProvider.extractClaims(token);
+                UUID userId = UUID.fromString(claims.getSubject());
+                String role = claims.get("role", String.class);
+                String tenantId = claims.get("tenantId", String.class);
 
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(auth);
+                if (tenantId != null) TenantContext.set(tenantId);
+
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+
+            chain.doFilter(request, response);
+        } finally {
+            TenantContext.clear();
         }
-
-        chain.doFilter(request, response);
     }
 
     private String extractToken(HttpServletRequest request) {

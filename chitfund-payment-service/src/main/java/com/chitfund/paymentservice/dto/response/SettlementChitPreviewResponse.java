@@ -46,8 +46,10 @@ public class SettlementChitPreviewResponse {
     private BigDecimal installmentsPaidSincePayout;
 
     // CASE_B1 specific
-    private BigDecimal reservedPayoutAmount;    // MonthReservation.payoutAmount
+    private BigDecimal reservedPayoutAmount;    // sum of MonthReservation.payoutAmount (display only)
     private Integer reservedMonthNumber;
+    private int reservedSlotCount;              // number of RESERVED slots
+    private BigDecimal fundOwesForReserved;     // totalPaidIn credited back for reserved slots
 
     // CASE_B2 specific
     private BigDecimal totalPaidIn;             // total amountPaid across all records

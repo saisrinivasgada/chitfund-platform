@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode } from '../services/api';
+import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode, checkSlugAvailability } from '../services/api';
 import {
-  BookOpen, Building2, CheckCircle, ChevronRight,
+  BookOpen, Building2, CheckCircle, ChevronRight, ChevronLeft,
   Zap, Shield, Users, BarChart2, Eye, EyeOff, Check,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
@@ -82,7 +82,13 @@ export default function RegisterOrgPage() {
     promoCode: '',
   });
   const [plans, setPlans]             = useState([]);
+  const planScrollRef = useRef(null);
+  const [planCanLeft, setPlanCanLeft] = useState(false);
+  const [planCanRight, setPlanCanRight] = useState(true);
   const [slugEdited, setSlugEdited]   = useState(false);
+  const [slugStatus, setSlugStatus]   = useState(null); // null | 'checking' | 'available' | 'taken'
+  const slugDebounceRef = useRef(null);
+  const slugAbortRef    = useRef(null);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
@@ -107,6 +113,50 @@ export default function RegisterOrgPage() {
       }
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const el = planScrollRef.current;
+    if (!el) return;
+    const check = () => {
+      setPlanCanLeft(el.scrollLeft > 4);
+      setPlanCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+    };
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
+  }, [plans]);
+
+  // Debounced real-time slug availability check
+  useEffect(() => {
+    const slug = form.slug.trim();
+    setSlugStatus(null);
+    if (slugDebounceRef.current) clearTimeout(slugDebounceRef.current);
+    if (slugAbortRef.current) slugAbortRef.current.abort();
+    if (!slug || slug.length < 3) return;
+
+    setSlugStatus('checking');
+    slugDebounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      slugAbortRef.current = controller;
+      try {
+        const result = await checkSlugAvailability(slug, controller.signal);
+        setSlugStatus(result.available ? 'available' : 'taken');
+        if (!result.available) {
+          setFe((f) => ({ ...f, slug: `"${slug}" is already taken — try a different subdomain.` }));
+        } else {
+          setFe((f) => ({ ...f, slug: undefined }));
+        }
+      } catch (err) {
+        if (err.name !== 'CanceledError' && err.name !== 'AbortError') setSlugStatus(null);
+      }
+    }, 400);
+
+    return () => {
+      if (slugDebounceRef.current) clearTimeout(slugDebounceRef.current);
+    };
+  }, [form.slug]);
 
   function set(key, value) {
     setForm((p) => ({ ...p, [key]: value }));
@@ -166,6 +216,14 @@ export default function RegisterOrgPage() {
     setError('');
     if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(form.slug)) {
       setError('Slug must be lowercase letters, numbers, and hyphens (2–64 chars).');
+      return;
+    }
+    if (slugStatus === 'taken') {
+      setFe((f) => ({ ...f, slug: `"${form.slug}" is already taken — try a different subdomain.` }));
+      return;
+    }
+    if (slugStatus === 'checking') {
+      setError('Please wait — checking subdomain availability.');
       return;
     }
     if (!/^[a-z0-9][a-z0-9._-]{1,28}$/.test(form.adminUsername)) {
@@ -357,8 +415,10 @@ export default function RegisterOrgPage() {
                     <span className="text-gray-400 font-normal ml-1 text-xs">— your login URL</span>
                   </FieldLabel>
                   <div className={`flex items-stretch rounded-xl border overflow-hidden transition-all focus-within:ring-2 ${
-                    fe.slug
+                    slugStatus === 'taken' || fe.slug
                       ? 'border-red-400 focus-within:border-red-400 focus-within:ring-red-400/10'
+                      : slugStatus === 'available'
+                      ? 'border-emerald-400 focus-within:border-emerald-400 focus-within:ring-emerald-400/10'
                       : 'border-gray-200 focus-within:border-[#1E3A5F] focus-within:ring-[#1E3A5F]/10'
                   }`}>
                     <span className="flex items-center px-4 py-3 bg-gray-50 text-gray-400 text-sm border-r border-gray-200 whitespace-nowrap select-none">
@@ -371,9 +431,22 @@ export default function RegisterOrgPage() {
                       placeholder="kethaki"
                       required
                     />
+                    <span className="flex items-center pr-3 pl-1 bg-white">
+                      {slugStatus === 'checking' && (
+                        <span className="w-4 h-4 border-2 border-gray-300 border-t-[#1E3A5F] rounded-full animate-spin block" />
+                      )}
+                      {slugStatus === 'available' && (
+                        <CheckCircle size={16} className="text-emerald-500" />
+                      )}
+                      {slugStatus === 'taken' && (
+                        <span className="text-red-500 text-lg font-bold leading-none">✕</span>
+                      )}
+                    </span>
                   </div>
                   {fe.slug
                     ? <FieldError msg={fe.slug} />
+                    : slugStatus === 'available'
+                    ? <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Available</p>
                     : <p className="text-xs text-gray-400 mt-2">Lowercase letters, numbers and hyphens only</p>
                   }
                 </div>
@@ -514,7 +587,20 @@ export default function RegisterOrgPage() {
                   <div className="w-5 h-5 border-2 border-[#1E3A5F]/20 border-t-[#1E3A5F] rounded-full animate-spin" />
                 </div>
               ) : (
-                <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch">
+                <div className="relative">
+                  {planCanLeft && (
+                    <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: -280, behavior: 'smooth' })}
+                      className="scroll-arrow-glow absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                      <ChevronLeft size={18} />
+                    </button>
+                  )}
+                  {planCanRight && (
+                    <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: 280, behavior: 'smooth' })}
+                      className="scroll-arrow-glow absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
+                      <ChevronRight size={18} />
+                    </button>
+                  )}
+                <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
                   {plans.map((p) => {
                     const isCustom = p.plan === 'CUSTOM';
                     const selected = form.plan === p.plan;
@@ -528,7 +614,7 @@ export default function RegisterOrgPage() {
                         key={p.plan}
                         onClick={() => set('plan', p.plan)}
                         style={{ minWidth: 220 }}
-                        className={`relative text-left rounded-2xl border-2 p-6 transition-all cursor-pointer flex flex-col flex-shrink-0 h-full ${
+                        className={`relative text-left rounded-2xl border-2 p-6 transition-all cursor-pointer flex flex-col flex-shrink-0 ${
                           selected ? 'border-[#1E3A5F] bg-[#f0f5fb]' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                         }`}
                       >
@@ -558,6 +644,7 @@ export default function RegisterOrgPage() {
                       </button>
                     );
                   })}
+                </div>
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-4">You can upgrade anytime after activation.</p>
@@ -629,7 +716,7 @@ export default function RegisterOrgPage() {
                   Submitting…
                 </span>
               ) : (
-                <>Submit application <ChevronRight size={16} /></>
+                <>Submit application <ChevronRight size={18} /></>
               )}
             </button>
 

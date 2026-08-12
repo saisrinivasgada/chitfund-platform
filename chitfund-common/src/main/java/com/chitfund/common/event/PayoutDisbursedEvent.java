@@ -16,5 +16,6 @@ public record PayoutDisbursedEvent(
         String disbursementMode,
         String referenceNumber,
         String disbursedBy,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

@@ -865,15 +865,15 @@ function downloadCSV(rows, filename) {
 // ─── UI Primitives ────────────────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, sub, color = '#1E3A5F' }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-      <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
         style={{ background: `${color}18` }}>
-        <Icon size={20} style={{ color }} />
+        <Icon size={18} style={{ color }} />
       </div>
-      <div>
-        <p className="text-xs text-gray-400 font-medium">{label}</p>
-        <p className="text-xl font-bold text-gray-900 mt-0.5">{value}</p>
-        {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-gray-400 font-medium leading-tight">{label}</p>
+        <p className="text-lg font-bold text-gray-900 mt-0.5 break-words leading-tight">{value}</p>
+        {sub && <p className="text-xs text-gray-500 mt-0.5 break-words leading-tight">{sub}</p>}
       </div>
     </div>
   );
@@ -994,9 +994,14 @@ function ChitPaymentSection({ memberId, chit }) {
     enabled: !!memberId,
   });
 
-  const totalDue  = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
-  const totalPaid = history.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
-  const totalBal  = history.reduce((s, r) => s + Number(r.balance ?? 0), 0);
+  // Exclude WAIVED draws from totals — they were forgiven, not owed.
+  // SETTLEMENT_CLEARED / PAYOUT_DEDUCTED / SETTLED have 0 effective balance
+  // regardless of the raw amountDue - amountPaid arithmetic.
+  const ZERO_BAL_STATUSES = new Set(['WAIVED', 'SETTLEMENT_CLEARED', 'PAYOUT_DEDUCTED', 'SETTLED']);
+  const activeHistory = history.filter((r) => r.status !== 'WAIVED');
+  const totalDue  = activeHistory.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
+  const totalPaid = activeHistory.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
+  const totalBal  = history.reduce((s, r) => s + (ZERO_BAL_STATUSES.has(r.status) ? 0 : Number(r.balance ?? 0)), 0);
   const hasPromised = history.some((r) => r.promisedPaymentDate);
 
   return (
@@ -1018,7 +1023,7 @@ function ChitPaymentSection({ memberId, chit }) {
         {history.length > 0 && (
           <div className="flex gap-4 text-right text-xs">
             <div><p className="text-gray-400">Paid</p><p className="font-bold text-green-700">{h(totalPaid)}</p></div>
-            <div><p className="text-gray-400">Balance</p><p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</p></div>
+            <div><p className="text-gray-400">Balance</p><p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{totalBal > 0 ? h(totalBal) : '✓'}</p></div>
           </div>
         )}
       </button>
@@ -1031,7 +1036,7 @@ function ChitPaymentSection({ memberId, chit }) {
             <p className="text-sm text-gray-400 text-center py-4">No payment records found</p>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <p className="text-xs text-gray-400">Total Due</p>
                   <p className="font-bold text-gray-800">{h(totalDue)}</p>
@@ -1042,7 +1047,9 @@ function ChitPaymentSection({ memberId, chit }) {
                 </div>
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <p className="text-xs text-gray-400">Outstanding</p>
-                  <p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</p>
+                  <p className={`font-bold ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {totalBal > 0 ? h(totalBal) : '✓ Clear'}
+                  </p>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -1061,8 +1068,8 @@ function ChitPaymentSection({ memberId, chit }) {
                         <td className="px-3 py-2 text-gray-500">{fmtDate(r.dueDate)}</td>
                         <td className="px-3 py-2 text-gray-700">{h(r.amountDue)}</td>
                         <td className="px-3 py-2 text-green-700 font-medium">{h(r.amountPaid)}</td>
-                        <td className={`px-3 py-2 font-medium ${Number(r.balance) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
-                          {fmt(r.balance)}
+                        <td className={`px-3 py-2 font-medium ${!ZERO_BAL_STATUSES.has(r.status) && Number(r.balance) > 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                          {ZERO_BAL_STATUSES.has(r.status) ? '—' : fmt(r.balance)}
                         </td>
                         <td className="px-3 py-2">
                           <Badge color={PMT_STATUS_COLOR[r.status] ?? 'gray'} size="xs">
@@ -1080,7 +1087,7 @@ function ChitPaymentSection({ memberId, chit }) {
                       <td className="px-3 py-2" />
                       <td className="px-3 py-2 text-gray-700">{h(totalDue)}</td>
                       <td className="px-3 py-2 text-green-700">{h(totalPaid)}</td>
-                      <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{h(totalBal)}</td>
+                      <td className={`px-3 py-2 ${totalBal > 0 ? 'text-red-600' : 'text-green-600'}`}>{totalBal > 0 ? h(totalBal) : '✓ Clear'}</td>
                       <td colSpan={hasPromised ? 3 : 2} />
                     </tr>
                   </tfoot>
@@ -1223,8 +1230,10 @@ function MemberReportTab() {
   const chitStartMap = Object.fromEntries(memberChits.map((c) => [String(c.id), c.startDate]));
   const chitName = (p) => chitNameMap[String(p.chitId)] ?? p.chitName ?? p.chitId ?? '—';
 
-  const totalPayoutsReceived = payouts
-    .filter((p) => p.status === 'DISBURSED')
+  const disbursedPayouts = payouts.filter((p) => p.status === 'DISBURSED');
+  const pendingPayouts = payouts.filter((p) => p.status !== 'DISBURSED' && p.status !== 'CANCELLED' && p.status !== 'VOIDED');
+
+  const totalPayoutsReceived = disbursedPayouts
     .reduce((s, p) => s + Number(p.disbursedAmount ?? p.netPayoutAmount ?? 0), 0);
 
   function handlePrint() {
@@ -1245,8 +1254,26 @@ function MemberReportTab() {
         <div class="summary-item"><p class="lbl">Enrolled Chits</p><p class="val">${memberChits.length}</p></div>
         <div class="summary-item"><p class="lbl">Overall Outstanding</p><p class="val">${fmt(totalBalance)}</p></div>
         <div class="summary-item"><p class="lbl">Payouts Received</p><p class="val">${fmt(totalPayoutsReceived)}</p></div>
-        <div class="summary-item"><p class="lbl">Total Payouts</p><p class="val">${payouts.filter((p) => p.status === 'DISBURSED').length}</p></div>
+        <div class="summary-item"><p class="lbl">Disbursed Payouts</p><p class="val">${disbursedPayouts.length}</p></div>
+        ${pendingPayouts.length > 0 ? `<div class="summary-item"><p class="lbl" style="color:#d97706">Pending Disbursements</p><p class="val" style="color:#d97706">${pendingPayouts.length} pending</p></div>` : ''}
       </div>
+    `;
+
+    const pendingDisbHtml = pendingPayouts.length === 0 ? '' : `
+      <h2 style="color:#92400e">Pending Disbursements</h2>
+      <table>
+        <thead><tr><th>Chit</th><th>Draw</th><th>Winning Amt</th><th>Net Payout</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+          ${pendingPayouts.map((p) => { const pdl = drawMonthLabel(chitStartMap[String(p.chitId)], p.monthNumber); return `<tr>
+            <td>${chitName(p)}</td>
+            <td>#${p.monthNumber ?? '—'}${pdl ? ` (${pdl})` : ''}</td>
+            <td>${fmt(p.winningAmount)}</td>
+            <td style="color:#d97706;font-weight:600">${fmt(p.netPayoutAmount)}</td>
+            <td><span class="badge yellow">${p.status ?? '—'}</span></td>
+            <td>${fmtDate(p.createdAt)}</td>
+          </tr>`; }).join('')}
+        </tbody>
+      </table>
     `;
 
     const payoutsHtml = payouts.length === 0 ? '<p style="color:#888;font-size:11px">No payouts</p>' : `
@@ -1280,19 +1307,23 @@ function MemberReportTab() {
       </table>
     `;
 
+    const ZERO_BAL_STATUSES_PRINT = new Set(['WAIVED', 'SETTLEMENT_CLEARED', 'PAYOUT_DEDUCTED', 'SETTLED']);
     const chitHistoriesHtml = memberChits.map((chit) => {
       const hist = queryClient.getQueryData(['payment-history', memberId, chit.id]) ?? [];
       if (hist.length === 0) return '';
-      const hasP = hist.some((r) => r.balance > 0);
+      const activeHist = hist.filter((r) => r.status !== 'WAIVED');
+      const hasP = activeHist.some((r) => !ZERO_BAL_STATUSES_PRINT.has(r.status) && r.balance > 0);
       const rows = hist.map((r) => {
+        if (r.status === 'WAIVED') return ''; // skip waived rows in print
         const dl = drawMonthLabel(chit.startDate, r.monthNumber);
+        const effectiveBal = ZERO_BAL_STATUSES_PRINT.has(r.status) ? 0 : Number(r.balance ?? 0);
         return `<tr>
         <td>#${r.monthNumber ?? '—'}${dl ? ` (${dl})` : ''}</td>
         <td>${fmtDate(r.dueDate)}</td>
         <td>${fmt(r.amountDue)}</td>
         <td>${fmt(r.amountPaid)}</td>
-        <td>${fmt(r.balance)}</td>
-        <td><span class="badge ${r.balance > 0 ? 'red' : 'green'}">${r.status ?? '—'}</span></td>
+        <td>${effectiveBal > 0 ? fmt(effectiveBal) : '—'}</td>
+        <td><span class="badge ${effectiveBal > 0 ? 'red' : 'green'}">${r.status ?? '—'}</span></td>
         <td>${Number(r.amountPaid) > 0 ? fmtDate(r.updatedAt) : '—'}</td>
         ${hasP ? `<td>${r.promisedPaymentDate ? fmtDate(r.promisedPaymentDate) : '—'}</td>` : ''}
       </tr>`;
@@ -1307,6 +1338,7 @@ function MemberReportTab() {
     openPrint(`Member Report — ${member.fullName}`,
       `${profileHtml}${summaryHtml}
        <h2>Payouts Received</h2>${payoutsHtml}
+       ${pendingDisbHtml}
        ${settlementsHtml}
        ${chitHistoriesHtml ? `<h2>Draw-wise Payment History</h2>${chitHistoriesHtml}` : ''}`
     );
@@ -1372,7 +1404,7 @@ function MemberReportTab() {
               </div>
               <Badge color={member.status === 'ACTIVE' ? 'green' : 'gray'}>{member.status}</Badge>
             </div>
-            <div className="grid grid-cols-2 gap-x-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
               {member.address && <Row label="Address" value={member.address} />}
               {member.city && <Row label="City" value={member.city} />}
               {member.referredByName && <Row label="Referred By" value={member.referredByName} />}
@@ -1385,7 +1417,8 @@ function MemberReportTab() {
             { label: 'Enrolled Chits', value: memberChits.length },
             { label: 'Overall Outstanding', value: fmt(totalBalance), color: Number(totalBalance) > 0 ? 'text-red-600' : 'text-green-600' },
             { label: 'Payouts Received', value: fmt(totalPayoutsReceived), color: 'text-green-700' },
-            { label: 'Disbursed Payouts', value: payouts.filter((p) => p.status === 'DISBURSED').length },
+            { label: 'Disbursed Payouts', value: disbursedPayouts.length },
+            ...(pendingPayouts.length > 0 ? [{ label: 'Pending Disbursements', value: `${pendingPayouts.length} pending`, color: 'text-amber-600' }] : []),
           ]} />
 
           {/* Per-Chit Payment History */}
@@ -1455,6 +1488,47 @@ function MemberReportTab() {
               </div>
             )}
           </div>
+
+          {/* Pending Disbursements */}
+          {pendingPayouts.length > 0 && (
+            <div className="bg-white rounded-xl border border-amber-200 p-5">
+              <h3 className="text-sm font-semibold text-amber-800 mb-3 flex items-center gap-2">
+                <AlertCircle size={14} className="text-amber-500" /> Pending Disbursements
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-amber-50">
+                      {['Chit', 'Draw', 'Winning Amt', 'Net Payout', 'Status', 'Date'].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-amber-700 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingPayouts.map((p) => (
+                      <tr key={p.id} className="odd:bg-white even:bg-amber-50/40">
+                        <td className="px-3 py-2"><ChitLink id={p.chitId} name={chitName(p)} /></td>
+                        <td className="px-3 py-2">{drawLabel(chitStartMap[String(p.chitId)], p.monthNumber)}</td>
+                        <td className="px-3 py-2">{h(p.winningAmount)}</td>
+                        <td className="px-3 py-2 font-semibold text-amber-700">{h(p.netPayoutAmount)}</td>
+                        <td className="px-3 py-2">
+                          <Badge color={PY_STATUS_COLOR[p.status] ?? 'gray'} size="xs">{p.status}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500">{fmtDate(p.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-amber-50 text-xs font-semibold">
+                      <td colSpan={3} className="px-3 py-2 text-amber-700">Total Pending</td>
+                      <td className="px-3 py-2 text-amber-700">{h(pendingPayouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? 0), 0))}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Settlements */}
           {settlements.length > 0 && (
@@ -2346,7 +2420,7 @@ function PayoutsTab() {
       </div>
 
       {!isLoading && payouts.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <StatCard icon={TrendingUp}   label="Total Disbursed"  value={h(disbursedTotal)} sub={`${payouts.filter((p) => p.status === 'DISBURSED').length} payouts`} color="#16a34a" />
           <StatCard icon={AlertCircle}  label="Pending Amount"   value={h(pendingTotal)}   sub={`${payouts.filter((p) => p.status === 'PENDING').length} payouts`}  color="#d97706" />
           <StatCard icon={BarChart2}    label="Total Payouts"    value={payouts.length}       sub={`${payouts.filter((p) => p.status === 'CANCELLED').length} cancelled`} />
@@ -2573,10 +2647,11 @@ function TreasuryTab() {
     queryKey: ['wallet-balance'],
     queryFn: getWalletBalance,
   });
-  const { data: transactions = [], isLoading: loadingTxns } = useQuery({
+  const { data: _txData = [], isLoading: loadingTxns } = useQuery({
     queryKey: ['wallet-transactions'],
     queryFn: getWalletTransactions,
   });
+  const transactions = Array.isArray(_txData) ? _txData : (_txData?.content ?? []);
   const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],   queryFn: () => getChits({ size: 200 }) });
   const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
@@ -2734,14 +2809,48 @@ function TreasuryTab() {
 const MANAGER_TABS = ['Overview', 'Member Report', 'Payments', 'Payouts'];
 
 export default function ReportsPage() {
-  const { user } = useAuth();
+  const { user, planExpiresAt, analyticsEnabled } = useAuth();
+  const navigate = useNavigate();
   const isManager = user?.role === 'MANAGER';
   const visibleTabs = isManager ? MANAGER_TABS : TABS;
+
+  const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab') || 'Overview';
   const tab = visibleTabs.includes(rawTab) ? rawTab : 'Overview';
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
+
+  // Analytics plans that expired: show "no active subscription" instead of reports
+  if (isExpired && analyticsEnabled) {
+    return (
+      <div className="p-4 md:p-6 max-w-7xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Full visibility into members, payments and payouts</p>
+        </div>
+        <div className="mt-10 flex flex-col items-center justify-center text-center py-16">
+          <div className="w-16 h-16 rounded-2xl bg-orange-50 flex items-center justify-center mb-5">
+            <AlertCircle size={28} className="text-orange-500" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">No Active Subscription</h2>
+          <p className="text-sm text-gray-500 mb-1 max-w-sm">
+            Your plan has expired. Reports are only available on an active subscription.
+          </p>
+          <p className="text-xs text-gray-400 mb-6 max-w-xs">
+            Renew your plan to restore access to all reports and analytics.
+          </p>
+          <button
+            onClick={() => navigate('/billing')}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer transition-colors"
+            style={{ backgroundColor: '#1E3A5F' }}
+          >
+            Renew Plan →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">

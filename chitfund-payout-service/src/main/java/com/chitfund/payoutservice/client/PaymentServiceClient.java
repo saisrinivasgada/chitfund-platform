@@ -1,5 +1,6 @@
 package com.chitfund.payoutservice.client;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.payoutservice.domain.enums.DisbursementMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -116,7 +117,8 @@ public class PaymentServiceClient {
         Map<String, Object> body = Map.of(
                 "amount", amount,
                 "accountType", accountType,
-                "description", description
+                "description", description,
+                "tenantId", TenantContext.get() != null ? TenantContext.get() : ""
         );
 
         try {
@@ -147,7 +149,8 @@ public class PaymentServiceClient {
         Map<String, Object> body = Map.of(
                 "amount", amount,
                 "accountType", accountType,
-                "description", description
+                "description", description,
+                "tenantId", TenantContext.get() != null ? TenantContext.get() : ""
         );
 
         try {

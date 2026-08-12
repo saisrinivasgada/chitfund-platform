@@ -37,6 +37,7 @@ export default function PhoneInput({
   disabled = false,
   required = false,
   label = 'Phone',
+  error = null,
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -137,9 +138,14 @@ export default function PhoneInput({
           placeholder="Phone number"
           disabled={disabled}
           required={required}
-          className="flex-1 h-10 px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
+          className={`flex-1 h-10 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 disabled:bg-gray-50 disabled:text-gray-400 transition-colors ${
+            error
+              ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
+              : 'border-gray-300 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]'
+          }`}
         />
       </div>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }

@@ -23,5 +23,6 @@ public record MemberPaymentEvent(
         @NotNull Integer monthsOutstanding,
         @NotNull Integer monthsWaived,
         LocalDate lastPaymentDate,
-        BigDecimal lastPaymentAmount
+        BigDecimal lastPaymentAmount,
+        String tenantId
 ) {}

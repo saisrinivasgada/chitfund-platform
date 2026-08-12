@@ -11,24 +11,44 @@ import java.time.Instant;
 
 public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
 
-    Page<AuditLog> findByEntityTypeAndEntityIdOrderByCreatedAtDesc(
-            String entityType, String entityId, Pageable pageable);
-
-    Page<AuditLog> findByChitIdOrderByCreatedAtDesc(String chitId, Pageable pageable);
-
-    Page<AuditLog> findByActorIdOrderByCreatedAtDesc(String actorId, Pageable pageable);
-
-    /**
-     * Flexible search supporting any combination of filters.
-     * All params are optional — null means "don't filter on this field."
-     *
-     * WHY JPQL instead of Specification/QueryDSL?
-     * Four optional filters doesn't warrant the extra dependency.
-     * This query is readable and covers 95% of admin investigation use cases.
-     */
     @Query("""
             SELECT a FROM AuditLog a
-            WHERE (:entityType IS NULL OR a.entityType = :entityType)
+            WHERE a.entityType = :entityType AND a.entityId = :entityId
+            AND   (:tenantId IS NULL OR a.tenantId = :tenantId)
+            ORDER BY a.createdAt DESC
+            """)
+    Page<AuditLog> findByEntityTypeAndEntityId(
+            @Param("entityType") String entityType,
+            @Param("entityId")   String entityId,
+            @Param("tenantId")   String tenantId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AuditLog a
+            WHERE a.chitId = :chitId
+            AND   (:tenantId IS NULL OR a.tenantId = :tenantId)
+            ORDER BY a.createdAt DESC
+            """)
+    Page<AuditLog> findByChitId(
+            @Param("chitId")   String chitId,
+            @Param("tenantId") String tenantId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AuditLog a
+            WHERE a.actorId = :actorId
+            AND   (:tenantId IS NULL OR a.tenantId = :tenantId)
+            ORDER BY a.createdAt DESC
+            """)
+    Page<AuditLog> findByActorId(
+            @Param("actorId")  String actorId,
+            @Param("tenantId") String tenantId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT a FROM AuditLog a
+            WHERE (:tenantId   IS NULL OR a.tenantId   = :tenantId)
+            AND   (:entityType IS NULL OR a.entityType = :entityType)
             AND   (:entityId   IS NULL OR a.entityId   = :entityId)
             AND   (:chitId     IS NULL OR a.chitId     = :chitId)
             AND   (:actorId    IS NULL OR a.actorId    = :actorId)
@@ -38,6 +58,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, String> {
             ORDER BY a.createdAt DESC
             """)
     Page<AuditLog> search(
+            @Param("tenantId")   String tenantId,
             @Param("entityType") String entityType,
             @Param("entityId")   String entityId,
             @Param("chitId")     String chitId,

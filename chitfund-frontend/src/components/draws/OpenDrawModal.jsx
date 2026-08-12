@@ -12,16 +12,18 @@ import {
 } from 'lucide-react';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-export function computeDefaultDueDate(startDateStr, cycleNum) {
+export function computeDefaultDueDate(startDateStr, cycleNum, monthlyDueDate) {
   if (!startDateStr) return '';
   const parts = startDateStr.split('-').map(Number);
   if (parts.length < 3) return '';
   const [y, m, d] = parts;
+  // Use chit's configured due-day of month; fall back to start date's day
+  const dueDay = (monthlyDueDate && monthlyDueDate >= 1 && monthlyDueDate <= 28) ? monthlyDueDate : d;
   const targetMonth = m - 1 + (cycleNum - 1);
   const targetYear  = y + Math.floor(targetMonth / 12);
   const targetMon   = targetMonth % 12;
   const lastDay     = new Date(targetYear, targetMon + 1, 0).getDate();
-  const day         = Math.min(d, lastDay);
+  const day         = Math.min(dueDay, lastDay);
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
@@ -96,7 +98,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const [step, setStep] = useState(1);
-  const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum));
+  const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate));
   const [additionalWinners, setAdditionalWinners] = useState([]);
   const [preview, setPreview] = useState(null);
 
@@ -207,6 +209,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         memberId: mid,
         memberName:       memberMap[mid]?.fullName ?? `Member #${mid}`,
         phone:            memberMap[mid]?.phone ?? null,
+        isDiscontinued:   memberMap[mid]?.status === 'INACTIVE',
         previousBalance,
         processedCount:   processedSlots.length,
         reservedCount:    reservedSlots.length,
@@ -252,6 +255,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         memberId: mid,
         memberName:        memberMap[mid]?.fullName ?? `Member #${mid.slice(0, 8)}`,
         phone:             memberMap[mid]?.phone ?? null,
+        isDiscontinued:    memberMap[mid]?.status === 'INACTIVE',
         previousBalance,
         processedCount:    processedSlots.length,
         reservedCount:     reservedSlots.length,
@@ -583,14 +587,19 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                       <tbody className="divide-y divide-gray-50">
                         {preview.members.map((m) => (
                           <tr key={m.memberId}
-                            className={`transition-colors ${m.isOrg ? 'bg-[#EEF2F8]/40' : m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'bg-white hover:bg-gray-50/60'}`}>
+                            className={`transition-colors ${m.isDiscontinued ? 'opacity-50' : ''} ${m.isOrg ? 'bg-[#EEF2F8]/40' : m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'bg-white hover:bg-gray-50/60'}`}>
                             <td className={`py-2.5 pl-4 pr-3 ${m.isOrg && m.isPrimary ? 'border-l-2 border-[#1E3A5F]' : (m.isPrimary || m.isExtra) ? 'border-l-2' : ''}`}
                               style={(!m.isOrg && (m.isPrimary || m.isExtra)) ? { borderLeftColor: m.isPrimary ? '#D97706' : '#1E3A5F' } : {}}>
                               <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {m.isOrg
                                     ? <span className="flex items-center gap-1 font-semibold text-[#1E3A5F] text-sm"><Building2 size={12} /> {m.memberName}</span>
-                                    : <span className="font-semibold text-gray-900 text-sm">{m.memberName}</span>}
+                                    : <span className={`font-semibold text-sm ${m.isDiscontinued ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{m.memberName}</span>}
+                                  {m.isDiscontinued && (
+                                    <span className="text-[10px] bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold">
+                                      Discontinued
+                                    </span>
+                                  )}
                                   {m.isOrg && m.isPrimary && (
                                     <span className="inline-flex items-center gap-1 text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">
                                       <Building2 size={8} /> This draw's slot

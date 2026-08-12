@@ -16,5 +16,6 @@ public record PayoutCreatedEvent(
         BigDecimal discountAmount,
         BigDecimal netPayoutAmount,
         String createdBy,
-        Instant occurredAt
+        Instant occurredAt,
+        String tenantId
 ) {}

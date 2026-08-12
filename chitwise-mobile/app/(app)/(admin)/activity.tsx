@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   getAuditLogs, getAllPaymentBatches, getActiveCashRequests,
@@ -24,7 +25,7 @@ const TYPE_FILTERS = [
   { key: 'MEMBER',        label: 'Members' },
 ];
 
-const HIDDEN_ENTITY_TYPES = new Set(['WALLET_TRANSACTION']);
+const HIDDEN_ENTITY_TYPES = new Set(['WALLET_TRANSACTION', 'RESERVATION_SLOT', 'WINNER_ASSIGNMENT']);
 
 const DATE_PRESETS = [
   { key: 'all',    label: 'All Time' },
@@ -248,12 +249,14 @@ function smartDedup(items: any[]): any[] {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ActivityScreen() {
+  const router = useRouter();
   const { markActivitySeen } = useUIStore();
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [datePreset, setDatePreset] = useState('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo,   setCustomTo]   = useState('');
   const [showCount,  setShowCount]  = useState(PAGE_SIZE);
+  const [detailLog,  setDetailLog]  = useState<any>(null);
 
   useEffect(() => { markActivitySeen(); }, []);
   useEffect(() => { setShowCount(PAGE_SIZE); }, [typeFilter, datePreset, customFrom, customTo]);
@@ -339,7 +342,12 @@ export default function ActivityScreen() {
       {/* Header */}
       <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={T.h1}>Activity</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
+              <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
+            </TouchableOpacity>
+            <Text style={T.h1}>Activity</Text>
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Animated.View style={{
@@ -476,6 +484,7 @@ export default function ActivityScreen() {
             ].filter(Boolean) as { label: string; color: string; bg: string }[];
 
             return (
+              <TouchableOpacity activeOpacity={0.85} onPress={() => setDetailLog({ log, title, chips, subtitle, memberName, chitName, accentColor, emoji, iconBg, isNeg })}>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 {/* Timeline icon + vertical connector */}
                 <View style={{ alignItems: 'center', paddingTop: 3 }}>
@@ -547,8 +556,10 @@ export default function ActivityScreen() {
 
                   {/* Smart time */}
                   <Text style={{ fontSize: 11, color: C.gray400 }}>{smartTime(log.createdAt)}</Text>
+                  <Text style={{ fontSize: 10, color: C.gray300, marginTop: 2 }}>Tap for details</Text>
                 </Card>
               </View>
+              </TouchableOpacity>
             );
           }}
           ListFooterComponent={
@@ -567,6 +578,157 @@ export default function ActivityScreen() {
             ) : null
           }
         />
+
+      {/* ── Activity Detail Modal ─────────────────────────────────────────────── */}
+      {detailLog && (
+        <Modal visible={!!detailLog} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailLog(null)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: detailLog.iconBg, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 20 }}>{detailLog.emoji}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: detailLog.isNeg ? C.red : C.gray900 }}>{detailLog.title}</Text>
+                  <Text style={{ fontSize: 12, color: detailLog.accentColor, fontWeight: '600', marginTop: 1 }}>{entityTypeLabel(detailLog.log.entityType)}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setDetailLog(null)} style={{ padding: 8 }}>
+                <Text style={{ fontSize: 26, color: C.gray400, lineHeight: 26 }}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 20, gap: 4 }}>
+              {/* Who / what */}
+              {detailLog.memberName && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500 }}>Member</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{detailLog.memberName}</Text>
+                </View>
+              )}
+              {detailLog.chitName && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500 }}>Chit Fund</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{detailLog.chitName}</Text>
+                </View>
+              )}
+              {detailLog.log.actorRole && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500 }}>Performed by</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{detailLog.log.actorRole}</Text>
+                </View>
+              )}
+
+              {/* Value change */}
+              {(detailLog.log.previousValue || detailLog.log.newValue) && (
+                <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 6 }}>Change</Text>
+                  {detailLog.log.previousValue && detailLog.log.newValue ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <View style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#991B1B' }}>{detailLog.log.previousValue}</Text>
+                      </View>
+                      <Text style={{ fontSize: 16, color: C.gray400 }}>→</Text>
+                      <View style={{ backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#166534' }}>{detailLog.log.newValue}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start' }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#166534' }}>{detailLog.log.newValue ?? detailLog.log.previousValue}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Reason / notes */}
+              {detailLog.log.reason && (
+                <View style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 4 }}>Reason</Text>
+                  <Text style={{ fontSize: 13, color: C.gray700, fontStyle: 'italic' }}>"{detailLog.log.reason}"</Text>
+                </View>
+              )}
+
+              {/* Subtitle/context */}
+              {detailLog.subtitle && (
+                <View style={{ marginTop: 4, backgroundColor: '#FEF3C7', borderRadius: 10, padding: 12 }}>
+                  <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>{detailLog.subtitle}</Text>
+                </View>
+              )}
+
+              {/* Chips */}
+              {detailLog.chips.length > 0 && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                  {detailLog.chips.map((chip: any, i: number) => (
+                    <View key={i} style={{ backgroundColor: chip.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: chip.color }}>{chip.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Before / After state (from audit service) */}
+              {(detailLog.log.beforeState || detailLog.log.afterState) && (() => {
+                let before: any = null;
+                let after: any = null;
+                try { before = detailLog.log.beforeState ? JSON.parse(detailLog.log.beforeState) : null; } catch {}
+                try { after  = detailLog.log.afterState  ? JSON.parse(detailLog.log.afterState)  : null; } catch {}
+                const allKeys = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
+                const changed = [...allKeys].filter((k) => JSON.stringify(before?.[k]) !== JSON.stringify(after?.[k]));
+                if (changed.length === 0) return null;
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, marginBottom: 8, letterSpacing: 0.5 }}>FIELD CHANGES</Text>
+                    {changed.map((k) => (
+                      <View key={k} style={{ marginBottom: 8, padding: 12, backgroundColor: C.gray50, borderRadius: 10 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, marginBottom: 4, textTransform: 'uppercase' }}>{k.replace(/([A-Z])/g, ' $1').trim()}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {before?.[k] !== undefined && (
+                            <View style={{ backgroundColor: '#FEE2E2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                              <Text style={{ fontSize: 12, color: '#991B1B', fontWeight: '600' }}>{String(before[k])}</Text>
+                            </View>
+                          )}
+                          {before?.[k] !== undefined && after?.[k] !== undefined && (
+                            <Text style={{ fontSize: 14, color: C.gray400 }}>→</Text>
+                          )}
+                          {after?.[k] !== undefined && (
+                            <View style={{ backgroundColor: '#DCFCE7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                              <Text style={{ fontSize: 12, color: '#166534', fontWeight: '600' }}>{String(after[k])}</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
+
+              {/* Metadata */}
+              {detailLog.log.metadata && (() => {
+                let meta: any = null;
+                try { meta = JSON.parse(detailLog.log.metadata); } catch {}
+                if (!meta) return <Text style={{ fontSize: 12, color: C.gray400, marginTop: 8 }}>{detailLog.log.metadata}</Text>;
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, marginBottom: 8, letterSpacing: 0.5 }}>DETAILS</Text>
+                    {Object.entries(meta).map(([k, v]: [string, any]) => (
+                      <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500, flex: 1 }}>{k.replace(/([A-Z])/g, ' $1').trim()}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray900, flex: 1, textAlign: 'right' }}>{String(v)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
+
+              {/* Timestamp */}
+              <View style={{ marginTop: 16, padding: 14, backgroundColor: C.gray50, borderRadius: 12 }}>
+                <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center' }}>{fmtDateTime(detailLog.log.createdAt)}</Text>
+              </View>
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }

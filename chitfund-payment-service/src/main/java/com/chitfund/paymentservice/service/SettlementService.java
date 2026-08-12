@@ -4,6 +4,7 @@ import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.ChitServiceClient.ChitDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.EnrollmentDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.ReservationDto;
+import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.client.PayoutServiceClient;
 import com.chitfund.paymentservice.client.PayoutServiceClient.PayoutDto;
 import com.chitfund.paymentservice.domain.Settlement;
@@ -13,6 +14,7 @@ import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
 import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
@@ -64,6 +66,8 @@ public class SettlementService {
     private final SettlementRepository settlementRepository;
     private final ChitServiceClient chitServiceClient;
     private final PayoutServiceClient payoutServiceClient;
+    private final MemberServiceClient memberServiceClient;
+    private final PlanExpiryChecker planExpiryChecker;
 
     // ─────────────────────────────────────────────────────────────────────────
     // PREVIEW
@@ -135,13 +139,15 @@ public class SettlementService {
      */
     @Transactional
     public SettlementResponse confirm(ConfirmSettlementRequest request, UUID adminId) {
+        planExpiryChecker.assertNotExpired();
         UUID memberId = request.getMemberId();
 
+        String tenantId = TenantContext.get();
         List<SettlementPaymentStatus> terminalStatuses = List.of(
                 SettlementPaymentStatus.FULLY_COLLECTED,
                 SettlementPaymentStatus.FULLY_DISBURSED,
                 SettlementPaymentStatus.BALANCED);
-        if (settlementRepository.existsByMemberIdAndPaymentStatusNotIn(memberId, terminalStatuses)) {
+        if (settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNotIn(memberId, tenantId, terminalStatuses)) {
             throw new BusinessException(ErrorCode.SETTLEMENT_ALREADY_EXISTS);
         }
 
@@ -181,12 +187,14 @@ public class SettlementService {
             }
 
             // 3. Build SettlementChitItem (will be added to the Settlement entity)
-            // payoutCredit: for CASE_C it's stillOwedByFund; for CASE_B1 it's reservedPayoutAmount; else 0
+            // payoutCredit: tracks what fund is crediting to member
+            // CASE_C: undisbursed payout remainder; CASE_B1/B2: what member paid back (totalPaidIn)
             BigDecimal payoutCredit;
             if (preview.getSettlementCase() == SettlementCase.CASE_C) {
                 payoutCredit = orZero(preview.getStillOwedByFund());
-            } else if (preview.getSettlementCase() == SettlementCase.CASE_B1) {
-                payoutCredit = orZero(preview.getReservedPayoutAmount());
+            } else if (preview.getSettlementCase() == SettlementCase.CASE_B1
+                    || preview.getSettlementCase() == SettlementCase.CASE_B2) {
+                payoutCredit = orZero(preview.getTotalPaidIn());
             } else {
                 payoutCredit = BigDecimal.ZERO;
             }
@@ -227,6 +235,7 @@ public class SettlementService {
                 : SettlementPaymentStatus.PENDING;
 
         Settlement settlement = Settlement.builder()
+                .tenantId(tenantId)
                 .memberId(memberId)
                 .settledBy(adminId)
                 .settledAt(LocalDateTime.now())
@@ -250,6 +259,10 @@ public class SettlementService {
         log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, paymentStatus={}",
                 memberId, adminId, totalOwed, totalRefunded, netAmount, initialPaymentStatus);
 
+        // Mark the member INACTIVE — they have fully withdrawn from all chits.
+        // Done after commit (best-effort): settlement is already persisted even if this fails.
+        memberServiceClient.deactivateMember(memberId);
+
         return toSettlementResponse(saved);
     }
 
@@ -258,11 +271,18 @@ public class SettlementService {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public List<SettlementResponse> getSettlementsForMember(UUID memberId) {
-        return settlementRepository.findByMemberIdOrderBySettledAtDesc(memberId)
-                .stream()
-                .map(this::toSettlementResponse)
-                .toList();
+    public org.springframework.data.domain.Page<SettlementResponse> getSettlementsForMember(
+            UUID memberId, org.springframework.data.domain.Pageable pageable) {
+        return settlementRepository.findByMemberIdAndTenantIdOrderBySettledAtDesc(
+                memberId, TenantContext.get(), pageable)
+                .map(this::toSettlementResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public SettlementResponse getById(UUID settlementId) {
+        Settlement s = settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
+        return toSettlementResponse(s);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -307,14 +327,38 @@ public class SettlementService {
                 .map(PaymentRecord::getAmountPaid)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 4. Determine postPayoutRate
+        // 4. Reservations — split by status (member may have multiple spots with different states)
         List<ReservationDto> reservations = chitServiceClient.getReservationsForMemberInChit(chitId, memberId);
-        ReservationDto activeReservation = reservations.stream()
+        List<ReservationDto> reservedSlots = reservations.stream()
                 .filter(r -> "RESERVED".equals(r.getStatus()))
-                .findFirst()
-                .orElse(null);
+                .collect(Collectors.toList());
+        int processedSlotCount = (int) reservations.stream()
+                .filter(r -> "PROCESSED".equals(r.getStatus()))
+                .count();
+        ReservationDto firstReservedSlot = reservedSlots.isEmpty() ? null : reservedSlots.get(0);
+        int reservedSlotCount = reservedSlots.size();
+        int totalActiveSlots = reservedSlotCount + processedSlotCount;
 
-        BigDecimal postPayoutRate = resolvePostPayoutRate(activeReservation, chit);
+        // Fund refunds for RESERVED slots = proportional share of what member actually paid.
+        // Example: member has 2 slots (1 RESERVED + 1 PROCESSED) and paid ₹60k total →
+        //   fund owes back ₹30k for the reserved slot; member still owes future installments for the processed one.
+        // For all-RESERVED (no processed slots): fund owes back everything (totalPaidIn).
+        // For no-slot (B2): also refund everything.
+        BigDecimal fundOwesForReserved;
+        if (reservedSlotCount > 0 && totalActiveSlots > 0) {
+            // Proportional share of totalPaidIn for the reserved slots
+            fundOwesForReserved = totalPaidIn
+                    .multiply(BigDecimal.valueOf(reservedSlotCount))
+                    .divide(BigDecimal.valueOf(totalActiveSlots), 2, RoundingMode.HALF_UP);
+        } else if (reservedSlotCount == 0 && processedSlotCount == 0) {
+            // B2: no slots at all — refund everything the member paid
+            fundOwesForReserved = totalPaidIn;
+        } else {
+            // Only processed slots (pure CASE_A) — no reserved credit to apply
+            fundOwesForReserved = BigDecimal.ZERO;
+        }
+
+        BigDecimal postPayoutRate = resolvePostPayoutRate(firstReservedSlot, chit);
 
         // 5. Max billed month → future months
         int maxBilledMonth = chitMonthDrawRepository
@@ -331,7 +375,13 @@ public class SettlementService {
         int futureMonthsCount = countFutureMonthsWithoutRecord(
                 memberId, chitId, maxBilledMonth, durationMonths, allRecords);
 
-        BigDecimal futureInstallments = postPayoutRate.multiply(BigDecimal.valueOf(futureMonthsCount));
+        // Scale future installments by the number of processed (payout-received) slots.
+        // Each processed slot still owes future contributions at postPayoutRate.
+        // For pure B cases: processedSlotCount = 0, but futureInstallments isn't used in netAmount anyway.
+        int slotsOwingFuture = processedSlotCount > 0 ? processedSlotCount : 1;
+        BigDecimal futureInstallments = postPayoutRate
+                .multiply(BigDecimal.valueOf(slotsOwingFuture))
+                .multiply(BigDecimal.valueOf(futureMonthsCount));
 
         // 6. Determine case and compute net amount
         SettlementCase settlementCase;
@@ -349,42 +399,39 @@ public class SettlementService {
 
         if (payout == null || "CANCELLED".equals(payout.getStatus()) || "VOIDED".equals(payout.getStatus())) {
             // CASE B
-            if (activeReservation != null && activeReservation.getPayoutAmount() != null) {
-                // CASE B1 — has a reserved slot
+            if (!reservedSlots.isEmpty()) {
+                // CASE B1 — has reserved slot(s), no payout received.
+                // Refund exactly what they paid (totalPaidIn).
+                // Future installments waived — reserved slots are voided on settlement.
                 settlementCase = SettlementCase.CASE_B1;
-                reservedPayoutAmount = activeReservation.getPayoutAmount();
-                netAmount = reservedPayoutAmount.negate()
-                        .add(unpaidDues)
-                        .add(futureInstallments);
+                reservedPayoutAmount = reservedSlots.stream()
+                        .map(r -> orZero(r.getPayoutAmount()))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                netAmount = totalPaidIn.negate();
             } else {
-                // CASE B2 — no slot, no payout.
-                // Member owes unpaid past dues; what they already paid is credited back.
-                // Future months are forgiven since they never got value from the fund.
-                // net = unpaidDues - totalPaidIn
-                //   positive  → member still owes
-                //   negative  → fund refunds the excess they paid
+                // CASE B2 — no slot, no payout. Refund what they paid; admin adjusts if needed.
                 settlementCase = SettlementCase.CASE_B2;
-                netAmount = unpaidDues.subtract(totalPaidIn);
+                netAmount = totalPaidIn.negate();
             }
             payoutStatusStr = payout != null ? payout.getStatus() : "NONE";
 
         } else if ("PENDING".equals(payout.getStatus())) {
-            // Announced but no money moved yet — treat as B
+            // Announced but no money moved yet — treat as B1: refund what they paid.
             settlementCase = SettlementCase.CASE_B1;
             payoutStatusStr = "PENDING";
             payoutMonthNumber = payout.getMonthNumber();
-            // For PENDING, use the payout's netPayoutAmount as the "reserved slot" amount
             reservedPayoutAmount = payout.getNetPayoutAmount() != null ? payout.getNetPayoutAmount() : BigDecimal.ZERO;
-            netAmount = reservedPayoutAmount.negate().add(unpaidDues).add(futureInstallments);
+            netAmount = totalPaidIn.negate();
 
         } else if ("DISBURSED".equals(payout.getStatus())) {
-            // CASE A
+            // CASE A — payout was received for at least one slot
             settlementCase = SettlementCase.CASE_A;
             payoutStatusStr = "DISBURSED";
             payoutMonthNumber = payout.getMonthNumber();
             disbursedAmt = orZero(payout.getDisbursedAmount());
             netPayoutAmt = orZero(payout.getNetPayoutAmount());
-            netAmount = unpaidDues.add(futureInstallments);
+            // If member also has RESERVED slots (mixed multi-slot), credit them back proportionally
+            netAmount = unpaidDues.add(futureInstallments).subtract(fundOwesForReserved);
 
         } else if ("PARTIALLY_DISBURSED".equals(payout.getStatus())) {
             // CASE C
@@ -431,13 +478,13 @@ public class SettlementService {
         String description = buildDescription(settlementCase, effectiveMode,
                 netAmount, unpaidDues, futureInstallments, futureMonthsCount, postPayoutRate,
                 netPayoutAmt, disbursedAmt, stillOwedByFund, installmentsPaidSincePayout,
-                reservedPayoutAmount, activeReservation != null ? activeReservation.getMonthNumber() : null,
-                totalPaidIn, payoutMonthNumber);
+                reservedPayoutAmount, firstReservedSlot != null ? firstReservedSlot.getMonthNumber() : null,
+                totalPaidIn, payoutMonthNumber, reservedSlotCount);
 
         String tooltipDetail = buildTooltipDetail(settlementCase, effectiveMode,
                 netAmount, unpaidDues, futureInstallments, futureMonthsCount, postPayoutRate,
                 netPayoutAmt, disbursedAmt, stillOwedByFund, installmentsPaidSincePayout,
-                reservedPayoutAmount, totalPaidIn, alternativeModeAmount, alternativeModeName);
+                reservedPayoutAmount, totalPaidIn, alternativeModeAmount, alternativeModeName, reservedSlotCount);
 
         // Map all payment records for the expandable draw-cards view
         List<PaymentRecordDetail> recordDetails = allRecords.stream()
@@ -469,7 +516,9 @@ public class SettlementService {
                 .stillOwedByFund(stillOwedByFund)
                 .installmentsPaidSincePayout(installmentsPaidSincePayout)
                 .reservedPayoutAmount(reservedPayoutAmount)
-                .reservedMonthNumber(activeReservation != null ? activeReservation.getMonthNumber() : null)
+                .reservedMonthNumber(firstReservedSlot != null ? firstReservedSlot.getMonthNumber() : null)
+                .reservedSlotCount(reservedSlotCount)
+                .fundOwesForReserved(fundOwesForReserved)
                 .totalPaidIn(totalPaidIn)
                 .netAmount(netAmount)
                 .alternativeModeAmount(alternativeModeAmount)
@@ -540,7 +589,8 @@ public class SettlementService {
                                     BigDecimal disbursedAmt, BigDecimal stillOwedByFund,
                                     BigDecimal installmentsPaidSincePayout,
                                     BigDecimal reservedPayoutAmount, Integer reservedMonthNumber,
-                                    BigDecimal totalPaidIn, Integer payoutMonthNumber) {
+                                    BigDecimal totalPaidIn, Integer payoutMonthNumber,
+                                    int reservedSlotCount) {
         return switch (sc) {
             case CASE_A -> String.format(
                     "Payout of %s fully disbursed in month %d. Past unpaid: %s. Future %d months at %s/mo: %s. Member owes: %s.",
@@ -548,26 +598,23 @@ public class SettlementService {
                     fmt(unpaidDues), futureMonthsCount, fmt(postPayoutRate),
                     fmt(futureInstallments), fmt(netAmount));
 
-            case CASE_B1 -> {
-                BigDecimal absNet = netAmount.abs();
-                boolean fundOwes = netAmount.compareTo(BigDecimal.ZERO) < 0;
-                yield String.format(
-                        "No payout received. Reserved slot month %d (%s) forfeited. Past unpaid: %s. Remaining installments: %s. Net: %s.",
-                        reservedMonthNumber != null ? reservedMonthNumber : 0,
-                        fmt(reservedPayoutAmount), fmt(unpaidDues), fmt(futureInstallments),
-                        fundOwes ? "fund refunds " + fmt(absNet) : "member owes " + fmt(netAmount));
-            }
+            case CASE_B1 -> String.format(
+                    "%d reserved slot(s) forfeited. Fund refunds %s paid in. %s",
+                    reservedSlotCount, fmt(totalPaidIn),
+                    netAmount.compareTo(BigDecimal.ZERO) == 0
+                        ? "No payment needed."
+                        : netAmount.compareTo(BigDecimal.ZERO) < 0
+                            ? "Fund pays member: " + fmt(netAmount.abs())
+                            : "Member pays: " + fmt(netAmount));
 
-            case CASE_B2 -> {
-                BigDecimal net = unpaidDues.subtract(totalPaidIn);
-                boolean memberOwes = net.compareTo(BigDecimal.ZERO) > 0;
-                yield String.format(
-                    "No payout received. Unpaid dues: %s. Already paid: %s. %s",
-                    fmt(unpaidDues), fmt(totalPaidIn),
-                    memberOwes ? "Member owes: " + fmt(net) : net.compareTo(BigDecimal.ZERO) == 0
-                        ? "Accounts balanced — no payment needed."
-                        : "Fund refunds: " + fmt(net.abs()));
-            }
+            case CASE_B2 -> String.format(
+                    "No slot assigned, no payout received. Fund refunds %s paid in. %s",
+                    fmt(totalPaidIn),
+                    netAmount.compareTo(BigDecimal.ZERO) == 0
+                        ? "No payment needed."
+                        : netAmount.compareTo(BigDecimal.ZERO) < 0
+                            ? "Fund pays member: " + fmt(netAmount.abs())
+                            : "Member pays: " + fmt(netAmount));
 
             case CASE_C -> {
                 if (mode == SettlementMode.FAIR) {
@@ -594,7 +641,8 @@ public class SettlementService {
                                       BigDecimal disbursedAmt, BigDecimal stillOwedByFund,
                                       BigDecimal installmentsPaidSincePayout,
                                       BigDecimal reservedPayoutAmount, BigDecimal totalPaidIn,
-                                      BigDecimal alternativeModeAmount, String alternativeModeName) {
+                                      BigDecimal alternativeModeAmount, String alternativeModeName,
+                                      int reservedSlotCount) {
         StringBuilder sb = new StringBuilder();
         switch (sc) {
             case CASE_A -> {
@@ -605,22 +653,23 @@ public class SettlementService {
                 sb.append("\nNote: No alternative mode — payout was fully disbursed.");
             }
             case CASE_B1 -> {
-                sb.append("How this was calculated (Case B1 — No Payout, Reserved Slot):\n");
-                sb.append("  Reserved payout forfeited: −").append(fmt(reservedPayoutAmount)).append("\n");
-                sb.append("+ Unpaid dues: ").append(fmt(unpaidDues)).append("\n");
-                sb.append("+ Future installments: ").append(futureMonthsCount).append(" months × ").append(fmt(postPayoutRate)).append(" = ").append(fmt(futureInstallments)).append("\n");
-                sb.append("= Net: ").append(netAmount.compareTo(BigDecimal.ZERO) < 0 ? "Fund refunds " + fmt(netAmount.abs()) : "Member owes " + fmt(netAmount)).append("\n");
-                sb.append("\nNote: No alternative mode for this case.");
+                sb.append("How this was calculated (Case B1 — Reserved Slot(s), No Payout):\n");
+                sb.append("  Reserved slots: ").append(reservedSlotCount).append("\n");
+                sb.append("  Total paid in by member: ").append(fmt(totalPaidIn)).append("\n");
+                sb.append("  Fund refunds: −").append(fmt(totalPaidIn)).append("\n");
+                sb.append("= Net: ").append(netAmount.compareTo(BigDecimal.ZERO) <= 0
+                        ? "Fund refunds " + fmt(netAmount.abs())
+                        : "Member owes " + fmt(netAmount)).append("\n");
+                sb.append("\nFuture installments waived. Admin can adjust using the adjustment field.");
             }
             case CASE_B2 -> {
-                BigDecimal net = unpaidDues.subtract(totalPaidIn);
-                sb.append("How this was calculated (Case B2 — No Payout, No Slot):\n");
-                sb.append("  Unpaid dues (past months owed): ").append(fmt(unpaidDues)).append("\n");
-                sb.append("− Already paid (credited back): ").append(fmt(totalPaidIn)).append("\n");
-                sb.append("= Net: ").append(net.compareTo(BigDecimal.ZERO) >= 0
-                        ? "Member owes " + fmt(net)
-                        : "Fund refunds " + fmt(net.abs())).append("\n");
-                sb.append("\nFuture installments are waived since member exited without a payout.");
+                sb.append("How this was calculated (Case B2 — No Slot, No Payout):\n");
+                sb.append("  Total paid in by member: ").append(fmt(totalPaidIn)).append("\n");
+                sb.append("  Fund refunds: −").append(fmt(totalPaidIn)).append("\n");
+                sb.append("= Net: ").append(netAmount.compareTo(BigDecimal.ZERO) <= 0
+                        ? "Fund refunds " + fmt(netAmount.abs())
+                        : "Member owes " + fmt(netAmount)).append("\n");
+                sb.append("\nFuture installments waived. Admin can adjust using the adjustment field.");
             }
             case CASE_C -> {
                 if (mode == SettlementMode.FAIR) {
@@ -656,6 +705,71 @@ public class SettlementService {
     // Mapping
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ALL SETTLEMENTS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<SettlementResponse> getAllSettlements(
+            org.springframework.data.domain.Pageable pageable) {
+        String tenant = TenantContext.get();
+        log.info("getAllSettlements: tenant={}", tenant);
+        org.springframework.data.domain.Page<Settlement> page =
+                settlementRepository.findAllByTenant(tenant, pageable);
+        log.info("getAllSettlements: found {} settlements", page.getTotalElements());
+        return page.map(this::toSettlementResponse);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // VOID
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Voids a confirmed settlement. Reverts all SETTLEMENT_CLEARED payment records
+     * for the member back to OUTSTANDING so they can be included in a future settlement.
+     *
+     * WHY OUTSTANDING and not the original status?
+     * The original status before settlement was OUTSTANDING or PARTIALLY_PAID.
+     * We don't store the original status at confirm time. Reverting to OUTSTANDING
+     * is conservative — the admin can then manually correct any PARTIALLY_PAID nuances.
+     * The key goal is to unblock the member from being re-settled.
+     */
+    @Transactional
+    public SettlementResponse voidSettlement(UUID settlementId, UUID adminId) {
+        Settlement settlement = settlementRepository.findById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found"));
+
+        if (!settlement.getTenantId().equals(TenantContext.get())) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found");
+        }
+
+        if (settlement.getPaymentStatus() == SettlementPaymentStatus.VOIDED) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Settlement is already voided");
+        }
+
+        // Revert SETTLEMENT_CLEARED records back to OUTSTANDING for this member
+        List<PaymentRecord> cleared = paymentRecordRepository
+                .findByMemberIdAndStatusIn(settlement.getMemberId(),
+                        List.of(PaymentRecordStatus.SETTLEMENT_CLEARED));
+        for (PaymentRecord rec : cleared) {
+            rec.setStatus(PaymentRecordStatus.OUTSTANDING);
+            paymentRecordRepository.save(rec);
+        }
+        log.info("Void settlement {}: reverted {} SETTLEMENT_CLEARED records to OUTSTANDING for member {}",
+                settlementId, cleared.size(), settlement.getMemberId());
+
+        settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
+        settlement.setVoidedAt(LocalDateTime.now());
+        settlement.setVoidedBy(adminId);
+        settlementRepository.save(settlement);
+
+        return toSettlementResponse(settlement);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mapping
+    // ─────────────────────────────────────────────────────────────────────────
+
     private SettlementResponse toSettlementResponse(Settlement s) {
         BigDecimal absNet = s.getNetAmount().abs();
         BigDecimal collected = s.getCollectedAmount() != null ? s.getCollectedAmount() : BigDecimal.ZERO;
@@ -678,6 +792,8 @@ public class SettlementService {
                 .collectedAmount(collected)
                 .disbursedAmount(disbursed)
                 .remainingAmount(remaining)
+                .voidedAt(s.getVoidedAt())
+                .voidedBy(s.getVoidedBy())
                 .chitItems(s.getChitItems().stream()
                         .map(item -> SettlementResponse.ChitItemDetail.builder()
                                 .id(item.getId())

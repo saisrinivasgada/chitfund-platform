@@ -21,10 +21,34 @@ spring:
           predicates:
             - Path=/api/auth/**
 
+        - id: user-service-plans-public
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/plans/**
+
+        - id: user-service-public-endpoints
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/public/**
+
         - id: user-service-protected
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/users/**
+          filters:
+            - JwtAuthGatewayFilter
+
+        - id: user-service-super-admin
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/super-admin/**
+          filters:
+            - JwtAuthGatewayFilter
+
+        - id: user-service-billing
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/billing/**
           filters:
             - JwtAuthGatewayFilter
 

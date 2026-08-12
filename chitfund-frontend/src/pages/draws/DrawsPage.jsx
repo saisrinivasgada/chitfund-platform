@@ -118,6 +118,8 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
   const qc      = useQueryClient();
   const toast   = useToastContext();
   const navigate = useNavigate();
+  const { planExpiresAt } = useAuth();
+  const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
 
   const [showOpenModal,   setShowOpenModal]  = useState(false);
   const [showSkipModal,   setShowSkipModal]  = useState(false);
@@ -190,14 +192,14 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
           </button>
           {isAdmin && (
             <>
-              <Button variant="secondary" size="sm" onClick={() => setShowSkipModal(true)} disabled={!isActive}>
+              <Button variant="secondary" size="sm" onClick={() => setShowSkipModal(true)} disabled={!isActive || isExpired}>
                 <XCircle size={13} /> Skip
               </Button>
               <Button
                 size="sm"
                 onClick={() => setShowOpenModal(true)}
-                disabled={allUsed || !isActive}
-                title={!isActive ? `Chit must be Active (current: ${chit.status})` : allUsed ? 'All draws opened' : undefined}
+                disabled={allUsed || !isActive || isExpired}
+                title={isExpired ? 'Plan expired — renew to open draws' : !isActive ? `Chit must be Active (current: ${chit.status})` : allUsed ? 'All draws opened' : undefined}
               >
                 <Plus size={13} /> Open Draw
               </Button>
@@ -327,7 +329,7 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
                   </div>
 
                   {/* Stat pills */}
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
                       { label: 'Settled',     count: d.settledCount,       color: 'text-green-700', bg: 'bg-green-50'  },
                       { label: 'Partial',     count: d.partiallyPaidCount, color: 'text-amber-600', bg: 'bg-amber-50'  },

@@ -34,6 +34,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     java.util.List<User> findByRoleInAndDeletedAtIsNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 
+    long countByRoleInAndDeletedAtIsNullAndEnabledTrue(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
     java.util.List<User> findByRoleInAndDeletedAtIsNotNull(java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 
     // Mobile login: match phone number + country code together
@@ -46,4 +48,18 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     // Recovery path for partial create-login: find an existing active MEMBER by email
     // so we can reuse them instead of failing with EMAIL_TAKEN on retry.
     Optional<User> findByEmailAndRoleAndDeletedAtIsNull(String email, com.chitfund.userservice.domain.enums.Role role);
+
+    // Tenant-scoped staff list: filter directly on users.tenant_id + users.role
+    java.util.List<User> findByTenantIdAndRoleInAndDeletedAtIsNull(
+        String tenantId,
+        java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
+    java.util.List<User> findByTenantIdAndRoleInAndDeletedAtIsNotNull(
+        String tenantId,
+        java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
+    // Tenant-scoped staff count for plan limit enforcement
+    long countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
+        String tenantId,
+        java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
 }

@@ -282,13 +282,15 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
             <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
               Due across all your chits (active, paused & completed)
             </p>
-            <button
-              type="button"
-              onClick={onNewRequest}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 bg-white px-4 py-2 rounded-xl cursor-pointer hover:bg-red-50 transition-colors"
-            >
-              <Banknote size={14} /> Request Cash Pickup
-            </button>
+            {onNewRequest && (
+              <button
+                type="button"
+                onClick={onNewRequest}
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-red-700 bg-white px-4 py-2 rounded-xl cursor-pointer hover:bg-red-50 transition-colors"
+              >
+                <Banknote size={14} /> Request Cash Pickup
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -424,7 +426,7 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
               description: 'Track your cash pickup requests and see who is assigned to collect.',
               onClick: () => onSwitchTab('requests'),
             },
-          ].map(({ label, icon: Icon, iconColor, iconBg, border, description, onClick }) => (
+          ].filter(({ onClick }) => onClick !== null).map(({ label, icon: Icon, iconColor, iconBg, border, description, onClick }) => (
             <button
               key={label}
               type="button"
@@ -1217,7 +1219,7 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
   const hasChits = chits.some(c => ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status));
   return (
     <div className="space-y-6">
-      {hasChits && (
+      {hasChits && onNewRequest && (
         <button
           type="button"
           onClick={onNewRequest}
@@ -1588,7 +1590,8 @@ function CashPickupModal({ memberId, chits, onClose }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MemberPortalPage() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, planExpiresAt } = useAuth();
+  const isPlanExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const { hidden } = useHiddenAmounts();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = TABS.find(t => t.id === searchParams.get('tab'))?.id ?? 'overview';
@@ -1753,20 +1756,20 @@ export default function MemberPortalPage() {
           memberId={member.id}
           chits={myChits}
           totalOutstanding={totalOutstanding}
-          onNewRequest={() => setShowCashRequest(true)}
+          onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)}
           onSwitchTab={switchTab}
         />
       )}
       {tab === 'chits' && <ChitsTab memberId={member.id} chits={myChits} chitsLoading={chitsLoading} />}
       {tab === 'payouts' && <PayoutsTab memberId={member.id} chits={myChits} />}
       {tab === 'payments' && <PaymentsTab />}
-      {tab === 'requests' && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={() => setShowCashRequest(true)} />}
+      {tab === 'requests' && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)} />}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
-      {showCashRequest && outstanding > 0 && (
+      {showCashRequest && !isPlanExpired && outstanding > 0 && (
         <CashPickupModal memberId={member.id} chits={chitsForRequest} onClose={() => setShowCashRequest(false)} />
       )}
-      {showCashRequest && outstanding <= 0 && (
+      {showCashRequest && !isPlanExpired && outstanding <= 0 && (
         <Modal title="No Outstanding Balance" onClose={() => setShowCashRequest(false)} size="sm">
           <p className="text-sm text-gray-600">You have no outstanding dues at the moment. Cash pickups are only needed when you have a pending balance.</p>
           <div className="flex justify-end mt-4">

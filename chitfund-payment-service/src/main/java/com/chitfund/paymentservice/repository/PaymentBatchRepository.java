@@ -25,31 +25,76 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id")
     Optional<PaymentBatch> findByIdForUpdate(@Param("id") UUID id);
 
-    // Admin dashboard: show all cash collections waiting to be remitted
+    // ── Tenant-scoped list queries (primary paths) ────────────────────────────
+
+    List<PaymentBatch> findByTenantIdAndStatusOrderByCreatedAtAsc(String tenantId, BatchStatus status);
+
+    List<PaymentBatch> findByTenantIdAndMemberIdAndChitIdOrderByCreatedAtDesc(String tenantId, UUID memberId, UUID chitId);
+    List<PaymentBatch> findByTenantIdAndChitIdOrderByCreatedAtDesc(String tenantId, UUID chitId);
+    List<PaymentBatch> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId);
+    List<PaymentBatch> findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID chitId, UUID memberId);
+    List<PaymentBatch> findByTenantIdOrderByCreatedAtDesc(String tenantId);
+
+    Page<PaymentBatch> findByTenantIdAndChitIdOrderByCreatedAtDesc(String tenantId, UUID chitId, Pageable pageable);
+    Page<PaymentBatch> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId, Pageable pageable);
+    Page<PaymentBatch> findByTenantIdAndChitIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID chitId, UUID memberId, Pageable pageable);
+    Page<PaymentBatch> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
+
+    List<PaymentBatch> findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(String tenantId, UUID collectedBy, BatchStatus status);
+    List<PaymentBatch> findByTenantIdAndCollectedByOrderByCreatedAtDesc(String tenantId, UUID collectedBy);
+
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND (" +
+           "(b.createdAt >= :start AND b.createdAt < :end) OR " +
+           "(b.remittedAt >= :start AND b.remittedAt < :end) OR " +
+           "(b.voidedAt >= :start AND b.voidedAt < :end)) " +
+           "ORDER BY b.createdAt DESC")
+    List<PaymentBatch> findTodaysActivityByTenant(
+            @Param("tenantId") String tenantId,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND " +
+           "b.createdAt >= :start AND b.createdAt < :end " +
+           "AND (:chitId IS NULL OR b.chitId = :chitId) " +
+           "AND (:memberId IS NULL OR b.memberId = :memberId) " +
+           "ORDER BY b.createdAt DESC")
+    List<PaymentBatch> findByTenantAndDateRange(
+            @Param("tenantId") String tenantId,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId);
+
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND " +
+           "b.createdAt >= :start AND b.createdAt < :end " +
+           "AND (:chitId IS NULL OR b.chitId = :chitId) " +
+           "AND (:memberId IS NULL OR b.memberId = :memberId) " +
+           "ORDER BY b.createdAt DESC")
+    Page<PaymentBatch> findByTenantAndDateRangePaged(
+            @Param("tenantId") String tenantId,
+            @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end,
+            @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId,
+            Pageable pageable);
+
+    // ── Cross-tenant fallbacks (super-admin only) ─────────────────────────────
+
     List<PaymentBatch> findByStatusOrderByCreatedAtAsc(BatchStatus status);
-
-    // Member payment history for a specific chit
     List<PaymentBatch> findByMemberIdAndChitIdOrderByCreatedAtDesc(UUID memberId, UUID chitId);
-
-    // Admin history tab: all batches for a chit, or all batches across all chits
     List<PaymentBatch> findByChitIdOrderByCreatedAtDesc(UUID chitId);
     List<PaymentBatch> findByMemberIdOrderByCreatedAtDesc(UUID memberId);
     List<PaymentBatch> findByChitIdAndMemberIdOrderByCreatedAtDesc(UUID chitId, UUID memberId);
     List<PaymentBatch> findAllByOrderByCreatedAtDesc();
 
-    // Paginated variants for admin history
     Page<PaymentBatch> findByChitIdOrderByCreatedAtDesc(UUID chitId, Pageable pageable);
     Page<PaymentBatch> findByMemberIdOrderByCreatedAtDesc(UUID memberId, Pageable pageable);
     Page<PaymentBatch> findByChitIdAndMemberIdOrderByCreatedAtDesc(UUID chitId, UUID memberId, Pageable pageable);
     Page<PaymentBatch> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    // Worker view: AWAITING_REMITTANCE batches where they are the collector
     List<PaymentBatch> findByCollectedByAndStatusOrderByCollectedAtDesc(UUID collectedBy, BatchStatus status);
-
-    // Staff detail: all batches (any status) where a person was the collector
     List<PaymentBatch> findByCollectedByOrderByCreatedAtDesc(UUID collectedBy);
 
-    // Today's activity: batches created, remitted, or voided today
     @Query("SELECT b FROM PaymentBatch b WHERE " +
            "(b.createdAt >= :start AND b.createdAt < :end) OR " +
            "(b.remittedAt >= :start AND b.remittedAt < :end) OR " +
@@ -57,7 +102,6 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
            "ORDER BY b.createdAt DESC")
     List<PaymentBatch> findTodaysActivity(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
-    // Reports: all batches in a date range, optionally filtered by chit and/or member
     @Query("SELECT b FROM PaymentBatch b WHERE " +
            "b.createdAt >= :start AND b.createdAt < :end " +
            "AND (:chitId IS NULL OR b.chitId = :chitId) " +

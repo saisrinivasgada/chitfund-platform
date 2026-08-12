@@ -12,8 +12,8 @@ spring:
     password: ${DB_PASSWORD:chitfund_secret}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: 20
+      minimum-idle: 3
 
   jpa:
     hibernate:
@@ -55,4 +55,5 @@ logging:
 app:
   payment-service-url: ${PAYMENT_SERVICE_URL:http://localhost:8084}
   notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}

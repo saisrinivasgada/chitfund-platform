@@ -20,7 +20,7 @@ public class RegisterRequest {
 
     @NotBlank(message = "Username is required")
     @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
-    @Pattern(regexp = "^[a-zA-Z0-9_]+$", message = "Username can only contain letters, numbers, and underscores")
+    @Pattern(regexp = "^[a-zA-Z0-9_.]+$", message = "Username can only contain letters, numbers, underscores and dots")
     private String username;
 
     @Email(message = "Invalid email format")
@@ -38,6 +38,8 @@ public class RegisterRequest {
 
     @Pattern(regexp = "^[0-9+\\-\\s]{7,15}$", message = "Invalid phone number")
     private String phone;
+
+    private String phoneCountryCode;
 
     // Defaults to MEMBER — the most restricted role.
     // Clients cannot self-elevate to ADMIN: only an ADMIN can create ADMIN accounts.

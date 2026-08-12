@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.security;
 
+import com.chitfund.common.context.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,19 +30,36 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String token = extractToken(request);
+        try {
+            if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
+                Claims claims = jwtTokenProvider.extractClaims(token);
+                UUID userId   = UUID.fromString(claims.getSubject());
+                String role     = claims.get("role",     String.class);
+                String tenantId = claims.get("tenantId", String.class);
 
-        if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
-            Claims claims = jwtTokenProvider.extractClaims(token);
-            UUID userId = UUID.fromString(claims.getSubject());
-            String role = claims.get("role", String.class);
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
 
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            SecurityContextHolder.getContext().setAuthentication(auth);
+                if (tenantId != null) TenantContext.set(tenantId);
+
+                String tenantStatus = claims.get("tenantStatus", String.class);
+                if (("PENDING".equals(tenantStatus) || "SUSPENDED".equals(tenantStatus)) && isWriteMethod(request.getMethod())) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"Organisation inactive\",\"message\":\"This organisation is " + ("PENDING".equals(tenantStatus) ? "pending activation" : "suspended") + ".\"}");
+                    return;
+                }
+            }
+            chain.doFilter(request, response);
+        } finally {
+            TenantContext.clear();
         }
+    }
 
-        chain.doFilter(request, response);
+    private static boolean isWriteMethod(String method) {
+        return "POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method) || "PATCH".equals(method);
     }
 
     private String extractToken(HttpServletRequest request) {

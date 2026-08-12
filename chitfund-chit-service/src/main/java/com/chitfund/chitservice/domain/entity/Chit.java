@@ -26,6 +26,9 @@ public class Chit {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "tenant_id", nullable = false, columnDefinition = "varchar(36)")
+    private String tenantId;
+
     // ── Type ──────────────────────────────────────────────────────────────────
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")
