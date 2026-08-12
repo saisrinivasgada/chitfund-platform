@@ -75,6 +75,7 @@ public class SettlementService {
     private final ChitServiceClient chitServiceClient;
     private final PayoutServiceClient payoutServiceClient;
     private final MemberServiceClient memberServiceClient;
+    private final MemberCreditService memberCreditService;
     private final PlanExpiryChecker planExpiryChecker;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -233,7 +234,10 @@ public class SettlementService {
         BigDecimal adjustment = request.getAdjustmentAmount() != null
                 ? request.getAdjustmentAmount()
                 : BigDecimal.ZERO;
-        BigDecimal netAmount = baseNetAmount.add(adjustment);
+
+        // Apply member credit balance — consume full balance; excess becomes a fund disbursement
+        BigDecimal creditBalance = memberCreditService.getBalance(memberId);
+        BigDecimal netAmount = baseNetAmount.add(adjustment).subtract(creditBalance);
 
         // 4. Save Settlement entity
         // WHY set paymentStatus here?
@@ -255,6 +259,7 @@ public class SettlementService {
                 .notes(request.getNotes())
                 .adjustmentAmount(adjustment)
                 .adjustmentReason(request.getAdjustmentReason())
+                .creditApplied(creditBalance)
                 .paymentStatus(initialPaymentStatus)
                 .collectedAmount(BigDecimal.ZERO)
                 .disbursedAmount(BigDecimal.ZERO)
@@ -266,8 +271,14 @@ public class SettlementService {
         settlement.setChitItems(chitItems);
         Settlement saved = settlementRepository.save(settlement);
 
-        log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, paymentStatus={}",
-                memberId, adminId, totalOwed, totalRefunded, netAmount, initialPaymentStatus);
+        log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, credit ₹{}, paymentStatus={}",
+                memberId, adminId, totalOwed, totalRefunded, netAmount, creditBalance, initialPaymentStatus);
+
+        // Consume the member's credit balance — recorded as an OUT transaction against the settlement
+        if (creditBalance.compareTo(BigDecimal.ZERO) > 0) {
+            memberCreditService.consumeCredit(memberId, creditBalance, saved.getId(), null, adminId,
+                    "Credit applied at settlement " + saved.getId());
+        }
 
         // Mark the member INACTIVE — they have fully withdrawn from all chits.
         // Done after commit (best-effort): settlement is already persisted even if this fails.
@@ -426,12 +437,17 @@ public class SettlementService {
             payoutStatusStr = payout != null ? payout.getStatus() : "NONE";
 
         } else if ("PENDING".equals(payout.getStatus())) {
-            // Announced but no money moved yet — treat as B1: refund what they paid.
-            settlementCase = SettlementCase.CASE_B1;
+            // Payout announced (slot is PROCESSED) but not yet disbursed.
+            // The fund still owes the full payout amount. Treat like CASE_A:
+            // member owes unpaid dues + future installments; fund owes the full netPayoutAmount.
+            // Net = (unpaidDues + futureInstallments) - netPayoutAmount
+            settlementCase = SettlementCase.CASE_A;
             payoutStatusStr = "PENDING";
             payoutMonthNumber = payout.getMonthNumber();
-            reservedPayoutAmount = payout.getNetPayoutAmount() != null ? payout.getNetPayoutAmount() : BigDecimal.ZERO;
-            netAmount = totalPaidIn.negate();
+            disbursedAmt = BigDecimal.ZERO;
+            netPayoutAmt = orZero(payout.getNetPayoutAmount());
+            stillOwedByFund = netPayoutAmt; // entire payout still owed by fund
+            netAmount = unpaidDues.add(futureInstallments).subtract(netPayoutAmt).subtract(fundOwesForReserved);
 
         } else if ("DISBURSED".equals(payout.getStatus())) {
             // CASE A — payout was received for at least one slot
@@ -795,6 +811,14 @@ public class SettlementService {
             log.info("Void settlement {}: reversed {} payment transactions in treasury", settlementId, txns.size());
         }
 
+        // Restore any credit that was consumed when this settlement was confirmed
+        BigDecimal creditApplied = settlement.getCreditApplied();
+        if (creditApplied != null && creditApplied.compareTo(BigDecimal.ZERO) > 0) {
+            memberCreditService.addCredit(settlement.getMemberId(), creditApplied, settlementId, null, adminId,
+                    "Credit restored — settlement " + settlementId + " voided");
+            log.info("Void settlement {}: restored ₹{} credit to member {}", settlementId, creditApplied, settlement.getMemberId());
+        }
+
         settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
         settlement.setVoidedAt(LocalDateTime.now());
         settlement.setVoidedBy(adminId);
@@ -825,6 +849,7 @@ public class SettlementService {
                 .createdAt(s.getCreatedAt())
                 .adjustmentAmount(s.getAdjustmentAmount())
                 .adjustmentReason(s.getAdjustmentReason())
+                .creditApplied(s.getCreditApplied() != null ? s.getCreditApplied() : BigDecimal.ZERO)
                 .paymentStatus(s.getPaymentStatus())
                 .collectedAmount(collected)
                 .disbursedAmount(disbursed)
@@ -866,12 +891,19 @@ public class SettlementService {
 
         BigDecimal grandTotal = totalOwed.subtract(totalRefunded);
 
+        // Credit balance offsets what the member owes (or adds to what the fund pays back)
+        BigDecimal creditBalance = memberCreditService.getBalance(memberId);
+        // netAfterCredit: positive = member still owes after credit; negative = fund pays member
+        BigDecimal netAfterCredit = grandTotal.subtract(creditBalance);
+
         return SettlementPreviewResponse.builder()
                 .memberId(memberId)
                 .chitItems(items)
                 .totalOwed(totalOwed)
                 .totalRefunded(totalRefunded)
                 .grandTotal(grandTotal)
+                .creditBalance(creditBalance)
+                .netAfterCredit(netAfterCredit)
                 .build();
     }
 }

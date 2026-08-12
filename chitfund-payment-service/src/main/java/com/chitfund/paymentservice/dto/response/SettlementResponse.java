@@ -35,6 +35,9 @@ public class SettlementResponse {
     private BigDecimal adjustmentAmount;
     private String adjustmentReason;
 
+    // Credit balance consumed from the member's account at settlement time
+    private BigDecimal creditApplied;
+
     // Payment tracking fields
     private SettlementPaymentStatus paymentStatus;
     private BigDecimal collectedAmount;

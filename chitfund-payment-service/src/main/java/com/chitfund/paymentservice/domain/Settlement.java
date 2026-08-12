@@ -75,6 +75,11 @@ public class Settlement {
     @Column(name = "adjustment_reason", columnDefinition = "text")
     private String adjustmentReason;
 
+    // Credit balance consumed at settlement time (reduces what member owes / increases fund payout)
+    @Column(name = "credit_applied", nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal creditApplied = BigDecimal.ZERO;
+
     // ── Payment tracking fields ─────────────────────────────────────────────
 
     /**
