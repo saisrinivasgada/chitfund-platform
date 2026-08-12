@@ -23,4 +23,10 @@ public class SettlementPreviewResponse {
     private BigDecimal totalOwed;       // sum of positive netAmounts
     private BigDecimal totalRefunded;   // sum of absolute values of negative netAmounts
     private BigDecimal grandTotal;      // totalOwed - totalRefunded (positive = member pays, negative = fund refunds)
+
+    // Member's credit balance — offsets what they owe (or adds to what fund pays them)
+    private BigDecimal creditBalance;
+
+    // Grand total after applying credit (what's actually left to collect/pay)
+    private BigDecimal netAfterCredit;
 }
