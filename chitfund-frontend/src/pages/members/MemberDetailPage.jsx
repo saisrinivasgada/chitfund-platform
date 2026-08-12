@@ -1106,7 +1106,7 @@ function PendingSettlementCard({ memberId }) {
   });
   const settlements = settlementPage?.content ?? [];
   const TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
-  const pendingOnes = settlements.filter((s) => !TERMINAL.has(s.status));
+  const pendingOnes = settlements.filter((s) => !TERMINAL.has(s.paymentStatus));
 
   if (pendingOnes.length === 0) return null;
 
@@ -1197,6 +1197,8 @@ function SettlementHistorySection({ memberId }) {
   });
 
   const TERMINAL = ['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED'];
+  const hasActive = settlements.some((s) => !TERMINAL.includes(s.paymentStatus));
+  const [collapsed, setCollapsed] = useState(!hasActive);
   const statusCfg = {
     PENDING:              { bg: 'bg-amber-100', text: 'text-amber-700',  label: 'Pending' },
     PARTIALLY_COLLECTED:  { bg: 'bg-blue-100',  text: 'text-blue-700',   label: 'Partial (Collect)' },
@@ -1221,17 +1223,26 @@ function SettlementHistorySection({ memberId }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full px-6 py-4 border-b border-gray-100 flex items-center justify-between hover:bg-gray-50 transition-colors"
+      >
         <div className="flex items-center gap-2">
           <HandCoins size={18} className="text-[#1E3A5F]" />
           <h3 className="font-semibold text-gray-900">Settlement History</h3>
           <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
             {settlements.length}
           </span>
+          {hasActive && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+              Active
+            </span>
+          )}
         </div>
-      </div>
+        <span className="text-xs text-gray-400">{collapsed ? 'Show ▾' : 'Hide ▴'}</span>
+      </button>
 
-      <div className="divide-y divide-gray-100">
+      {!collapsed && <div className="divide-y divide-gray-100">
         {settlements.map((s) => {
           const net = Number(s.netAmount);
           const absNet = Math.abs(net);
@@ -1469,7 +1480,7 @@ function SettlementHistorySection({ memberId }) {
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* Void confirm dialog */}
       {voidId && (
