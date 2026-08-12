@@ -806,6 +806,57 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Trust & Security ── */}
+      <section className="py-16 sm:py-24 px-4 sm:px-8 bg-white border-t border-gray-100">
+        <div className="max-w-5xl mx-auto">
+          <Reveal>
+            <p className="text-center text-xs font-bold uppercase tracking-widest mb-4" style={{ color: P }}>Security & Privacy</p>
+            <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 text-center leading-snug mb-3" style={{ fontFamily: 'Merriweather, serif' }}>
+              Your data stays yours. Always.
+            </h2>
+            <p className="text-center text-gray-500 mb-12 max-w-xl mx-auto">
+              In India, trust is everything. We built ChitWise so that your members' data, collections, and financials are never visible to anyone outside your organisation — not even us.
+            </p>
+          </Reveal>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {[
+              {
+                icon: Shield,
+                title: 'Encrypted in transit & at rest',
+                desc: 'Every connection to ChitWise is over HTTPS. Your data is encrypted on our servers — no plain-text records, ever.',
+              },
+              {
+                icon: Building2,
+                title: 'Your organisation, fully isolated',
+                desc: "Each org's data lives in its own isolated space. One organisation can never access another's members or transactions — by design.",
+              },
+              {
+                icon: Users,
+                title: 'We never sell your data',
+                desc: 'Your member list, collection history, and financials are never shared with third parties, advertisers, or anyone else. Period.',
+              },
+              {
+                icon: FileText,
+                title: 'You are in control',
+                desc: 'Export your full data anytime. Your records belong to your organisation, not to us. Leave whenever you want — with everything.',
+              },
+            ].map(({ icon: Icon, title, desc }, i) => (
+              <Reveal key={title} delay={i * 0.08}>
+                <div className="flex gap-4 p-6 rounded-2xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-sm transition-all">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#EFF4FA' }}>
+                    <Icon size={18} style={{ color: P }} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 mb-1">{title}</h3>
+                    <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ── */}
       <section className="py-16 sm:py-32 px-4 sm:px-8" style={{ backgroundColor: P }}>
         <div className="max-w-6xl mx-auto">
