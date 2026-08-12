@@ -64,18 +64,16 @@ function SideNavItem({ icon: Icon, label, active }) {
   );
 }
 
-/* ── App stat card (matches DashboardPage StatCard exactly) ── */
+/* ── App stat card — icon on top, text below, truncate on overflow ── */
 function AppStatCard({ icon: Icon, label, value, color, sub }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3 min-w-0 overflow-hidden">
-      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}18` }}>
-        <Icon size={16} style={{ color }} />
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 flex flex-col items-center text-center min-w-0 overflow-hidden gap-1">
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}18` }}>
+        <Icon size={13} style={{ color }} />
       </div>
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
-        <p className="text-lg font-bold text-gray-900 leading-tight truncate">{value}</p>
-        {sub && <p className="text-xs text-gray-400 truncate">{sub}</p>}
-      </div>
+      <p className="text-sm font-bold text-gray-900 leading-tight w-full truncate">{value}</p>
+      <p className="text-xs text-gray-400 w-full truncate">{label}</p>
+      {sub && <p className="text-xs text-gray-400 w-full truncate">{sub}</p>}
     </div>
   );
 }

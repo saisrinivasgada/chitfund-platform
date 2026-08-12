@@ -462,7 +462,7 @@ export default function RegisterOrgPage() {
                   <TextInput
                     value={form.adminFullName}
                     onChange={(e) => set('adminFullName', e.target.value)}
-                    placeholder="Srinivas Kumar"
+                    placeholder="Sai Srinivas"
                     required
                     error={fe.adminFullName}
                   />
@@ -475,8 +475,8 @@ export default function RegisterOrgPage() {
                   </FieldLabel>
                   <TextInput
                     value={form.adminUsername}
-                    onChange={(e) => set('adminUsername', e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
-                    placeholder="srinivas.kumar"
+                    onChange={(e) => set('adminUsername', e.target.value.toLowerCase().replace(/[^a-z0-9._]/g, ''))}
+                    placeholder="sai.srinivas"
                     required
                     minLength={3}
                     maxLength={30}
