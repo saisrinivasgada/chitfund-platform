@@ -67,14 +67,14 @@ function SideNavItem({ icon: Icon, label, active }) {
 /* ── App stat card (matches DashboardPage StatCard exactly) ── */
 function AppStatCard({ icon: Icon, label, value, color, sub }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center gap-3 min-w-0 overflow-hidden">
       <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${color}18` }}>
         <Icon size={16} style={{ color }} />
       </div>
-      <div>
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <p className="text-lg font-bold text-gray-900 leading-tight">{value}</p>
-        {sub && <p className="text-xs text-gray-400">{sub}</p>}
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
+        <p className="text-lg font-bold text-gray-900 leading-tight truncate">{value}</p>
+        {sub && <p className="text-xs text-gray-400 truncate">{sub}</p>}
       </div>
     </div>
   );
@@ -291,7 +291,7 @@ export default function LandingPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold mb-8 border border-white/20"
             style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)' }}>
             <Star size={12} className="text-yellow-300" />
-            Trusted by 100+ chit fund businesses across India
+            First 6 months free · Migration included · No credit card needed
           </motion.div>
 
           <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
@@ -330,14 +330,14 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      {/* ── Stats bar ── */}
+      {/* ── Value pillars ── */}
       <section className="py-12 sm:py-16 border-b border-gray-100" style={{ backgroundColor: '#F8FAFD' }}>
         <div className="max-w-5xl mx-auto px-4 sm:px-8 grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-10 text-center">
           {[
-            { val: '100+', label: 'Chit fund organizations' },
-            { val: '₹50Cr+', label: 'Collections managed monthly' },
-            { val: '10,000+', label: 'Active members' },
-            { val: '99.9%', label: 'Uptime' },
+            { val: '₹0', label: 'To get started' },
+            { val: '3', label: 'Role portals included' },
+            { val: '6 mo', label: 'Free on any plan' },
+            { val: '∞', label: 'Migration support' },
           ].map(({ val, label }, i) => (
             <Reveal key={label} delay={i * 0.1}>
               <p className="text-4xl font-extrabold mb-1" style={{ color: P }}>{val}</p>
