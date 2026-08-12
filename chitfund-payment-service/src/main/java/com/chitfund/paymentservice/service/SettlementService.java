@@ -36,6 +36,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -215,6 +216,29 @@ public class SettlementService {
                     .description(preview.getDescription())
                     .build();
             chitItems.add(item);
+        }
+
+        // Clear any remaining OUTSTANDING/PARTIALLY_PAID records for this member that were not
+        // explicitly included in the submitted chitItems (e.g. completed chits the admin skipped).
+        // Settlement means the member is fully reconciled — no orphaned outstanding records.
+        Set<UUID> processedChitIds = chitItems.stream()
+                .map(SettlementChitItem::getChitId)
+                .collect(java.util.stream.Collectors.toSet());
+        List<PaymentRecord> allRemainingOpen = paymentRecordRepository
+                .findByMemberIdAndStatusIn(memberId,
+                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+        List<PaymentRecord> skippedOpen = allRemainingOpen.stream()
+                .filter(r -> !processedChitIds.contains(r.getChitId()))
+                .collect(java.util.stream.Collectors.toList());
+        for (PaymentRecord rec : skippedOpen) {
+            rec.setStatus(PaymentRecordStatus.SETTLEMENT_CLEARED);
+            paymentRecordRepository.save(rec);
+        }
+        if (!skippedOpen.isEmpty()) {
+            log.info("Settlement: auto-cleared {} open PaymentRecords from {} skipped chit(s) for member {}",
+                    skippedOpen.size(),
+                    skippedOpen.stream().map(PaymentRecord::getChitId).distinct().count(),
+                    memberId);
         }
 
         BigDecimal baseNetAmount = totalOwed.subtract(totalRefunded);
