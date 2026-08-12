@@ -362,6 +362,16 @@ export const getPendingSettlements = async (page = 0, size = 20) => {
   const res = await api.get(`/settlement/pending-payments?page=${page}&size=${size}`);
   return (res.data?.data ?? { content: [], totalPages: 0, totalElements: 0 }) as { content: any[]; totalPages: number; totalElements: number };
 };
+export const getSettlementById = async (settlementId: string) =>
+  unwrapObj(await api.get(`/settlement/${settlementId}`));
+
+// Member-facing settlement endpoints (no admin token needed)
+export const getMySettlements = async (page = 0, size = 10) => {
+  const res = await api.get(`/settlement/my?page=${page}&size=${size}`);
+  return (res.data?.data ?? { content: [], totalPages: 0, totalElements: 0 }) as { content: any[]; totalPages: number; totalElements: number };
+};
+export const getMySettlementById = async (settlementId: string) =>
+  unwrapObj(await api.get(`/settlement/${settlementId}/my`));
 
 // ── Billing info ──────────────────────────────────────────────────────────────
 export const getBillingInfo = async () => {

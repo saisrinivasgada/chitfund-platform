@@ -23,8 +23,14 @@ import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse;
 import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse.PaymentRecordDetail;
 import com.chitfund.paymentservice.dto.response.SettlementPreviewResponse;
 import com.chitfund.paymentservice.dto.response.SettlementResponse;
+import com.chitfund.paymentservice.domain.SettlementPaymentTransaction;
+import com.chitfund.paymentservice.domain.enums.AccountType;
+import com.chitfund.paymentservice.domain.enums.TransactionDirection;
+import com.chitfund.paymentservice.domain.enums.WalletEntryType;
+import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
 import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
 import com.chitfund.paymentservice.repository.PaymentRecordRepository;
+import com.chitfund.paymentservice.repository.SettlementPaymentTransactionRepository;
 import com.chitfund.paymentservice.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +70,8 @@ public class SettlementService {
     private final PaymentRecordRepository paymentRecordRepository;
     private final ChitMonthDrawRepository chitMonthDrawRepository;
     private final SettlementRepository settlementRepository;
+    private final SettlementPaymentTransactionRepository transactionRepository;
+    private final AdminWalletService adminWalletService;
     private final ChitServiceClient chitServiceClient;
     private final PayoutServiceClient payoutServiceClient;
     private final MemberServiceClient memberServiceClient;
@@ -143,10 +151,12 @@ public class SettlementService {
         UUID memberId = request.getMemberId();
 
         String tenantId = TenantContext.get();
+        // VOIDED is terminal — a voided settlement must allow re-settlement
         List<SettlementPaymentStatus> terminalStatuses = List.of(
                 SettlementPaymentStatus.FULLY_COLLECTED,
                 SettlementPaymentStatus.FULLY_DISBURSED,
-                SettlementPaymentStatus.BALANCED);
+                SettlementPaymentStatus.BALANCED,
+                SettlementPaymentStatus.VOIDED);
         if (settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNotIn(memberId, tenantId, terminalStatuses)) {
             throw new BusinessException(ErrorCode.SETTLEMENT_ALREADY_EXISTS);
         }
@@ -757,6 +767,33 @@ public class SettlementService {
         }
         log.info("Void settlement {}: reverted {} SETTLEMENT_CLEARED records to OUTSTANDING for member {}",
                 settlementId, cleared.size(), settlement.getMemberId());
+
+        // Reverse any payment transactions already recorded against this settlement.
+        // COLLECTION txn → reverse as OUT (cash/bank leaves treasury back to member)
+        // DISBURSEMENT txn → reverse as IN (cash/bank returns to treasury)
+        List<SettlementPaymentTransaction> txns = transactionRepository
+                .findBySettlement_IdOrderByCreatedAtAsc(settlementId);
+        for (SettlementPaymentTransaction txn : txns) {
+            AccountType account = txn.getMode() != null
+                    && txn.getMode().name().equals("CASH") ? AccountType.CASH : AccountType.BANK;
+            WalletEntryType reversalEntry = txn.getDirection() == TransactionDirection.COLLECTION
+                    ? WalletEntryType.OUT   // collected cash goes back out
+                    : WalletEntryType.IN;   // disbursed cash comes back in
+            String desc = "VOID reversal — settlement " + settlementId
+                    + " txn " + txn.getId()
+                    + " ₹" + txn.getAmount().toPlainString();
+            AdminWalletEntryRequest walletReq = new AdminWalletEntryRequest();
+            walletReq.setAccountType(account);
+            walletReq.setEntryType(reversalEntry);
+            walletReq.setAmount(txn.getAmount());
+            walletReq.setCategory("SETTLEMENT_VOID_REVERSAL");
+            walletReq.setDescription(desc);
+            walletReq.setReferenceId(txn.getId());
+            adminWalletService.addEntry(walletReq, adminId, TenantContext.get());
+        }
+        if (!txns.isEmpty()) {
+            log.info("Void settlement {}: reversed {} payment transactions in treasury", settlementId, txns.size());
+        }
 
         settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
         settlement.setVoidedAt(LocalDateTime.now());

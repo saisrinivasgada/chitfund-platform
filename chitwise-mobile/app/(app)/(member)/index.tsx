@@ -1,15 +1,23 @@
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
-import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance } from '../../../services/api';
-import { C, T, Badge, Amount, GlassCard, fmtDate, LoadingScreen, SectionHeader } from '../../../components/ui';
+import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById } from '../../../services/api';
+import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
+
+const SETT_PURPLE = '#7C3AED';
+const SETT_PURPLE_LIGHT = '#F5F3FF';
+const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#7C3AED', UNKNOWN: '#9CA3AF' };
+const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown' };
 
 export default function MemberHomeScreen() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const [detailSettlement, setDetailSettlement] = React.useState<any>(null);
+  const [detailLoading, setDetailLoading] = React.useState(false);
 
   const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({
     queryKey: ['member-chits'],
@@ -34,13 +42,37 @@ export default function MemberHomeScreen() {
     enabled: !!memberId,
   });
 
+  const { data: settlementsPage, refetch: refetchSettlements } = useQuery({
+    queryKey: ['my-settlements'],
+    queryFn: () => getMySettlements(0, 5),
+  });
+  const mySettlements: any[] = settlementsPage?.content ?? [];
+
   const isLoading = chitsLoading || reqLoading;
 
   const activeChits    = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const completedChits = (chits as any[]).filter((c) => c.status === 'COMPLETED');
   const pendingReqs    = (requests as any[]).filter((r) => ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status));
 
-  function onRefresh() { refetchChits(); refetchReqs(); }
+  async function openSettlementDetail(s: any) {
+    // If chitItems are already in list response, use them directly
+    if (s.chitItems && s.chitItems.length > 0) {
+      setDetailSettlement(s);
+      return;
+    }
+    // Otherwise fetch full detail
+    setDetailLoading(true);
+    try {
+      const full = await getMySettlementById(s.id);
+      setDetailSettlement(full ?? s);
+    } catch {
+      setDetailSettlement(s);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function onRefresh() { refetchChits(); refetchReqs(); refetchSettlements(); }
 
   if (isLoading) return <LoadingScreen />;
 
@@ -134,6 +166,47 @@ export default function MemberHomeScreen() {
           </View>
         )}
 
+        {/* Settlement section */}
+        {mySettlements.length > 0 && (
+          <View style={{ marginBottom: 20 }}>
+            <SectionHeader title="My Settlements" />
+            {mySettlements.map((s: any) => {
+              const net = Number(s.netAmount ?? 0);
+              const absNet = Math.abs(net);
+              const isCollect = net > 0;
+              const statusColors: Record<string, string> = {
+                FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500,
+                PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red,
+              };
+              const statusLabels: Record<string, string> = {
+                FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced',
+                PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided',
+              };
+              const sColor = statusColors[s.paymentStatus] ?? C.gray400;
+              const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
+              return (
+                <TouchableOpacity key={s.id} onPress={() => openSettlementDetail(s)} activeOpacity={0.7}>
+                  <GlassCard style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 2 }}>{fmtDate(s.settledAt ?? s.createdAt)}</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: net === 0 ? C.gray500 : isCollect ? C.red : C.green }}>
+                          {net === 0 ? 'Balanced' : `${isCollect ? 'You owe' : 'Fund pays'} ₹${absNet.toLocaleString('en-IN')}`}
+                        </Text>
+                        {s.notes ? <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }} numberOfLines={1}>"{s.notes}"</Text> : null}
+                      </View>
+                      <View style={{ backgroundColor: sColor + '20', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: sColor }}>{sLabel}</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>Tap to view details →</Text>
+                  </GlassCard>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
         {/* My Chits preview */}
         <View>
           <SectionHeader
@@ -165,6 +238,138 @@ export default function MemberHomeScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Settlement Detail Modal */}
+      <Modal visible={!!detailSettlement} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailSettlement(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          {detailLoading ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator color={SETT_PURPLE} size="large" />
+            </View>
+          ) : detailSettlement ? (() => {
+            const s = detailSettlement;
+            const net = Number(s.netAmount ?? 0);
+            const absNet = Math.abs(net);
+            const isCollect = net > 0;
+            const statusColors: Record<string, string> = {
+              FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500,
+              PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red,
+            };
+            const statusLabels: Record<string, string> = {
+              FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced',
+              PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided',
+            };
+            const sColor = statusColors[s.paymentStatus] ?? C.gray400;
+            const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
+            const chitItems: any[] = s.chitItems ?? [];
+            return (
+              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+                  <TouchableOpacity onPress={() => setDetailSettlement(null)} style={{ marginRight: 14 }}>
+                    <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>Settlement Details</Text>
+                </View>
+
+                {/* Summary card */}
+                <View style={{ backgroundColor: SETT_PURPLE_LIGHT, borderRadius: 14, padding: 16, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: SETT_PURPLE }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 2 }}>{fmtDateTime(s.settledAt ?? s.createdAt)}</Text>
+                      <Text style={{ fontSize: 22, fontWeight: '800', color: net === 0 ? C.gray500 : isCollect ? C.red : C.green }}>
+                        {net === 0 ? 'Balanced' : `${isCollect ? 'You owe' : 'Fund pays'} ₹${absNet.toLocaleString('en-IN')}`}
+                      </Text>
+                    </View>
+                    <View style={{ backgroundColor: sColor + '20', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginLeft: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: sColor }}>{sLabel}</Text>
+                    </View>
+                  </View>
+                  {s.notes ? <Text style={{ fontSize: 12, color: SETT_PURPLE, fontStyle: 'italic' }}>"{s.notes}"</Text> : null}
+                  {Number(s.adjustmentAmount ?? 0) !== 0 && (
+                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#DDD6FE', paddingTop: 8 }}>
+                      <Text style={{ fontSize: 12, color: C.gray600 }}>
+                        Adjustment: {Number(s.adjustmentAmount) > 0 ? '+' : ''}₹{Number(s.adjustmentAmount).toLocaleString('en-IN')}
+                        {s.adjustmentReason ? ` — ${s.adjustmentReason}` : ''}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Payment progress */}
+                {s.paymentStatus !== 'VOIDED' && s.paymentStatus !== 'BALANCED' && (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray600, marginBottom: 8 }}>Payment Progress</Text>
+                    {isCollect ? (
+                      <>
+                        <Text style={{ fontSize: 13, color: C.gray700 }}>Total to pay: <Text style={{ fontWeight: '700' }}>₹{absNet.toLocaleString('en-IN')}</Text></Text>
+                        <Text style={{ fontSize: 13, color: C.green }}>Collected: ₹{Number(s.collectedAmount ?? 0).toLocaleString('en-IN')}</Text>
+                        {Number(s.remainingAmount ?? 0) > 0 && (
+                          <Text style={{ fontSize: 13, color: C.amber }}>Remaining: ₹{Number(s.remainingAmount).toLocaleString('en-IN')}</Text>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Text style={{ fontSize: 13, color: C.gray700 }}>Fund to pay you: <Text style={{ fontWeight: '700' }}>₹{absNet.toLocaleString('en-IN')}</Text></Text>
+                        <Text style={{ fontSize: 13, color: C.green }}>Disbursed: ₹{Number(s.disbursedAmount ?? 0).toLocaleString('en-IN')}</Text>
+                        {Number(s.remainingAmount ?? 0) > 0 && (
+                          <Text style={{ fontSize: 13, color: C.amber }}>Pending: ₹{Number(s.remainingAmount).toLocaleString('en-IN')}</Text>
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
+
+                {/* Chit breakdown */}
+                {chitItems.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Chit Breakdown</Text>
+                    {chitItems.map((ci: any, i: number) => {
+                      const caseKey = ci.settlementCase ?? 'UNKNOWN';
+                      const caseColor = CASE_COLOR[caseKey] ?? C.gray400;
+                      const caseLabel = CASE_LABEL[caseKey] ?? caseKey;
+                      const ciNet = Number(ci.netAmount ?? 0);
+                      const ciAbs = Math.abs(ciNet);
+                      const fundOwes = ciNet < 0;
+                      return (
+                        <Card key={ci.chitId ?? i} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: caseColor }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>{ci.chitName ?? `Chit ${i + 1}`}</Text>
+                              <View style={{ backgroundColor: caseColor + '20', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, alignSelf: 'flex-start', marginTop: 4 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: caseColor }}>{caseLabel}</Text>
+                              </View>
+                            </View>
+                            <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                              <Text style={{ fontSize: 15, fontWeight: '700', color: fundOwes ? C.green : C.red }}>
+                                ₹{ciAbs.toLocaleString('en-IN')}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: fundOwes ? C.green : C.red }}>{fundOwes ? 'Fund pays you' : 'You owe'}</Text>
+                            </View>
+                          </View>
+                          {ci.description ? (
+                            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>{ci.description}</Text>
+                          ) : null}
+                          {Number(ci.unpaidDues ?? 0) > 0 && (
+                            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 6 }}>
+                              Unpaid dues: ₹{Number(ci.unpaidDues).toLocaleString('en-IN')}
+                            </Text>
+                          )}
+                          {Number(ci.disbursedAmount ?? 0) > 0 && (
+                            <Text style={{ fontSize: 12, color: C.gray500 }}>
+                              Payout disbursed: ₹{Number(ci.disbursedAmount).toLocaleString('en-IN')}
+                            </Text>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </>
+                )}
+              </ScrollView>
+            );
+          })() : null}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

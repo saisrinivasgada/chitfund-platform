@@ -158,6 +158,38 @@ public class SettlementController {
     }
 
     /**
+     * Member: their own settlement history, newest first.
+     * The JWT principal is the memberId in the member service.
+     */
+    @GetMapping("/my")
+    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getMySettlements(
+            Authentication auth,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        UUID memberId = (UUID) auth.getPrincipal();
+        PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
+        return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId, pr)));
+    }
+
+    /**
+     * Member: fetch a single settlement by ID — only if it belongs to them.
+     */
+    @GetMapping("/{settlementId}/my")
+    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<SettlementResponse>> getMySettlementById(
+            @PathVariable UUID settlementId,
+            Authentication auth) {
+        UUID memberId = (UUID) auth.getPrincipal();
+        SettlementResponse s = settlementService.getById(settlementId);
+        if (!memberId.equals(s.getMemberId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("NOT_YOUR_SETTLEMENT", "Access denied"));
+        }
+        return ResponseEntity.ok(ApiResponse.success(s));
+    }
+
+    /**
      * Returns paginated settlements that still have outstanding payment obligations —
      * money not yet fully collected from or disbursed to the member.
      * Excludes FULLY_COLLECTED, FULLY_DISBURSED, BALANCED.

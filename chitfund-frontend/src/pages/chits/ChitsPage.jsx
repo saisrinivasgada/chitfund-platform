@@ -844,7 +844,15 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
                     {c.description && <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>}
                   </div>
                 </Td>
-                <Td>{MODE_LABELS[c.winnerSelectionMode] ?? c.winnerSelectionMode}</Td>
+                <Td>{(() => {
+                  const type = c.chitType ?? c.winnerSelectionMode;
+                  if (!type) return '—';
+                  const typeStyle = type === 'RESERVATION' ? 'text-blue-600 bg-blue-50'
+                    : type === 'LOTTERY' ? 'text-purple-600 bg-purple-50'
+                    : type === 'AUCTION' ? 'text-amber-600 bg-amber-50'
+                    : 'text-gray-500 bg-gray-100';
+                  return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${typeStyle}`}>{MODE_LABELS[type] ?? type}</span>;
+                })()}</Td>
                 <Td>{c.totalMembers}</Td>
                 <Td className="font-semibold">₹{c.installmentAmount?.toLocaleString()}</Td>
                 <Td>{c.startDate ?? '—'}</Td>

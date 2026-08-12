@@ -214,7 +214,8 @@ public class SettlementTransactionService {
         List<SettlementPaymentStatus> terminal = List.of(
                 SettlementPaymentStatus.FULLY_COLLECTED,
                 SettlementPaymentStatus.FULLY_DISBURSED,
-                SettlementPaymentStatus.BALANCED);
+                SettlementPaymentStatus.BALANCED,
+                SettlementPaymentStatus.VOIDED);
         return settlementRepository.findPendingByTenant(TenantContext.get(), terminal, pageable)
                 .map(this::toPendingResponse);
     }

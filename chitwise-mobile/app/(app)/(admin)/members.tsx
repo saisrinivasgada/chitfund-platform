@@ -340,7 +340,7 @@ export default function AdminMembersScreen() {
   });
   const SETTLEMENT_TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
   const pendingSettlements = ((memberSettlementsPage as any)?.content ?? []).filter(
-    (s: any) => !SETTLEMENT_TERMINAL.has(s.status)
+    (s: any) => !SETTLEMENT_TERMINAL.has(s.paymentStatus)
   );
 
   const { data: collectChitBalance } = useQuery({
