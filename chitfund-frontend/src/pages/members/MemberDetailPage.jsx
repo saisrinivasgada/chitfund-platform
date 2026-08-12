@@ -1284,6 +1284,11 @@ function SettlementHistorySection({ memberId }) {
                         {hidden ? '••••••' : `₹${remaining.toLocaleString('en-IN')}`} remaining
                       </span>
                     )}
+                    {Number(s.creditApplied ?? 0) > 0 && (
+                      <span className="font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                        Credit ₹{hidden ? '••••' : Number(s.creditApplied).toLocaleString('en-IN')} applied
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1365,6 +1370,7 @@ function SettlementHistorySection({ memberId }) {
                             <div className="grid grid-cols-2 gap-2 text-xs mb-3">
                               {Number(item.unpaidDues ?? 0) > 0 && <div><span className="text-gray-500">Unpaid Dues</span><p className="font-semibold text-red-600">₹{Number(item.unpaidDues).toLocaleString('en-IN')}</p></div>}
                               {Number(item.futureInstallments ?? 0) > 0 && <div><span className="text-gray-500">Future Install.</span><p className="font-semibold text-red-600">₹{Number(item.futureInstallments).toLocaleString('en-IN')}</p></div>}
+                              {item.payoutStatus === 'PENDING' && Number(item.netPayoutAmount ?? 0) > 0 && <div><span className="text-gray-500">Pending Payout</span><p className="font-semibold text-green-700">₹{Number(item.netPayoutAmount).toLocaleString('en-IN')}</p></div>}
                               {Number(item.payoutCredit ?? 0) > 0 && <div><span className="text-gray-500">Payout Credit</span><p className="font-semibold text-green-700">₹{Number(item.payoutCredit).toLocaleString('en-IN')}</p></div>}
                               {Number(item.totalPaid ?? 0) > 0 && <div><span className="text-gray-500">Total Paid</span><p className="font-semibold text-green-700">₹{Number(item.totalPaid).toLocaleString('en-IN')}</p></div>}
                             </div>
@@ -1396,6 +1402,16 @@ function SettlementHistorySection({ memberId }) {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Credit applied summary */}
+              {isExpanded && Number(s.creditApplied ?? 0) > 0 && (
+                <div className="mx-6 mb-3 px-4 py-2.5 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-between text-xs">
+                  <span className="text-purple-700 font-medium">Credit balance applied at settlement</span>
+                  <span className="font-bold text-purple-800">
+                    −{hidden ? '••••••' : `₹${Number(s.creditApplied).toLocaleString('en-IN')}`}
+                  </span>
                 </div>
               )}
 

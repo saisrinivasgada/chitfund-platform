@@ -294,6 +294,12 @@ export default function MemberHomeScreen() {
                       </Text>
                     </View>
                   )}
+                  {Number(s.creditApplied ?? 0) > 0 && (
+                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#DDD6FE', paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: SETT_PURPLE, fontWeight: '600' }}>Credit balance applied</Text>
+                      <Text style={{ fontSize: 12, color: SETT_PURPLE, fontWeight: '700' }}>−₹{Number(s.creditApplied).toLocaleString('en-IN')}</Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* Payment progress */}
@@ -355,9 +361,24 @@ export default function MemberHomeScreen() {
                               Unpaid dues: ₹{Number(ci.unpaidDues).toLocaleString('en-IN')}
                             </Text>
                           )}
+                          {Number(ci.futureInstallments ?? 0) > 0 && (
+                            <Text style={{ fontSize: 12, color: C.gray500 }}>
+                              Future installments: ₹{Number(ci.futureInstallments).toLocaleString('en-IN')}
+                            </Text>
+                          )}
+                          {ci.payoutStatus === 'PENDING' && Number(ci.netPayoutAmount ?? 0) > 0 && (
+                            <Text style={{ fontSize: 12, color: C.green, fontWeight: '600' }}>
+                              Pending payout (fund owes you): ₹{Number(ci.netPayoutAmount).toLocaleString('en-IN')}
+                            </Text>
+                          )}
                           {Number(ci.disbursedAmount ?? 0) > 0 && (
                             <Text style={{ fontSize: 12, color: C.gray500 }}>
                               Payout disbursed: ₹{Number(ci.disbursedAmount).toLocaleString('en-IN')}
+                            </Text>
+                          )}
+                          {Number(ci.payoutCredit ?? 0) > 0 && (
+                            <Text style={{ fontSize: 12, color: C.green, fontWeight: '600' }}>
+                              Payout credit: ₹{Number(ci.payoutCredit).toLocaleString('en-IN')}
                             </Text>
                           )}
                         </Card>
