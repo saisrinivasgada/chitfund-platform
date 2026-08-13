@@ -150,6 +150,8 @@ export const linkMemberUser = async (memberId: string, userId: string) =>
   unwrapObj(await api.patch(`/members/${memberId}/link-user`, { userId }));
 export const registerUser = async (body: { username: string; email: string }) =>
   (await api.post('/auth/register', { ...body, role: 'MEMBER' })).data?.data;
+export const checkUsernameAvailability = async (username: string) =>
+  (await api.get('/auth/check-username', { params: { username } })).data?.data as { username: string; available: boolean };
 export const getMemberTotalBalance = async (memberId: string) => {
   const res = await api.get('/payments/balance/total', { params: { memberId } });
   return res.data?.data ?? 0;
@@ -403,6 +405,10 @@ export const superAdminActivateTenant = async (tenantId: string) =>
   unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/activate`));
 export const superAdminSuspendTenant = async (tenantId: string) =>
   unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/suspend`));
+export const superAdminSetTenantStatus = async (tenantId: string, status: string) =>
+  unwrapObj(await api.patch(`/super-admin/tenants/${tenantId}/status`, null, { params: { status } }));
+export const superAdminReactivateTenant = async (tenantId: string, newSlug?: string) =>
+  unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, newSlug ? { params: { newSlug } } : {}));
 export const superAdminUpdatePlan = async (tenantId: string, plan: string) =>
   unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } }));
 export const superAdminListOrgUsers = async (tenantId: string) =>

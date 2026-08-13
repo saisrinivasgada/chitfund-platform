@@ -7,7 +7,7 @@ import {
   resendSetupLink, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
-  getMemberPaymentHistoryByChit,
+  getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -483,50 +483,71 @@ function TempPasswordDisplay({ tempPassword, username, label }) {
 // ─── Resend setup link modal ──────────────────────────────────────────────────
 function CreateLoginModal({ member, onClose }) {
   const toast = useToastContext();
-  const [step, setStep] = useState('confirm');
-  const [setupToken, setSetupToken] = useState('');
-  const [copied, setCopied] = useState(false);
+  const qc = useQueryClient();
+  const [username, setUsername] = useState('');
+  const [email, setEmail]       = useState('');
+  const [availability, setAvailability] = useState(null); // null | 'checking' | 'available' | 'taken'
+  const [result, setResult]     = useState(null); // { username, tempPassword }
+  const [copied, setCopied]     = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const debounceRef = useRef(null);
 
-  const setupUrl = setupToken ? `${window.location.origin}/setup-account?token=${setupToken}` : '';
+  function handleUsernameChange(val) {
+    const cleaned = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
+    setUsername(cleaned);
+    setAvailability(null);
+    clearTimeout(debounceRef.current);
+    if (!cleaned || cleaned.length < 3) return;
+    setAvailability('checking');
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const data = await checkUsernameAvailability(cleaned);
+        setAvailability(data.available ? 'available' : 'taken');
+      } catch {
+        setAvailability(null);
+      }
+    }, 400);
+  }
 
-  async function handleSend() {
-    setStep('loading');
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (availability !== 'available') return;
+    setLoading(true);
     try {
-      if (!member.userId) throw new Error('This member has no linked user account. Create a member login first.');
-      const result = await resendSetupLink(member.userId);
-      setSetupToken(result?.setupToken ?? '');
-      setStep('done');
+      const loginData = await createMemberLogin({ username, email: email.trim() || undefined });
+      await linkMemberUser({ memberId: member.id, userId: loginData.userId });
+      qc.invalidateQueries({ queryKey: ['member', member.id] });
+      qc.invalidateQueries({ queryKey: ['members'] });
+      setResult({ username, tempPassword: loginData.tempPassword });
     } catch (err) {
-      toast.error(err.response?.data?.message ?? err.message ?? 'Failed to generate setup link');
-      setStep('confirm');
+      toast.error(err.response?.data?.message ?? 'Failed to create login');
+    } finally {
+      setLoading(false);
     }
   }
 
-  function copyLink() {
-    navigator.clipboard.writeText(setupUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  if (step === 'done') {
+  if (result) {
+    const text = `Username: ${result.username}\nPassword: ${result.tempPassword}`;
     return (
-      <Modal title="Setup Link Generated" onClose={onClose} size="sm">
+      <Modal title="Login Created" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Share this link with <strong>{member.fullName}</strong> to let them set up their account password.
-            The link expires in 72 hours.
-          </p>
-          <div className="bg-gray-50 rounded-xl p-3 font-mono text-xs text-gray-700 break-all border border-gray-200">
-            {setupUrl}
+          <p className="text-sm text-gray-600">Share these credentials with <strong>{member.fullName}</strong>. They'll be asked to change the password on first login.</p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Username</p>
+              <p className="text-lg font-bold text-gray-900 font-mono">{result.username}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Temp Password</p>
+              <p className="text-2xl font-bold text-gray-900 font-mono tracking-widest">{result.tempPassword}</p>
+            </div>
           </div>
           <button
             type="button"
-            onClick={copyLink}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-medium cursor-pointer hover:bg-[#EFF4FA] transition-colors"
+            onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
           >
-            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-            {copied ? 'Copied!' : 'Copy link'}
+            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy Username & Password</>}
           </button>
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
@@ -534,19 +555,56 @@ function CreateLoginModal({ member, onClose }) {
     );
   }
 
+  const statusIcon = availability === 'checking' ? (
+    <span className="text-gray-400 text-xs">Checking…</span>
+  ) : availability === 'available' ? (
+    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold"><Check size={12} /> Available</span>
+  ) : availability === 'taken' ? (
+    <span className="text-red-500 text-xs font-semibold">Already taken</span>
+  ) : null;
+
   return (
-    <Modal title="Resend Setup Link" onClose={onClose} size="sm">
-      <div className="space-y-4">
-        <p className="text-sm text-gray-500">
-          Generate a new setup link for <strong>{member.fullName}</strong>. They can use it to set a password and activate their account. Any previous setup link will be invalidated.
-        </p>
-        <div className="flex gap-3 pt-2">
+    <Modal title="Create App Login" onClose={onClose} size="sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm text-gray-500">Set a username for <strong>{member.fullName}</strong>. A temporary password will be generated for you to share.</p>
+
+        <FormField label="Username" required>
+          <div className="relative">
+            <Input
+              value={username}
+              onChange={(e) => handleUsernameChange(e.target.value)}
+              placeholder="e.g. sai.srinivas"
+              autoComplete="off"
+              className={availability === 'taken' ? 'border-red-400 focus:ring-red-300' : availability === 'available' ? 'border-green-400 focus:ring-green-300' : ''}
+            />
+            {username.length >= 3 && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">{statusIcon}</div>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Letters, numbers, dots and underscores only.</p>
+        </FormField>
+
+        <FormField label="Email (optional)">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="member@example.com"
+          />
+        </FormField>
+
+        <div className="flex gap-3 pt-1">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={handleSend} loading={step === 'loading'} className="flex-1">
-            <UserPlus size={14} /> Generate Link
+          <Button
+            type="submit"
+            className="flex-1"
+            loading={loading}
+            disabled={availability !== 'available' || !username}
+          >
+            <UserPlus size={14} /> Create Login
           </Button>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }
@@ -1554,7 +1612,7 @@ export default function MemberDetailPage() {
   const { data: userAccount } = useQuery({
     queryKey: ['memberUserAccount', member?.userId],
     queryFn: () => getUserById(member.userId),
-    enabled: !!member?.userId,
+    enabled: !!member?.userId && !!member?.hasAppAccess,
   });
 
   const reminderMutation = useMutation({

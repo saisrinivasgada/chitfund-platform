@@ -408,12 +408,10 @@ export default function LoginPage() {
         }} />
 
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-12">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#D4A017' }}>
-              <BookOpen size={20} className="text-white" />
-            </div>
+          <div className="flex items-center gap-4 mb-12">
+            <BookOpen size={36} className="text-white flex-shrink-0" />
             <div>
-              <h1 className="text-xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>ChitWise</h1>
+              <h1 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>ChitWise</h1>
               <p className="text-xs text-white/50">India's Chitfund Management Platform</p>
             </div>
           </div>
@@ -489,11 +487,11 @@ export default function LoginPage() {
 
             {/* Mobile logo */}
             <div className="flex items-center gap-3 mb-10 lg:hidden">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1E3A5F' }}>
-                <BookOpen size={18} className="text-white" />
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#1E3A5F' }}>
+                <BookOpen size={24} className="text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitWise</h1>
+                <h1 className="text-xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>ChitWise</h1>
                 <p className="text-xs text-gray-400">India's Chitfund Platform</p>
               </div>
             </div>
@@ -634,6 +632,7 @@ export default function LoginPage() {
 
               </motion.div>
             </AnimatePresence>
+
           </div>
         </div>
       </div>

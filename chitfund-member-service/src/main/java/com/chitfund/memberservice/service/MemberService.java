@@ -268,6 +268,7 @@ public class MemberService {
                     "This user account is already linked to another member");
         }
         member.setUserId(request.getUserId());
+        member.setHasAppAccess(true);
         memberRepository.save(member);
         return toResponse(member);
     }
@@ -334,7 +335,7 @@ public class MemberService {
                 .bankIfsc(m.getBankIfsc())
                 .status(m.getStatus())
                 .userId(m.getUserId())
-                .hasAppAccess(m.getUserId() != null)
+                .hasAppAccess(m.isHasAppAccess())
                 .notes(m.getNotes())
                 .referredById(m.getReferredById())
                 .referredByName(referredByName)

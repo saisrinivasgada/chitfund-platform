@@ -62,6 +62,10 @@ public class AuthService {
         return tenantService.slugExists(slug);
     }
 
+    public boolean usernameExists(String username) {
+        return userRepository.existsByUsername(username);
+    }
+
     // ── Standard login → returns LoginResponse ───────────────────────────────
     // SUPER_ADMIN: returns full AuthResponse inside LoginResponse (no tenant pick)
     // Others: returns pre-scope token + tenant list; frontend calls select-tenant next
@@ -201,7 +205,7 @@ public class AuthService {
         }
         String email = (request.getEmail() != null && !request.getEmail().isBlank())
                 ? request.getEmail() : null;
-        if (email != null && userRepository.existsByEmail(email)) {
+        if (email != null && userRepository.existsByEmailAndDeletedAtIsNull(email)) {
             throw new BusinessException(ErrorCode.EMAIL_TAKEN);
         }
         String phone = (request.getPhone() != null && !request.getPhone().isBlank())

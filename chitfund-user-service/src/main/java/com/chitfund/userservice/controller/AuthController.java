@@ -34,6 +34,14 @@ public class AuthController {
                 java.util.Map.of("slug", slug, "available", available), "ok"));
     }
 
+    @GetMapping("/check-username")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> checkUsername(
+            @RequestParam String username) {
+        boolean available = !authService.usernameExists(username);
+        return ResponseEntity.ok(ApiResponse.success(
+                java.util.Map.of("username", username, "available", available), "ok"));
+    }
+
     @PostMapping("/register-org")
     public ResponseEntity<ApiResponse<TenantResponse>> registerOrg(
             @Valid @RequestBody RegisterOrgRequest request) {

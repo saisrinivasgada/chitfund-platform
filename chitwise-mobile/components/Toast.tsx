@@ -36,6 +36,8 @@ const TOAST_STYLES: Record<ToastKind, { bg: string; border: string; icon: string
   transferred: { bg: '#F5F3FF', border: '#C4B5FD', icon: '⇄',  color: '#6D28D9' },
 };
 
+const FLASH_KINDS: ToastKind[] = ['saved', 'created', 'collected', 'assigned', 'submitted', 'transferred'];
+
 // ── Module-level singleton ────────────────────────────────────────────────────
 
 let _emit: ((entry: ToastEntry) => void) | null = null;
@@ -66,19 +68,30 @@ export const toast = {
 // ── Single toast item ────────────────────────────────────────────────────────
 
 function ToastItem({ entry, onDone }: { entry: ToastEntry; onDone: () => void }) {
-  const translateY = useRef(new Animated.Value(-80)).current;
-  const opacity    = useRef(new Animated.Value(0)).current;
+  const translateY  = useRef(new Animated.Value(-80)).current;
+  const opacity     = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const flash       = FLASH_KINDS.includes(entry.kind);
 
   useEffect(() => {
+    // Slide in
     Animated.parallel([
       Animated.spring(translateY, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }),
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(opacity,    { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
+
+    // Glow pulse on the card for positive kinds
+    if (flash) {
+      Animated.sequence([
+        Animated.timing(glowOpacity, { toValue: 0.35, duration: 120, useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0,    duration: 500, useNativeDriver: true }),
+      ]).start();
+    }
 
     const timer = setTimeout(() => {
       Animated.parallel([
         Animated.timing(translateY, { toValue: -80, duration: 250, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.timing(opacity,    { toValue: 0,   duration: 200, useNativeDriver: true }),
       ]).start(() => onDone());
     }, 2400);
 
@@ -94,6 +107,18 @@ function ToastItem({ entry, onDone }: { entry: ToastEntry; onDone: () => void })
         { backgroundColor: s.bg, borderColor: s.border, transform: [{ translateY }], opacity },
       ]}
     >
+      {/* Glow overlay — fades in then out on entry for flash kinds */}
+      {flash && (
+        <Animated.View
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            borderRadius: 14,
+            backgroundColor: s.color,
+            opacity: glowOpacity,
+          }}
+          pointerEvents="none"
+        />
+      )}
       <View style={[styles.iconBox, { backgroundColor: s.color + '20' }]}>
         <Text style={{ fontSize: 15, color: s.color, fontWeight: '700' }}>{s.icon}</Text>
       </View>
@@ -114,7 +139,7 @@ export function ToastRoot() {
   }, []);
 
   useEffect(() => {
-    registerToastEmitter(emit);
+    _emit = emit;
   }, [emit]);
 
   function remove(id: number) {
@@ -149,6 +174,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1.5,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,

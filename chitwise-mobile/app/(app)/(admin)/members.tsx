@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
-  getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser,
+  getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
@@ -94,6 +94,8 @@ export default function AdminMembersScreen() {
   const [clEmail, setClEmail] = useState('');
   const [clTempPassword, setClTempPassword] = useState('');
   const [clCopied, setClCopied] = useState(false);
+  const [clAvailability, setClAvailability] = useState<null | 'checking' | 'available' | 'taken'>(null);
+  const clDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Status change inline
   const [showStatusInline, setShowStatusInline] = useState(false);
@@ -359,11 +361,11 @@ export default function AdminMembersScreen() {
     }
   }, [memberCreditBalance, collectOutstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch user account status to show mustChangePassword indicator persistently
+  // Fetch user account status only when member has app access
   const { data: memberUser } = useQuery({
     queryKey: ['m-user-status', selected?.userId],
     queryFn: () => getUserById(selected!.userId),
-    enabled: !!selected?.userId && showDetail,
+    enabled: !!selected?.userId && !!selected?.hasAppAccess && showDetail,
     staleTime: 30_000,
   });
 
@@ -488,7 +490,7 @@ export default function AdminMembersScreen() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{m.fullName ?? 'Unknown'}</Text>
-                    {(m.hasAppAccess || m.userId) && (
+                    {m.hasAppAccess && (
                       <View style={{ backgroundColor: C.navy50, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
                         <Text style={{ fontSize: 9, fontWeight: '700', color: C.navy }}>APP</Text>
                       </View>
@@ -516,7 +518,7 @@ export default function AdminMembersScreen() {
               <Text style={T.h2} numberOfLines={1}>{selected?.fullName ?? 'Member'}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
                 <Badge status={selected?.status ?? 'ACTIVE'} />
-                {(selected?.hasAppAccess || selected?.userId) && (
+                {selected?.hasAppAccess && (
                   <View style={{ backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>App Login Active</Text>
                   </View>
@@ -606,7 +608,7 @@ export default function AdminMembersScreen() {
                 })}
 
                 {/* App Login section */}
-                {(selected?.userId || selected?.linkedUserId || selected?.hasAppAccess) ? (
+                {selected?.hasAppAccess ? (
                   /* ── Has login: password management ── */
                   <>
                     <TouchableOpacity
@@ -732,16 +734,42 @@ export default function AdminMembersScreen() {
                       /* Form */
                       <View style={{ gap: 10 }}>
                         <View>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Username *</Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700 }}>Username *</Text>
+                            {clUsername.length >= 3 && (
+                              clAvailability === 'checking' ? <Text style={{ fontSize: 11, color: C.gray400 }}>Checking…</Text>
+                              : clAvailability === 'available' ? <Text style={{ fontSize: 11, color: C.green, fontWeight: '700' }}>✓ Available</Text>
+                              : clAvailability === 'taken' ? <Text style={{ fontSize: 11, color: C.red, fontWeight: '700' }}>Already taken</Text>
+                              : null
+                            )}
+                          </View>
                           <TextInput
-                            value={clUsername} onChangeText={setClUsername}
-                            placeholder="e.g. sai_srinivas" autoCapitalize="none"
+                            value={clUsername}
+                            onChangeText={(val) => {
+                              const cleaned = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
+                              setClUsername(cleaned);
+                              setClAvailability(null);
+                              if (clDebounceRef.current) clearTimeout(clDebounceRef.current);
+                              if (!cleaned || cleaned.length < 3) return;
+                              setClAvailability('checking');
+                              clDebounceRef.current = setTimeout(async () => {
+                                try {
+                                  const data = await checkUsernameAvailability(cleaned);
+                                  setClAvailability(data.available ? 'available' : 'taken');
+                                } catch { setClAvailability(null); }
+                              }, 400);
+                            }}
+                            placeholder="e.g. sai.srinivas" autoCapitalize="none"
                             placeholderTextColor={C.gray400}
-                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 11, fontSize: 14, color: C.gray900 }}
+                            style={{
+                              borderWidth: 1.5,
+                              borderColor: clAvailability === 'taken' ? C.red : clAvailability === 'available' ? C.green : C.gray300,
+                              borderRadius: 10, padding: 11, fontSize: 14, color: C.gray900,
+                            }}
                           />
                         </View>
                         <View>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Email *</Text>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Email (optional)</Text>
                           <TextInput
                             value={clEmail} onChangeText={setClEmail}
                             placeholder="email@example.com" keyboardType="email-address" autoCapitalize="none"
@@ -750,7 +778,7 @@ export default function AdminMembersScreen() {
                           />
                         </View>
                         <View style={{ flexDirection: 'row', gap: 10 }}>
-                          <TouchableOpacity onPress={() => { setShowCreateLogin(false); setClUsername(''); setClEmail(''); }}
+                          <TouchableOpacity onPress={() => { setShowCreateLogin(false); setClUsername(''); setClEmail(''); setClAvailability(null); }}
                             style={{ flex: 1, padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray300, alignItems: 'center' }}>
                             <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray600 }}>Cancel</Text>
                           </TouchableOpacity>
@@ -758,7 +786,7 @@ export default function AdminMembersScreen() {
                             label={createLoginMutation.isPending ? 'Creating…' : 'Create Login'}
                             variant="primary" fullWidth
                             loading={createLoginMutation.isPending}
-                            disabled={!clUsername.trim() || !clEmail.trim()}
+                            disabled={clAvailability !== 'available' || !clUsername.trim()}
                             onPress={() => createLoginMutation.mutate()}
                           />
                         </View>
@@ -1035,7 +1063,7 @@ export default function AdminMembersScreen() {
                     </View>
                   )}
 
-                  {!(selected.userId || selected.linkedUserId) && (
+                  {!selected?.hasAppAccess && (
                     <View style={{ backgroundColor: C.gray50, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
                       <Text style={{ fontSize: 13, color: C.gray500, textAlign: 'center' }}>No app login — member hasn't been linked to a user account</Text>
                     </View>
@@ -1148,7 +1176,7 @@ export default function AdminMembersScreen() {
                 </View>
 
                 {/* Reminders */}
-                {(selected?.userId || selected?.linkedUserId) && (
+                {selected?.hasAppAccess && (
                   <View style={{ marginTop: 16, gap: 10 }}>
                     <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>REMINDERS</Text>
                     <View style={{ flexDirection: 'row', gap: 8 }}>

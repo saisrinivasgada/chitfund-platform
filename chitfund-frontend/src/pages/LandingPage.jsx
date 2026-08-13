@@ -10,7 +10,6 @@ import {
   Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
   TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
 } from 'lucide-react';
-
 const P = '#1E3A5F';
 
 function Reveal({ children, delay = 0, dir = 'up', className = '' }) {
@@ -237,11 +236,11 @@ export default function LandingPage() {
         transition={{ duration: 0.3 }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: P }}>
-            <BookOpen size={18} className="text-white" />
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: P }}>
+            <BookOpen size={28} className="text-white" />
           </div>
           <motion.span
-            className="text-lg font-bold"
+            className="text-xl font-bold"
             animate={{ color: navScrolled ? P : 'white' }}
             transition={{ duration: 0.3 }}
             style={{ fontFamily: 'Merriweather, serif' }}
@@ -1016,6 +1015,9 @@ export default function LandingPage() {
             <button onClick={() => navigate('/login')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Sign in</button>
             <button onClick={() => navigate('/register')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Register</button>
           </div>
+        </div>
+        <div className="max-w-6xl mx-auto mt-4 text-center">
+          <p className="text-xs text-gray-400">For any enquiries: <a href="mailto:saisrinivasgada@gmail.com" className="text-gray-500 hover:text-gray-700 underline">saisrinivasgada@gmail.com</a></p>
         </div>
       </footer>
     </div>

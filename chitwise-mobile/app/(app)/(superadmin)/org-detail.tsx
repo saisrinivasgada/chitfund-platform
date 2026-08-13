@@ -12,6 +12,8 @@ import {
   superAdminListOrgChits,
   superAdminActivateTenant,
   superAdminSuspendTenant,
+  superAdminSetTenantStatus,
+  superAdminReactivateTenant,
   superAdminUpdatePlan,
   superAdminUpdateTenant,
   superAdminAddOrgUser,
@@ -62,6 +64,8 @@ export default function OrgDetailPage() {
   const [showRename, setShowRename] = useState(false);
   const [showPlanMenu, setShowPlanMenu] = useState(false);
   const [showRecordPayment, setShowRecordPayment] = useState(false);
+  const [showReactivate, setShowReactivate] = useState(false);
+  const [reactivateSlug, setReactivateSlug] = useState('');
 
   const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ['sa-org', tenantId],
@@ -98,6 +102,16 @@ export default function OrgDetailPage() {
     mutationFn: () => superAdminSuspendTenant(tenantId!),
     onSuccess: () => { refetchOrg(); toast.cancelled('Org suspended'); },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed'),
+  });
+  const rejectMut = useMutation({
+    mutationFn: () => superAdminSetTenantStatus(tenantId!, 'REJECTED'),
+    onSuccess: () => { refetchOrg(); toast.cancelled('Registration rejected'); },
+    onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed'),
+  });
+  const reactivateMut = useMutation({
+    mutationFn: (slug?: string) => superAdminReactivateTenant(tenantId!, slug),
+    onSuccess: () => { refetchOrg(); setShowReactivate(false); toast.saved('Reactivated — now pending'); },
+    onError: (e: any) => Alert.alert('Slug Conflict', e.response?.data?.message ?? 'Failed to reactivate'),
   });
   const planMut = useMutation({
     mutationFn: (plan: string) => superAdminUpdatePlan(tenantId!, plan),
@@ -196,9 +210,9 @@ export default function OrgDetailPage() {
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <View style={{
               paddingHorizontal: 10, paddingVertical: 4, borderRadius: 99,
-              backgroundColor: orgData?.status === 'ACTIVE' ? '#D1FAE5' : orgData?.status === 'SUSPENDED' ? '#FEE2E2' : '#FEF3C7',
+              backgroundColor: orgData?.status === 'ACTIVE' ? '#D1FAE5' : orgData?.status === 'SUSPENDED' ? '#FEE2E2' : orgData?.status === 'REJECTED' ? '#F3F4F6' : '#FEF3C7',
             }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: orgData?.status === 'ACTIVE' ? '#059669' : orgData?.status === 'SUSPENDED' ? C.red : '#D97706' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: orgData?.status === 'ACTIVE' ? '#059669' : orgData?.status === 'SUSPENDED' ? C.red : orgData?.status === 'REJECTED' ? '#6B7280' : '#D97706' }}>
                 {orgData?.status}
               </Text>
             </View>
@@ -227,8 +241,15 @@ export default function OrgDetailPage() {
         </View>
 
         {/* Action buttons */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-          {orgData?.status !== 'ACTIVE' && (
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          {orgData?.status === 'REJECTED' ? (
+            <TouchableOpacity
+              onPress={() => { setReactivateSlug(orgData?.slug ?? ''); setShowReactivate(true); }}
+              style={{ flex: 1, backgroundColor: '#D1FAE5', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#059669' }}>Reactivate</Text>
+            </TouchableOpacity>
+          ) : orgData?.status !== 'ACTIVE' ? (
             <TouchableOpacity
               onPress={() => activateMut.mutate()}
               disabled={activateMut.isPending}
@@ -238,8 +259,22 @@ export default function OrgDetailPage() {
                 {activateMut.isPending ? 'Activating…' : 'Activate'}
               </Text>
             </TouchableOpacity>
+          ) : null}
+          {orgData?.status === 'PENDING' && (
+            <TouchableOpacity
+              onPress={() => Alert.alert('Reject Request', `Reject ${orgData?.name}? The slug will be freed for others.`, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Reject', style: 'destructive', onPress: () => rejectMut.mutate() },
+              ])}
+              disabled={rejectMut.isPending}
+              style={{ flex: 1, backgroundColor: '#F3F4F6', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#6B7280' }}>
+                {rejectMut.isPending ? 'Rejecting…' : 'Reject'}
+              </Text>
+            </TouchableOpacity>
           )}
-          {orgData?.status !== 'SUSPENDED' && (
+          {orgData?.status !== 'SUSPENDED' && orgData?.status !== 'REJECTED' && (
             <TouchableOpacity
               onPress={() => Alert.alert('Suspend Org', `Suspend ${orgData?.name}? Members won't be able to log in.`, [
                 { text: 'Cancel', style: 'cancel' },
@@ -529,6 +564,47 @@ export default function OrgDetailPage() {
         onRecord={(amount, method, pType) => recordPaymentMut.mutate({ amount, method, pType })}
         loading={recordPaymentMut.isPending}
       />
+
+      {/* Reactivate modal */}
+      <Modal visible={showReactivate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowReactivate(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Reactivate Registration</Text>
+            <TouchableOpacity onPress={() => setShowReactivate(false)}>
+              <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 20, gap: 16 }}>
+            <Text style={{ fontSize: 14, color: C.gray500, lineHeight: 20 }}>
+              Reactivating <Text style={{ fontWeight: '700', color: C.navy }}>{orgData?.name}</Text> will move it back to PENDING. Verify the subdomain is available.
+            </Text>
+            <View>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Subdomain</Text>
+              <TextInput
+                value={reactivateSlug}
+                onChangeText={t => setReactivateSlug(t.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: 'monospace', color: C.navy }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {reactivateSlug !== (orgData?.slug ?? '') && (
+                <Text style={{ fontSize: 11, color: '#D97706', marginTop: 4 }}>
+                  Changed from original: {orgData?.slug}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              onPress={() => reactivateMut.mutate(reactivateSlug !== orgData?.slug ? reactivateSlug : undefined)}
+              disabled={reactivateMut.isPending || !reactivateSlug}
+              style={{ backgroundColor: '#059669', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: reactivateMut.isPending ? 0.6 : 1 }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+                {reactivateMut.isPending ? 'Reactivating…' : 'Reactivate'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

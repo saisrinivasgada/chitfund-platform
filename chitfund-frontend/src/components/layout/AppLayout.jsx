@@ -17,7 +17,7 @@ export const useToastContext = () => useContext(ToastContext);
 
 export default function AppLayout() {
   const { isAuthenticated, user, tenantName } = useAuth();
-  const { toasts, toast, dismiss, centerFlash } = useToast();
+  const { toasts, toast, dismiss } = useToast();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -164,7 +164,7 @@ export default function AppLayout() {
         </div>
 
 
-        <Toast toasts={toasts} onDismiss={dismiss} centerFlash={centerFlash} />
+        <Toast toasts={toasts} onDismiss={dismiss} />
 
         {planExpiredOpen && (
           <Modal title="Subscription Expired" onClose={() => setPlanExpiredOpen(false)} size="sm">

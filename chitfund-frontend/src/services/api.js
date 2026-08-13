@@ -50,6 +50,11 @@ export const checkSlugAvailability = async (slug, signal) => {
   return res.data.data; // { slug, available }
 };
 
+export const checkUsernameAvailability = async (username, signal) => {
+  const res = await api.get('/auth/check-username', { params: { username }, signal });
+  return res.data.data; // { username, available }
+};
+
 export const registerOrg = async (body) => {
   const res = await api.post('/auth/register-org', body);
   return res.data.data; // TenantResponse
@@ -310,10 +315,6 @@ export const getUserById = async (userId) => {
   return res.data.data;
 };
 
-export const checkUsernameAvailability = async (username) => {
-  const res = await api.get('/users/check-username', { params: { username } });
-  return res.data.data; // { available: true/false }
-};
 
 export const updateMyUserProfile = async ({ fullName, username, email, phone, phoneCountryCode }) => {
   const res = await api.patch('/users/me/profile', { fullName, username, email, phone, phoneCountryCode });

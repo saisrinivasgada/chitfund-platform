@@ -103,6 +103,10 @@ public class User implements UserDetails {
     @Builder.Default
     private boolean mustChangePassword = false;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean hasAppAccess = false;
+
     // Populated by admin password-reset. Cleared when user logs in with their real password.
     // Lets the user choose which credential to use; only temp-password login forces a change.
     private String tempPasswordHash;

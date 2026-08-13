@@ -37,6 +37,7 @@ public class MemberListController {
     public static class MemberListItem {
         private UUID id;
         private UUID userId;
+        private boolean hasAppAccess;
         private String fullName;
         private String name;
         private String phone;
@@ -133,9 +134,9 @@ public class MemberListController {
                     org.springframework.http.HttpStatus.CONFLICT);
         }
 
-        // Duplicate email check
+        // Duplicate email check (exclude soft-deleted members so their email can be reused)
         if (req.getEmail() != null && !req.getEmail().isBlank()) {
-            if (userRepository.existsByEmail(req.getEmail())) {
+            if (userRepository.existsByEmailAndDeletedAtIsNull(req.getEmail())) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "An account with this email already exists",
                         org.springframework.http.HttpStatus.CONFLICT);
@@ -260,8 +261,10 @@ public class MemberListController {
 
             if (newUsername != null) member.setUsername(newUsername);
             if (newEmail != null)    member.setEmail(newEmail);
-            userRepository.save(member);
         }
+
+        member.setHasAppAccess(true);
+        userRepository.save(member);
 
         return ResponseEntity.ok(ApiResponse.success(toListItem(member), "App login created"));
     }
@@ -278,6 +281,7 @@ public class MemberListController {
         return MemberListItem.builder()
                 .id(u.getId())
                 .userId(u.getId())
+                .hasAppAccess(u.isHasAppAccess())
                 .fullName(u.getFullName())
                 .name(u.getFullName())
                 .phone(u.getPhone())

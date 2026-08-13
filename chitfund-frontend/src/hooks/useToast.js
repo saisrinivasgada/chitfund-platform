@@ -4,7 +4,6 @@ let nextId = 0;
 
 export default function useToast() {
   const [toasts, setToasts] = useState([]);
-  const [centerFlash, setCenterFlash] = useState(null); // { type, id }
 
   const dismiss = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -14,11 +13,6 @@ export default function useToast() {
     const id = ++nextId;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => dismiss(id), 4000);
-    // Center flash for success/error — brief visual confirmation
-    if (type === 'success' || type === 'error' || type === 'warning') {
-      setCenterFlash({ type, id });
-      setTimeout(() => setCenterFlash(null), 1200);
-    }
   }, [dismiss]);
 
   const toast = {
@@ -28,5 +22,5 @@ export default function useToast() {
     warning: (msg) => show(msg, 'warning'),
   };
 
-  return { toasts, toast, dismiss, centerFlash };
+  return { toasts, toast, dismiss };
 }

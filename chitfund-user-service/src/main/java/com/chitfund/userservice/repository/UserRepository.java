@@ -27,6 +27,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByEmail(String email);
 
+    boolean existsByEmailAndDeletedAtIsNull(String email);
+
     // Check if any active non-MEMBER account holds this email (used when creating member logins)
     boolean existsByEmailAndRoleNotAndDeletedAtIsNull(String email, com.chitfund.userservice.domain.enums.Role role);
 

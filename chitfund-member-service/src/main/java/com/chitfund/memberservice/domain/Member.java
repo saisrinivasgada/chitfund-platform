@@ -58,6 +58,11 @@ public class Member {
     // Nullable — only set when member has an app login in user-service
     private UUID userId;
 
+    // True only when admin explicitly creates an app login (not auto-linked on member creation)
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean hasAppAccess = false;
+
     // Admin-only notes: "Pays on 5th of every month", "Contact via WhatsApp only"
     @Column(columnDefinition = "text")
     private String notes;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
+import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
@@ -164,17 +164,11 @@ export default function LoginScreen() {
 
           {/* Logo */}
           <View style={{ alignItems: 'center', marginBottom: 48 }}>
-            <View style={{
-              width: 72, height: 72, borderRadius: 20,
-              backgroundColor: C.gold,
-              alignItems: 'center', justifyContent: 'center',
-              marginBottom: 16,
-              shadowColor: C.gold, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12,
-            }}>
-              <Text style={{ fontSize: 32, fontWeight: '900', color: C.white }}>C</Text>
-            </View>
-            <Text style={{ fontSize: 28, fontWeight: '800', color: C.white, letterSpacing: -0.5 }}>ChitWise</Text>
-            <Text style={{ fontSize: 14, color: C.white + 'AA', marginTop: 4 }}>
+            <Image
+              source={require('../../assets/logo-dark.png')}
+              style={{ width: 200, height: 90, resizeMode: 'contain' }}
+            />
+            <Text style={{ fontSize: 14, color: C.white + 'AA', marginTop: 8 }}>
               {isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management'}
             </Text>
           </View>
