@@ -406,10 +406,16 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         run: |
           ssh -i ~/.ssh/deploy-key.pem \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
           set -e
+          source /app/.env
+          # Clear any failed Flyway migrations so services can start cleanly
+          for db in chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit; do
+            mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
+              -e "DELETE FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true
+          done
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          cd ${{ env.APP_DIR }}
+          cd /app
           docker compose -f docker-compose.prod.yml pull
           docker compose -f docker-compose.prod.yml up -d --wait || {
             echo "=== DEPLOY FAILED — container logs ==="
@@ -418,7 +424,7 @@ jobs:
           }
           docker compose -f docker-compose.prod.yml ps
           docker image prune -f
-          EOF
+          ENDSSH
 
       # ── Frontend deploy ───────────────────────────────────────────────────────
       - name: Setup Node.js
