@@ -677,6 +677,11 @@ export default function LoginPage() {
                         Register your chit fund
                       </button>
                     </p>
+                    <p className="text-xs text-gray-300 mt-3">
+                      <button onClick={() => navigate('/privacy')} className="hover:text-gray-500 cursor-pointer underline">Privacy Policy</button>
+                      {' · '}
+                      <button onClick={() => navigate('/terms')} className="hover:text-gray-500 cursor-pointer underline">Terms of Service</button>
+                    </p>
                   </div>
                 </div>
               )}
@@ -762,6 +767,11 @@ export default function LoginPage() {
                           <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
                             Register your organization
                           </button>
+                        </p>
+                        <p className="text-xs text-gray-300 mt-3">
+                          <button onClick={() => navigate('/privacy')} className="hover:text-gray-500 cursor-pointer underline">Privacy Policy</button>
+                          {' · '}
+                          <button onClick={() => navigate('/terms')} className="hover:text-gray-500 cursor-pointer underline">Terms of Service</button>
                         </p>
                       </div>
                     </>

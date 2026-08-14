@@ -734,7 +734,10 @@ export default function RegisterOrgPage() {
             </button>
 
             <p className="text-center text-xs text-gray-400 mt-5">
-              By submitting, you agree to ChitWise Terms of Service and Privacy Policy.
+              By submitting, you agree to ChitWise{' '}
+              <button type="button" onClick={() => navigate('/terms')} className="underline hover:text-gray-600 cursor-pointer">Terms of Service</button>
+              {' '}and{' '}
+              <button type="button" onClick={() => navigate('/privacy')} className="underline hover:text-gray-600 cursor-pointer">Privacy Policy</button>.
             </p>
           </form>
         </div>

@@ -9,6 +9,7 @@ import {
   Bell, FileText, PieChart, LayoutDashboard, CreditCard, Banknote,
   Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
   TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
+  Phone, PenLine, X, BookMarked, MessageCircle, Smartphone,
 } from 'lucide-react';
 const P = '#1E3A5F';
 
@@ -325,6 +326,187 @@ export default function LandingPage() {
           <span className="text-white/30 text-xs tracking-widest uppercase">Scroll</span>
           <ChevronDown size={20} className="text-white/30" />
         </motion.div>
+      </section>
+
+      {/* ── Problem: The Old Way ── */}
+      <section className="py-16 sm:py-28 px-4 sm:px-8 overflow-hidden" style={{ backgroundColor: '#FDFBF7' }}>
+        <div className="max-w-6xl mx-auto">
+
+          {/* Headline */}
+          <Reveal>
+            <p className="text-center text-xs font-bold uppercase tracking-widest text-amber-600 mb-4">Sound familiar?</p>
+            <h2 className="text-4xl sm:text-5xl font-extrabold text-gray-900 text-center leading-tight mb-5"
+              style={{ fontFamily: 'Merriweather, serif' }}>
+              Running a chit fund on<br />pen & paper — year after year.
+            </h2>
+            <p className="text-center text-gray-500 text-base sm:text-lg max-w-2xl mx-auto mb-14 leading-relaxed">
+              Every draw day: pull out the ledger, call each member one by one, count cash, update entries, fix mistakes — then do it all over again next month, for every chit group you run.
+            </p>
+          </Reveal>
+
+          {/* Before / After side-by-side narrative */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16 items-start">
+
+            {/* Old Way — paper ledger mockup */}
+            <Reveal dir="left">
+              <div className="rounded-3xl overflow-hidden border-2 border-amber-200 shadow-lg">
+                {/* Header */}
+                <div className="px-5 py-3 flex items-center gap-3" style={{ backgroundColor: '#F5E6C8' }}>
+                  <BookMarked size={16} className="text-amber-700" />
+                  <span className="text-sm font-bold text-amber-800">The Old Way</span>
+                  <span className="ml-auto text-xs text-amber-600 italic">Every. Single. Month.</span>
+                </div>
+                {/* Ledger lines */}
+                <div className="p-5 space-y-2.5" style={{ backgroundColor: '#FFFDF4', backgroundImage: 'repeating-linear-gradient(transparent, transparent 27px, #E5D9B6 27px, #E5D9B6 28px)' }}>
+                  {[
+                    { name: 'Ramesh K.', note: 'paid ₹5,000', status: 'ok', strikeout: false },
+                    { name: 'Lakshmi D.', note: 'not picked up — call again??', status: 'warn', strikeout: false },
+                    { name: 'Suresh B.', note: 'paid partial ₹3,000 rest tmrw', status: 'warn', strikeout: false },
+                    { name: 'Anitha R.', note: 'paid ₹5,000', status: 'ok', strikeout: false },
+                    { name: 'Venkat M.', note: '❌ NOT PAID — 2nd reminder', status: 'bad', strikeout: false },
+                    { name: 'Padma S.', note: 'says she paid to Ravi (who???)', status: 'bad', strikeout: false },
+                  ].map((row, i) => (
+                    <motion.div
+                      key={row.name}
+                      initial={{ opacity: 0, x: -20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: false }}
+                      transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
+                      className="flex items-start gap-3 py-1"
+                    >
+                      <div className="w-5 h-5 rounded border-2 flex-shrink-0 mt-0.5"
+                        style={{ borderColor: row.status === 'ok' ? '#16A34A' : row.status === 'warn' ? '#D97706' : '#DC2626',
+                          backgroundColor: row.status === 'ok' ? '#F0FDF4' : row.status === 'warn' ? '#FFFBEB' : '#FEF2F2' }}>
+                        {row.status === 'ok' && <Check size={11} className="text-green-600 m-auto mt-0.5" />}
+                        {row.status === 'bad' && <X size={11} className="text-red-600 m-auto mt-0.5" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-bold text-gray-800" style={{ fontFamily: 'Georgia, serif' }}>{row.name}</span>
+                        <span className="text-xs text-gray-500 ml-2 italic" style={{ fontFamily: 'Georgia, serif' }}>{row.note}</span>
+                      </div>
+                    </motion.div>
+                  ))}
+                  <div className="pt-3 border-t border-amber-200">
+                    <p className="text-xs text-amber-700 italic" style={{ fontFamily: 'Georgia, serif' }}>
+                      * Ask Ravi abt Padma's payment · Call Lakshmi again tomorrow · Correct total before draw closes
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Pain points list */}
+            <Reveal dir="right" delay={0.1}>
+              <div className="space-y-5 pt-2">
+                {[
+                  {
+                    icon: PenLine,
+                    color: '#D97706',
+                    bg: '#FFFBEB',
+                    title: 'Manual registers for every chit group',
+                    desc: '20 members × 12 draws = 240 manual entries per chit group. One wrong entry and members start questioning your records.',
+                  },
+                  {
+                    icon: Phone,
+                    color: '#DC2626',
+                    bg: '#FEF2F2',
+                    title: '"Bhai, did my payment get noted?"',
+                    desc: 'Members call at odd hours asking about their installment, their draw date, or the prize amount. You stop everything to answer.',
+                  },
+                  {
+                    icon: Clock,
+                    color: '#7C3AED',
+                    bg: '#F5F3FF',
+                    title: 'Draw day takes the entire day',
+                    desc: 'Collecting from 20–50 members, tallying cash, running the draw, updating everyone — a full day gone, every single month.',
+                  },
+                  {
+                    icon: AlertTriangle,
+                    color: '#059669',
+                    bg: '#ECFDF5',
+                    title: 'No way to grow beyond a point',
+                    desc: "Running 5 chit groups? Manageable. 15 groups with 300+ members? The paperwork alone stops you from scaling.",
+                  },
+                ].map(({ icon: Icon, color, bg, title, desc }, i) => (
+                  <motion.div
+                    key={title}
+                    initial={{ opacity: 0, x: 30 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: false }}
+                    transition={{ delay: 0.1 + i * 0.12, duration: 0.5 }}
+                    className="flex gap-4 p-5 rounded-2xl border border-gray-100 bg-white shadow-sm"
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: bg }}>
+                      <Icon size={18} style={{ color }} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900 mb-1">{title}</h4>
+                      <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+
+          {/* Transition */}
+          <Reveal>
+            <div className="relative text-center py-8">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+              <div className="relative inline-flex items-center gap-3 px-8 py-4 rounded-2xl text-white font-bold shadow-xl text-lg"
+                style={{ backgroundColor: P }}>
+                <Smartphone size={20} />
+                ChitWise ends all of this.
+                <ArrowRight size={20} />
+              </div>
+            </div>
+          </Reveal>
+
+          {/* The smart way — 3 solution cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-12">
+            {[
+              {
+                icon: LayoutDashboard,
+                color: P,
+                bg: '#EFF4FA',
+                title: 'Everything in one dashboard',
+                desc: 'All your chit groups, members, payments, draws, and payouts — visible in one place, updated in real time. No registers, no tallying.',
+              },
+              {
+                icon: MessageCircle,
+                color: '#059669',
+                bg: '#ECFDF5',
+                title: 'Members check themselves',
+                desc: 'Every member gets their own portal. They check their installments, draw status, and payout date themselves — without calling you.',
+              },
+              {
+                icon: TrendingUp,
+                color: '#7C3AED',
+                bg: '#F5F3FF',
+                title: 'Scale without limits',
+                desc: 'Run 50 chit groups the same way you run 5. ChitWise handles the tracking so you can focus on growing your business.',
+              },
+            ].map(({ icon: Icon, color, bg, title, desc }, i) => (
+              <Reveal key={title} delay={i * 0.12}>
+                <motion.div
+                  className="rounded-3xl p-7 border border-gray-100 bg-white shadow-sm h-full flex flex-col"
+                  whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.08)' }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center mb-4 flex-shrink-0" style={{ backgroundColor: bg }}>
+                    <Icon size={20} style={{ color }} />
+                  </div>
+                  <h3 className="text-base font-bold text-gray-900 mb-2">{title}</h3>
+                  <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+                  <div className="mt-4 pt-4 border-t border-gray-50 flex items-center gap-2">
+                    <Check size={14} className="text-green-500" />
+                    <span className="text-xs text-green-700 font-semibold">Included in every plan</span>
+                  </div>
+                </motion.div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ── Value pillars ── */}
@@ -1014,6 +1196,8 @@ export default function LandingPage() {
           <div className="flex items-center gap-6">
             <button onClick={() => navigate('/login')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Sign in</button>
             <button onClick={() => navigate('/register')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Register</button>
+            <button onClick={() => navigate('/privacy')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Privacy Policy</button>
+            <button onClick={() => navigate('/terms')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Terms</button>
           </div>
         </div>
         <div className="max-w-6xl mx-auto mt-4 text-center">

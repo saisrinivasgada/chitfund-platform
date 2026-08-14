@@ -11,6 +11,8 @@ import AppLayout from './components/layout/AppLayout';
 import MemberPortalLayout from './components/layout/MemberPortalLayout';
 import LoginPage from './pages/LoginPage';
 import LandingPage from './pages/LandingPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsPage from './pages/TermsPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import SelectCompanyPage from './pages/SelectCompanyPage';
 import SetupAccountPage from './pages/SetupAccountPage';
@@ -72,6 +74,8 @@ export default function App() {
     <ScrollToTop />
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterOrgPage />} />
       <Route path="/select-company" element={<SelectCompanyPage />} />
