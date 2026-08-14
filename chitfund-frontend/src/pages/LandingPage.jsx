@@ -9,7 +9,7 @@ import {
   Bell, FileText, PieChart, LayoutDashboard, CreditCard, Banknote,
   Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
   TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
-  Phone, PenLine, X, BookMarked, MessageCircle, Smartphone,
+  Phone, PenLine, X, BookMarked, MessageCircle, Smartphone, Lock,
 } from 'lucide-react';
 const P = '#1E3A5F';
 
@@ -532,6 +532,209 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── What Goes Wrong ── */}
+      <section className="py-16 sm:py-28 px-4 sm:px-8 overflow-hidden" style={{ backgroundColor: '#1A0A0A' }}>
+        <div className="max-w-6xl mx-auto">
+
+          <Reveal>
+            <p className="text-center text-xs font-bold uppercase tracking-widest mb-4" style={{ color: '#FCA5A5' }}>
+              When records break down
+            </p>
+            <h2 className="text-4xl sm:text-5xl font-extrabold text-white text-center leading-tight mb-5"
+              style={{ fontFamily: 'Merriweather, serif' }}>
+              Trust is the first thing<br /><span style={{ color: '#F87171' }}>a chit fund loses.</span>
+            </h2>
+            <p className="text-center text-base sm:text-lg max-w-2xl mx-auto mb-14 leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              Without a digital record, any small dispute becomes a big problem. Here's what chit fund organizers deal with every year — and why members lose faith.
+            </p>
+          </Reveal>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-16 items-start">
+
+            {/* WhatsApp dispute mockup */}
+            <Reveal dir="left">
+              <div className="rounded-3xl overflow-hidden shadow-2xl border border-red-900/30">
+                <div className="px-4 py-3 flex items-center gap-3" style={{ backgroundColor: '#075E54' }}>
+                  <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">RK</div>
+                  <div>
+                    <p className="text-sm font-bold text-white">Ramesh (Member)</p>
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>1 Lakh - Group 1 (Jan 2026)</p>
+                  </div>
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">Real situation</span>
+                </div>
+                <div className="p-4 space-y-3" style={{ backgroundColor: '#0B141A' }}>
+                  {[
+                    { from: 'member', text: 'Bhai, I paid ₹5,000 last month. Why is it showing unpaid in your list?', time: '10:14 AM' },
+                    { from: 'admin',  text: "Ramesh bhai I am checking the register... I don't see your payment here", time: '10:22 AM' },
+                    { from: 'member', text: 'I paid cash to Ravi anna! Ask him!', time: '10:23 AM' },
+                    { from: 'admin',  text: "Ravi says he didn't collect from you this draw...", time: '10:35 AM' },
+                    { from: 'member', text: 'Are you calling me a liar??? I have given ₹40,000 over 8 draws without any problem!!', time: '10:36 AM' },
+                    { from: 'admin',  text: '😰 Ramesh bhai please calm down, let me check with Ravi again...', time: '10:52 AM' },
+                    { from: 'member', text: 'I am telling everyone in the group about this. This is not okay.', time: '10:53 AM' },
+                  ].map((msg, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: false }}
+                      transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
+                      className={`flex ${msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}
+                    >
+                      <div className="max-w-[80%] rounded-2xl px-3 py-2 shadow-sm"
+                        style={{ backgroundColor: msg.from === 'admin' ? '#202C33' : '#005C4B' }}>
+                        <p className="text-xs text-white leading-relaxed">{msg.text}</p>
+                        <p className="text-right mt-1" style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{msg.time}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    whileInView={{ opacity: 1 }}
+                    viewport={{ once: false }}
+                    transition={{ delay: 1, duration: 0.6 }}
+                    className="rounded-xl px-3 py-2 border border-red-900/50"
+                    style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}
+                  >
+                    <p className="text-xs text-red-400 font-semibold">⚠️ No receipt. No digital record. No way to prove either side.</p>
+                  </motion.div>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Failure scenarios */}
+            <Reveal dir="right" delay={0.1}>
+              <div className="space-y-5 pt-2">
+                {[
+                  {
+                    icon: FileText,
+                    color: '#F87171',
+                    bg: 'rgba(248,113,113,0.12)',
+                    border: 'rgba(248,113,113,0.2)',
+                    title: '"The register got damaged"',
+                    desc: 'A notebook destroyed in rain, a page torn out, entries crossed and re-written — years of member records gone or disputed. No way to recover the truth.',
+                  },
+                  {
+                    icon: Trophy,
+                    color: '#FBBF24',
+                    bg: 'rgba(251,191,36,0.12)',
+                    border: 'rgba(251,191,36,0.2)',
+                    title: '"Who actually won the draw?"',
+                    desc: 'Draw run verbally in a room. Winner announced. But another member contests it a week later. Without an audit trail, there is no official record — just conflicting memories.',
+                  },
+                  {
+                    icon: IndianRupee,
+                    color: '#34D399',
+                    bg: 'rgba(52,211,153,0.12)',
+                    border: 'rgba(52,211,153,0.2)',
+                    title: '"The cash that never reached"',
+                    desc: "A staff member collected from 6 members. Says it was ₹30,000. The register shows ₹25,000. No receipts were given. Two members swear they paid. Who's right?",
+                  },
+                  {
+                    icon: AlertTriangle,
+                    color: '#A78BFA',
+                    bg: 'rgba(167,139,250,0.12)',
+                    border: 'rgba(167,139,250,0.2)',
+                    title: 'One dispute can collapse everything',
+                    desc: 'Word spreads fast in a neighbourhood. One unresolved payment dispute, one unclear draw result, and members start pulling out. A chit fund runs on trust — and trust is fragile.',
+                  },
+                ].map(({ icon: Icon, color, bg, border, title, desc }, i) => (
+                  <motion.div
+                    key={title}
+                    initial={{ opacity: 0, x: 30 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: false }}
+                    transition={{ delay: 0.1 + i * 0.12, duration: 0.5 }}
+                    className="flex gap-4 p-5 rounded-2xl"
+                    style={{ backgroundColor: bg, border: `1px solid ${border}` }}
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                      <Icon size={18} style={{ color }} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-1">{title}</h4>
+                      <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{desc}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+
+          {/* Transition to solution */}
+          <Reveal>
+            <div className="relative text-center py-8">
+              <div className="absolute inset-0 flex items-center"><div className="w-full" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} /></div>
+              <div className="relative inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold shadow-xl text-base"
+                style={{ backgroundColor: 'white', color: P }}>
+                <Shield size={18} />
+                ChitWise creates a digital audit trail for every rupee.
+                <ArrowRight size={18} />
+              </div>
+            </div>
+          </Reveal>
+
+          {/* 3 protection cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-12">
+            {[
+              {
+                icon: FileText,
+                iconColor: '#93C5FD',
+                title: 'Every payment is timestamped',
+                desc: 'Digital receipts generated instantly. Who paid, how much, when, and which draw — all recorded. Only your organisation can access member payment data.',
+                note: '🔒 Encrypted in transit & at rest',
+              },
+              {
+                icon: Trophy,
+                iconColor: '#FCD34D',
+                title: 'Draw results on record forever',
+                desc: 'Every draw — winner, dividend, admin commission, and disbursement — logged with full history. Fully isolated to your organisation. Not even ChitWise can view it.',
+                note: '🔒 Your organisation only — fully isolated',
+              },
+              {
+                icon: Shield,
+                iconColor: '#6EE7B7',
+                title: 'No cash can go unaccounted',
+                desc: 'Staff cash collections go through pickup requests — requested, confirmed, reconciled. Every rupee has a trail. Your records are encrypted and private to your team.',
+                note: '🔒 No gaps, no disputes, no exposure',
+              },
+            ].map(({ icon: Icon, iconColor, title, desc, note }, i) => (
+              <Reveal key={title} delay={i * 0.12}>
+                <motion.div
+                  className="rounded-3xl p-7 h-full flex flex-col"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  whileHover={{ backgroundColor: 'rgba(255,255,255,0.1)', y: -4 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center mb-4 flex-shrink-0"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                    <Icon size={20} style={{ color: iconColor }} />
+                  </div>
+                  <h3 className="text-base font-bold text-white mb-2">{title}</h3>
+                  <p className="text-sm leading-relaxed flex-1" style={{ color: 'rgba(255,255,255,0.55)' }}>{desc}</p>
+                  <div className="mt-5 pt-4 text-xs font-semibold" style={{ borderTop: '1px solid rgba(255,255,255,0.08)', color: 'rgba(147,197,253,0.8)' }}>
+                    {note}
+                  </div>
+                </motion.div>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* Encryption assurance banner */}
+          <Reveal delay={0.3}>
+            <div className="mt-10 rounded-2xl px-6 py-5 flex items-start gap-4"
+              style={{ backgroundColor: 'rgba(147,197,253,0.07)', border: '1px solid rgba(147,197,253,0.15)' }}>
+              <Lock size={18} className="flex-shrink-0 mt-0.5" style={{ color: '#93C5FD' }} />
+              <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>
+                <span className="font-semibold text-white">Everything is encrypted, end-to-end.</span>{' '}
+                Your organisation's data is fully isolated — members, payments, draw records, and reports are visible only to your admin and staff (limited access).
+                Not other organisations. Not ChitWise. Only you.
+              </p>
+            </div>
+          </Reveal>
+
+        </div>
+      </section>
+
       {/* ── India Chit Fund Industry Stats ── */}
       <section className="py-14 sm:py-20 px-4 sm:px-8 overflow-hidden" style={{ backgroundColor: '#0F2340' }}>
         <div className="max-w-5xl mx-auto">
@@ -780,9 +983,9 @@ export default function LandingPage() {
                         <span className="text-xs font-semibold text-gray-800">Recent Chit Funds</span>
                         <span className="text-xs text-blue-600">View all →</span>
                       </div>
-                      <ChitRow name="Lakshmi Chit Group"  amount="5,000"  members={20} status="ACTIVE" />
-                      <ChitRow name="Saraswati Savings"   amount="2,000"  members={10} status="ACTIVE" />
-                      <ChitRow name="Durga Finance"       amount="10,000" members={40} status="COMPLETED" />
+                      <ChitRow name="1 Lakh - Group 1 (Nov 2024)"  amount="5,000"  members={20} status="ACTIVE" />
+                      <ChitRow name="20K - Group 2 (Mar 2025)"     amount="2,000"  members={10} status="ACTIVE" />
+                      <ChitRow name="4 Lakhs - Group 3 (Apr 2024)" amount="10,000" members={40} status="COMPLETED" />
                     </div>
                     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60">
@@ -814,7 +1017,7 @@ export default function LandingPage() {
                     <ArrowLeft size={12} style={{ color: P }} />
                   </div>
                   <div>
-                    <p className="text-sm font-bold" style={{ color: P }}>Lakshmi Chit Group</p>
+                    <p className="text-sm font-bold" style={{ color: P }}>1 Lakh - Group 1 (Nov 2024)</p>
                     <p className="text-xs text-gray-400">₹1,00,000 · 20 members · Draw 8 / 20</p>
                   </div>
                   <span className="ml-auto text-xs px-2.5 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">ACTIVE</span>
@@ -1026,198 +1229,6 @@ export default function LandingPage() {
               </div>
             </AppFrame>
           </Reveal>
-        </div>
-      </section>
-
-      {/* ── What Goes Wrong ── */}
-      <section className="py-16 sm:py-28 px-4 sm:px-8 overflow-hidden" style={{ backgroundColor: '#1A0A0A' }}>
-        <div className="max-w-6xl mx-auto">
-
-          <Reveal>
-            <p className="text-center text-xs font-bold uppercase tracking-widest mb-4" style={{ color: '#FCA5A5' }}>
-              When records break down
-            </p>
-            <h2 className="text-4xl sm:text-5xl font-extrabold text-white text-center leading-tight mb-5"
-              style={{ fontFamily: 'Merriweather, serif' }}>
-              Trust is the first thing<br /><span style={{ color: '#F87171' }}>a chit fund loses.</span>
-            </h2>
-            <p className="text-center text-base sm:text-lg max-w-2xl mx-auto mb-14 leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>
-              Without a digital record, any small dispute becomes a big problem. Here's what chit fund organizers deal with every year — and why members lose faith.
-            </p>
-          </Reveal>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-16 items-start">
-
-            {/* WhatsApp dispute mockup */}
-            <Reveal dir="left">
-              <div className="rounded-3xl overflow-hidden shadow-2xl border border-red-900/30">
-                {/* Chat header */}
-                <div className="px-4 py-3 flex items-center gap-3" style={{ backgroundColor: '#075E54' }}>
-                  <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">RK</div>
-                  <div>
-                    <p className="text-sm font-bold text-white">Ramesh (Member)</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>Lakshmi Chit Group</p>
-                  </div>
-                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">Real situation</span>
-                </div>
-
-                {/* Chat messages */}
-                <div className="p-4 space-y-3" style={{ backgroundColor: '#0B141A', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'40\' height=\'40\' viewBox=\'0 0 40 40\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M0 0h40v40H0z\'/%3E%3C/g%3E%3C/svg%3E")' }}>
-                  {[
-                    { from: 'member', text: 'Bhai, I paid ₹5,000 last month. Why is it showing unpaid in your list?', time: '10:14 AM' },
-                    { from: 'admin',  text: 'Ramesh bhai I am checking the register... I don\'t see your payment here', time: '10:22 AM' },
-                    { from: 'member', text: 'I paid cash to Ravi anna! Ask him!', time: '10:23 AM' },
-                    { from: 'admin',  text: 'Ravi says he didn\'t collect from you this draw...', time: '10:35 AM' },
-                    { from: 'member', text: 'Are you calling me a liar??? I have given ₹40,000 over 8 draws without any problem!!', time: '10:36 AM' },
-                    { from: 'admin',  text: '😰 Ramesh bhai please calm down, let me check with Ravi again...', time: '10:52 AM' },
-                    { from: 'member', text: 'I am telling everyone in the group about this. This is not okay.', time: '10:53 AM' },
-                  ].map((msg, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: false }}
-                      transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
-                      className={`flex ${msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}
-                    >
-                      <div className="max-w-[80%] rounded-2xl px-3 py-2 shadow-sm"
-                        style={{ backgroundColor: msg.from === 'admin' ? '#202C33' : '#005C4B' }}>
-                        <p className="text-xs text-white leading-relaxed">{msg.text}</p>
-                        <p className="text-right mt-1" style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{msg.time}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: false }}
-                    transition={{ delay: 1, duration: 0.6 }}
-                    className="rounded-xl px-3 py-2 border border-red-900/50"
-                    style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}
-                  >
-                    <p className="text-xs text-red-400 font-semibold">⚠️ No receipt. No digital record. No way to prove either side.</p>
-                  </motion.div>
-                </div>
-              </div>
-            </Reveal>
-
-            {/* Failure scenarios */}
-            <Reveal dir="right" delay={0.1}>
-              <div className="space-y-5 pt-2">
-                {[
-                  {
-                    icon: FileText,
-                    color: '#F87171',
-                    bg: 'rgba(248,113,113,0.12)',
-                    border: 'rgba(248,113,113,0.2)',
-                    title: '"The register got damaged"',
-                    desc: 'A notebook destroyed in rain, a page torn out, entries crossed and re-written — years of member records gone or disputed. No way to recover the truth.',
-                  },
-                  {
-                    icon: Trophy,
-                    color: '#FBBF24',
-                    bg: 'rgba(251,191,36,0.12)',
-                    border: 'rgba(251,191,36,0.2)',
-                    title: '"Who actually won the draw?"',
-                    desc: 'Draw run verbally in a room. Winner announced. But another member contests it a week later. Without an audit trail, there is no official record — just conflicting memories.',
-                  },
-                  {
-                    icon: IndianRupee,
-                    color: '#34D399',
-                    bg: 'rgba(52,211,153,0.12)',
-                    border: 'rgba(52,211,153,0.2)',
-                    title: '"The cash that never reached"',
-                    desc: 'A staff member collected from 6 members. Says it was ₹30,000. The register shows ₹25,000. No receipts were given. Two members swear they paid. Who\'s right?',
-                  },
-                  {
-                    icon: AlertTriangle,
-                    color: '#A78BFA',
-                    bg: 'rgba(167,139,250,0.12)',
-                    border: 'rgba(167,139,250,0.2)',
-                    title: 'One dispute can collapse everything',
-                    desc: 'Word spreads fast in a neighbourhood. One unresolved payment dispute, one unclear draw result, and members start pulling out. A chit fund runs on trust — and trust is fragile.',
-                  },
-                ].map(({ icon: Icon, color, bg, border, title, desc }, i) => (
-                  <motion.div
-                    key={title}
-                    initial={{ opacity: 0, x: 30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: false }}
-                    transition={{ delay: 0.1 + i * 0.12, duration: 0.5 }}
-                    className="flex gap-4 p-5 rounded-2xl"
-                    style={{ backgroundColor: bg, border: `1px solid ${border}` }}
-                  >
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
-                      <Icon size={18} style={{ color }} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white mb-1">{title}</h4>
-                      <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{desc}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </Reveal>
-          </div>
-
-          {/* Transition to solution */}
-          <Reveal>
-            <div className="relative text-center py-8">
-              <div className="absolute inset-0 flex items-center"><div className="w-full" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }} /></div>
-              <div className="relative inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold shadow-xl text-base"
-                style={{ backgroundColor: 'white', color: P }}>
-                <Shield size={18} />
-                ChitWise creates a digital audit trail for every rupee.
-                <ArrowRight size={18} />
-              </div>
-            </div>
-          </Reveal>
-
-          {/* 3 protection cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-12">
-            {[
-              {
-                icon: FileText,
-                cardBg: 'rgba(255,255,255,0.06)',
-                border: 'rgba(255,255,255,0.1)',
-                iconColor: '#93C5FD',
-                title: 'Every payment is timestamped',
-                desc: 'Digital receipts generated instantly. Who paid, how much, when, and which draw — recorded and visible to admin, staff, and the member.',
-              },
-              {
-                icon: Trophy,
-                cardBg: 'rgba(255,255,255,0.06)',
-                border: 'rgba(255,255,255,0.1)',
-                iconColor: '#FCD34D',
-                title: 'Draw results on record forever',
-                desc: 'Every draw — who won, dividend amount, admin commission, and disbursement status — logged with a full history no one can question.',
-              },
-              {
-                icon: Shield,
-                cardBg: 'rgba(255,255,255,0.06)',
-                border: 'rgba(255,255,255,0.1)',
-                iconColor: '#6EE7B7',
-                title: 'No cash can go unaccounted',
-                desc: 'Staff cash collections go through pickup requests — requested, confirmed, and reconciled. Every rupee has a paper trail. No disputes, no gaps.',
-              },
-            ].map(({ icon: Icon, cardBg, border, iconColor, title, desc }, i) => (
-              <Reveal key={title} delay={i * 0.12}>
-                <motion.div
-                  className="rounded-3xl p-7 h-full flex flex-col"
-                  style={{ backgroundColor: cardBg, border: `1px solid ${border}` }}
-                  whileHover={{ backgroundColor: 'rgba(255,255,255,0.1)', y: -4 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center mb-4 flex-shrink-0"
-                    style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
-                    <Icon size={20} style={{ color: iconColor }} />
-                  </div>
-                  <h3 className="text-base font-bold text-white mb-2">{title}</h3>
-                  <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.55)' }}>{desc}</p>
-                </motion.div>
-              </Reveal>
-            ))}
-          </div>
         </div>
       </section>
 
