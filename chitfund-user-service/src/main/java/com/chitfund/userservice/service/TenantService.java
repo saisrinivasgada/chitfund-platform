@@ -387,6 +387,8 @@ public class TenantService {
                         .phone(u.getPhone())
                         .role(u.getRole().name())
                         .enabled(u.isEnabled())
+                        .locked(u.isLocked())
+                        .mustChangePassword(u.isMustChangePassword())
                         .joinedAt(u.getCreatedAt())
                         .lastLoginAt(u.getLastLoginAt())
                         .build())
@@ -408,6 +410,8 @@ public class TenantService {
                             .role(Role.MEMBER.name())
                             .memberId(link.getMemberId().toString())
                             .enabled(u.isEnabled())
+                            .locked(u.isLocked())
+                            .mustChangePassword(u.isMustChangePassword())
                             .joinedAt(link.getCreatedAt())
                             .lastLoginAt(u.getLastLoginAt())
                             .build();
