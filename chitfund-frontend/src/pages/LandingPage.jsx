@@ -289,7 +289,7 @@ export default function LandingPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold mb-8 border border-white/20"
             style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)' }}>
             <Star size={12} className="text-yellow-300" />
-            First 6 months free · Migration included · No credit card needed
+            🇮🇳 Built in India, for India · First 6 months free · No credit card needed
           </motion.div>
 
           <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
@@ -542,15 +542,18 @@ export default function LandingPage() {
             <h2 className="text-2xl sm:text-3xl font-extrabold text-white text-center mb-2" style={{ fontFamily: 'Merriweather, serif' }}>
               Chit funds are not a small business. They are India's oldest financial system.
             </h2>
-            <p className="text-center text-sm mb-12" style={{ color: 'rgba(255,255,255,0.45)' }}>
-              Trusted by millions of families across the country — but most still run on paper.
+            <p className="text-center text-sm mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+              Trusted by crores of families across the country — but most still run on paper.
+            </p>
+            <p className="text-center text-xs font-semibold mb-12" style={{ color: 'rgba(147,197,253,0.6)' }}>
+              🇮🇳 ChitWise is an Indian-owned platform, built specifically for India's chit fund businesses.
             </p>
           </Reveal>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
               { val: '₹1.5L Cr+', label: 'Estimated annual chit fund collections in India', sub: 'organized + unorganized sector' },
               { val: '5 Cr+',     label: 'Indians actively participate in chit funds', sub: 'across all income groups' },
-              { val: '70%+',      label: 'Households in Kerala with an active chit', sub: 'also dominant in AP, TN, Karnataka' },
+              { val: '₹500–₹10L', label: 'Chit value range — accessible to every income group', sub: 'from small neighbourhood groups to large corporate chitties' },
               { val: '25,000+',   label: 'Registered chit fund companies', sub: 'under Chit Funds Act, 1982' },
             ].map(({ val, label, sub }, i) => (
               <Reveal key={label} delay={i * 0.1}>
@@ -1458,7 +1461,8 @@ export default function LandingPage() {
             <button onClick={() => navigate('/terms')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Terms</button>
           </div>
         </div>
-        <div className="max-w-6xl mx-auto mt-4 text-center">
+        <div className="max-w-6xl mx-auto mt-4 text-center space-y-1">
+          <p className="text-xs text-gray-400">🇮🇳 Indian-owned · Built for India's chit fund businesses</p>
           <p className="text-xs text-gray-400">For any enquiries: <a href="mailto:saisrinivasgada@gmail.com" className="text-gray-500 hover:text-gray-700 underline">saisrinivasgada@gmail.com</a></p>
         </div>
       </footer>
