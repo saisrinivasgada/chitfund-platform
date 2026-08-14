@@ -370,7 +370,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.build-summary.result == 'success' &&
-      (needs.push-images.result == 'success' || needs.push-images.result == 'skipped') &&
+      (needs.push-images.result == 'success' || (needs.push-images.result == 'skipped' && needs.changes.outputs.backend != 'true')) &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
 
     steps:

@@ -862,21 +862,15 @@ export default function SuperAdminOrgDetailPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, u, c] = await Promise.all([
+      const [t, u] = await Promise.all([
         superAdminGetTenant(tenantId),
         superAdminListOrgUsers(tenantId),
-        superAdminListOrgChits(tenantId),
       ]);
       setTenant(t);
       setUsers(Array.isArray(u) ? u : []);
-      setChits(Array.isArray(c) ? c : []);
-      try {
-        const limits = await superAdminGetEffectiveLimits(tenantId);
-        setEffectiveLimits(limits);
-      } catch {
-        setEffectiveLimits(null);
-      }
-      // Load per-org discount (non-fatal if not found)
+      // Non-fatal fetches
+      superAdminListOrgChits(tenantId).then(c => setChits(Array.isArray(c) ? c : [])).catch(() => setChits([]));
+      superAdminGetEffectiveLimits(tenantId).then(setEffectiveLimits).catch(() => setEffectiveLimits(null));
       superAdminGetDiscount(tenantId).then(setDiscount).catch(() => setDiscount(null));
     } catch (err) {
       console.error('Failed to load org detail', err);
