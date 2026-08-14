@@ -19,12 +19,12 @@ on:
 env:
   EC2_USER: ec2-user
   APP_DIR: /app
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/saisrinivasgada
 
 jobs:
 
   # ── 1. Detect what changed ────────────────────────────────────────────────────
-  # Each service filter includes chitfund-common so that a shared-lib change
-  # triggers all downstream service builds automatically.
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -36,6 +36,7 @@ jobs:
       payout:       ${{ steps.f.outputs.payout       == 'true' || inputs.deploy_backend  == 'true' }}
       notification: ${{ steps.f.outputs.notification == 'true' || inputs.deploy_backend  == 'true' }}
       gateway:      ${{ steps.f.outputs.gateway      == 'true' || inputs.deploy_backend  == 'true' }}
+      audit:        ${{ steps.f.outputs.audit        == 'true' || inputs.deploy_backend  == 'true' }}
       frontend:     ${{ steps.f.outputs.frontend     == 'true' || inputs.deploy_frontend == 'true' }}
       backend:      ${{ steps.f.outputs.backend      == 'true' || inputs.deploy_backend  == 'true' }}
     steps:
@@ -65,6 +66,9 @@ jobs:
             gateway:
               - 'chitfund-common/**'
               - 'chitfund-api-gateway/**'
+            audit:
+              - 'chitfund-common/**'
+              - 'chitfund-audit-service/**'
             frontend:
               - 'chitfund-frontend/**'
             backend:
@@ -76,10 +80,9 @@ jobs:
               - 'chitfund-payment-service/**'
               - 'chitfund-payout-service/**'
               - 'chitfund-api-gateway/**'
+              - 'chitfund-audit-service/**'
 
   # ── 2. Per-service compile checks (run in parallel) ───────────────────────────
-  # Each job only runs when its files (or common) changed.
-  # They all run at the same time — no waiting for each other.
 
   build-user:
     name: "user-service"
@@ -193,6 +196,22 @@ jobs:
       - name: Compile
         run: mvn -pl chitfund-common,chitfund-api-gateway -am compile -q --no-transfer-progress
 
+  build-audit:
+    name: "audit-service"
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Compile
+        run: mvn -pl chitfund-common,chitfund-audit-service -am compile -q --no-transfer-progress
+
   build-frontend:
     name: "frontend"
     needs: changes
@@ -211,12 +230,10 @@ jobs:
         run: npm ci && npm run build
 
   # ── 3. Build summary — satisfies branch protection rule ───────────────────────
-  # Always runs. Fails if any build job failed; passes if all passed or were skipped.
-  # Branch protection targets this job name: "Build & Compile Check"
   build-summary:
     name: Build & Compile Check
     runs-on: ubuntu-latest
-    needs: [build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-frontend]
+    needs: [build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-audit, build-frontend]
     if: always()
     steps:
       - name: Check results
@@ -227,20 +244,133 @@ jobs:
           fi
           echo "All builds passed or were skipped (nothing changed)."
 
-  # ── 4. Deploy — only on main push, only what changed ─────────────────────────
-  # Skips entirely if no relevant files changed.
-  # Backend and frontend deploy steps are gated independently.
+  # ── 4. Build Docker images on GitHub runner & push to GHCR ───────────────────
+  push-images:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [changes, build-summary]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.build-summary.result == 'success' &&
+      needs.changes.outputs.backend == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push api-gateway
+        if: needs.changes.outputs.gateway == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-api-gateway/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/api-gateway:latest
+          cache-from: type=gha,scope=api-gateway
+          cache-to: type=gha,mode=max,scope=api-gateway
+
+      - name: Build & push user-service
+        if: needs.changes.outputs.user == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-user-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/user-service:latest
+          cache-from: type=gha,scope=user-service
+          cache-to: type=gha,mode=max,scope=user-service
+
+      - name: Build & push member-service
+        if: needs.changes.outputs.member == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-member-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/member-service:latest
+          cache-from: type=gha,scope=member-service
+          cache-to: type=gha,mode=max,scope=member-service
+
+      - name: Build & push chit-service
+        if: needs.changes.outputs.chit == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-chit-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/chit-service:latest
+          cache-from: type=gha,scope=chit-service
+          cache-to: type=gha,mode=max,scope=chit-service
+
+      - name: Build & push payment-service
+        if: needs.changes.outputs.payment == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-payment-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/payment-service:latest
+          cache-from: type=gha,scope=payment-service
+          cache-to: type=gha,mode=max,scope=payment-service
+
+      - name: Build & push payout-service
+        if: needs.changes.outputs.payout == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-payout-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/payout-service:latest
+          cache-from: type=gha,scope=payout-service
+          cache-to: type=gha,mode=max,scope=payout-service
+
+      - name: Build & push notification-service
+        if: needs.changes.outputs.notification == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-notification-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/notification-service:latest
+          cache-from: type=gha,scope=notification-service
+          cache-to: type=gha,mode=max,scope=notification-service
+
+      - name: Build & push audit-service
+        if: needs.changes.outputs.audit == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitfund-audit-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/audit-service:latest
+          cache-from: type=gha,scope=audit-service
+          cache-to: type=gha,mode=max,scope=audit-service
+
+  # ── 5. Deploy — EC2 pulls images and restarts ─────────────────────────────────
   deploy:
     name: Deploy to EC2
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [changes, build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-frontend]
+    timeout-minutes: 20
+    needs: [changes, build-summary, push-images]
     if: |
       always() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      !contains(needs.*.result, 'failure') &&
-      !contains(needs.*.result, 'cancelled') &&
+      needs.build-summary.result == 'success' &&
+      (needs.push-images.result == 'success' || needs.push-images.result == 'skipped') &&
       (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
 
     steps:
@@ -260,56 +390,37 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
-      # ── Backend deploy (only if backend changed) ─────────────────────────────
-      - name: Sync backend source to EC2
+      # ── Backend deploy ────────────────────────────────────────────────────────
+      - name: Sync docker-compose and update .env
         if: needs.changes.outputs.backend == 'true'
         run: |
-          rsync -az \
-            --exclude='.git' \
-            --exclude='*/target/' \
-            --exclude='node_modules' \
-            --exclude='chitfund-frontend' \
-            --exclude='chitfund-audit-service' \
-            --exclude='chitfund-reporting-service' \
-            --exclude='restful-web-services' \
-            --exclude='MyVibeCodingApp' \
-            --exclude='*.pem' \
-            -e "ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no" \
-            . ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/
-
-      - name: Update .env on EC2
-        if: needs.changes.outputs.backend == 'true'
-        run: |
+          scp -i ~/.ssh/deploy-key.pem \
+            docker-compose.prod.yml \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/docker-compose.prod.yml
           echo "${{ secrets.PROD_ENV }}" | \
-            ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
+            ssh -i ~/.ssh/deploy-key.pem \
               ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
               "cat > ${{ env.APP_DIR }}/.env"
 
-      - name: Build and restart Docker services
+      - name: Pull images and restart services
         if: needs.changes.outputs.backend == 'true'
         run: |
-          ssh -i ~/.ssh/deploy-key.pem -o StrictHostKeyChecking=no \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
+          ssh -i ~/.ssh/deploy-key.pem \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
           set -e
-          cd /app
-          echo "=== Building (no cache) ==="
-          docker compose -f docker-compose.prod.yml build --no-cache
-          echo "=== Starting services ==="
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd ${{ env.APP_DIR }}
+          docker compose -f docker-compose.prod.yml pull
           docker compose -f docker-compose.prod.yml up -d --wait || {
-            echo ""
             echo "=== DEPLOY FAILED — container logs ==="
-            echo "--- payment-service ---"
-            docker logs chitfund-payment-service --tail 120 2>&1 || true
-            echo "--- chit-service ---"
-            docker logs chitfund-chit-service --tail 30 2>&1 || true
-            echo "--- compose ps ---"
             docker compose -f docker-compose.prod.yml ps
             exit 1
           }
           docker compose -f docker-compose.prod.yml ps
-          ENDSSH
+          docker image prune -f
+          EOF
 
-      # ── Frontend deploy (only if frontend changed) ────────────────────────────
+      # ── Frontend deploy ───────────────────────────────────────────────────────
       - name: Setup Node.js
         if: needs.changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
