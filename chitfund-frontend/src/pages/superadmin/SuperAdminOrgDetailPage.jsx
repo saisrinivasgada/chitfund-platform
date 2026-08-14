@@ -4,7 +4,7 @@ import {
   ArrowLeft, Users, BookOpen, Settings, ChevronDown,
   CheckCircle, XCircle, Clock, Edit2, X, UserPlus,
   Shield, Briefcase, User, AlertCircle, Sliders, Trash2, Calendar,
-  Copy, Check, KeyRound, LogIn, Lock, LockOpen,
+  Copy, Check, KeyRound, LogIn, Lock, LockOpen, Link,
 } from 'lucide-react';
 import {
   superAdminGetTenant,
@@ -28,6 +28,7 @@ import {
   superAdminProxyAs,
   lockUser,
   unlockUser,
+  resendSetupLink,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -1573,53 +1574,74 @@ export default function SuperAdminOrgDetailPage() {
                               <LogIn size={12} />
                               {proxyingUserId === u.userId ? '…' : 'Proxy'}
                             </button>
-                            <button
-                              type="button"
-                              title="Reset Password"
-                              onClick={async () => {
-                                try {
-                                  const result = await resetMemberPassword(u.userId);
-                                  setResetCredentials({ username: result.username ?? u.username, password: result.tempPassword });
-                                } catch {
-                                  showToast('Failed to reset password');
-                                }
-                              }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors"
-                            >
-                              <KeyRound size={12} />
-                              Reset
-                            </button>
-                            <button
-                              type="button"
-                              disabled={lockingUserId === u.userId}
-                              title={u.locked ? 'Unlock Account' : 'Lock Account'}
-                              onClick={async () => {
-                                setLockingUserId(u.userId);
-                                try {
-                                  if (u.locked) {
-                                    await unlockUser(u.userId);
-                                    setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: false } : x));
-                                    showToast('Account unlocked');
-                                  } else {
-                                    await lockUser(u.userId);
-                                    setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: true } : x));
-                                    showToast('Account locked');
+                            {u.mustChangePassword ? (
+                              <button
+                                type="button"
+                                title="Resend setup link"
+                                onClick={async () => {
+                                  try {
+                                    await resendSetupLink(u.userId);
+                                    showToast('Setup link sent');
+                                  } catch {
+                                    showToast('Failed to send setup link');
                                   }
-                                } catch {
-                                  showToast(u.locked ? 'Failed to unlock' : 'Failed to lock');
-                                } finally {
-                                  setLockingUserId(null);
-                                }
-                              }}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors disabled:opacity-50 ${
-                                u.locked
-                                  ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                                  : 'border-red-200 text-red-600 hover:bg-red-50'
-                              }`}
-                            >
-                              {u.locked ? <LockOpen size={12} /> : <Lock size={12} />}
-                              {lockingUserId === u.userId ? '…' : u.locked ? 'Unlock' : 'Lock'}
-                            </button>
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 cursor-pointer transition-colors"
+                              >
+                                <Link size={12} />
+                                Setup Link
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  title="Reset Password"
+                                  onClick={async () => {
+                                    try {
+                                      const result = await resetMemberPassword(u.userId);
+                                      setResetCredentials({ username: result.username ?? u.username, password: result.tempPassword });
+                                    } catch {
+                                      showToast('Failed to reset password');
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors"
+                                >
+                                  <KeyRound size={12} />
+                                  Reset
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={lockingUserId === u.userId}
+                                  title={u.locked ? 'Unlock Account' : 'Lock Account'}
+                                  onClick={async () => {
+                                    setLockingUserId(u.userId);
+                                    try {
+                                      if (u.locked) {
+                                        await unlockUser(u.userId);
+                                        setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: false } : x));
+                                        showToast('Account unlocked');
+                                      } else {
+                                        await lockUser(u.userId);
+                                        setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: true } : x));
+                                        showToast('Account locked');
+                                      }
+                                    } catch {
+                                      showToast(u.locked ? 'Failed to unlock' : 'Failed to lock');
+                                    } finally {
+                                      setLockingUserId(null);
+                                    }
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors disabled:opacity-50 ${
+                                    u.locked
+                                      ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                      : 'border-red-200 text-red-600 hover:bg-red-50'
+                                  }`}
+                                >
+                                  {u.locked ? <LockOpen size={12} /> : <Lock size={12} />}
+                                  {lockingUserId === u.userId ? '…' : u.locked ? 'Unlock' : 'Lock'}
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
