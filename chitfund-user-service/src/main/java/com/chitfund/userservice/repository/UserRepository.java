@@ -64,4 +64,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     long countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(
         String tenantId,
         java.util.List<com.chitfund.userservice.domain.enums.Role> roles);
+
+    // Forgot-password: search by phone number regardless of country code
+    java.util.List<User> findByPhoneAndDeletedAtIsNull(String phone);
+
+    // Forgot-password: look up user holding a password reset token
+    Optional<User> findByPasswordResetToken(String token);
 }

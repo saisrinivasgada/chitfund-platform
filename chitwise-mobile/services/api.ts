@@ -486,6 +486,46 @@ export const markNotificationRead = async (id: string) =>
 export const markAllNotificationsRead = async () =>
   api.patch('/notifications/read-all').catch(() => {});
 
+// ── Phone OTP (authenticated — for profile phone change) ─────────────────────
+export const sendPhoneChangeOtp = async ({ phone, countryCode }: { phone: string; countryCode: string }) => {
+  const res = await api.post('/users/me/phone/send-otp', { phone, countryCode });
+  return res.data;
+};
+export const verifyPhoneChangeOtp = async ({ phone, countryCode, code }: { phone: string; countryCode: string; code: string }) => {
+  const res = await api.post('/users/me/phone/verify-otp', { phone, countryCode, code });
+  return res.data.data; // UserResponse with updated phone
+};
+
+// ── Admin phone OTP (for staff/member creation and phone updates) ─────────────
+export const adminSendPhoneOtp = async ({ phone, countryCode }: { phone: string; countryCode: string }) => {
+  const res = await api.post('/users/admin/phone/send-otp', { phone, countryCode });
+  return res.data;
+};
+export const adminVerifyPhoneOtp = async ({ phone, countryCode, code }: { phone: string; countryCode: string; code: string }) => {
+  const res = await api.post('/users/admin/phone/verify-otp', { phone, countryCode, code });
+  return res.data;
+};
+export const adminUpdateUserPhone = async ({ userId, phone, countryCode }: { userId: string; phone: string; countryCode: string }) => {
+  const res = await api.patch(`/users/${userId}/phone`, { phone, countryCode });
+  return res.data.data;
+};
+
+// ── Self-service forgot password — 4-step flow ───────────────────────────────
+export const forgotPasswordLookup = async (usernameOrPhone: string) => {
+  const res = await api.post('/auth/forgot-password/lookup', { usernameOrPhone });
+  return res.data.data as { userId: string; maskedPhone: string; locked: boolean; role: string };
+};
+export const forgotPasswordSendOtp = async ({ userId, last4 }: { userId: string; last4: string }) => {
+  await api.post('/auth/forgot-password/send-otp', { userId, last4 });
+};
+export const forgotPasswordVerifyOtp = async ({ userId, code }: { userId: string; code: string }) => {
+  const res = await api.post('/auth/forgot-password/verify-otp', { userId, code });
+  return res.data.data as { resetToken: string };
+};
+export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }: { resetToken: string; newPassword: string }) => {
+  await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
+};
+
 // ── Push token registration ───────────────────────────────────────────────────
 export const registerPushToken = async (token: string, platform: string) => {
   try {

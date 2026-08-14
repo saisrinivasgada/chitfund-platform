@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, sendForgotPasswordOtp, resetPasswordViaOtp } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
@@ -9,29 +9,108 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, Phone, ShieldCheck, TrendingUp, Users, User,
   Building2, ClipboardList, UserCheck, ChevronLeft, LogIn, CheckCircle, Eye, EyeOff,
+  Lock, AlertTriangle,
 } from 'lucide-react';
+import { useRef, useEffect } from 'react';
 
-/* ── OTP password reset flow ── */
+/* ── Forgot password — 4-step flow ── */
+const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
+
 function ForgotPasswordFlow({ onClose }) {
-  const [step, setStep]           = useState('phone'); // 'phone' | 'otp' | 'password' | 'done'
-  const [countryCode, setCountryCode] = useState('+91');
-  const [phone, setPhone]         = useState('');
-  const [otp, setOtp]             = useState('');
+  // step: 'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked'
+  const [step, setStep]             = useState('lookup');
+  const [input, setInput]           = useState('');
+  const [lookup, setLookup]         = useState(null); // { userId, maskedPhone, locked, role }
+  const [last4, setLast4]           = useState('');
+  const [otp, setOtp]               = useState('');
+  const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
-  const [showPass, setShowPass]   = useState(false);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState('');
+  const [showPass, setShowPass]     = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
+  // OTP-wrong lockout: countdown in seconds (0 = allowed)
+  const [otpLockout, setOtpLockout] = useState(0);
+  const [resendTimer, setResendTimer] = useState(0);
+  const lockoutRef = useRef(null);
+  const resendRef  = useRef(null);
+
+  useEffect(() => () => {
+    clearInterval(lockoutRef.current);
+    clearInterval(resendRef.current);
+  }, []);
+
+  function startLockout() {
+    setOtpLockout(OTP_LOCKOUT_SECS);
+    clearInterval(lockoutRef.current);
+    lockoutRef.current = setInterval(() => {
+      setOtpLockout((t) => { if (t <= 1) { clearInterval(lockoutRef.current); return 0; } return t - 1; });
+    }, 1000);
+  }
+
+  function startResend() {
+    setResendTimer(60);
+    clearInterval(resendRef.current);
+    resendRef.current = setInterval(() => {
+      setResendTimer((t) => { if (t <= 1) { clearInterval(resendRef.current); return 0; } return t - 1; });
+    }, 1000);
+  }
+
+  function fmtSecs(s) {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  async function handleLookup(e) {
+    e.preventDefault();
+    if (!input.trim()) { setError('Enter your username or phone number'); return; }
+    setError(''); setLoading(true);
+    try {
+      const data = await forgotPasswordLookup({ usernameOrPhone: input.trim() });
+      if (data.locked) { setLookup(data); setStep('locked'); return; }
+      setLookup(data);
+      setStep('last4');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'No account found. Check the username or phone number.');
+    } finally { setLoading(false); }
+  }
 
   async function handleSendOtp(e) {
     e.preventDefault();
-    if (phone.replace(/\D/g, '').length < 7) { setError('Enter a valid mobile number'); return; }
+    if (last4.length !== 4) { setError('Enter the last 4 digits of your phone number'); return; }
     setError(''); setLoading(true);
     try {
-      await sendForgotPasswordOtp({ phone, countryCode });
+      await forgotPasswordSendOtp({ userId: lookup.userId, last4 });
+      setOtp('');
+      setOtpLockout(0);
+      startResend();
       setStep('otp');
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Failed to send OTP. Try again.');
+      setError(err.response?.data?.message ?? 'Phone digits do not match. Try again.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleVerifyOtp(e) {
+    e.preventDefault();
+    if (otpLockout > 0) return;
+    setError(''); setLoading(true);
+    try {
+      const data = await forgotPasswordVerifyOtp({ userId: lookup.userId, code: otp });
+      setResetToken(data.resetToken);
+      setStep('password');
+    } catch (err) {
+      const code = err.response?.data?.errorCode;
+      if (code === 'OTP_004') {
+        setError('Too many wrong attempts. Request a new OTP.');
+        setOtp('');
+        setOtpLockout(0);
+        clearInterval(lockoutRef.current);
+      } else {
+        // Wrong OTP — start 5-min lockout
+        setError('Incorrect OTP. Try again in 5 minutes.');
+        setOtp('');
+        startLockout();
+      }
     } finally { setLoading(false); }
   }
 
@@ -41,19 +120,22 @@ function ForgotPasswordFlow({ onClose }) {
     if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
     setError(''); setLoading(true);
     try {
-      await resetPasswordViaOtp({ phone, countryCode, otpCode: otp, newPassword });
+      await forgotPasswordResetWithToken({ resetToken, newPassword });
       setStep('done');
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Reset failed. Check the OTP and try again.');
+      setError(err.response?.data?.message ?? 'Reset failed. The link may have expired — start over.');
     } finally { setLoading(false); }
   }
 
+  const inputCls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]';
+
+  /* ── Done ── */
   if (step === 'done') return (
     <div className="mt-5 px-4 py-5 rounded-xl border border-green-200 bg-green-50">
       <div className="flex items-start gap-3">
         <CheckCircle size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-green-900 mb-1">Password reset!</p>
+          <p className="text-sm font-semibold text-green-900 mb-1">Password reset successfully!</p>
           <p className="text-sm text-green-700">Sign in with your new password.</p>
           <button type="button" onClick={onClose}
             className="mt-2 text-xs font-medium text-green-700 underline cursor-pointer">← Back to sign in</button>
@@ -62,65 +144,120 @@ function ForgotPasswordFlow({ onClose }) {
     </div>
   );
 
-  if (step === 'otp') return (
-    <div className="mt-5 space-y-4">
-      <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
-        <p className="text-sm text-blue-700">OTP sent to {countryCode} {phone}. Check your messages.</p>
-      </div>
-      <form onSubmit={handleReset} className="space-y-4">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Enter OTP</label>
-          <input
-            type="text" inputMode="numeric" maxLength={6}
-            value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="6-digit code" required
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] tracking-widest text-center text-lg font-mono"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">New password</label>
-          <div className="relative">
-            <input type={showPass ? 'text' : 'password'} value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)} placeholder="At least 8 characters" required
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] pr-10" />
-            <button type="button" onClick={() => setShowPass((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer">
-              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
+  /* ── Locked ── */
+  if (step === 'locked') {
+    const isAdmin = lookup?.role === 'ADMIN' || lookup?.role === 'SUPER_ADMIN';
+    return (
+      <div className="mt-5 px-4 py-5 rounded-xl border border-red-200 bg-red-50">
+        <div className="flex items-start gap-3">
+          <Lock size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-900 mb-1">Account locked</p>
+            <p className="text-sm text-red-700">
+              {isAdmin
+                ? 'Your account has been locked. Please contact support to regain access.'
+                : 'Your account has been locked. Please contact your administrator to unlock it.'}
+            </p>
+            <button type="button" onClick={onClose}
+              className="mt-3 text-xs font-medium text-red-700 underline cursor-pointer">← Back to sign in</button>
           </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Confirm password</label>
-          <input type={showPass ? 'text' : 'password'} value={confirmPass}
-            onChange={(e) => setConfirmPass(e.target.value)} placeholder="Repeat your password" required
-            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]" />
+      </div>
+    );
+  }
+
+  /* ── New password ── */
+  if (step === 'password') return (
+    <div className="mt-5 space-y-4">
+      <p className="text-sm font-semibold text-gray-700">Set a new password</p>
+      <form onSubmit={handleReset} className="space-y-4">
+        <div className="relative">
+          <input type={showPass ? 'text' : 'password'} value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)} placeholder="At least 8 characters" required
+            className={`${inputCls} pr-10`} />
+          <button type="button" onClick={() => setShowPass((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer">
+            {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
         </div>
+        <input type={showPass ? 'text' : 'password'} value={confirmPass}
+          onChange={(e) => setConfirmPass(e.target.value)} placeholder="Confirm password" required
+          className={inputCls} />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} className="w-full">Reset password</Button>
-        <button type="button" onClick={() => { setStep('phone'); setOtp(''); setError(''); }}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Resend OTP</button>
+        <Button type="submit" loading={loading} className="w-full">Set New Password</Button>
       </form>
     </div>
   );
 
+  /* ── OTP verification ── */
+  if (step === 'otp') return (
+    <div className="mt-5 space-y-4">
+      <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
+        <p className="text-sm text-blue-700">OTP sent to {lookup?.maskedPhone}. Enter it below.</p>
+      </div>
+      <form onSubmit={handleVerifyOtp} className="space-y-3">
+        <input type="text" inputMode="numeric" maxLength={6} value={otp}
+          onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); setError(''); }}
+          placeholder="6-digit code" disabled={otpLockout > 0}
+          className={`${inputCls} tracking-widest text-center text-lg font-mono disabled:bg-gray-50 disabled:text-gray-400`} />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {otpLockout > 0 ? (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-amber-200 bg-amber-50">
+            <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
+            <p className="text-sm text-amber-700">Try again in <span className="font-mono font-bold">{fmtSecs(otpLockout)}</span></p>
+          </div>
+        ) : (
+          <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
+        )}
+        <div className="flex justify-between text-xs text-gray-400">
+          {resendTimer > 0
+            ? <span>Resend in {resendTimer}s</span>
+            : <button type="button" onClick={() => { setStep('last4'); setOtp(''); setError(''); setOtpLockout(0); clearInterval(lockoutRef.current); }}
+                className="hover:text-gray-600 cursor-pointer">← Resend OTP</button>
+          }
+          <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
+            className="hover:text-gray-600 cursor-pointer">Start over</button>
+        </div>
+      </form>
+    </div>
+  );
+
+  /* ── Last 4 digits ── */
+  if (step === 'last4') return (
+    <div className="mt-5 space-y-4">
+      <div className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+        <p className="text-sm text-gray-700">We'll send an OTP to <span className="font-bold">{lookup?.maskedPhone}</span>.</p>
+        <p className="text-xs text-gray-500 mt-1">First, confirm the last 4 digits of that number.</p>
+      </div>
+      <form onSubmit={handleSendOtp} className="space-y-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Last 4 digits of your phone</label>
+          <input type="text" inputMode="numeric" maxLength={4} value={last4}
+            onChange={(e) => { setLast4(e.target.value.replace(/\D/g, '')); setError(''); }}
+            placeholder="e.g. 4321" required
+            className={`${inputCls} tracking-widest text-center text-lg font-mono w-36 mx-auto`} />
+        </div>
+        {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+        <Button type="submit" loading={loading} disabled={last4.length !== 4} className="w-full">Send OTP</Button>
+        <button type="button" onClick={() => { setStep('lookup'); setError(''); setLast4(''); }}
+          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Change account</button>
+      </form>
+    </div>
+  );
+
+  /* ── Lookup (step 1) ── */
   return (
     <div className="mt-5 space-y-4">
-      <p className="text-sm text-gray-600 font-medium">Reset via mobile OTP</p>
-      <form onSubmit={handleSendOtp} className="space-y-4">
-        <div className="flex gap-2">
-          <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] w-24 flex-shrink-0">
-            <option value="+91">+91</option>
-            <option value="+1">+1</option>
-            <option value="+44">+44</option>
-            <option value="+971">+971</option>
-          </select>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-            placeholder="Mobile number" required
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]" />
+      <p className="text-sm text-gray-600 font-medium">Reset your password</p>
+      <form onSubmit={handleLookup} className="space-y-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Username or phone number</label>
+          <input type="text" value={input} onChange={(e) => { setInput(e.target.value); setError(''); }}
+            placeholder="e.g. sai.admin or 9876543210" required
+            className={inputCls} autoFocus />
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={loading} className="w-full">Send OTP</Button>
+        <Button type="submit" loading={loading} className="w-full">Find Account</Button>
         <button type="button" onClick={onClose}
           className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Back to sign in</button>
       </form>
@@ -547,86 +684,88 @@ export default function LoginPage() {
               {/* ── Step 2: Login form ── */}
               {step === 'login' && (
                 <div>
-                  {/* Back button + role badge */}
-                  <div className="flex items-center gap-3 mb-8">
-                    <button type="button" onClick={() => { setStep('choose'); setSelectedRole(null); setError(''); setShowOtpReset(false); }}
-                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
-                      <ChevronLeft size={16} /> Back
-                    </button>
-                    <div className="flex items-center gap-2 ml-auto px-3 py-1.5 rounded-full text-xs font-bold"
-                      style={{ backgroundColor: roleObj.bg, color: roleObj.color }}>
-                      <roleObj.icon size={12} />
-                      {roleObj.title}
-                    </div>
-                  </div>
-
-                  <div className="mb-7">
-                    <h2 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#1A202C' }}>
-                      {roleObj.key === 'member' ? 'Member sign in' : 'Welcome back'}
-                    </h2>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {roleObj.key === 'member'
-                        ? 'Sign in to view your chit group, installments & draws'
-                        : `Sign in to your ${roleObj.title.toLowerCase()} account`}
-                    </p>
-                  </div>
-
-                  {/* Login mode tabs — members default to mobile */}
-                  <div className="flex rounded-xl border border-gray-200 overflow-hidden mb-6">
-                    {[
-                      { key: 'username', label: 'Username' },
-                      { key: 'mobile',   label: 'Mobile number' },
-                    ].map(({ key, label }) => (
-                      <button key={key} type="button"
-                        onClick={() => { setLoginMode(key); setError(''); }}
-                        className={`flex-1 py-2.5 text-sm font-medium transition-colors cursor-pointer ${loginMode === key ? 'text-white' : 'text-gray-500 hover:text-gray-700 bg-white'}`}
-                        style={loginMode === key ? { backgroundColor: '#1E3A5F' } : {}}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Username login */}
-                  {loginMode === 'username' && (
-                    <form onSubmit={handleUsernameSubmit} className="space-y-5">
-                      <div className="flex flex-col gap-1.5">
-                        <label htmlFor="username" className="text-sm font-medium text-gray-700">Username</label>
-                        <Input id="username" type="text" value={form.username}
-                          onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-                          placeholder="Enter your username" autoComplete="username" required />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label htmlFor="password" className="text-sm font-medium text-gray-700">Password</label>
-                        <Input id="password" type="password" value={form.password}
-                          onChange={(e) => setForm((f) => ({ ...f, password: e.target.value.replace(/\s/g, '') }))}
-                          placeholder="Enter your password" autoComplete="current-password" required />
-                      </div>
-                      {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
-                      <div className="pt-2">
-                        <Button type="submit" loading={loading} className="w-full">Sign in</Button>
-                      </div>
-                      <button type="button" onClick={() => { setShowForgot(false); setShowOtpReset((v) => !v); }}
-                        className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors pt-1 cursor-pointer">
-                        Forgot password?
-                      </button>
-                    </form>
-                  )}
-
-                  {/* Mobile login */}
-                  {loginMode === 'mobile' && <MobileLoginForm onSuccess={handleLoginResponse} />}
-
-                  {showOtpReset && loginMode === 'username' && (
+                  {showOtpReset ? (
                     <ForgotPasswordFlow onClose={() => setShowOtpReset(false)} />
-                  )}
+                  ) : (
+                    <>
+                      {/* Back button + role badge */}
+                      <div className="flex items-center gap-3 mb-8">
+                        <button type="button" onClick={() => { setStep('choose'); setSelectedRole(null); setError(''); }}
+                          className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
+                          <ChevronLeft size={16} /> Back
+                        </button>
+                        <div className="flex items-center gap-2 ml-auto px-3 py-1.5 rounded-full text-xs font-bold"
+                          style={{ backgroundColor: roleObj.bg, color: roleObj.color }}>
+                          <roleObj.icon size={12} />
+                          {roleObj.title}
+                        </div>
+                      </div>
 
-                  <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-                    <p className="text-sm text-gray-400">
-                      New chit fund?{' '}
-                      <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
-                        Register your organization
-                      </button>
-                    </p>
-                  </div>
+                      <div className="mb-7">
+                        <h2 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#1A202C' }}>
+                          {roleObj.key === 'member' ? 'Member sign in' : 'Welcome back'}
+                        </h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {roleObj.key === 'member'
+                            ? 'Sign in to view your chit group, installments & draws'
+                            : `Sign in to your ${roleObj.title.toLowerCase()} account`}
+                        </p>
+                      </div>
+
+                      {/* Login mode tabs */}
+                      <div className="flex rounded-xl border border-gray-200 overflow-hidden mb-6">
+                        {[
+                          { key: 'username', label: 'Username' },
+                          { key: 'mobile',   label: 'Mobile number' },
+                        ].map(({ key, label }) => (
+                          <button key={key} type="button"
+                            onClick={() => { setLoginMode(key); setError(''); }}
+                            className={`flex-1 py-2.5 text-sm font-medium transition-colors cursor-pointer ${loginMode === key ? 'text-white' : 'text-gray-500 hover:text-gray-700 bg-white'}`}
+                            style={loginMode === key ? { backgroundColor: '#1E3A5F' } : {}}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Username login */}
+                      {loginMode === 'username' && (
+                        <form onSubmit={handleUsernameSubmit} className="space-y-5">
+                          <div className="flex flex-col gap-1.5">
+                            <label htmlFor="username" className="text-sm font-medium text-gray-700">Username</label>
+                            <Input id="username" type="text" value={form.username}
+                              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+                              placeholder="Enter your username" autoComplete="username" required />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label htmlFor="password" className="text-sm font-medium text-gray-700">Password</label>
+                            <Input id="password" type="password" value={form.password}
+                              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value.replace(/\s/g, '') }))}
+                              placeholder="Enter your password" autoComplete="current-password" required />
+                          </div>
+                          {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
+                          <div className="pt-2">
+                            <Button type="submit" loading={loading} className="w-full">Sign in</Button>
+                          </div>
+                          <button type="button" onClick={() => setShowOtpReset(true)}
+                            className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors pt-1 cursor-pointer">
+                            Forgot password?
+                          </button>
+                        </form>
+                      )}
+
+                      {/* Mobile login */}
+                      {loginMode === 'mobile' && <MobileLoginForm onSuccess={handleLoginResponse} />}
+
+                      <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+                        <p className="text-sm text-gray-400">
+                          New chit fund?{' '}
+                          <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
+                            Register your organization
+                          </button>
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

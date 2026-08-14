@@ -5,9 +5,10 @@ import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   resendSetupLink, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
-  softDeleteMember, getMemberAuditHistory, getActiveCashRequests,
+  softDeleteMember, getMemberAuditHistory, getActiveCashRequests, lockUser, unlockUser,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
   getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
+  adminUpdateUserPhone,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -18,11 +19,13 @@ import FormField, { Input, Select, Textarea } from '../../components/ui/FormFiel
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
+import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import {
   ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
   Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight, Banknote,
+  Lock, LockOpen,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -167,7 +170,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, onHistory, reminderPending, whatsappPending }) {
+function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, reminderPending, whatsappPending, lockPending, unlockPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -208,6 +211,25 @@ function MoreActionsMenu({ member, isAdmin, onCreateLogin, onResetPassword, onRe
               >
                 Reset Password
               </MenuButton>
+              {(isAdmin || isManager) && (
+                userAccount?.locked ? (
+                  <MenuButton
+                    icon={<LockOpen size={14} className="text-amber-600" />}
+                    disabled={unlockPending}
+                    onClick={() => { onUnlock(); setOpen(false); }}
+                  >
+                    {unlockPending ? 'Unlocking…' : 'Unlock Account'}
+                  </MenuButton>
+                ) : (
+                  <MenuButton
+                    icon={<Lock size={14} className="text-amber-600" />}
+                    disabled={lockPending}
+                    onClick={() => { onLock(); setOpen(false); }}
+                  >
+                    {lockPending ? 'Locking…' : 'Lock Account'}
+                  </MenuButton>
+                )
+              )}
               <MenuButton
                 icon={<BellRing size={14} />}
                 disabled={reminderPending}
@@ -283,10 +305,12 @@ function MenuButton({ icon, children, onClick, disabled, danger }) {
 function EditMemberPanel({ member, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const originalPhone = member.phone ?? '';
+  const originalCC = member.phoneCountryCode ?? '+91';
   const [form, setForm] = useState({
     fullName: member.fullName ?? '',
-    phone: member.phone ?? '',
-    phoneCountryCode: member.phoneCountryCode ?? '+91',
+    phone: originalPhone,
+    phoneCountryCode: originalCC,
     email: member.email ?? '',
     address: member.address ?? '',
     city: member.city ?? '',
@@ -295,6 +319,7 @@ function EditMemberPanel({ member, onClose }) {
     notes: member.notes ?? '',
     referredById: member.referredById ?? '',
   });
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   const { data: activeMembers = [] } = useQuery({
     queryKey: ['members', 'active-for-referral'],
@@ -302,7 +327,13 @@ function EditMemberPanel({ member, onClose }) {
   });
 
   const mutation = useMutation({
-    mutationFn: (data) => updateMember({ id: member.id, ...data }),
+    mutationFn: async (data) => {
+      await updateMember({ id: member.id, ...data });
+      // If phone changed and member has a user account, sync it in user-service too
+      if (form.phone !== originalPhone && member.userId) {
+        await adminUpdateUserPhone({ userId: member.userId, phone: form.phone, countryCode: form.phoneCountryCode });
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['member', member.id] });
       qc.invalidateQueries({ queryKey: ['members'] });
@@ -320,6 +351,9 @@ function EditMemberPanel({ member, onClose }) {
   });
 
   function set(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+
+  const phoneChanged = form.phone !== originalPhone;
+  const canSave = form.fullName.trim() && (!phoneChanged || phoneVerified);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
@@ -360,12 +394,14 @@ function EditMemberPanel({ member, onClose }) {
                 <FormField label="Full Name" required>
                   <Input value={form.fullName} onChange={(e) => set('fullName', e.target.value)} required autoFocus />
                 </FormField>
-                <PhoneInput
+                <PhoneOtpVerifier
                   label="Phone"
-                  countryCode={form.phoneCountryCode}
                   phone={form.phone}
+                  countryCode={form.phoneCountryCode}
+                  originalPhone={originalPhone}
+                  onPhoneChange={(v) => { set('phone', v); setPhoneVerified(false); }}
                   onCountryChange={(code) => set('phoneCountryCode', code)}
-                  onPhoneChange={(v) => set('phone', v)}
+                  onVerified={setPhoneVerified}
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <FormField label="Email">
@@ -419,7 +455,13 @@ function EditMemberPanel({ member, onClose }) {
           {/* Sticky footer */}
           <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex gap-3">
             <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-            <Button type="submit" loading={mutation.isPending} disabled={!form.fullName.trim()} className="flex-1">
+            <Button
+              type="submit"
+              loading={mutation.isPending}
+              disabled={!canSave}
+              className="flex-1"
+              title={phoneChanged && !phoneVerified ? 'Verify the new phone number first' : undefined}
+            >
               Save Changes
             </Button>
           </div>
@@ -1578,6 +1620,7 @@ export default function MemberDetailPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
+  const isManager = currentUser?.role === 'MANAGER';
   const { hidden } = useHiddenAmounts();
   const [showEdit, setShowEdit] = useState(false);
   const [showCreateLogin, setShowCreateLogin] = useState(false);
@@ -1641,6 +1684,24 @@ export default function MemberDetailPage() {
       navigate('/members');
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete member'),
+  });
+
+  const lockMemberMut = useMutation({
+    mutationFn: () => lockUser(member.userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memberUserAccount', member.userId] });
+      toast.success('Member account locked');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to lock account'),
+  });
+
+  const unlockMemberMut = useMutation({
+    mutationFn: () => unlockUser(member.userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['memberUserAccount', member.userId] });
+      toast.success('Member account unlocked');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to unlock account'),
   });
 
   const changeRefMutation = useMutation({
@@ -1802,6 +1863,12 @@ export default function MemberDetailPage() {
                   @{userAccount.username}
                 </span>
               )}
+              {/* Locked badge + quick unlock */}
+              {userAccount?.locked && !isDeleted && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  <Lock size={11} /> Locked
+                </span>
+              )}
             </div>
 
             {/* City & outstanding below the status row */}
@@ -1841,14 +1908,20 @@ export default function MemberDetailPage() {
             <MoreActionsMenu
               member={member}
               isAdmin={isAdmin}
+              isManager={isManager}
+              userAccount={userAccount}
               onCreateLogin={() => setShowCreateLogin(true)}
               onResetPassword={() => setShowReset(true)}
               onReminder={() => reminderMutation.mutate()}
               onWhatsApp={() => whatsappMutation.mutate()}
               onDelete={() => setShowDeleteConfirm(true)}
               onHistory={() => setShowProfileHistory(true)}
+              onLock={() => lockMemberMut.mutate()}
+              onUnlock={() => unlockMemberMut.mutate()}
               reminderPending={reminderMutation.isPending}
               whatsappPending={whatsappMutation.isPending}
+              lockPending={lockMemberMut.isPending}
+              unlockPending={unlockMemberMut.isPending}
             />
           </div>
         )}

@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  openDraw, recordWinner, markSlotProcessed,
-  getEnrollments, getReservations, getMembers, getMemberBalanceBulk, listStaff, getDrawPayments,
+  openDraw, recordWinner, markSlotProcessed, updateReservationSlot,
+  getEnrollments, getReservations, getMembers, getMemberBalanceBulk, listStaff, getDrawPayments, getWinners,
 } from '../../services/api';
 import { useToastContext } from '../layout/AppLayout';
 import Button from '../ui/Button';
 import FormField, { Select, DateInput } from '../ui/FormField';
 import {
-  Trophy, Building2, X, Plus, AlertCircle, Phone, CheckCircle, ChevronDown, Info,
+  Trophy, Building2, X, Plus, AlertCircle, Phone, CheckCircle, ChevronDown, Info, Shuffle,
 } from 'lucide-react';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -102,6 +102,10 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
   const [additionalWinners, setAdditionalWinners] = useState([]);
   const [preview, setPreview] = useState(null);
 
+  const isLottery = (chit?.winnerSelectionMode ?? chit?.chitType) === 'LOTTERY';
+  const [lotteryMode, setLotteryMode] = useState('RANDOM');
+  const [pickedWinnerId, setPickedWinnerId] = useState('');
+
   const addWinner    = () => setAdditionalWinners((prev) => [...prev, { id: Date.now(), memberId: '', slotId: '' }]);
   const removeWinner = (id) => setAdditionalWinners((prev) => prev.filter((w) => w.id !== id));
   const updateWinner = (id, updates) => setAdditionalWinners((prev) => prev.map((w) => w.id === id ? { ...w, ...updates } : w));
@@ -116,12 +120,34 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
   });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
   const { data: staffListDraw = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
+  const { data: pastWinners = [] } = useQuery({
+    queryKey: ['winners', chitId],
+    queryFn: () => getWinners(chitId),
+    enabled: isLottery,
+  });
   const memberMap = Object.fromEntries([
     ...staffListDraw.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)`, phone: null }]),
     ...allMembers.map((m) => [m.id, m]),
   ]);
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
+
+  // Lottery: compute eligible members (spots > wins so far)
+  const lotteryEligible = isLottery ? (() => {
+    const winCounts = {};
+    pastWinners.forEach((w) => {
+      const mid = String(w.memberId);
+      winCounts[mid] = (winCounts[mid] ?? 0) + 1;
+    });
+    const spotCounts = {};
+    enrollments.forEach((e) => {
+      const mid = String(e.memberId ?? e.id);
+      spotCounts[mid] = (spotCounts[mid] ?? 0) + 1;
+    });
+    return Object.entries(spotCounts)
+      .filter(([mid, spots]) => (winCounts[mid] ?? 0) < spots)
+      .map(([mid]) => mid);
+  })() : [];
 
   const baseInstallment   = Number(chit.installmentAmount ?? (chit.chitValue / chit.totalMembers) ?? 0);
   const defaultPostPayout = Number(chit.defaultPostPayoutContribution ?? baseInstallment);
@@ -177,6 +203,53 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
   });
 
   function computePreview() {
+    if (isLottery) {
+      const winCounts = {};
+      pastWinners.forEach((w) => { winCounts[String(w.memberId)] = (winCounts[String(w.memberId)] ?? 0) + 1; });
+      const spotCounts = {};
+      enrollments.forEach((e) => { const mid = String(e.memberId ?? e.id); spotCounts[mid] = (spotCounts[mid] ?? 0) + 1; });
+
+      // Payout amount from pre-configured slot
+      const lotterySlot = reservations.find((r) => r.monthNumber === nextCycleNum && r.status !== 'VOIDED');
+      const slotPayoutAmount = lotterySlot?.payoutAmount
+        ? Number(lotterySlot.payoutAmount)
+        : Number(chit?.chitValue ?? 0);
+
+      const seen = new Set();
+      const members = [];
+      for (const e of enrollments) {
+        const mid = String(e.memberId ?? e.id);
+        if (seen.has(mid)) continue;
+        seen.add(mid);
+        const winsCount = winCounts[mid] ?? 0;
+        const spotsCount = spotCounts[mid] ?? 1;
+        const isEligible = winsCount < spotsCount;
+        const isWinner = lotteryMode === 'PICK' && mid === String(pickedWinnerId);
+        const amountDue = winsCount > 0 ? defaultPostPayout : baseInstallment;
+        const previousBalance = Number(balanceMap[mid] ?? 0);
+        members.push({
+          memberId: mid,
+          memberName: memberMap[mid]?.fullName ?? `Member #${mid}`,
+          phone: memberMap[mid]?.phone ?? null,
+          isDiscontinued: memberMap[mid]?.status === 'INACTIVE',
+          previousBalance,
+          amountDue,
+          isWinner,
+          isPrimary: isWinner,
+          isExtra: false,
+          winCount: isWinner ? 1 : 0,
+          isLotteryEligible: isEligible,
+          winsCount,
+          netPayout: isWinner ? slotPayoutAmount - amountDue : null,
+          reservedSlotNums: [],
+          processedSlotNums: [],
+        });
+      }
+      setPreview({ cycleNum: nextCycleNum, members, isLottery: true, lotteryMode, slotPayoutAmount });
+      setStep(2);
+      return;
+    }
+
     const seen = new Set();
     const members = [];
     // Draws that happened before this one (skipped don't generate installments)
@@ -300,6 +373,47 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
   const mutation = useMutation({
     mutationFn: async () => {
+      if (isLottery) {
+        // Find the pre-configured slot for this draw (UNALLOCATED, set up in Schedule tab)
+        const lotterySlot = reservations.find(
+          (r) => r.monthNumber === nextCycleNum && r.status !== 'VOIDED'
+        );
+        const winningAmount = lotterySlot?.payoutAmount
+          ? Number(lotterySlot.payoutAmount)
+          : Number(chit?.chitValue ?? chit?.totalAmount ?? 0);
+
+        await openDraw({
+          chitId,
+          monthNumber: nextCycleNum,
+          dueDate,
+          installmentAmount: baseInstallment,
+          maxCycles: chit?.totalMembers ?? nextCycleNum,
+          members: preview.members.map((m) => ({ memberId: m.memberId, amountDue: m.amountDue })),
+        });
+
+        const winnerRecord = await recordWinner({
+          chitId,
+          ...(lotteryMode === 'PICK' && pickedWinnerId ? { winnerId: pickedWinnerId } : {}),
+          monthNumber: nextCycleNum,
+          winningAmount,
+          discountAmount: 0,
+        });
+
+        // Update the slot: assign winner + mark PROCESSED
+        if (lotterySlot && winnerRecord?.memberId) {
+          await updateReservationSlot({
+            chitId,
+            reservationId: lotterySlot.id,
+            reservationMonth: lotterySlot.reservationMonth,
+            memberId: winnerRecord.memberId,
+            orgHeld: false,
+            payoutAmount: lotterySlot.payoutAmount ?? null,
+            postPayoutContribution: lotterySlot.postPayoutContribution ?? null,
+          });
+          await markSlotProcessed({ chitId, reservationId: lotterySlot.id }).catch(() => {});
+        }
+        return;
+      }
       await openDraw({
         chitId,
         monthNumber: nextCycleNum,
@@ -385,7 +499,14 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
               <p className="text-xs text-white/50 mt-0.5 hidden sm:block">{chit?.name}</p>
             </div>
             {/* Winner pill — visible on mobile inline, hidden on desktop (shown in own block below) */}
-            {(winnerName || isOrgDraw) && (
+            {isLottery ? (
+              <div className="sm:hidden ml-auto flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'rgba(212,160,23,0.2)' }}>
+                <Shuffle size={11} style={{ color: '#D4A017' }} />
+                <span className="text-xs font-semibold" style={{ color: '#D4A017' }}>
+                  {lotteryMode === 'PICK' && pickedWinnerId ? (memberMap[pickedWinnerId]?.fullName ?? 'Selected') : 'Lottery'}
+                </span>
+              </div>
+            ) : (winnerName || isOrgDraw) && (
               <div className="sm:hidden ml-auto flex items-center gap-1.5 px-2 py-1 rounded-lg" style={{ background: 'rgba(212,160,23,0.2)' }}>
                 {isOrgDraw ? <Building2 size={11} style={{ color: '#D4A017' }} /> : <Trophy size={11} style={{ color: '#D4A017' }} />}
                 <span className="text-xs font-semibold" style={{ color: '#D4A017' }}>{isOrgDraw ? 'Org' : winnerName}</span>
@@ -395,12 +516,40 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
 
           <div className="hidden sm:block">
             <div className="flex items-center gap-1.5 mb-2">
-              <Trophy size={12} style={{ color: '#D4A017' }} />
+              {isLottery ? <Shuffle size={12} style={{ color: '#D4A017' }} /> : <Trophy size={12} style={{ color: '#D4A017' }} />}
               <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest">
-                {isOrgDraw ? 'This Draw' : 'Winner'}
+                {isLottery ? 'Lottery' : isOrgDraw ? 'This Draw' : 'Winner'}
               </p>
             </div>
-            {isOrgDraw ? (
+            {isLottery ? (
+              <>
+                {lotteryMode === 'PICK' && pickedWinnerId ? (
+                  <>
+                    <p className="text-sm font-bold text-white leading-snug">{memberMap[pickedWinnerId]?.fullName ?? 'Selected'}</p>
+                    <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: 'rgba(212,160,23,0.2)', color: '#D4A017' }}>
+                      Admin selected
+                    </span>
+                    <p className="text-xs text-white/30 mt-1.5">{lotteryEligible.length} eligible</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold text-white/60">
+                      {lotteryMode === 'RANDOM' ? 'Drawn at random' : 'Pick a winner →'}
+                    </p>
+                    <p className="text-xs text-white/30 mt-1">{lotteryEligible.length} eligible</p>
+                  </>
+                )}
+                {(() => {
+                  const s = reservations.find((r) => r.monthNumber === nextCycleNum && r.status !== 'VOIDED');
+                  return s?.payoutAmount ? (
+                    <p className="text-base font-black mt-2" style={{ color: '#D4A017' }}>
+                      ₹{Number(s.payoutAmount).toLocaleString()}
+                    </p>
+                  ) : null;
+                })()}
+              </>
+            ) : isOrgDraw ? (
               <div>
                 <div className="flex items-center gap-1.5">
                   <Building2 size={14} style={{ color: '#D4A017' }} />
@@ -497,7 +646,53 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                   <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} required />
                 </FormField>
 
-                {cyclePayoutAmount && (
+                {isLottery && (
+                  <>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-600 mb-2">Winner Selection</p>
+                      <div className="flex gap-2">
+                        {[
+                          { val: 'RANDOM', label: 'Random Draw', icon: Shuffle, desc: 'System picks randomly' },
+                          { val: 'PICK', label: 'Pick Winner', icon: Trophy, desc: 'Admin selects manually' },
+                        ].map(({ val, label, icon: Icon, desc }) => (
+                          <button key={val} type="button"
+                            onClick={() => { setLotteryMode(val); setPickedWinnerId(''); }}
+                            className={`flex-1 flex items-start gap-2 text-left px-3 py-2.5 rounded-lg border transition-all ${
+                              lotteryMode === val
+                                ? 'border-[#1E3A5F] bg-[#EEF2F8] text-[#1E3A5F]'
+                                : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                            }`}>
+                            <Icon size={14} className="mt-0.5 flex-shrink-0" />
+                            <div>
+                              <p className="font-semibold text-xs">{label}</p>
+                              <p className="text-[11px] mt-0.5 opacity-70">{desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {lotteryMode === 'PICK' && (
+                      <FormField label="Select Winner" required>
+                        <Select value={pickedWinnerId} onChange={(e) => setPickedWinnerId(e.target.value)} required>
+                          <option value="">Choose from eligible members…</option>
+                          {lotteryEligible
+                            .sort((a, b) => (memberMap[a]?.fullName ?? '').localeCompare(memberMap[b]?.fullName ?? ''))
+                            .map((mid) => (
+                              <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>
+                            ))}
+                        </Select>
+                      </FormField>
+                    )}
+                    {lotteryEligible.length === 0 && (
+                      <div className="flex items-start gap-2 text-xs text-red-500 bg-red-50 rounded-xl px-4 py-3">
+                        <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+                        <span>All members have already won their allocated draws. No eligible members remain.</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {!isLottery && cyclePayoutAmount && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {additionalWinners.map((aw, idx) => {
                       const usedSlotIds = new Set(additionalWinners.filter((_, i) => i < idx).map((w) => w.slotId).filter(Boolean));
@@ -615,6 +810,16 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                                       {m.winCount > 1 ? `×${m.winCount} Payout` : 'Extra'}
                                     </span>
                                   )}
+                                  {preview?.isLottery && m.isLotteryEligible && !m.isWinner && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">
+                                      <Shuffle size={8} /> Eligible
+                                    </span>
+                                  )}
+                                  {preview?.isLottery && !m.isLotteryEligible && (
+                                    <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full font-semibold">
+                                      Already won
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {m.phone && <span className="text-xs text-gray-400 flex items-center gap-1"><Phone size={9} />{m.phone}</span>}
@@ -708,7 +913,16 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                   </div>
                 </div>
 
-                {slotsToProcess.length > 0 && (
+                {preview?.isLottery && (
+                  <div className="flex items-center gap-2 text-xs text-gray-600 bg-purple-50 rounded-xl px-4 py-2.5">
+                    <Shuffle size={12} className="text-purple-500 flex-shrink-0" />
+                    {preview.lotteryMode === 'RANDOM'
+                      ? 'Winner will be drawn randomly when the draw is confirmed.'
+                      : `${memberMap[pickedWinnerId]?.fullName ?? 'Selected member'} will be recorded as this draw's winner.`
+                    }
+                  </div>
+                )}
+                {!preview?.isLottery && slotsToProcess.length > 0 && (
                   <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl px-4 py-2.5">
                     <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
                     {slotsToProcess.length === 1 ? '1 reservation slot' : `${slotsToProcess.length} reservation slots`} will be marked settled.
@@ -726,7 +940,12 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 <Button
                   type="submit"
                   form="open-draw-form"
-                  disabled={enrollments.length === 0 || additionalWinners.some((w) => !w.memberId || !w.slotId)}
+                  disabled={
+                    enrollments.length === 0 ||
+                    (isLottery && lotteryEligible.length === 0) ||
+                    (isLottery && lotteryMode === 'PICK' && !pickedWinnerId) ||
+                    (!isLottery && additionalWinners.some((w) => !w.memberId || !w.slotId))
+                  }
                   className="flex-1">
                   Preview →
                 </Button>

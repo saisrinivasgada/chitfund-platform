@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, TenantOption } from '../../services/api';
+import { login, selectTenant, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import {
   isBiometricAvailable,
@@ -13,6 +13,296 @@ import {
   promptBiometric,
   biometricTypeName,
 } from '../../utils/biometrics';
+
+const OTP_LOCKOUT_SECS = 300;
+
+function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState<'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked'>('lookup');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const [usernameOrPhone, setUsernameOrPhone] = useState('');
+  const [last4, setLast4] = useState('');
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const userIdRef = useRef('');
+  const maskedPhoneRef = useRef('');
+  const roleRef = useRef('');
+  const resetTokenRef = useRef('');
+
+  const [lockoutSecs, setLockoutSecs] = useState(0);
+  const lockoutRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [resendSecs, setResendSecs] = useState(0);
+  const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (lockoutRef.current) clearInterval(lockoutRef.current);
+      if (resendRef.current) clearInterval(resendRef.current);
+    };
+  }, []);
+
+  function startLockout() {
+    if (lockoutRef.current) clearInterval(lockoutRef.current);
+    setLockoutSecs(OTP_LOCKOUT_SECS);
+    lockoutRef.current = setInterval(() => {
+      setLockoutSecs((s) => {
+        if (s <= 1) { clearInterval(lockoutRef.current!); lockoutRef.current = null; return 0; }
+        return s - 1;
+      });
+    }, 1000);
+  }
+
+  function startResend() {
+    if (resendRef.current) clearInterval(resendRef.current);
+    setResendSecs(60);
+    resendRef.current = setInterval(() => {
+      setResendSecs((s) => {
+        if (s <= 1) { clearInterval(resendRef.current!); resendRef.current = null; return 0; }
+        return s - 1;
+      });
+    }, 1000);
+  }
+
+  function fmt(s: number) {
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  }
+
+  async function handleLookup() {
+    if (!usernameOrPhone.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const data = await forgotPasswordLookup(usernameOrPhone.trim());
+      userIdRef.current = data.userId;
+      maskedPhoneRef.current = data.maskedPhone;
+      roleRef.current = data.role;
+      if (data.locked) { setStep('locked'); return; }
+      setStep('last4');
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'User not found');
+    } finally { setLoading(false); }
+  }
+
+  async function handleLast4() {
+    if (last4.length !== 4) return;
+    setLoading(true); setError('');
+    try {
+      await forgotPasswordSendOtp({ userId: userIdRef.current, last4 });
+      startResend();
+      setStep('otp');
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'Invalid digits. Check the last 4 digits of your registered phone.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleVerifyOtp() {
+    if (otp.length !== 6 || lockoutSecs > 0) return;
+    setLoading(true); setError('');
+    try {
+      const data = await forgotPasswordVerifyOtp({ userId: userIdRef.current, code: otp });
+      resetTokenRef.current = data.resetToken;
+      if (resendRef.current) clearInterval(resendRef.current);
+      setStep('password');
+    } catch (err: any) {
+      const code = err.response?.data?.code;
+      if (code === 'OTP_004') {
+        setError('OTP expired or already used. Go back and request a new one.');
+      } else {
+        startLockout();
+        setError('Incorrect OTP. You must wait 5 minutes before trying again.');
+      }
+    } finally { setLoading(false); }
+  }
+
+  async function handleResetPassword() {
+    if (!newPassword || newPassword !== confirmPassword) { setError('Passwords do not match'); return; }
+    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    setLoading(true); setError('');
+    try {
+      await forgotPasswordResetWithToken({ resetToken: resetTokenRef.current, newPassword });
+      setStep('done');
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'Reset failed. The link may have expired.');
+    } finally { setLoading(false); }
+  }
+
+  const errorBox = error ? (
+    <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
+      <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>
+    </View>
+  ) : null;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+            {step !== 'done' && (
+              <TouchableOpacity onPress={onClose} style={{ paddingRight: 16, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 22, color: C.navy }}>✕</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Reset Password</Text>
+          </View>
+
+          <View style={{ padding: 24 }}>
+            {/* LOCKED */}
+            {step === 'locked' && (
+              <View style={{ alignItems: 'center', paddingTop: 24 }}>
+                <Text style={{ fontSize: 48, marginBottom: 16 }}>🔒</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Account Locked</Text>
+                <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22 }}>
+                  {['ADMIN', 'SUPER_ADMIN'].includes(roleRef.current)
+                    ? 'Your account is locked. Please contact ChitWise support to unlock it.'
+                    : 'Your account is locked. Please contact your administrator to unlock it.'}
+                </Text>
+                <TouchableOpacity onPress={onClose} style={{ marginTop: 28 }}>
+                  <Text style={{ fontSize: 15, color: C.navy, fontWeight: '600' }}>Back to Login</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* DONE */}
+            {step === 'done' && (
+              <View style={{ alignItems: 'center', paddingTop: 24 }}>
+                <Text style={{ fontSize: 48, marginBottom: 16 }}>✅</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Password Reset!</Text>
+                <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22 }}>
+                  Your password has been updated. You can now sign in with your new password.
+                </Text>
+                <View style={{ height: 28 }} />
+                <Button label="Back to Login" onPress={onClose} fullWidth size="lg" />
+              </View>
+            )}
+
+            {/* STEP 1: Lookup */}
+            {step === 'lookup' && (
+              <>
+                <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 24, lineHeight: 22 }}>
+                  Enter your username or registered phone number.
+                </Text>
+                <Input
+                  label="Username or Phone Number"
+                  value={usernameOrPhone}
+                  onChangeText={setUsernameOrPhone}
+                  placeholder="e.g. john123 or 9876543210"
+                  autoCapitalize="none"
+                />
+                {errorBox}
+                <View style={{ height: 20 }} />
+                <Button label="Continue" onPress={handleLookup} loading={loading} disabled={!usernameOrPhone.trim()} fullWidth size="lg" />
+              </>
+            )}
+
+            {/* STEP 2: Last 4 digits */}
+            {step === 'last4' && (
+              <>
+                <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 8, lineHeight: 22 }}>
+                  Enter the last 4 digits of your registered phone number to verify your identity.
+                </Text>
+                <Text style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 20 }}>
+                  Registered phone: {maskedPhoneRef.current}
+                </Text>
+                <Input
+                  label="Last 4 Digits"
+                  value={last4}
+                  onChangeText={(v) => setLast4(v.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="1234"
+                  keyboardType="numeric"
+                />
+                {errorBox}
+                <View style={{ height: 20 }} />
+                <Button label="Send OTP" onPress={handleLast4} loading={loading} disabled={last4.length !== 4} fullWidth size="lg" />
+                <TouchableOpacity onPress={() => { setStep('lookup'); setError(''); setLast4(''); }} style={{ marginTop: 14, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, color: '#9CA3AF' }}>← Back</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* STEP 3: OTP */}
+            {step === 'otp' && (
+              <>
+                <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 8, lineHeight: 22 }}>
+                  Enter the 6-digit OTP sent to {maskedPhoneRef.current}.
+                </Text>
+                <Input
+                  label="OTP"
+                  value={otp}
+                  onChangeText={(v) => setOtp(v.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  keyboardType="numeric"
+                />
+                {lockoutSecs > 0 && (
+                  <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginTop: 12 }}>
+                    <Text style={{ color: '#92400E', fontSize: 13 }}>
+                      Too many wrong attempts. Try again in {fmt(lockoutSecs)}.
+                    </Text>
+                  </View>
+                )}
+                {errorBox}
+                <View style={{ height: 20 }} />
+                <Button
+                  label="Verify OTP"
+                  onPress={handleVerifyOtp}
+                  loading={loading}
+                  disabled={otp.length !== 6 || lockoutSecs > 0}
+                  fullWidth
+                  size="lg"
+                />
+                {resendSecs > 0 ? (
+                  <Text style={{ textAlign: 'center', fontSize: 13, color: '#9CA3AF', marginTop: 14 }}>
+                    Resend OTP in {fmt(resendSecs)}
+                  </Text>
+                ) : (
+                  <TouchableOpacity onPress={() => { setStep('last4'); setOtp(''); setError(''); if (lockoutRef.current) clearInterval(lockoutRef.current); setLockoutSecs(0); }} style={{ marginTop: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>Resend OTP</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            {/* STEP 4: New Password */}
+            {step === 'password' && (
+              <>
+                <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 24, lineHeight: 22 }}>
+                  Set a new password for your account. Must be at least 8 characters.
+                </Text>
+                <Input
+                  label="New Password"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Enter new password"
+                  secureTextEntry
+                />
+                <View style={{ height: 14 }} />
+                <Input
+                  label="Confirm Password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm new password"
+                  secureTextEntry
+                />
+                {errorBox}
+                <View style={{ height: 20 }} />
+                <Button
+                  label="Reset Password"
+                  onPress={handleResetPassword}
+                  loading={loading}
+                  disabled={!newPassword || !confirmPassword}
+                  fullWidth
+                  size="lg"
+                />
+              </>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </View>
+  );
+}
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -25,6 +315,7 @@ export default function LoginScreen() {
   const [showEnablePrompt, setShowEnablePrompt] = useState(false);
   const [pendingCreds, setPendingCreds] = useState<{ username: string; password: string } | null>(null);
   const [tenantPicker, setTenantPicker] = useState<{ loginToken: string; tenants: TenantOption[] } | null>(null);
+  const [showForgot, setShowForgot] = useState(false);
   const { setUser } = useAuthStore();
   const router  = useRouter();
 
@@ -215,6 +506,13 @@ export default function LoginScreen() {
               size="lg"
             />
 
+            <TouchableOpacity
+              onPress={() => setShowForgot(true)}
+              style={{ marginTop: 14, alignItems: 'center', paddingVertical: 4 }}
+            >
+              <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>Forgot password?</Text>
+            </TouchableOpacity>
+
             {/* Biometric quick-login */}
             {biometricAvail && biometricOn && (
               <>
@@ -290,6 +588,11 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Forgot password flow */}
+      <Modal visible={showForgot} animationType="slide">
+        <ForgotPasswordFlow onClose={() => setShowForgot(false)} />
       </Modal>
 
       {/* Enable biometric prompt */}

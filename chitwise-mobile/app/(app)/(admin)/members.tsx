@@ -8,8 +8,10 @@ import {
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
+  adminUpdateUserPhone,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
+import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
@@ -106,6 +108,8 @@ export default function AdminMembersScreen() {
   const [eName, setEName] = useState('');
   const [ePhone, setEPhone] = useState('');
   const [ePhoneCode, setEPhoneCode] = useState('+91');
+  const [eOriginalPhone, setEOriginalPhone] = useState('');
+  const [ePhoneVerified, setEPhoneVerified] = useState(false);
   const [eEmail, setEEmail] = useState('');
   const [eCity, setECity] = useState('');
   const [eAddress, setEAddress] = useState('');
@@ -125,6 +129,7 @@ export default function AdminMembersScreen() {
   const [cFullName, setCFullName] = useState('');
   const [cPhone, setCPhone] = useState('');
   const [cPhoneCountryCode, setCPhoneCountryCode] = useState('+91');
+  const [cPhoneVerified, setCPhoneVerified] = useState(false);
   const [cEmail, setCEmail] = useState('');
   const [cAddress, setCAddress] = useState('');
   const [cCity, setCCity] = useState('');
@@ -171,7 +176,7 @@ export default function AdminMembersScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
       setShowCreate(false);
-      setCFullName(''); setCPhone(''); setCPhoneCountryCode('+91'); setCEmail(''); setCAddress(''); setCCity(''); setCNotes('');
+      setCFullName(''); setCPhone(''); setCPhoneCountryCode('+91'); setCPhoneVerified(false); setCEmail(''); setCAddress(''); setCCity(''); setCNotes('');
       setCAAadhaar(''); setCPan(''); setCBankName(''); setCBankAccount(''); setCBankIfsc('');
       setCReferredById(''); setCReferralSearch('');
       toast.created('Member created');
@@ -248,17 +253,24 @@ export default function AdminMembersScreen() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: () => updateMember(selected!.id, {
-      fullName: eName || null,
-      phone: ePhone || null,
-      phoneCountryCode: ePhoneCode || null,
-      email: eEmail || null,
-      city: eCity || null,
-      address: eAddress || null,
-      aadhaarLast4: eAadhaar || null,
-      panNumber: ePan || null,
-      notes: eNotes || null,
-    }),
+    mutationFn: async () => {
+      const data = await updateMember(selected!.id, {
+        fullName: eName || null,
+        phone: ePhone || null,
+        phoneCountryCode: ePhoneCode || null,
+        email: eEmail || null,
+        city: eCity || null,
+        address: eAddress || null,
+        aadhaarLast4: eAadhaar || null,
+        panNumber: ePan || null,
+        notes: eNotes || null,
+      });
+      // If phone changed and member has a user account, sync user-service too
+      if (ePhone !== eOriginalPhone && selected?.userId) {
+        await adminUpdateUserPhone({ userId: selected.userId, phone: ePhone, countryCode: ePhoneCode });
+      }
+      return data;
+    },
     onSuccess: (data: any) => {
       setShowEditInline(false);
       setSelected((prev: any) => ({ ...prev, ...data }));
@@ -410,6 +422,8 @@ export default function AdminMembersScreen() {
     setEName(m.fullName ?? '');
     setEPhone(m.phone ?? '');
     setEPhoneCode(m.phoneCountryCode ?? '+91');
+    setEOriginalPhone(m.phone ?? '');
+    setEPhoneVerified(false);
     setEEmail(m.email ?? '');
     setECity(m.city ?? '');
     setEAddress(m.address ?? '');
@@ -964,12 +978,14 @@ export default function AdminMembersScreen() {
                             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.white }} />
                         </View>
                       ))}
-                      <PhoneInput
+                      <AdminPhoneOtpInput
                         label="Phone"
-                        countryCode={ePhoneCode}
                         phone={ePhone}
-                        onCountryChange={setEPhoneCode}
-                        onPhoneChange={setEPhone}
+                        countryCode={ePhoneCode}
+                        originalPhone={eOriginalPhone}
+                        onPhoneChange={(v) => { setEPhone(v); setEPhoneVerified(false); }}
+                        onCountryChange={(cc) => { setEPhoneCode(cc); setEPhoneVerified(false); }}
+                        onVerified={setEPhoneVerified}
                       />
                       <View>
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes</Text>
@@ -986,7 +1002,7 @@ export default function AdminMembersScreen() {
                             label={updateMutation.isPending ? 'Saving…' : 'Save Changes'}
                             variant="primary"
                             loading={updateMutation.isPending}
-                            disabled={!eName.trim()}
+                            disabled={!eName.trim() || (ePhone !== eOriginalPhone && !ePhoneVerified)}
                             onPress={() => updateMutation.mutate()}
                           />
                         </View>
@@ -1346,13 +1362,14 @@ export default function AdminMembersScreen() {
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
             </View>
-            <PhoneInput
+            <AdminPhoneOtpInput
               label="Phone"
               required
-              countryCode={cPhoneCountryCode}
               phone={cPhone}
-              onCountryChange={setCPhoneCountryCode}
-              onPhoneChange={setCPhone}
+              countryCode={cPhoneCountryCode}
+              onPhoneChange={(v) => { setCPhone(v); setCPhoneVerified(false); }}
+              onCountryChange={(cc) => { setCPhoneCountryCode(cc); setCPhoneVerified(false); }}
+              onVerified={setCPhoneVerified}
             />
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email</Text>
@@ -1421,7 +1438,7 @@ export default function AdminMembersScreen() {
           </ScrollView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Member" variant="primary" onPress={() => createMutation.mutate()}
-              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone} fullWidth />
+              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone || !cPhoneVerified} fullWidth />
           </View>
           </KeyboardAvoidingView>
         </SafeAreaView>

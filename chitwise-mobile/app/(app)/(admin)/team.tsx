@@ -10,6 +10,7 @@ import {
   resetMemberPassword, getUserById, getStaffRequests, getBatchesByCollector, getMembers,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
+import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { toast } from '../../../components/Toast';
 import { useUIStore } from '../../../store/uiStore';
@@ -57,6 +58,7 @@ export default function AdminTeamScreen() {
   const [cRole, setCRole] = useState<Role>('STAFF');
   const [cPhone, setCPhone] = useState('');
   const [cPhoneCountryCode, setCPhoneCountryCode] = useState('+91');
+  const [cPhoneVerified, setCPhoneVerified] = useState(false);
   const [cEmail, setCEmail] = useState('');
 
   const { data: staff = [], isLoading, refetch } = useQuery({
@@ -111,7 +113,7 @@ export default function AdminTeamScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-staff'] });
       setShowCreate(false);
-      setCFullName(''); setCUsername(''); setCPassword(''); setCPhone(''); setCPhoneCountryCode('+91'); setCEmail(''); setCRole('STAFF');
+      setCFullName(''); setCUsername(''); setCPassword(''); setCPhone(''); setCPhoneCountryCode('+91'); setCPhoneVerified(false); setCEmail(''); setCRole('STAFF');
       toast.created('Staff member created');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -613,12 +615,13 @@ export default function AdminTeamScreen() {
               </View>
             ))}
             <View style={{ marginBottom: 14 }}>
-              <PhoneInput
+              <AdminPhoneOtpInput
                 label="Phone"
-                countryCode={cPhoneCountryCode}
                 phone={cPhone}
-                onCountryChange={setCPhoneCountryCode}
-                onPhoneChange={setCPhone}
+                countryCode={cPhoneCountryCode}
+                onPhoneChange={(v) => { setCPhone(v); setCPhoneVerified(false); }}
+                onCountryChange={(cc) => { setCPhoneCountryCode(cc); setCPhoneVerified(false); }}
+                onVerified={setCPhoneVerified}
               />
             </View>
             <View style={{ marginBottom: 14 }}>
@@ -650,7 +653,7 @@ export default function AdminTeamScreen() {
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Staff Member" variant="primary" fullWidth
               onPress={() => createMut.mutate()} loading={createMut.isPending}
-              disabled={isExpired || !cFullName || !cUsername || !cPassword} />
+              disabled={isExpired || !cFullName || !cUsername || !cPassword || (!!cPhone && !cPhoneVerified)} />
           </View>
         </SafeAreaView>
       </Modal>

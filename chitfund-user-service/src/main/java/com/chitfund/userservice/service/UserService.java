@@ -45,22 +45,30 @@ public class UserService {
     }
 
     @Transactional
-    public UserResponse lockUser(UUID id) {
-        User user = userRepository.findById(id)
+    public UserResponse lockUser(UUID id, User caller) {
+        User target = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        user.setLocked(true);
-        user.setUpdatedBy(callerId());
-        return userMapper.toResponse(userRepository.save(user));
+        // Managers can only lock MEMBER accounts
+        if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only lock member accounts");
+        }
+        target.setLocked(true);
+        target.setUpdatedBy(caller.getId());
+        return userMapper.toResponse(userRepository.save(target));
     }
 
     @Transactional
-    public UserResponse unlockUser(UUID id) {
-        User user = userRepository.findById(id)
+    public UserResponse unlockUser(UUID id, User caller) {
+        User target = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        user.setLocked(false);
-        user.setFailedLoginAttempts(0);
-        user.setUpdatedBy(callerId());
-        return userMapper.toResponse(userRepository.save(user));
+        // Managers can only unlock MEMBER accounts
+        if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only unlock member accounts");
+        }
+        target.setLocked(false);
+        target.setFailedLoginAttempts(0);
+        target.setUpdatedBy(caller.getId());
+        return userMapper.toResponse(userRepository.save(target));
     }
 
     public boolean isUsernameAvailable(String username, UUID excludeUserId) {
@@ -75,8 +83,6 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
-        if (request.getPhone() != null) user.setPhone(request.getPhone());
-        if (request.getPhoneCountryCode() != null) user.setPhoneCountryCode(request.getPhoneCountryCode());
 
         if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
             if (userRepository.existsByUsername(request.getUsername())) {
@@ -94,6 +100,31 @@ public class UserService {
 
         user.setUpdatedBy(userId);
         return userMapper.toResponse(userRepository.save(user));
+    }
+
+    /** Called only by verifyPhoneChangeOtp after OTP is validated — not via the profile PATCH endpoint. */
+    @Transactional
+    public UserResponse updatePhone(UUID userId, String phone, String countryCode) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        user.setPhone(phone);
+        if (countryCode != null) user.setPhoneCountryCode(countryCode);
+        user.setUpdatedBy(userId);
+        return userMapper.toResponse(userRepository.save(user));
+    }
+
+    /** Admin/manager updates another user's phone after OTP has been verified on the frontend. */
+    @Transactional
+    public UserResponse adminUpdatePhone(UUID targetId, User caller, String phone, String countryCode) {
+        User target = userRepository.findById(targetId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", targetId));
+        if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only update member phone numbers");
+        }
+        target.setPhone(phone);
+        if (countryCode != null) target.setPhoneCountryCode(countryCode);
+        target.setUpdatedBy(caller.getId());
+        return userMapper.toResponse(userRepository.save(target));
     }
 
     public List<UserResponse> listStaff(boolean includeDeleted) {

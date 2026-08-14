@@ -1010,7 +1010,7 @@ export default function LandingPage() {
             </div>
             <span className="font-bold text-gray-700" style={{ fontFamily: 'Merriweather, serif' }}>ChitWise</span>
           </div>
-          <p className="text-sm text-gray-400">© 2025 ChitWise. All rights reserved.</p>
+          <p className="text-sm text-gray-400">© {new Date().getFullYear()} ChitWise</p>
           <div className="flex items-center gap-6">
             <button onClick={() => navigate('/login')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Sign in</button>
             <button onClick={() => navigate('/register')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Register</button>

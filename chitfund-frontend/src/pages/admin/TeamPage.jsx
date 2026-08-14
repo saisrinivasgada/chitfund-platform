@@ -13,6 +13,7 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Mail, AtSign, Copy, Check, AlertTriangle, Users } from 'lucide-react';
 import PhoneInput from '../../components/ui/PhoneInput';
+import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 import { getMyTenantLimits } from '../../services/api';
 
@@ -150,6 +151,7 @@ function AddStaffModal({ onClose }) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [tempPass, setTempPass] = useState(null);
   const [fe, setFe] = useState({});
+  const [phoneVerified, setPhoneVerified] = useState(false);
   const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
 
   const availableRoles = ROLE_OPTIONS.filter((r) =>
@@ -292,13 +294,15 @@ function AddStaffModal({ onClose }) {
         </div>
 
         {/* Phone */}
-        <PhoneInput
+        <PhoneOtpVerifier
           label="Mobile Number *"
-          countryCode={form.phoneCountryCode}
           phone={form.phone}
+          countryCode={form.phoneCountryCode}
+          originalPhone={null}
+          onPhoneChange={(v) => { set('phone', v); setPhoneVerified(false); }}
           onCountryChange={(code) => set('phoneCountryCode', code)}
-          onPhoneChange={(v) => set('phone', v)}
-          error={fe.phone}
+          onVerified={setPhoneVerified}
+          fieldError={fe.phone}
           required
         />
 
@@ -332,7 +336,14 @@ function AddStaffModal({ onClose }) {
         {/* Footer */}
         <div className="flex justify-end gap-3 pt-1">
           <Button variant="muted" onClick={onClose} size="md">Cancel</Button>
-          <Button type="submit" variant="primary" loading={mutation.isPending} size="md">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={mutation.isPending}
+            disabled={!!form.phone && !phoneVerified}
+            size="md"
+            title={form.phone && !phoneVerified ? 'Verify the phone number first' : undefined}
+          >
             Create Account
           </Button>
         </div>

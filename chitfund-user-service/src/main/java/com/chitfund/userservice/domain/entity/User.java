@@ -115,6 +115,12 @@ public class User implements UserDetails {
     // Cleared when mustChangePassword is satisfied.
     private String tempPassword;
 
+    // Single-use token for self-service password reset via OTP. Expires in 15 minutes.
+    @Column(length = 64)
+    private String passwordResetToken;
+
+    private LocalDateTime passwordResetTokenExpiresAt;
+
     private LocalDateTime lastLoginAt;
 
     private LocalDateTime deletedAt;

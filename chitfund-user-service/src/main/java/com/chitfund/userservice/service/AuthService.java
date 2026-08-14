@@ -29,6 +29,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -371,7 +372,114 @@ public class AuthService {
                 .build();
     }
 
-    // ── Self-service password reset via OTP ──────────────────────────────────
+    // ── Self-service password reset — new 4-step flow ──────────────────────────
+
+    public com.chitfund.userservice.dto.response.ForgotPasswordLookupResponse lookupForPasswordReset(String usernameOrPhone) {
+        // Try username first, then phone (any country code)
+        Optional<User> userOpt = userRepository.findByUsername(usernameOrPhone.trim())
+                .filter(u -> u.getDeletedAt() == null);
+
+        if (userOpt.isEmpty()) {
+            List<User> byPhone = userRepository.findByPhoneAndDeletedAtIsNull(usernameOrPhone.trim());
+            if (!byPhone.isEmpty()) {
+                // Prefer non-MEMBER if multiple accounts share the same phone
+                userOpt = byPhone.stream().filter(u -> u.getRole() != Role.MEMBER).findFirst()
+                        .or(() -> Optional.of(byPhone.get(0)));
+            }
+        }
+
+        if (userOpt.isEmpty()) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
+                    "No account found with that username or phone number");
+        }
+
+        User user = userOpt.get();
+
+        if (user.getPhone() == null || user.getPhone().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "No phone number on file. Contact your administrator to reset your password.");
+        }
+
+        String phone = user.getPhone().replaceAll("\\D", "");
+        String masked = phone.length() >= 4
+                ? "*".repeat(phone.length() - 4) + phone.substring(phone.length() - 4)
+                : "****";
+
+        return com.chitfund.userservice.dto.response.ForgotPasswordLookupResponse.builder()
+                .userId(user.getId().toString())
+                .maskedPhone(masked)
+                .locked(user.isLocked())
+                .role(user.getRole().name())
+                .build();
+    }
+
+    @Transactional
+    public void sendForgotPasswordOtpNew(String userId, String last4) {
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
+
+        if (user.isLocked()) {
+            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, "Account is locked");
+        }
+        if (user.getPhone() == null || user.getPhone().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "No phone number on file");
+        }
+
+        String phoneLast4 = user.getPhone().replaceAll("\\D", "");
+        if (phoneLast4.length() >= 4) {
+            phoneLast4 = phoneLast4.substring(phoneLast4.length() - 4);
+        }
+        if (!phoneLast4.equals(last4)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phone digits don't match our records");
+        }
+
+        String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
+        otpService.sendOtp(user.getPhone(), cc, "FORGOT_PASSWORD", userId);
+    }
+
+    @Transactional
+    public com.chitfund.userservice.dto.response.ForgotPasswordVerifyOtpResponse verifyForgotPasswordOtp(String userId, String code) {
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
+
+        otpService.verifyOtp(user.getPhone(), "FORGOT_PASSWORD", code);
+
+        String resetToken = java.util.UUID.randomUUID().toString().replace("-", "");
+        user.setPasswordResetToken(resetToken);
+        user.setPasswordResetTokenExpiresAt(java.time.LocalDateTime.now().plusMinutes(15));
+        userRepository.save(user);
+
+        return com.chitfund.userservice.dto.response.ForgotPasswordVerifyOtpResponse.builder()
+                .resetToken(resetToken)
+                .build();
+    }
+
+    @Transactional
+    public void resetPasswordWithToken(String resetToken, String newPassword) {
+        User user = userRepository.findByPasswordResetToken(resetToken)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Invalid or expired reset link. Please start over."));
+
+        if (user.getPasswordResetTokenExpiresAt() == null
+                || user.getPasswordResetTokenExpiresAt().isBefore(java.time.LocalDateTime.now())) {
+            user.setPasswordResetToken(null);
+            user.setPasswordResetTokenExpiresAt(null);
+            userRepository.save(user);
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Reset link has expired (15 min). Please start over.");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setTempPasswordHash(null);
+        user.setMustChangePassword(false);
+        user.setPasswordResetToken(null);
+        user.setPasswordResetTokenExpiresAt(null);
+        user.setFailedLoginAttempts(0);
+        refreshTokenRepository.revokeAllActiveByUser(user);
+        userRepository.save(user);
+    }
+
+    // ── Self-service password reset via OTP (legacy phone-only flow — kept for backward compat) ──
 
     public void sendForgotPasswordOtp(String phone, String countryCode) {
         String cc = (countryCode != null && !countryCode.isBlank()) ? countryCode : "+91";
@@ -407,21 +515,40 @@ public class AuthService {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    private static final int MAX_FAILED_ATTEMPTS = 5;
+
     private User authenticateUser(User user, String password) {
-        boolean usedTempPassword = false;
+        if (user.isLocked()) {
+            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+                    "Your account has been locked due to too many failed login attempts. Please contact your administrator.");
+        }
+
         if (user.getTempPasswordHash() != null
                 && passwordEncoder.matches(password, user.getTempPasswordHash())) {
-            if (!user.isEnabled() || user.isLocked())
+            if (!user.isEnabled())
                 throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
-            usedTempPassword = true;
             user.setMustChangePassword(true);
+            user.setFailedLoginAttempts(0);
+            userRepository.save(user);
         } else {
             try {
                 Authentication authentication = authenticationManager.authenticate(
                         new UsernamePasswordAuthenticationToken(user.getUsername(), password));
                 user = (User) authentication.getPrincipal();
                 user.setTempPasswordHash(null);
+                user.setFailedLoginAttempts(0);
+                userRepository.save(user);
             } catch (Exception e) {
+                int attempts = user.getFailedLoginAttempts() + 1;
+                user.setFailedLoginAttempts(attempts);
+                if (attempts >= MAX_FAILED_ATTEMPTS) {
+                    user.setLocked(true);
+                }
+                userRepository.save(user);
+                if (user.isLocked()) {
+                    throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+                            "Your account has been locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. Contact your administrator.");
+                }
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Invalid password", HttpStatus.UNAUTHORIZED);
             }

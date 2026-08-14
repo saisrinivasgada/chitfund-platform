@@ -76,11 +76,26 @@ export const generateTransferToken = async () => {
   return res.data.data; // PreScopeAuthResponse { loginToken, tenants }
 };
 
-// Self-service password reset via mobile OTP
+// Self-service password reset — 4-step flow
+export const forgotPasswordLookup = async ({ usernameOrPhone }) => {
+  const res = await api.post('/auth/forgot-password/lookup', { usernameOrPhone });
+  return res.data.data; // { userId, maskedPhone, locked, role }
+};
+export const forgotPasswordSendOtp = async ({ userId, last4 }) => {
+  await api.post('/auth/forgot-password/send-otp', { userId, last4 });
+};
+export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
+  const res = await api.post('/auth/forgot-password/verify-otp', { userId, code });
+  return res.data.data; // { resetToken }
+};
+export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
+  await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
+};
+
+// Legacy (kept for backward compat)
 export const sendForgotPasswordOtp = async ({ phone, countryCode }) => {
   await api.post('/auth/forgot-password/send', { phone, countryCode });
 };
-
 export const resetPasswordViaOtp = async ({ phone, countryCode, otpCode, newPassword }) => {
   await api.post('/auth/forgot-password/reset', { phone, countryCode, otpCode, newPassword });
 };
@@ -358,6 +373,16 @@ export const changeStaffRole = async ({ id, role }) => {
 
 export const softDeleteStaff = async (id) => {
   const res = await api.delete(`/users/staff/${id}`);
+  return res.data.data;
+};
+
+export const lockUser = async (id) => {
+  const res = await api.put(`/users/${id}/lock`);
+  return res.data.data;
+};
+
+export const unlockUser = async (id) => {
+  const res = await api.put(`/users/${id}/unlock`);
   return res.data.data;
 };
 
@@ -1122,6 +1147,20 @@ export const sendPhoneChangeOtp = async ({ phone, countryCode }) => {
 export const verifyPhoneChangeOtp = async ({ phone, countryCode, code }) => {
   const res = await api.post('/users/me/phone/verify-otp', { phone, countryCode, code });
   return res.data.data; // UserResponse with updated phone
+};
+
+// ─── Admin phone OTP (for staff/member creation and phone updates) ─────────
+export const adminSendPhoneOtp = async ({ phone, countryCode }) => {
+  const res = await api.post('/users/admin/phone/send-otp', { phone, countryCode });
+  return res.data;
+};
+export const adminVerifyPhoneOtp = async ({ phone, countryCode, code }) => {
+  const res = await api.post('/users/admin/phone/verify-otp', { phone, countryCode, code });
+  return res.data;
+};
+export const adminUpdateUserPhone = async ({ userId, phone, countryCode }) => {
+  const res = await api.patch(`/users/${userId}/phone`, { phone, countryCode });
+  return res.data.data;
 };
 
 // ─── Tenant plan limits (for feature gating in frontend) ──────────────────

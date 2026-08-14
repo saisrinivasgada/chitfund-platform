@@ -113,7 +113,37 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(null, "Logged out successfully"));
     }
 
-    // ── Self-service password reset via mobile OTP ───────────────────────────
+    // ── Self-service password reset — 4-step flow ───────────────────────────
+
+    @PostMapping("/forgot-password/lookup")
+    public ResponseEntity<ApiResponse<ForgotPasswordLookupResponse>> forgotPasswordLookup(
+            @Valid @RequestBody ForgotPasswordLookupRequest req) {
+        return ResponseEntity.ok(ApiResponse.success(
+                authService.lookupForPasswordReset(req.getUsernameOrPhone())));
+    }
+
+    @PostMapping("/forgot-password/send-otp")
+    public ResponseEntity<ApiResponse<Void>> forgotPasswordSendOtp(
+            @Valid @RequestBody ForgotPasswordSendOtpRequest req) {
+        authService.sendForgotPasswordOtpNew(req.getUserId(), req.getLast4());
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to your registered phone number"));
+    }
+
+    @PostMapping("/forgot-password/verify-otp")
+    public ResponseEntity<ApiResponse<ForgotPasswordVerifyOtpResponse>> forgotPasswordVerifyOtp(
+            @Valid @RequestBody ForgotPasswordVerifyOtpRequest req) {
+        return ResponseEntity.ok(ApiResponse.success(
+                authService.verifyForgotPasswordOtp(req.getUserId(), req.getCode())));
+    }
+
+    @PostMapping("/forgot-password/reset-with-token")
+    public ResponseEntity<ApiResponse<Void>> forgotPasswordResetWithToken(
+            @Valid @RequestBody ForgotPasswordResetWithTokenRequest req) {
+        authService.resetPasswordWithToken(req.getResetToken(), req.getNewPassword());
+        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. You can now sign in."));
+    }
+
+    // ── Legacy: self-service password reset via mobile OTP ───────────────────
 
     @PostMapping("/forgot-password/send")
     public ResponseEntity<ApiResponse<Void>> sendForgotPasswordOtp(

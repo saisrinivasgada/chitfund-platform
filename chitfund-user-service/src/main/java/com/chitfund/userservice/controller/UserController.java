@@ -113,15 +113,17 @@ public class UserController {
     }
 
     @PutMapping("/{id}/lock")
-    @PreAuthorize("hasAuthority('ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> lockUser(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(userService.lockUser(id), "User account locked"));
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<UserResponse>> lockUser(@PathVariable UUID id, Authentication auth) {
+        User caller = (User) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(userService.lockUser(id, caller), "User account locked"));
     }
 
     @PutMapping("/{id}/unlock")
-    @PreAuthorize("hasAuthority('ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> unlockUser(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(userService.unlockUser(id), "User account unlocked"));
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<UserResponse>> unlockUser(@PathVariable UUID id, Authentication auth) {
+        User caller = (User) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(userService.unlockUser(id, caller), "User account unlocked"));
     }
 
     /**
@@ -173,6 +175,34 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userService.updateMyProfile(user.getId(), request)));
     }
 
+    // ── Phone OTP — admin sending/verifying for any phone (staff/member creation or update) ──
+
+    @PostMapping("/admin/phone/send-otp")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> adminSendPhoneOtp(@Valid @RequestBody SendPhoneOtpRequest req) {
+        otpService.sendOtp(req.getPhone(), req.getCountryCode(), "ADMIN_PHONE_VERIFY", null);
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
+    }
+
+    @PostMapping("/admin/phone/verify-otp")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> adminVerifyPhoneOtp(@Valid @RequestBody VerifyPhoneOtpRequest req) {
+        otpService.verifyOtp(req.getPhone(), "ADMIN_PHONE_VERIFY", req.getCode());
+        return ResponseEntity.ok(ApiResponse.success(null, "Phone verified"));
+    }
+
+    @PatchMapping("/{id}/phone")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<UserResponse>> adminUpdateUserPhone(
+            @PathVariable UUID id,
+            @Valid @RequestBody SendPhoneOtpRequest req,
+            Authentication auth) {
+        User caller = (User) auth.getPrincipal();
+        return ResponseEntity.ok(ApiResponse.success(
+                userService.adminUpdatePhone(id, caller, req.getPhone(),
+                        req.getCountryCode() != null ? req.getCountryCode() : "+91")));
+    }
+
     // ── Phone OTP for authenticated users (phone change) ─────────────────────
 
     @PostMapping("/me/phone/send-otp")
@@ -188,10 +218,8 @@ public class UserController {
             @Valid @RequestBody VerifyPhoneOtpRequest req, Authentication auth) {
         User user = (User) auth.getPrincipal();
         otpService.verifyOtp(req.getPhone(), "PHONE_CHANGE", req.getCode());
-        UpdateUserProfileRequest update = new UpdateUserProfileRequest();
-        update.setPhone(req.getPhone());
-        update.setPhoneCountryCode(req.getCountryCode() != null ? req.getCountryCode() : "+91");
-        return ResponseEntity.ok(ApiResponse.success(userService.updateMyProfile(user.getId(), update)));
+        String cc = req.getCountryCode() != null ? req.getCountryCode() : "+91";
+        return ResponseEntity.ok(ApiResponse.success(userService.updatePhone(user.getId(), req.getPhone(), cc)));
     }
 
     // ── Member login / setup-link management ─────────────────────────────────

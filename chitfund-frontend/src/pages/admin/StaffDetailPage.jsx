@@ -11,7 +11,11 @@ import {
   changeStaffRole,
   getMembers,
   listStaff,
+  lockUser,
+  unlockUser,
+  adminUpdateUserPhone,
 } from '../../services/api';
+import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
@@ -37,6 +41,8 @@ import {
   UserCheck,
   PackageCheck,
   ChevronRight,
+  Lock,
+  LockOpen,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -309,6 +315,55 @@ function TempPassModal({ username, tempPassword, onClose }) {
   );
 }
 
+function EditPhoneModal({ staff, onClose, onSaved }) {
+  const [phone, setPhone] = useState(staff.phone ?? '');
+  const [countryCode, setCountryCode] = useState(staff.phoneCountryCode ?? '+91');
+  const [phoneVerified, setPhoneVerified] = useState(false);
+
+  const saveMut = useMutation({
+    mutationFn: () => adminUpdateUserPhone({ userId: staff.id, phone, countryCode }),
+    onSuccess: onSaved,
+  });
+
+  const phoneChanged = phone !== (staff.phone ?? '');
+  const canSave = phone && phoneChanged && phoneVerified;
+
+  return (
+    <Modal title="Edit Phone Number" onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <PhoneOtpVerifier
+          label="Mobile Number"
+          phone={phone}
+          countryCode={countryCode}
+          originalPhone={staff.phone ?? ''}
+          onPhoneChange={(v) => { setPhone(v); setPhoneVerified(false); }}
+          onCountryChange={(cc) => { setCountryCode(cc); setPhoneVerified(false); }}
+          onVerified={setPhoneVerified}
+          required
+        />
+        <div className="flex gap-3 pt-1">
+          <Button variant="secondary" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            disabled={!canSave}
+            loading={saveMut.isPending}
+            onClick={() => saveMut.mutate()}
+            title={!phoneVerified ? 'Verify the new phone number first' : undefined}
+          >
+            Save
+          </Button>
+        </div>
+        {saveMut.isError && (
+          <p className="text-xs text-red-500 text-center">
+            {saveMut.error?.response?.data?.message ?? 'Failed to update phone'}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export default function StaffDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -320,6 +375,7 @@ export default function StaffDetailPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showChangeRole, setShowChangeRole] = useState(false);
+  const [showEditPhone, setShowEditPhone] = useState(false);
   const [tempCreds, setTempCreds] = useState(null);
   const [trailRequest, setTrailRequest] = useState(null);
   const { hidden } = useHiddenAmounts();
@@ -378,6 +434,24 @@ export default function StaffDetailPage() {
     },
   });
 
+  const lockMutation = useMutation({
+    mutationFn: () => lockUser(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff', id] });
+      toast.success('Account locked');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to lock account'),
+  });
+
+  const unlockMutation = useMutation({
+    mutationFn: () => unlockUser(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff', id] });
+      toast.success('Account unlocked — failed attempt counter reset');
+    },
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to unlock account'),
+  });
+
   if (isLoading) return <PageSpinner />;
   if (!staff) return (
     <div className="p-8 text-center text-gray-500">Staff member not found.</div>
@@ -402,6 +476,25 @@ export default function StaffDetailPage() {
       >
         <ArrowLeft size={16} className="text-gray-600" />
       </button>
+
+      {/* Locked banner */}
+      {!isDeleted && staff.locked && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
+          <Lock size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-800">Account is locked</p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              This account was locked after {staff.failedLoginAttempts ?? 5} failed login attempts.
+              The user cannot sign in until you unlock the account below.
+            </p>
+          </div>
+          {isAdmin && currentUser?.id !== staff.id && (
+            <Button variant="secondary" size="sm" loading={unlockMutation.isPending} onClick={() => unlockMutation.mutate()}>
+              <LockOpen size={13} className="mr-1" /> Unlock
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Deleted banner */}
       {isDeleted && (
@@ -439,6 +532,8 @@ export default function StaffDetailPage() {
                 <Badge variant={roleCfg.variant}>{roleCfg.label}</Badge>
                 {isDeleted ? (
                   <Badge variant="danger">Deleted</Badge>
+                ) : staff.locked ? (
+                  <Badge variant="danger">🔒 Locked</Badge>
                 ) : (
                   <Badge variant={isActive ? 'success' : 'danger'}>
                     {isActive ? 'Active' : 'Inactive'}
@@ -466,6 +561,27 @@ export default function StaffDetailPage() {
                   <RefreshCw size={14} className="mr-1.5" />
                   Change Role
                 </Button>
+                {staff.locked ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={unlockMutation.isPending}
+                    onClick={() => unlockMutation.mutate()}
+                  >
+                    <LockOpen size={14} className="mr-1.5" />
+                    Unlock Account
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={lockMutation.isPending}
+                    onClick={() => lockMutation.mutate()}
+                  >
+                    <Lock size={14} className="mr-1.5" />
+                    Lock Account
+                  </Button>
+                )}
                 <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
                   <Trash2 size={14} className="mr-1.5" /> Delete Account
                 </Button>
@@ -477,12 +593,31 @@ export default function StaffDetailPage() {
 
         {/* Contact info */}
         {(staff.phone || staff.email) && (
-          <div className="mt-5 pt-5 border-t border-gray-100 flex flex-wrap gap-5">
+          <div className="mt-5 pt-5 border-t border-gray-100 flex flex-wrap gap-5 items-center">
             {staff.phone && (
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Phone size={14} className="text-gray-400" />
-                {staff.phone}
+                {staff.phoneCountryCode && staff.phoneCountryCode !== '+91' ? `${staff.phoneCountryCode} ` : ''}{staff.phone}
+                {isAdmin && currentUser?.id !== staff.id && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPhone(true)}
+                    className="text-xs text-indigo-600 hover:underline ml-1"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
+            )}
+            {!staff.phone && isAdmin && currentUser?.id !== staff.id && (
+              <button
+                type="button"
+                onClick={() => setShowEditPhone(true)}
+                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+              >
+                <Phone size={14} />
+                Add phone number
+              </button>
             )}
             {staff.email && (
               <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -490,6 +625,18 @@ export default function StaffDetailPage() {
                 {staff.email}
               </div>
             )}
+          </div>
+        )}
+        {!staff.phone && !staff.email && isAdmin && currentUser?.id !== staff.id && (
+          <div className="mt-5 pt-5 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => setShowEditPhone(true)}
+              className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+            >
+              <Phone size={14} />
+              Add phone number
+            </button>
           </div>
         )}
 
@@ -740,6 +887,18 @@ export default function StaffDetailPage() {
       {/* Change role */}
       {showChangeRole && (
         <ChangeRoleModal staff={staff} onClose={() => setShowChangeRole(false)} />
+      )}
+
+      {showEditPhone && (
+        <EditPhoneModal
+          staff={staff}
+          onClose={() => setShowEditPhone(false)}
+          onSaved={() => {
+            setShowEditPhone(false);
+            qc.invalidateQueries({ queryKey: ['staff-detail', id] });
+            toast.success('Phone number updated');
+          }}
+        />
       )}
 
       {/* Confirm delete */}
