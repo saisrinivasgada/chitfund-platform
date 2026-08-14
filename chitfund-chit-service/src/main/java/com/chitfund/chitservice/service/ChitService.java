@@ -95,10 +95,11 @@ public class ChitService {
         if (req.getReservationSchedule() != null && !req.getReservationSchedule().isEmpty()) {
             // Admin supplied a (partial or full) schedule — save as-is
             saveReservationSlots(chit, req.getReservationSchedule(), createdBy);
-        } else if (chit.getChitType() == com.chitfund.chitservice.domain.enums.ChitType.RESERVATION
+        } else if ((chit.getChitType() == com.chitfund.chitservice.domain.enums.ChitType.RESERVATION
+                || chit.getChitType() == com.chitfund.chitservice.domain.enums.ChitType.LOTTERY)
                 && chit.getStartDate() != null) {
-            // No schedule provided but start date is known — pre-populate every month as
-            // UNALLOCATED so the Schedule tab shows all rows immediately.
+            // Pre-populate every draw slot as UNALLOCATED so the Schedule tab shows all rows.
+            // Reservation chits: admin assigns members to slots. Lottery chits: admin sets payout amounts.
             autoGenerateUnallocatedSlots(chit, createdBy);
         }
 

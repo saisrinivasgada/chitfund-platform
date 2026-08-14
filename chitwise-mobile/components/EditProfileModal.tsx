@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useAuthStore, StoredAccount } from '../store/authStore';
-import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile } from '../services/api';
+import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 
@@ -67,6 +67,15 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
 
   const [tab, setTab] = useState<'profile' | 'security' | 'history' | 'accounts'>('profile');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  // Phone OTP state
+  const [otpStep,  setOtpStep]  = useState<'pending' | null>(null);
+  const [otpCode,  setOtpCode]  = useState('');
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCC,    setOtpCC]    = useState('+91');
+  const [otpError, setOtpError] = useState('');
+  const [otpTimer, setOtpTimer] = useState(0);
+  const otpTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Profile fields
   const [fullName,   setFullName]   = useState('');
@@ -135,10 +144,10 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const profileMut = useMutation({
     mutationFn: async () => {
       const ops: Promise<any>[] = [];
-      const userChanged = fullName !== (me?.fullName ?? '') || username !== (me?.username ?? '')
-        || email !== (me?.email ?? '') || phone !== (me?.phone ?? '') || phoneCC !== (me?.phoneCountryCode ?? '+91');
-      if (userChanged) {
-        ops.push(updateMyProfile({ fullName: fullName || undefined, username: username || undefined, email: email || null, phone: phone || undefined, phoneCountryCode: phoneCC }));
+      // Phone is excluded — handled separately via OTP flow
+      const nonPhoneUserChanged = fullName !== (me?.fullName ?? '') || username !== (me?.username ?? '') || email !== (me?.email ?? '');
+      if (nonPhoneUserChanged) {
+        ops.push(updateMyProfile({ fullName: fullName || undefined, username: username || undefined, email: email || null }));
       }
       if (role === 'MEMBER') {
         const memberChanged = mFullName !== (memberMe?.fullName ?? '') || mPhone !== (memberMe?.phone ?? '')
@@ -159,8 +168,6 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
       if (user?.id && changes.length > 0) {
         recordProfileChange(user.id, changes);
       }
-      Alert.alert('Saved', 'Profile updated successfully');
-      onClose();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save'),
   });
@@ -178,6 +185,49 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
       onClose();
     },
     onError: (e: any) => Alert.alert('Error', e?.message ?? e.response?.data?.message ?? 'Failed'),
+  });
+
+  function startOtpTimer() {
+    setOtpTimer(60);
+    if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+    otpTimerRef.current = setInterval(() => {
+      setOtpTimer((t) => { if (t <= 1) { if (otpTimerRef.current) clearInterval(otpTimerRef.current); return 0; } return t - 1; });
+    }, 1000);
+  }
+
+  const sendOtpMut = useMutation({
+    mutationFn: ({ phone, countryCode }: { phone: string; countryCode: string }) =>
+      sendPhoneChangeOtp({ phone, countryCode }),
+    onSuccess: () => {
+      setOtpStep('pending');
+      setOtpCode('');
+      setOtpError('');
+      startOtpTimer();
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send OTP. Please try again.'),
+  });
+
+  const verifyOtpMut = useMutation({
+    mutationFn: ({ phone, countryCode, code }: { phone: string; countryCode: string; code: string }) =>
+      verifyPhoneChangeOtp({ phone, countryCode, code }),
+    onSuccess: () => {
+      if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+      qc.invalidateQueries({ queryKey: ['edit-profile-me'] });
+      qc.invalidateQueries({ queryKey: ['me'] });
+      setOtpStep(null);
+      Alert.alert('Verified', 'Phone number updated successfully');
+      onClose();
+    },
+    onError: (e: any) => {
+      const msg = e.response?.data?.message ?? 'Incorrect OTP. Please try again.';
+      const isMaxAttempts = e.response?.data?.errorCode === 'OTP_004';
+      setOtpError(msg);
+      if (isMaxAttempts) {
+        setOtpCode('');
+        if (otpTimerRef.current) clearInterval(otpTimerRef.current);
+        setOtpTimer(0);
+      }
+    },
   });
 
   const strength = passwordStrength(newPwd);
@@ -230,8 +280,57 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 <Field label="Username" value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="sai_srinivas" autoCapitalize="none" hint="Letters, numbers, _ and . only" />
                 <Field label="Email" value={email} onChangeText={setEmail} placeholder="sai@example.com" keyboardType="email-address" autoCapitalize="none" />
                 <View style={{ marginBottom: 14 }}>
-                  <PhoneInput label="Phone" countryCode={phoneCC} phone={phone} onCountryChange={setPhoneCC} onPhoneChange={setPhone} />
+                  <PhoneInput
+                    label="Phone"
+                    countryCode={phoneCC}
+                    phone={phone}
+                    onCountryChange={(cc) => { setPhoneCC(cc); setOtpStep(null); }}
+                    onPhoneChange={(t) => { setPhone(t); setOtpStep(null); }}
+                  />
                 </View>
+
+                {otpStep === 'pending' && (
+                  <View style={{ borderWidth: 1.5, borderColor: '#6366F1', borderRadius: 14, padding: 16, backgroundColor: '#F5F3FF', marginBottom: 14 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#4338CA', marginBottom: 4 }}>
+                      📱 OTP sent to {otpCC} {otpPhone}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
+                      Enter the 6-digit code to verify your new number.
+                    </Text>
+                    <TextInput
+                      value={otpCode}
+                      onChangeText={(t) => { setOtpCode(t.replace(/\D/g, '')); setOtpError(''); }}
+                      keyboardType="numeric"
+                      maxLength={6}
+                      placeholder="000000"
+                      placeholderTextColor={C.gray300}
+                      autoFocus
+                      style={{
+                        borderWidth: 2, borderColor: otpError ? '#EF4444' : '#6366F1',
+                        borderRadius: 12, padding: 14,
+                        fontSize: 28, fontWeight: '800', color: '#1E3A5F',
+                        textAlign: 'center', letterSpacing: 12, backgroundColor: '#fff',
+                      }}
+                    />
+                    {otpError ? (
+                      <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{otpError}</Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+                      <TouchableOpacity onPress={() => { setOtpStep(null); setOtpCode(''); setOtpError(''); if (otpTimerRef.current) clearInterval(otpTimerRef.current); }}>
+                        <Text style={{ fontSize: 12, color: C.gray400, textDecorationLine: 'underline' }}>Change number</Text>
+                      </TouchableOpacity>
+                      {otpTimer > 0 ? (
+                        <Text style={{ fontSize: 12, color: C.gray400 }}>Resend in {otpTimer}s</Text>
+                      ) : (
+                        <TouchableOpacity onPress={() => sendOtpMut.mutate({ phone: otpPhone, countryCode: otpCC })} disabled={sendOtpMut.isPending}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#6366F1' }}>
+                            {sendOtpMut.isPending ? 'Sending…' : 'Resend OTP'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                )}
 
                 {role === 'MEMBER' && (
                   <>
@@ -431,14 +530,36 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200, gap: 10 }}>
             {tab === 'accounts' && null}
             {tab === 'profile' && (
-              <TouchableOpacity
-                onPress={() => profileMut.mutate()}
-                disabled={profileMut.isPending}
-                style={{ backgroundColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center', opacity: profileMut.isPending ? 0.6 : 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.white }}>
-                  {profileMut.isPending ? 'Saving…' : 'Save Changes'}
-                </Text>
-              </TouchableOpacity>
+              otpStep === 'pending' ? (
+                <TouchableOpacity
+                  onPress={() => verifyOtpMut.mutate({ phone: otpPhone, countryCode: otpCC, code: otpCode })}
+                  disabled={otpCode.length !== 6 || verifyOtpMut.isPending}
+                  style={{ backgroundColor: '#6366F1', borderRadius: 12, padding: 14, alignItems: 'center', opacity: (otpCode.length !== 6 || verifyOtpMut.isPending) ? 0.5 : 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+                    {verifyOtpMut.isPending ? 'Verifying…' : 'Verify & Save'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={async () => {
+                    const phoneChanged = role !== 'MEMBER' && (phone !== (me?.phone ?? '') || phoneCC !== (me?.phoneCountryCode ?? '+91'));
+                    await profileMut.mutateAsync();
+                    if (phoneChanged) {
+                      setOtpPhone(phone);
+                      setOtpCC(phoneCC);
+                      sendOtpMut.mutate({ phone, countryCode: phoneCC });
+                    } else {
+                      Alert.alert('Saved', 'Profile updated successfully');
+                      onClose();
+                    }
+                  }}
+                  disabled={profileMut.isPending || sendOtpMut.isPending}
+                  style={{ backgroundColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center', opacity: (profileMut.isPending || sendOtpMut.isPending) ? 0.6 : 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: C.white }}>
+                    {profileMut.isPending ? 'Saving…' : sendOtpMut.isPending ? 'Sending OTP…' : 'Save Changes'}
+                  </Text>
+                </TouchableOpacity>
+              )
             )}
             {tab === 'security' && (
               <TouchableOpacity

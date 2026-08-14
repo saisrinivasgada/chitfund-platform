@@ -257,6 +257,11 @@ export default function AdminChitsScreen() {
   const [slotEditMemberId, setSlotEditMemberId] = useState('');
   const [slotEditPayout, setSlotEditPayout] = useState('');
 
+  // ── Lottery-specific ────────────────────────────────────────────────────────
+  const [lotteryDrawMode, setLotteryDrawMode] = useState<'RANDOM' | 'PICK'>('RANDOM');
+  const [lotteryPickedWinnerId, setLotteryPickedWinnerId] = useState('');
+  const [enrollSpots, setEnrollSpots] = useState(1);
+
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: chits = [], isLoading, refetch } = useQuery({ queryKey: ['a-chits'], queryFn: getChits });
   const { data: members = [] } = useQuery({ queryKey: ['a-members'], queryFn: getMembers });
@@ -290,7 +295,7 @@ export default function AdminChitsScreen() {
   const { data: reservations = [], refetch: refetchSlots } = useQuery({
     queryKey: ['a-reservations', selected?.id],
     queryFn: () => getReservations(selected!.id),
-    enabled: !!selected?.id && detailTab === 'schedule',
+    enabled: !!selected?.id && (detailTab === 'schedule' || (selected?.chitType === 'LOTTERY' && showOpenDraw)),
   });
   const { data: chitPayouts = [] } = useQuery({
     queryKey: ['a-chit-payouts', selected?.id],
@@ -398,12 +403,18 @@ export default function AdminChitsScreen() {
   });
 
   const enrollMut = useMutation({
-    mutationFn: ({ chitId, memberId }: any) => enrollMember(chitId, memberId),
-    onSuccess: () => {
+    mutationFn: async ({ chitId, memberId, spots }: any) => {
+      const count = selected?.chitType === 'LOTTERY' ? Math.max(1, spots ?? 1) : 1;
+      for (let i = 0; i < count; i++) {
+        await enrollMember(chitId, memberId);
+      }
+    },
+    onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
-      setShowEnroll(false); setEnrollMemberId('');
-      toast.created('Member enrolled');
+      setShowEnroll(false); setEnrollMemberId(''); setEnrollSpots(1);
+      const spots = vars.spots ?? 1;
+      toast.created(spots > 1 ? `${spots} spots enrolled` : 'Member enrolled');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Already enrolled or failed'),
   });
@@ -436,6 +447,7 @@ export default function AdminChitsScreen() {
       const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.totalMembers ?? 1)));
       const uniqueMembers = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))] as string[];
       const dueDate = odDueDate.trim() || computeDueDate(selected?.startDate, drawNum, selected?.monthlyDueDate);
+
       await openDraw({
         chitId: selected.id,
         monthNumber: drawNum,
@@ -444,22 +456,53 @@ export default function AdminChitsScreen() {
         maxCycles: selected?.totalMembers ?? drawNum,
         members: uniqueMembers.map((mid: string) => ({ memberId: mid, amountDue: baseInstallment })),
       });
-      // Record each winner separately
-      const chitValue = Number(selected?.chitValue ?? 0);
-      for (const mid of odWinnerIds) {
-        await recordWinner(selected.id, {
-          winnerId: mid,
+
+      if (selected?.chitType === 'LOTTERY') {
+        // Find matching UNALLOCATED slot for this draw
+        const lotterySlot = (reservations as any[]).find(
+          (r: any) => r.monthNumber === drawNum && r.status !== 'VOIDED'
+        );
+        const winningAmount = lotterySlot?.payoutAmount
+          ? Number(lotterySlot.payoutAmount)
+          : Number(selected?.chitValue ?? 0);
+
+        const winnerRecord = await recordWinner(selected.id, {
+          ...(lotteryDrawMode === 'PICK' && lotteryPickedWinnerId ? { winnerId: lotteryPickedWinnerId } : {}),
           monthNumber: drawNum,
-          winningAmount: chitValue,
+          winningAmount,
           discountAmount: 0,
-        }).catch(() => {});
+        });
+
+        if (lotterySlot && winnerRecord?.memberId) {
+          await updateReservationSlot(selected.id, lotterySlot.id, {
+            reservationMonth: lotterySlot.reservationMonth,
+            memberId: winnerRecord.memberId,
+            orgHeld: false,
+            payoutAmount: lotterySlot.payoutAmount ?? null,
+            postPayoutContribution: lotterySlot.postPayoutContribution ?? null,
+          });
+          await markSlotProcessed(selected.id, lotterySlot.id).catch(() => {});
+        }
+      } else {
+        // Reservation / Auction — record each manually selected winner
+        const chitValue = Number(selected?.chitValue ?? 0);
+        for (const mid of odWinnerIds) {
+          await recordWinner(selected.id, {
+            winnerId: mid,
+            monthNumber: drawNum,
+            winningAmount: chitValue,
+            discountAmount: 0,
+          }).catch(() => {});
+        }
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
       qc.invalidateQueries({ queryKey: ['a-chits'] });
-      if (odWinnerIds.length > 0) qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-winners', selected.id] });
+      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
       setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setOdDueDate('');
+      setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId('');
       toast.noted('Draw opened');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -677,6 +720,34 @@ export default function AdminChitsScreen() {
   ]);
   const enrolledIds = new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id));
   const unenrolled = (members as any[]).filter((m) => !enrolledIds.has(m.id));
+  const isLotteryChit = selected?.chitType === 'LOTTERY';
+
+  // Aggregate spots per member (for lottery members tab display)
+  const memberSpotMap: Record<string, { name: string; spots: number }> = {};
+  if (isLotteryChit) {
+    (enrollments as any[]).forEach((e: any) => {
+      const mid = String(e.memberId ?? e.id);
+      if (!memberSpotMap[mid]) memberSpotMap[mid] = { name: memberMap[mid] ?? 'Unknown', spots: 0 };
+      memberSpotMap[mid].spots++;
+    });
+  }
+
+  // Lottery eligible members: spot count > win count
+  const lotteryWinCounts: Record<string, number> = {};
+  (winners as any[]).forEach((w: any) => {
+    const mid = String(w.memberId ?? w.winnerId);
+    lotteryWinCounts[mid] = (lotteryWinCounts[mid] ?? 0) + 1;
+  });
+  const lotterySpotCounts: Record<string, number> = {};
+  (enrollments as any[]).forEach((e: any) => {
+    const mid = String(e.memberId ?? e.id);
+    lotterySpotCounts[mid] = (lotterySpotCounts[mid] ?? 0) + 1;
+  });
+  const lotteryEligibleIds = isLotteryChit
+    ? Object.entries(lotterySpotCounts)
+        .filter(([mid, spots]) => (lotteryWinCounts[mid] ?? 0) < spots)
+        .map(([mid]) => mid)
+    : [];
   const reservedSlots = (reservations as any[]).filter((r) => r.status === 'RESERVED');
 
   const drawsList = [...(draws as any[])].sort((a, b) => ((a.drawNumber ?? a.monthNumber ?? 0) - (b.drawNumber ?? b.monthNumber ?? 0)));
@@ -712,7 +783,7 @@ export default function AdminChitsScreen() {
     { key: 'info', label: 'Info' },
     { key: 'members', label: `Members (${(enrollments as any[]).length})` },
     { key: 'draws', label: 'Draws' },
-    { key: 'schedule', label: 'Schedule' },
+    { key: 'schedule', label: isLotteryChit ? 'Payouts' : 'Schedule' },
     { key: 'winners', label: 'Winners' },
     { key: 'audit', label: 'Audit' },
   ];
@@ -975,6 +1046,9 @@ export default function AdminChitsScreen() {
             {/* ── MEMBERS TAB ──────────────────────────────────────────────── */}
             {detailTab === 'members' && (() => {
               const isDraft = selected?.status === 'DRAFT';
+              const displayList = isLotteryChit
+                ? Object.entries(memberSpotMap).map(([mid, info]) => ({ mid, ...info }))
+                : (enrollments as any[]).map((e: any) => ({ mid: String(e.memberId ?? e.id), name: memberMap[e.memberId ?? e.id] ?? 'Unknown', spots: 1, enrollmentId: e.id }));
               return (
               <>
                 {!isDraft && (
@@ -982,11 +1056,13 @@ export default function AdminChitsScreen() {
                     <Button label="+ Enroll Member" variant="primary" size="sm" disabled={isExpired} onPress={() => setShowEnroll(true)} />
                   </View>
                 )}
-                {(enrollments as any[]).length === 0 ? (
+                {displayList.length === 0 ? (
                   isDraft ? (
                     <EmptyState
                       title="No members yet"
-                      message="Once this chit is activated, members from the scheduled slots will appear here."
+                      message={isLotteryChit
+                        ? 'Enroll members once this chit is activated. Each spot = one lottery entry.'
+                        : 'Once this chit is activated, members from the scheduled slots will appear here.'}
                     />
                   ) : (
                     <EmptyState
@@ -995,27 +1071,43 @@ export default function AdminChitsScreen() {
                     />
                   )
                 ) : (
-                  (enrollments as any[]).map((e: any) => {
-                    const name = memberMap[e.memberId ?? e.id] ?? 'Unknown';
-                    return (
-                      <Card key={e.id ?? e.memberId} style={{ marginBottom: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.navy50, alignItems: 'center', justifyContent: 'center' }}>
-                              <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{name[0].toUpperCase()}</Text>
-                            </View>
-                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{name}</Text>
+                  displayList.map(({ mid, name, spots, enrollmentId }: any) => (
+                    <Card key={mid} style={{ marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.navy50, alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{name[0]?.toUpperCase() ?? '?'}</Text>
                           </View>
-                          <TouchableOpacity onPress={() => Alert.alert('Remove', `Remove ${name} from chit?`, [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Remove', style: 'destructive', onPress: () => removeMut.mutate({ chitId: selected.id, memberId: e.memberId ?? e.id }) },
-                          ])}>
-                            <Text style={{ fontSize: 12, color: C.red, fontWeight: '600' }}>Remove</Text>
-                          </TouchableOpacity>
+                          <View>
+                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{name}</Text>
+                            {isLotteryChit && (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                <View style={{ backgroundColor: spots > 1 ? '#EDE9FE' : C.gray100, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: spots > 1 ? '#7C3AED' : C.gray500 }}>
+                                    {spots} {spots === 1 ? 'spot' : 'spots'}
+                                  </Text>
+                                </View>
+                                {(() => {
+                                  const wins = lotteryWinCounts[mid] ?? 0;
+                                  return wins > 0 ? (
+                                    <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                                      <Text style={{ fontSize: 10, fontWeight: '700', color: C.amber }}>🏆 {wins} win{wins > 1 ? 's' : ''}</Text>
+                                    </View>
+                                  ) : null;
+                                })()}
+                              </View>
+                            )}
+                          </View>
                         </View>
-                      </Card>
-                    );
-                  })
+                        <TouchableOpacity onPress={() => Alert.alert('Remove Spot', `Remove one spot for ${name}?`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Remove', style: 'destructive', onPress: () => removeMut.mutate({ chitId: selected.id, memberId: mid }) },
+                        ])}>
+                          <Text style={{ fontSize: 12, color: C.red, fontWeight: '600' }}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </Card>
+                  ))
                 )}
               </>
               );
@@ -1386,8 +1478,102 @@ export default function AdminChitsScreen() {
               </>
             )}
 
-            {/* ── SCHEDULE TAB ─────────────────────────────────────────────── */}
-            {detailTab === 'schedule' && (
+            {/* ── SCHEDULE / PAYOUTS TAB ───────────────────────────────────── */}
+            {detailTab === 'schedule' && isLotteryChit && (() => {
+              const activeSlots = (slotsList as any[]).filter((s: any) => s.status !== 'VOIDED');
+              const totalPayout = activeSlots.reduce((sum: number, s: any) => sum + Number(s.payoutAmount ?? 0), 0);
+              return (
+                <>
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 13, color: C.gray500 }}>
+                      {activeSlots.length} draw slots
+                      {totalPayout > 0 ? ` · Total planned: ₹${totalPayout.toLocaleString('en-IN')}` : ''}
+                    </Text>
+                  </View>
+                  {activeSlots.length === 0 ? (
+                    <EmptyState title="No payout schedule" message="Payout amounts are set when the chit is created with a start date." />
+                  ) : (
+                    activeSlots.map((slot: any) => {
+                      const slotNum = slot.monthNumber ?? slot.slotNumber ?? '?';
+                      const isProcessed = slot.status === 'PROCESSED';
+                      const sColor = isProcessed ? C.green : SLOT_COLOR[slot.status] ?? C.gray400;
+                      const isEditing = editingSlotId === slot.id;
+                      const winnerName = slot.memberId ? (memberMap[String(slot.memberId)] ?? `Member #${String(slot.memberId).slice(0, 6)}`) : null;
+                      const monthLabel = slot.reservationMonth ? (() => {
+                        const [y, m] = slot.reservationMonth.split('-').map(Number);
+                        return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                      })() : '';
+
+                      return (
+                        <Card key={slot.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: sColor }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: isEditing ? 10 : 0 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: sColor + '22', alignItems: 'center', justifyContent: 'center' }}>
+                                <Text style={{ fontSize: 12, fontWeight: '800', color: sColor }}>{slotNum}</Text>
+                              </View>
+                              {monthLabel ? <Text style={{ fontSize: 11, color: C.gray400 }}>{monthLabel}</Text> : null}
+                              <View style={{ backgroundColor: sColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: sColor }}>{slot.status}</Text>
+                              </View>
+                            </View>
+                            {!isProcessed && !isEditing && (
+                              <TouchableOpacity
+                                onPress={() => { setEditingSlotId(slot.id); setSlotEditPayout(slot.payoutAmount ? String(slot.payoutAmount) : ''); }}
+                                style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.navy + '10', borderRadius: 6 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>Edit</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+
+                          {isEditing ? (
+                            <View style={{ gap: 10 }}>
+                              <View>
+                                <Text style={{ fontSize: 11, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>PAYOUT AMOUNT (₹)</Text>
+                                <TextInput
+                                  value={slotEditPayout}
+                                  onChangeText={setSlotEditPayout}
+                                  keyboardType="numeric"
+                                  placeholder="0"
+                                  placeholderTextColor={C.gray400}
+                                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900 }}
+                                />
+                              </View>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <View style={{ flex: 1 }}>
+                                  <Button label="Save" variant="primary" size="sm" loading={updateSlotMut.isPending}
+                                    onPress={() => updateSlotMut.mutate({ slot, memberId: slot.memberId ?? '', payoutAmount: slotEditPayout })} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Button label="Cancel" variant="ghost" size="sm" onPress={() => setEditingSlotId(null)} />
+                                </View>
+                              </View>
+                            </View>
+                          ) : (
+                            <View style={{ marginTop: 8 }}>
+                              {slot.payoutAmount != null ? (
+                                <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>
+                                  ₹{Number(slot.payoutAmount).toLocaleString('en-IN')}
+                                </Text>
+                              ) : (
+                                <Text style={{ fontSize: 13, color: C.gray400, fontStyle: 'italic' }}>No payout amount set</Text>
+                              )}
+                              {isProcessed && winnerName && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                                  <Text style={{ fontSize: 11, color: C.gray400 }}>🏆</Text>
+                                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.amber }}>{winnerName}</Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </Card>
+                      );
+                    })
+                  )}
+                </>
+              );
+            })()}
+
+            {detailTab === 'schedule' && !isLotteryChit && (
               <>
                 {/* Action buttons */}
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
@@ -1891,7 +2077,7 @@ export default function AdminChitsScreen() {
             <View>
               <Text style={T.h2}>Create Chit Fund</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                Step {createStep} of 4 — {['', 'Chit Type', 'Fund Details', 'Contribution Rule', 'Schedule'][createStep]}
+                Step {createStep} of 4 — {['', 'Chit Type', 'Fund Details', 'Contribution Rule', cChitType === 'LOTTERY' ? 'Payout Amounts' : 'Schedule'][createStep]}
               </Text>
             </View>
             <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
@@ -2123,8 +2309,44 @@ export default function AdminChitsScreen() {
               </>
             )}
 
-            {/* ── STEP 4: Reservation Schedule ──────────────────────────── */}
-            {createStep === 4 && (
+            {/* ── STEP 4: Payout Schedule ───────────────────────────────── */}
+            {createStep === 4 && cChitType === 'LOTTERY' && (
+              <>
+                <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
+                  Set payout amounts for each draw. Winners are decided by lottery when draws are opened — not assigned in advance.
+                </Text>
+                <Text style={{ fontSize: 12, color: '#7C3AED', fontWeight: '600', marginBottom: 16 }}>
+                  🎲 Lottery: payout amounts only — no member assignment here
+                </Text>
+                {cSchedule.length > 0 && (
+                  <>
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 4, marginBottom: 6 }}>
+                      <Text style={{ flex: 0.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>#</Text>
+                      <Text style={{ flex: 1.5, fontSize: 11, fontWeight: '700', color: C.gray400 }}>MONTH</Text>
+                      <Text style={{ flex: 2, fontSize: 11, fontWeight: '700', color: C.gray400 }}>PAYOUT (₹)</Text>
+                    </View>
+                    {cSchedule.map((row, i) => (
+                      <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                        <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
+                        <View style={{ flex: 1.5 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#7C3AED', backgroundColor: '#F5F3FF', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
+                        </View>
+                        <TextInput
+                          value={row.payoutAmount}
+                          onChangeText={(v) => setCSchedule((rows) => rows.map((r, idx) => idx === i ? { ...r, payoutAmount: v } : r))}
+                          placeholder={cChitValue || '0'}
+                          keyboardType="numeric"
+                          placeholderTextColor={C.gray400}
+                          style={{ flex: 2, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, padding: 8, fontSize: 13, color: C.gray900 }}
+                        />
+                      </View>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+
+            {createStep === 4 && cChitType !== 'LOTTERY' && (
               <>
                 <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
                   Assign who receives the payout each draw. Member assignment is optional — slots can be filled later from the Schedule tab.
@@ -2255,28 +2477,67 @@ export default function AdminChitsScreen() {
       {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
       <Modal visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '70%' }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 16 }}>Enroll Member</Text>
-            {unenrolled.length === 0 ? (
-              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 20 }}>All members already enrolled</Text>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 4 }}>Enroll Member</Text>
+            {isLotteryChit && (
+              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 12 }}>Each spot = one lottery entry. A member with 2 spots can win up to 2 draws.</Text>
+            )}
+            {!isLotteryChit && <View style={{ marginBottom: 12 }} />}
+
+            {/* Member list — all active for lottery, unenrolled for reservation */}
+            {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).length === 0 ? (
+              <Text style={{ textAlign: 'center', color: C.gray400, paddingVertical: 20 }}>
+                {isLotteryChit ? 'No active members' : 'All members already enrolled'}
+              </Text>
             ) : (
-              <ScrollView>
-                {unenrolled.map((m: any) => (
-                  <TouchableOpacity key={m.id} onPress={() => setEnrollMemberId(m.id)}
-                    style={{ padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: enrollMemberId === m.id ? C.navy50 : C.gray50, borderWidth: 2, borderColor: enrollMemberId === m.id ? C.navy : 'transparent' }}>
-                    <Text style={{ fontSize: 14, fontWeight: enrollMemberId === m.id ? '700' : '400', color: enrollMemberId === m.id ? C.navy : C.gray900 }}>
-                      {m.fullName ?? m.name} {enrollMemberId === m.id ? '✓' : ''}
-                    </Text>
-                    {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
-                  </TouchableOpacity>
-                ))}
+              <ScrollView style={{ maxHeight: 280 }}>
+                {(isLotteryChit ? (members as any[]).filter((m: any) => m.status === 'ACTIVE') : unenrolled).map((m: any) => {
+                  const currentSpots = memberSpotMap[m.id]?.spots ?? 0;
+                  return (
+                    <TouchableOpacity key={m.id} onPress={() => { setEnrollMemberId(m.id); setEnrollSpots(1); }}
+                      style={{ padding: 14, borderRadius: 10, marginBottom: 6, backgroundColor: enrollMemberId === m.id ? C.navy50 : C.gray50, borderWidth: 2, borderColor: enrollMemberId === m.id ? C.navy : 'transparent' }}>
+                      <Text style={{ fontSize: 14, fontWeight: enrollMemberId === m.id ? '700' : '400', color: enrollMemberId === m.id ? C.navy : C.gray900 }}>
+                        {m.fullName ?? m.name} {enrollMemberId === m.id ? '✓' : ''}
+                      </Text>
+                      {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
+                      {isLotteryChit && currentSpots > 0 && (
+                        <Text style={{ fontSize: 11, color: '#7C3AED', marginTop: 2, fontWeight: '600' }}>
+                          Currently {currentSpots} spot{currentSpots > 1 ? 's' : ''}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             )}
+
+            {/* Spots counter — lottery only */}
+            {isLotteryChit && enrollMemberId && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray700 }}>Number of Spots</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <TouchableOpacity
+                    onPress={() => setEnrollSpots((s) => Math.max(1, s - 1))}
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: enrollSpots <= 1 ? C.gray100 : C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: enrollSpots <= 1 ? C.gray400 : C.navy }}>−</Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, minWidth: 24, textAlign: 'center' }}>{enrollSpots}</Text>
+                  <TouchableOpacity
+                    onPress={() => setEnrollSpots((s) => s + 1)}
+                    style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.navy + '15', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
-              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowEnroll(false); setEnrollMemberId(''); }} /></View>
+              <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => { setShowEnroll(false); setEnrollMemberId(''); setEnrollSpots(1); }} /></View>
               <View style={{ flex: 1 }}>
-                <Button label="Enroll" variant="primary" disabled={!enrollMemberId} loading={enrollMut.isPending}
-                  onPress={() => enrollMut.mutate({ chitId: selected.id, memberId: enrollMemberId })} />
+                <Button
+                  label={isLotteryChit && enrollSpots > 1 ? `Enroll ${enrollSpots} Spots` : 'Enroll'}
+                  variant="primary" disabled={!enrollMemberId} loading={enrollMut.isPending}
+                  onPress={() => enrollMut.mutate({ chitId: selected.id, memberId: enrollMemberId, spots: enrollSpots })} />
               </View>
             </View>
           </View>
@@ -2332,14 +2593,24 @@ export default function AdminChitsScreen() {
       {/* ── Open Draw bottom-sheet ─────────────────────────────────────────── */}
       <Modal visible={showOpenDraw} animationType="slide" transparent onRequestClose={() => setShowOpenDraw(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
+          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Open Draw</Text>
-              <TouchableOpacity onPress={() => setShowOpenDraw(false)}>
+              <View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>
+                  {isLotteryChit ? '🎲 Lottery Draw' : 'Open Draw'}
+                </Text>
+                {isLotteryChit && lotteryEligibleIds.length > 0 && (
+                  <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>
+                    {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => { setShowOpenDraw(false); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }}>
                 <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+              {/* Draw number + due date — same for all types */}
               <View style={{ marginBottom: 16 }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw Number *</Text>
                 <TextInput value={odDrawNum} onChangeText={setOdDrawNum} keyboardType="numeric" placeholder={String(nextDrawNum)}
@@ -2347,7 +2618,7 @@ export default function AdminChitsScreen() {
                   style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
                 <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Next suggested: #{nextDrawNum}</Text>
               </View>
-              <View style={{ marginBottom: 16 }}>
+              <View style={{ marginBottom: 20 }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payment Due Date</Text>
                 <TextInput
                   value={odDueDate}
@@ -2358,53 +2629,141 @@ export default function AdminChitsScreen() {
                 />
                 <Text style={{ fontSize: 12, color: C.gray400, marginTop: 4 }}>Auto-computed · Override by typing YYYY-MM-DD</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
-              <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
 
-              {/* Selected winners chips */}
-              {odWinnerIds.length > 0 && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                  {odWinnerIds.map((mid) => (
-                    <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.navy, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>{memberMap[mid] ?? mid}</Text>
-                      <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>×</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              {isLotteryChit ? (
+                <>
+                  {/* Payout amount from matching slot */}
+                  {(() => {
+                    const drawNum = Number(odDrawNum) || nextDrawNum;
+                    const slot = (reservations as any[]).find((r: any) => r.monthNumber === drawNum && r.status !== 'VOIDED');
+                    return slot?.payoutAmount ? (
+                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>Draw #{drawNum} Payout</Text>
+                        <Text style={{ fontSize: 17, fontWeight: '800', color: C.amber }}>₹{Number(slot.payoutAmount).toLocaleString('en-IN')}</Text>
+                      </View>
+                    ) : null;
+                  })()}
 
-              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
-                <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
-                  {(enrollments as any[]).map((e: any) => {
-                    const mid = String(e.memberId ?? e.id);
-                    const name = memberMap[mid] ?? 'Unknown';
-                    const isSelected = odWinnerIds.includes(mid);
-                    return (
-                      <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
-                        style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
-                          {name}
+                  {/* Mode selection */}
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>Winner Selection</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                    {(['RANDOM', 'PICK'] as const).map((mode) => (
+                      <TouchableOpacity key={mode} onPress={() => { setLotteryDrawMode(mode); setLotteryPickedWinnerId(''); }}
+                        style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 2,
+                          borderColor: lotteryDrawMode === mode ? '#7C3AED' : C.gray200,
+                          backgroundColor: lotteryDrawMode === mode ? '#F5F3FF' : C.white,
+                          alignItems: 'center' }}>
+                        <Text style={{ fontSize: 20, marginBottom: 4 }}>{mode === 'RANDOM' ? '🎲' : '👆'}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? '#7C3AED' : C.gray700 }}>
+                          {mode === 'RANDOM' ? 'Random Draw' : 'Pick Winner'}
                         </Text>
-                        {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
+                        <Text style={{ fontSize: 10, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
+                          {mode === 'RANDOM' ? 'System picks randomly' : 'Admin selects winner'}
+                        </Text>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
+                    ))}
+                  </View>
+
+                  {/* Pick mode: eligible member list */}
+                  {lotteryDrawMode === 'PICK' && (
+                    <>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Select Winner</Text>
+                      {lotteryEligibleIds.length === 0 ? (
+                        <View style={{ backgroundColor: '#FFF5F5', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                          <Text style={{ fontSize: 13, color: C.red, fontWeight: '600' }}>No eligible members</Text>
+                          <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>All enrolled members have used their spots.</Text>
+                        </View>
+                      ) : (
+                        <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+                          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                            {lotteryEligibleIds.map((mid) => {
+                              const name = memberMap[mid] ?? 'Unknown';
+                              const isSelected = lotteryPickedWinnerId === mid;
+                              const wins = lotteryWinCounts[mid] ?? 0;
+                              const spots = lotterySpotCounts[mid] ?? 1;
+                              return (
+                                <TouchableOpacity key={mid} onPress={() => setLotteryPickedWinnerId(mid)}
+                                  style={{ padding: 12, backgroundColor: isSelected ? '#F5F3FF' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <View>
+                                    <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? '#7C3AED' : C.gray900 }}>
+                                      {name} {isSelected ? '✓' : ''}
+                                    </Text>
+                                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                                      {spots} spot{spots > 1 ? 's' : ''} · {wins} win{wins !== 1 ? 's' : ''}
+                                    </Text>
+                                  </View>
+                                  {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: '#7C3AED' }}>✓</Text>}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {lotteryDrawMode === 'RANDOM' && (
+                    <View style={{ backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, marginBottom: 20 }}>
+                      <Text style={{ fontSize: 13, color: '#6D28D9', fontWeight: '600' }}>
+                        🎲 Winner will be drawn at random from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Select Winners (optional)</Text>
+                  <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>Tap to select one or more winners. You can also record winners later via the Winners tab.</Text>
+
+                  {odWinnerIds.length > 0 && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                      {odWinnerIds.map((mid) => (
+                        <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.navy, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>{memberMap[mid] ?? mid}</Text>
+                          <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>×</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 12, overflow: 'hidden', marginBottom: 20 }}>
+                    <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                      {(enrollments as any[]).map((e: any) => {
+                        const mid = String(e.memberId ?? e.id);
+                        const name = memberMap[mid] ?? 'Unknown';
+                        const isSelected = odWinnerIds.includes(mid);
+                        return (
+                          <TouchableOpacity key={mid} onPress={() => toggleOdWinner(mid)}
+                            style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
+                              {name}
+                            </Text>
+                            {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); }} />
+                  <Button label="Cancel" variant="ghost" onPress={() => { setShowOpenDraw(false); setOdWinnerIds([]); setOdDrawNum(''); setLotteryDrawMode('RANDOM'); setLotteryPickedWinnerId(''); }} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Button
-                    label={odWinnerIds.length > 1
-                      ? `Open Draw #${odDrawNum || nextDrawNum} · ${odWinnerIds.length} Winners`
-                      : `Open Draw #${odDrawNum || nextDrawNum}`}
+                    label={isLotteryChit
+                      ? (lotteryDrawMode === 'PICK' && lotteryPickedWinnerId
+                          ? `Draw · ${memberMap[lotteryPickedWinnerId] ?? 'Selected'}`
+                          : `Run Lottery Draw #${odDrawNum || nextDrawNum}`)
+                      : (odWinnerIds.length > 1
+                          ? `Open Draw #${odDrawNum || nextDrawNum} · ${odWinnerIds.length} Winners`
+                          : `Open Draw #${odDrawNum || nextDrawNum}`)}
                     variant="success"
                     onPress={() => openDrawMut.mutate()} loading={openDrawMut.isPending}
-                    disabled={openDrawMut.isPending} />
+                    disabled={openDrawMut.isPending || (isLotteryChit && lotteryDrawMode === 'PICK' && !lotteryPickedWinnerId) || (isLotteryChit && lotteryEligibleIds.length === 0)} />
                 </View>
               </View>
             </ScrollView>

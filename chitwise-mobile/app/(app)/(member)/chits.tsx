@@ -237,6 +237,11 @@ export default function MemberChitsScreen() {
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }} numberOfLines={2}>{c.name}</Text>
                 <Badge status={c.status} />
               </View>
+              {c.chitType === 'LOTTERY' && (
+                <View style={{ alignSelf: 'flex-start', backgroundColor: '#F5F3FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#7C3AED' }}>🎲 LOTTERY</Text>
+                </View>
+              )}
               {memberId && (
                 <View style={{ marginBottom: 8 }}>
                   <ChitBalance memberId={memberId} chitId={c.id} />

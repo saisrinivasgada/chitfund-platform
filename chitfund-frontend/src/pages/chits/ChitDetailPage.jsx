@@ -34,7 +34,7 @@ import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink, Shuffle,
 } from 'lucide-react';
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -179,6 +179,7 @@ function AdminSpotCell({ adminId }) {
 function EnrollMemberModal({ chitId, chit, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const isLottery = chit?.chitType === 'LOTTERY';
   const [memberId, setMemberId] = useState('');
   const [spots, setSpots] = useState(1);
 
@@ -194,11 +195,18 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
   const remaining = (chit?.totalMembers ?? 0) - totalSpots;
 
   const mutation = useMutation({
-    mutationFn: () => enrollMember({ chitId, memberId }),
+    mutationFn: async () => {
+      const count = isLottery ? Math.min(spots, remaining) : 1;
+      for (let i = 0; i < count; i++) {
+        await enrollMember({ chitId, memberId });
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
       qc.invalidateQueries({ queryKey: ['chit', chitId] });
-      toast.success('Spot enrolled successfully');
+      const enrolled = isLottery ? Math.min(spots, remaining) : 1;
+      const name = activeMembers.find((m) => String(m.id) === String(memberId))?.fullName ?? 'Member';
+      toast.success(enrolled > 1 ? `${enrolled} spots enrolled for ${name}` : 'Spot enrolled successfully');
       onClose();
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to enroll'),
@@ -211,8 +219,10 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
     spotCountMap[mid] = (spotCountMap[mid] ?? 0) + 1;
   });
 
+  const maxSpots = Math.min(remaining, 10);
+
   return (
-    <Modal title="Enroll Member / Add Spot" onClose={onClose} size="sm">
+    <Modal title={isLottery ? 'Enroll Member' : 'Enroll Member / Add Spot'} onClose={onClose} size="sm">
       <div className="space-y-4">
         {remaining <= 0 && (
           <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
@@ -222,10 +232,10 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
         <p className="text-xs text-gray-400">
           {totalSpots} / {chit?.totalMembers ?? '?'} spots filled · {remaining} remaining
           {(chit?.orgHeldSpotsCount ?? 0) > 0 && <> · {chit.orgHeldSpotsCount} org-held</>}
-          <br />A member can hold multiple spots in the same chit.
+          {!isLottery && <><br />A member can hold multiple spots in the same chit.</>}
         </p>
         <FormField label="Select Member" required>
-          <Select value={memberId} onChange={(e) => setMemberId(e.target.value)} required>
+          <Select value={memberId} onChange={(e) => { setMemberId(e.target.value); setSpots(1); }} required>
             <option value="">— Choose a member —</option>
             {activeMembers.map((m) => {
               const count = spotCountMap[String(m.id)] ?? 0;
@@ -237,11 +247,33 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
             })}
           </Select>
         </FormField>
-        <div className="flex gap-3 pt-4">
+        {isLottery && (
+          <FormField label="Number of Spots">
+            <div className="flex items-center gap-3">
+              <button type="button"
+                onClick={() => setSpots((s) => Math.max(1, s - 1))}
+                className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-lg text-gray-600 hover:bg-gray-50 transition-colors">
+                −
+              </button>
+              <span className="text-base font-bold w-6 text-center text-gray-900">{spots}</span>
+              <button type="button"
+                onClick={() => setSpots((s) => Math.min(maxSpots, s + 1))}
+                disabled={spots >= maxSpots}
+                className="w-8 h-8 rounded-lg border border-gray-200 flex items-center justify-center text-lg text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40">
+                +
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Each spot = one lottery entry. A member with 2 spots can win up to 2 draws.
+            </p>
+          </FormField>
+        )}
+        <div className="flex gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!memberId || remaining <= 0}
+          <Button onClick={() => mutation.mutate()}
+            disabled={!memberId || remaining <= 0}
             loading={mutation.isPending} className="flex-1">
-            Enroll
+            {isLottery && spots > 1 ? `Enroll ${spots} Spots` : 'Enroll'}
           </Button>
         </div>
       </div>
@@ -289,6 +321,7 @@ function MembersTab({ chitId, chit }) {
   const maxSpots       = chit?.totalMembers ?? Infinity;
   const spotsAreFull   = totalSpots2 >= maxSpots;
   const isDraft        = chit?.status === 'DRAFT';
+  const isLottery      = chit?.chitType === 'LOTTERY';
 
   return (
     <div className="space-y-4">
@@ -299,7 +332,7 @@ function MembersTab({ chitId, chit }) {
         </p>
         {canEdit && !spotsAreFull && !isDraft && (
           <Button onClick={() => setShowEnroll(true)} size="sm">
-            <UserPlus size={14} /> Add Spot
+            <UserPlus size={14} /> {isLottery ? 'Enroll Member' : 'Add Spot'}
           </Button>
         )}
       </div>
@@ -310,11 +343,13 @@ function MembersTab({ chitId, chit }) {
             <EmptyState
               icon={Users}
               title="No members yet"
-              message="Once this chit is activated, members from the scheduled slots will appear here." />
+              message={isLottery
+                ? 'Enroll members once this chit is activated. Each spot counts as one lottery entry.'
+                : 'Once this chit is activated, members from the scheduled slots will appear here.'} />
           ) : (
             <EmptyState icon={Users} title="No members enrolled"
               message={chit?.status === 'ACTIVE' ? 'No members have been enrolled in this chit yet.' : 'Enroll members to this chit fund.'}
-              action={canEdit && !spotsAreFull ? 'Add Spot' : undefined}
+              action={canEdit && !spotsAreFull ? (isLottery ? 'Enroll Member' : 'Add Spot') : undefined}
               onAction={canEdit && !spotsAreFull ? () => setShowEnroll(true) : undefined} />
           )
         ) : (
@@ -1176,6 +1211,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const toast = useToastContext();
   const { user } = useAuth();
   const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
+  const isLottery = chit?.chitType === 'LOTTERY';
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
@@ -1220,14 +1256,15 @@ function ReservationScheduleTab({ chitId, chit }) {
   function isDirty(slot) {
     const e = edits[slot.id];
     if (!e) return false;
+    const serverPayout = slot.payoutAmount != null ? Number(slot.payoutAmount) : null;
+    const editPayout   = e.payoutAmount    ? Number(e.payoutAmount)            : null;
+    const payoutChanged = editPayout !== serverPayout;
+    if (isLottery) return payoutChanged;
     const editIsOrg    = e.memberId === 'ORG';
     const serverIsOrg  = slot.orgHeld ?? false;
     const editMemberId = editIsOrg ? null : (e.memberId || null);
     const serverMemberId = slot.memberId ? String(slot.memberId) : null;
     const memberChanged = editMemberId !== serverMemberId || editIsOrg !== serverIsOrg;
-    const serverPayout  = slot.payoutAmount != null ? Number(slot.payoutAmount) : null;
-    const editPayout    = e.payoutAmount    ? Number(e.payoutAmount)            : null;
-    const payoutChanged = editPayout !== serverPayout;
     return memberChanged || payoutChanged;
   }
 
@@ -1249,8 +1286,8 @@ function ReservationScheduleTab({ chitId, chit }) {
       chitId,
       reservationId: slot.id,
       reservationMonth: slot.reservationMonth,
-      memberId: edit.memberId === 'ORG' ? null : (edit.memberId || null),
-      orgHeld: edit.memberId === 'ORG',
+      memberId: isLottery ? (slot.memberId || null) : (edit.memberId === 'ORG' ? null : (edit.memberId || null)),
+      orgHeld: isLottery ? false : (edit.memberId === 'ORG'),
       payoutAmount: edit.payoutAmount ? Number(edit.payoutAmount) : null,
       postPayoutContribution: slot.postPayoutContribution ?? null,
     }),
@@ -1380,6 +1417,101 @@ function ReservationScheduleTab({ chitId, chit }) {
           .map((s) => s.id)
       )
     : new Set();
+
+  if (isLottery) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500">{active.length} draw slots</p>
+            {totalPayout > 0 && (
+              <p className="text-xs text-gray-400">Total planned payout: ₹{totalPayout.toLocaleString()}</p>
+            )}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {isLoading ? <PageSpinner /> : active.length === 0 ? (
+            <EmptyState icon={Shuffle} title="No payout schedule"
+              message="Payout amounts are configured when the chit is created with a start date." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr className="border-b border-gray-100">
+                    {['Draw', 'Month', 'Payout Amount (₹)', 'Winner', 'Status', ''].map((h) => (
+                      <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {active.map((slot, i) => {
+                    const isProcessed = slot.status === 'PROCESSED';
+                    const edit = getEdit(slot);
+                    const dirty = isDirty(slot);
+                    const winnerName = slot.memberId
+                      ? (memberMap[String(slot.memberId)]?.fullName ?? `Member #${String(slot.memberId).slice(0, 8)}`)
+                      : null;
+                    return (
+                      <tr key={slot.id} className={`${isProcessed ? 'bg-green-50/30' : 'bg-white hover:bg-gray-50'} transition-colors`}>
+                        <td className="px-5 py-3 w-20">
+                          <span className="w-7 h-7 rounded-full text-xs font-bold inline-flex items-center justify-center bg-gray-100 text-gray-600">
+                            {slot.monthNumber ?? i + 1}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {formatMonthLabel(slot.reservationMonth, slot.monthNumber)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          {isProcessed ? (
+                            <span className="font-semibold text-gray-700">
+                              {slot.payoutAmount ? `₹${Number(slot.payoutAmount).toLocaleString()}` : '—'}
+                            </span>
+                          ) : (
+                            <Input
+                              type="number" min="0"
+                              value={edit.payoutAmount}
+                              onChange={(e) => updateEdit(slot, 'payoutAmount', e.target.value)}
+                              style={{ width: 144 }}
+                            />
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          {isProcessed && winnerName ? (
+                            <div className="flex items-center gap-1.5">
+                              <Trophy size={12} className="text-amber-500 flex-shrink-0" />
+                              <span className="text-sm font-semibold text-gray-800">{winnerName}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300 text-sm">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[slot.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {slot.status}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          {canEdit && !isProcessed && dirty && (
+                            <Button size="sm"
+                              loading={saveMutation.isPending}
+                              onClick={() => saveMutation.mutate({ slot, edit })}>
+                              <CheckCircle size={13} /> Save
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -4890,7 +5022,9 @@ export default function ChitDetailPage() {
     </div>
   );
   const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
-  const TABS = ['Overview', 'Members', ...(isReservation ? ['Schedule'] : []), 'Draws', 'Winners', ...(isAdmin ? ['Audit'] : [])];
+  const chitIsLottery = chit.chitType === 'LOTTERY';
+  const scheduleTabLabel = chitIsLottery ? 'Payouts' : 'Schedule';
+  const TABS = ['Overview', 'Members', ...(isReservation || chitIsLottery ? [scheduleTabLabel] : []), 'Draws', 'Winners', ...(isAdmin ? ['Audit'] : [])];
 
   // True participant count = enrolled members + members with a reservation but no enrollment
   const enrolledIds = new Set(topEnrollments.map((e) => String(e.memberId ?? e.id)));
@@ -5022,7 +5156,7 @@ export default function ChitDetailPage() {
         <Tabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
         {activeTab === 'Overview'  && <OverviewTab chit={chit} />}
         {activeTab === 'Members'   && <MembersTab chitId={id} chit={chit} />}
-        {activeTab === 'Schedule'  && <ReservationScheduleTab chitId={id} chit={chit} />}
+        {(activeTab === 'Schedule' || activeTab === 'Payouts') && <ReservationScheduleTab chitId={id} chit={chit} />}
         {activeTab === 'Draws'     && <DrawsTab chitId={id} chit={chit} />}
         {activeTab === 'Winners'   && <WinnersTab chitId={id} chit={chit} winnerSelectionMode={chit.winnerSelectionMode} />}
         {activeTab === 'Audit'     && isAdmin && <AuditTab chitId={id} />}

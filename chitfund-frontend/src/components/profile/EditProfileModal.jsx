@@ -3,13 +3,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import {
   checkUsernameAvailability, updateMyUserProfile, updateMyMemberProfile, changePassword,
+  sendPhoneChangeOtp, verifyPhoneChangeOtp,
 } from '../../services/api';
 import { recordProfileChange } from '../../utils/profileHistory';
 import PhoneInput from '../ui/PhoneInput';
 import Button from '../ui/Button';
 import {
   X, Check, Loader, AlertCircle, User, Phone, Mail, MapPin, AtSign,
-  UserCircle, Lock, Eye, EyeOff, ShieldCheck,
+  UserCircle, Lock, Eye, EyeOff, ShieldCheck, MessageSquare,
 } from 'lucide-react';
 
 // ─── Shared styled input ──────────────────────────────────────────────────────
@@ -237,6 +238,15 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   const [profileSaved,  setProfileSaved]  = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
 
+  // Phone OTP state
+  const [otpStep,   setOtpStep]   = useState(null); // null | 'pending'
+  const [otpCode,   setOtpCode]   = useState('');
+  const [otpPhone,  setOtpPhone]  = useState('');
+  const [otpCC,     setOtpCC]     = useState('+91');
+  const [otpError,  setOtpError]  = useState('');
+  const [otpTimer,  setOtpTimer]  = useState(0);
+  const otpTimerRef = useRef(null);
+
   const userMutation = useMutation({
     mutationFn: updateMyUserProfile,
     onSuccess: (data) => {
@@ -275,6 +285,53 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
     },
   });
 
+  function startOtpTimer() {
+    setOtpTimer(60);
+    clearInterval(otpTimerRef.current);
+    otpTimerRef.current = setInterval(() => {
+      setOtpTimer((t) => { if (t <= 1) { clearInterval(otpTimerRef.current); return 0; } return t - 1; });
+    }, 1000);
+  }
+
+  const sendOtpMut = useMutation({
+    mutationFn: ({ phone, countryCode }) => sendPhoneChangeOtp({ phone, countryCode }),
+    onSuccess: () => {
+      setOtpStep('pending');
+      setOtpCode('');
+      setOtpError('');
+      startOtpTimer();
+    },
+    onError: (err) => setOtpError(err.response?.data?.message ?? 'Failed to send OTP. Try again.'),
+  });
+
+  const verifyOtpMut = useMutation({
+    mutationFn: ({ phone, countryCode, code }) => verifyPhoneChangeOtp({ phone, countryCode, code }),
+    onSuccess: (updatedUser) => {
+      updateUser({
+        name: updatedUser.fullName ?? updatedUser.username,
+        fullName: updatedUser.fullName,
+        phone: updatedUser.phone,
+        phoneCountryCode: updatedUser.phoneCountryCode,
+      });
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      queryClient.invalidateQueries({ queryKey: ['myUserAccount'] });
+      clearInterval(otpTimerRef.current);
+      setOtpStep(null);
+      setProfileSaved(true);
+      setTimeout(onClose, 900);
+    },
+    onError: (err) => {
+      const msg = err.response?.data?.message ?? 'Incorrect OTP. Please try again.';
+      const isMaxAttempts = err.response?.data?.errorCode === 'OTP_004';
+      setOtpError(msg);
+      if (isMaxAttempts) {
+        setOtpCode('');
+        clearInterval(otpTimerRef.current);
+        setOtpTimer(0); // show Resend immediately (new OTP needed)
+      }
+    },
+  });
+
   const computeChanges = useCallback(() => {
     const cu = currentUser ?? {};
     const cm = currentMember ?? {};
@@ -299,19 +356,19 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   async function handleSaveProfile() {
     setProfileError('');
     setProfileFe({});
+    const cu = currentUser ?? {};
+    const phoneChanged = role !== 'MEMBER'
+      && (phone !== (cu.phone ?? '') || phoneCountryCode !== (cu.phoneCountryCode ?? '+91'));
+
     try {
+      // Save non-phone user fields (username, email, fullName)
+      const nonPhoneUserChanged = fullName !== (cu.fullName ?? '') || username !== (cu.username ?? '') || email !== (cu.email ?? '');
       const ops = [];
-      const cu = currentUser ?? {};
-      const userChanged = fullName !== (cu.fullName ?? '') || username !== (cu.username ?? '')
-        || email !== (cu.email ?? '') || phone !== (cu.phone ?? '')
-        || phoneCountryCode !== (cu.phoneCountryCode ?? '+91');
-      if (userChanged) {
+      if (nonPhoneUserChanged) {
         ops.push(userMutation.mutateAsync({
           fullName: fullName || undefined,
           username: username || undefined,
           email: email || undefined,
-          phone: phone || undefined,
-          phoneCountryCode: phoneCountryCode || undefined,
         }));
       }
       if (role === 'MEMBER') {
@@ -330,8 +387,17 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           }));
         }
       }
-      if (ops.length === 0) { onClose(); return; }
-      await Promise.all(ops);
+      if (ops.length > 0) await Promise.all(ops);
+
+      // If phone changed, start OTP verification (phone is updated server-side by verifyOtpMut)
+      if (phoneChanged) {
+        setOtpPhone(phone);
+        setOtpCC(phoneCountryCode);
+        sendOtpMut.mutate({ phone, countryCode: phoneCountryCode });
+        return;
+      }
+
+      if (!nonPhoneUserChanged && ops.length === 0) { onClose(); return; }
       const changes = computeChanges();
       if (userId && changes.length > 0) recordProfileChange(userId, changes);
       setProfileSaved(true);
@@ -356,7 +422,7 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
     passwordMutation.mutate({ currentPassword, newPassword });
   }
 
-  const isProfileBusy = userMutation.isPending || memberMutation.isPending;
+  const isProfileBusy = userMutation.isPending || memberMutation.isPending || sendOtpMut.isPending || verifyOtpMut.isPending;
   const isSecurityBusy = passwordMutation.isPending;
 
   const passwordStrength = (() => {
@@ -445,14 +511,71 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                   error={profileFe.phone}
                 />
               ) : (
-                <PhoneInput
-                  label="Phone"
-                  countryCode={phoneCountryCode}
-                  phone={phone}
-                  onCountryChange={setPhoneCountryCode}
-                  onPhoneChange={(v) => { setPhone(v); setProfileFe((f) => ({ ...f, phone: undefined })); }}
-                  error={profileFe.phone}
-                />
+                <>
+                  <PhoneInput
+                    label="Phone"
+                    countryCode={phoneCountryCode}
+                    phone={phone}
+                    onCountryChange={(cc) => { setPhoneCountryCode(cc); setOtpStep(null); }}
+                    onPhoneChange={(v) => { setPhone(v); setProfileFe((f) => ({ ...f, phone: undefined })); setOtpStep(null); }}
+                    error={profileFe.phone}
+                    disabled={otpStep === 'pending'}
+                  />
+
+                  {/* OTP step — shown when phone changed and OTP sent */}
+                  {otpStep === 'pending' && (
+                    <div style={{ border: '1.5px solid #6366F1', borderRadius: '14px', padding: '16px', backgroundColor: '#F5F3FF', marginTop: 4 }}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <MessageSquare size={15} style={{ color: '#6366F1', flexShrink: 0 }} />
+                        <p className="text-sm font-semibold" style={{ color: '#4338CA' }}>
+                          OTP sent to {otpCC} {otpPhone}
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Enter the 6-digit code to verify your new phone number.
+                      </p>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => { setOtpCode(e.target.value.replace(/\D/g, '')); setOtpError(''); }}
+                        placeholder="000000"
+                        className="w-full text-center text-2xl font-bold tracking-widest rounded-xl border py-3 focus:outline-none"
+                        style={{
+                          borderColor: otpError ? '#EF4444' : '#6366F1',
+                          color: '#1E3A5F',
+                          letterSpacing: '0.4em',
+                          boxShadow: '0 0 0 3px rgba(99,102,241,0.12)',
+                        }}
+                        autoFocus
+                      />
+                      {otpError && <p className="text-xs text-red-500 mt-2">{otpError}</p>}
+                      <div className="flex items-center justify-between mt-3">
+                        <button
+                          type="button"
+                          onClick={() => { setOtpStep(null); setOtpCode(''); setOtpError(''); clearInterval(otpTimerRef.current); }}
+                          className="text-xs text-gray-400 hover:text-gray-600 underline cursor-pointer"
+                        >
+                          Change number
+                        </button>
+                        {otpTimer > 0 ? (
+                          <span className="text-xs text-gray-400">Resend in {otpTimer}s</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => sendOtpMut.mutate({ phone: otpPhone, countryCode: otpCC })}
+                            disabled={sendOtpMut.isPending}
+                            className="text-xs font-semibold cursor-pointer"
+                            style={{ color: '#6366F1' }}
+                          >
+                            {sendOtpMut.isPending ? 'Sending…' : 'Resend OTP'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {role === 'MEMBER' && (
@@ -541,15 +664,28 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
           <Button variant="muted" size="md" onClick={onClose}>Cancel</Button>
 
           {activeTab === 'profile' && (
-            <Button
-              variant={profileSaved ? 'success' : 'primary'}
-              size="md"
-              loading={isProfileBusy}
-              disabled={profileSaved}
-              onClick={handleSaveProfile}
-            >
-              {profileSaved ? <><Check size={14} /> Saved</> : 'Save Changes'}
-            </Button>
+            otpStep === 'pending' ? (
+              <Button
+                variant="primary"
+                size="md"
+                loading={verifyOtpMut.isPending}
+                disabled={otpCode.length !== 6 || verifyOtpMut.isPending}
+                onClick={() => verifyOtpMut.mutate({ phone: otpPhone, countryCode: otpCC, code: otpCode })}
+                style={{ backgroundColor: '#6366F1', borderColor: '#6366F1' }}
+              >
+                Verify & Save
+              </Button>
+            ) : (
+              <Button
+                variant={profileSaved ? 'success' : 'primary'}
+                size="md"
+                loading={isProfileBusy}
+                disabled={profileSaved}
+                onClick={handleSaveProfile}
+              >
+                {profileSaved ? <><Check size={14} /> Saved</> : 'Save Changes'}
+              </Button>
+            )
           )}
 
           {activeTab === 'security' && (

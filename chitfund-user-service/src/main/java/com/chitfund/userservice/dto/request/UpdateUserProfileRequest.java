@@ -18,9 +18,6 @@ public class UpdateUserProfileRequest {
     @Email(message = "Enter a valid email address")
     private String email;
 
-    @Pattern(regexp = "^[0-9]{10,15}$", message = "Enter a valid phone number (10–15 digits)")
-    private String phone;
-
-    @Size(max = 10)
-    private String phoneCountryCode;
+    // Phone is intentionally excluded — phone changes require OTP verification
+    // via POST /api/users/me/phone/verify-otp which calls UserService.updatePhone() directly.
 }

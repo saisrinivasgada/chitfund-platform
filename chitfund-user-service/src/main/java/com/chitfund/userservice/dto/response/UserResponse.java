@@ -19,6 +19,7 @@ public class UserResponse {
     private Role role;
     private boolean enabled;
     private boolean locked;
+    private int failedLoginAttempts;
     private boolean mustChangePassword;
     private LocalDateTime lastLoginAt;
     private LocalDateTime createdAt;
