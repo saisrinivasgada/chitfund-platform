@@ -8,6 +8,7 @@ import com.chitfund.userservice.dto.response.ActivationResponse;
 import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
 import com.chitfund.userservice.dto.response.OrgUserResponse;
 import com.chitfund.userservice.dto.response.ProxyTokenResponse;
+import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.dto.response.TenantResponse;
 import com.chitfund.userservice.service.ProxyService;
 import com.chitfund.userservice.service.TenantService;
@@ -139,6 +140,14 @@ public class SuperAdminController {
     @GetMapping("/{tenantId}/users")
     public ResponseEntity<ApiResponse<List<OrgUserResponse>>> listOrgUsers(@PathVariable UUID tenantId) {
         return ResponseEntity.ok(ApiResponse.success(tenantService.listOrgUsers(tenantId)));
+    }
+
+    @PostMapping("/users/{userId}/setup-app-access")
+    public ResponseEntity<ApiResponse<ResetPasswordResponse>> setupAppAccess(
+            @PathVariable UUID userId,
+            @RequestBody Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.setupAppAccess(userId, body.get("username")), "App access set up"));
     }
 
     @PutMapping("/{tenantId}")

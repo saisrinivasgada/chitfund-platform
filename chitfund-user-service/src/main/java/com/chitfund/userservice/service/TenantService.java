@@ -388,6 +388,7 @@ public class TenantService {
                         .role(u.getRole().name())
                         .enabled(u.isEnabled())
                         .locked(u.isLocked())
+                        .hasAppAccess(u.isHasAppAccess())
                         .mustChangePassword(u.isMustChangePassword())
                         .joinedAt(u.getCreatedAt())
                         .lastLoginAt(u.getLastLoginAt())
@@ -411,6 +412,7 @@ public class TenantService {
                             .memberId(link.getMemberId().toString())
                             .enabled(u.isEnabled())
                             .locked(u.isLocked())
+                            .hasAppAccess(u.isHasAppAccess())
                             .mustChangePassword(u.isMustChangePassword())
                             .joinedAt(link.getCreatedAt())
                             .lastLoginAt(u.getLastLoginAt())
@@ -480,6 +482,33 @@ public class TenantService {
                 .enabled(true)
                 .joinedAt(user.getCreatedAt())
                 .tempPassword(rawPassword)
+                .build();
+    }
+
+    public com.chitfund.userservice.dto.response.ResetPasswordResponse setupAppAccess(UUID userId, String username) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
+        if (username != null && !username.isBlank()) {
+            String trimmed = username.trim();
+            if (!trimmed.equals(user.getUsername()) && userRepository.existsByUsername(trimmed)) {
+                throw new BusinessException(ErrorCode.USERNAME_TAKEN, "Username already taken");
+            }
+            user.setUsername(trimmed);
+        }
+        String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(10);
+        for (int i = 0; i < 10; i++) sb.append(chars.charAt(random.nextInt(chars.length())));
+        String tempPassword = sb.toString();
+        user.setTempPasswordHash(passwordEncoder.encode(tempPassword));
+        user.setMustChangePassword(true);
+        user.setHasAppAccess(true);
+        user.setEnabled(true);
+        userRepository.save(user);
+        return com.chitfund.userservice.dto.response.ResetPasswordResponse.builder()
+                .userId(user.getId())
+                .username(user.getUsername())
+                .tempPassword(tempPassword)
                 .build();
     }
 

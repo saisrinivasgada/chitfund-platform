@@ -29,6 +29,7 @@ import {
   lockUser,
   unlockUser,
   resendSetupLink,
+  superAdminSetupAppAccess,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -784,6 +785,9 @@ export default function SuperAdminOrgDetailPage() {
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [proxyingUserId, setProxyingUserId] = useState(null);
   const [lockingUserId, setLockingUserId] = useState(null);
+  const [setupModal, setSetupModal] = useState(null); // { userId, currentUsername }
+  const [setupUsername, setSetupUsername] = useState('');
+  const [setupLoading, setSetupLoading] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
@@ -1554,6 +1558,11 @@ export default function SuperAdminOrgDetailPage() {
                                 <Lock size={10} /> Locked
                               </span>
                             )}
+                            {u.hasAppAccess && u.mustChangePassword && (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full w-fit bg-orange-50 text-orange-600 flex items-center gap-1">
+                                <KeyRound size={10} /> Temp pwd
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3.5 text-xs text-gray-400">
@@ -1574,22 +1583,18 @@ export default function SuperAdminOrgDetailPage() {
                               <LogIn size={12} />
                               {proxyingUserId === u.userId ? '…' : 'Proxy'}
                             </button>
-                            {u.mustChangePassword ? (
+                            {!u.hasAppAccess ? (
                               <button
                                 type="button"
-                                title="Resend setup link"
-                                onClick={async () => {
-                                  try {
-                                    await resendSetupLink(u.userId);
-                                    showToast('Setup link sent');
-                                  } catch {
-                                    showToast('Failed to send setup link');
-                                  }
+                                title="Set up app access"
+                                onClick={() => {
+                                  setSetupUsername(u.username ?? '');
+                                  setSetupModal({ userId: u.userId, fullName: u.fullName });
                                 }}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 cursor-pointer transition-colors"
                               >
                                 <Link size={12} />
-                                Setup Link
+                                Setup
                               </button>
                             ) : (
                               <>
@@ -1604,10 +1609,10 @@ export default function SuperAdminOrgDetailPage() {
                                       showToast('Failed to reset password');
                                     }
                                   }}
-                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors"
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${u.mustChangePassword ? 'border-orange-300 text-orange-600 hover:bg-orange-50' : 'border-amber-200 text-amber-700 hover:bg-amber-50'}`}
                                 >
                                   <KeyRound size={12} />
-                                  Reset
+                                  {u.mustChangePassword ? 'New Temp Pwd' : 'Reset'}
                                 </button>
                                 <button
                                   type="button"
@@ -1795,6 +1800,48 @@ export default function SuperAdminOrgDetailPage() {
           subtitle={resetCredentials.subtitle ?? 'New temporary credentials — share with the user'}
           onDone={() => setResetCredentials(null)}
         />
+      )}
+      {setupModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-semibold text-gray-900 mb-1">Set Up App Access</h3>
+            <p className="text-xs text-gray-500 mb-4">{setupModal.fullName} — enter a username to create their login</p>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Username</label>
+            <input
+              type="text"
+              value={setupUsername}
+              onChange={e => setSetupUsername(e.target.value)}
+              placeholder="e.g. venu_mango"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setSetupModal(null)}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              >Cancel</button>
+              <button
+                type="button"
+                disabled={!setupUsername.trim() || setupLoading}
+                onClick={async () => {
+                  setSetupLoading(true);
+                  try {
+                    const result = await superAdminSetupAppAccess(setupModal.userId, setupUsername.trim());
+                    setSetupModal(null);
+                    setUsers(prev => prev.map(x => x.userId === setupModal.userId ? { ...x, hasAppAccess: true, username: result.username } : x));
+                    setResetCredentials({ username: result.username, password: result.tempPassword, title: 'Account Created', subtitle: 'Share these credentials with the user' });
+                  } catch {
+                    showToast('Failed to set up account');
+                  } finally {
+                    setSetupLoading(false);
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
+              >{setupLoading ? 'Setting up…' : 'Create Account'}</button>
+            </div>
+          </div>
+        </div>
       )}
       {showAddCredit && tenant && (
         <ManageCreditModal

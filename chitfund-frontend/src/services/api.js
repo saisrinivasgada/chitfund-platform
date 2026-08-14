@@ -188,6 +188,11 @@ export const superAdminAddOrgUser = async (tenantId, userData) => {
   return res.data.data;
 };
 
+export const superAdminSetupAppAccess = async (userId, username) => {
+  const res = await api.post(`/super-admin/tenants/users/${userId}/setup-app-access`, { username });
+  return res.data.data; // { userId, username, tempPassword }
+};
+
 export const superAdminListOrgChits = async (tenantId, { status } = {}) => {
   const params = { tenantFilter: tenantId };
   if (status) params.status = status;

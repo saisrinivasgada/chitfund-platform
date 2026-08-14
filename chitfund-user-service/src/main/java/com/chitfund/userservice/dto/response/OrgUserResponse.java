@@ -18,6 +18,7 @@ public class OrgUserResponse {
     private String memberId;
     private boolean enabled;
     private boolean locked;
+    private boolean hasAppAccess;
     private boolean mustChangePassword;
     private LocalDateTime joinedAt;
     private LocalDateTime lastLoginAt;
