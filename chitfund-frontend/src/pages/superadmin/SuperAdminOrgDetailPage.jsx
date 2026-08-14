@@ -4,7 +4,7 @@ import {
   ArrowLeft, Users, BookOpen, Settings, ChevronDown,
   CheckCircle, XCircle, Clock, Edit2, X, UserPlus,
   Shield, Briefcase, User, AlertCircle, Sliders, Trash2, Calendar,
-  Copy, Check, KeyRound, LogIn,
+  Copy, Check, KeyRound, LogIn, Lock, LockOpen,
 } from 'lucide-react';
 import {
   superAdminGetTenant,
@@ -26,6 +26,8 @@ import {
   superAdminReactivateTenant,
   resetMemberPassword,
   superAdminProxyAs,
+  lockUser,
+  unlockUser,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -780,6 +782,7 @@ export default function SuperAdminOrgDetailPage() {
   const [resetCredentials, setResetCredentials] = useState(null); // { username, password } shown after reset
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [proxyingUserId, setProxyingUserId] = useState(null);
+  const [lockingUserId, setLockingUserId] = useState(null);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
@@ -1541,9 +1544,16 @@ export default function SuperAdminOrgDetailPage() {
                           }
                         </td>
                         <td className="px-4 py-3.5">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${u.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-                            {u.enabled ? 'Active' : 'Disabled'}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full w-fit ${u.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                              {u.enabled ? 'Active' : 'Disabled'}
+                            </span>
+                            {u.locked && (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full w-fit bg-amber-50 text-amber-700 flex items-center gap-1">
+                                <Lock size={10} /> Locked
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3.5 text-xs text-gray-400">
                           {u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
@@ -1578,6 +1588,37 @@ export default function SuperAdminOrgDetailPage() {
                             >
                               <KeyRound size={12} />
                               Reset
+                            </button>
+                            <button
+                              type="button"
+                              disabled={lockingUserId === u.userId}
+                              title={u.locked ? 'Unlock Account' : 'Lock Account'}
+                              onClick={async () => {
+                                setLockingUserId(u.userId);
+                                try {
+                                  if (u.locked) {
+                                    await unlockUser(u.userId);
+                                    setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: false } : x));
+                                    showToast('Account unlocked');
+                                  } else {
+                                    await lockUser(u.userId);
+                                    setUsers(prev => prev.map(x => x.userId === u.userId ? { ...x, locked: true } : x));
+                                    showToast('Account locked');
+                                  }
+                                } catch {
+                                  showToast(u.locked ? 'Failed to unlock' : 'Failed to lock');
+                                } finally {
+                                  setLockingUserId(null);
+                                }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-pointer transition-colors disabled:opacity-50 ${
+                                u.locked
+                                  ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                  : 'border-red-200 text-red-600 hover:bg-red-50'
+                              }`}
+                            >
+                              {u.locked ? <LockOpen size={12} /> : <Lock size={12} />}
+                              {lockingUserId === u.userId ? '…' : u.locked ? 'Unlock' : 'Lock'}
                             </button>
                           </div>
                         </td>
