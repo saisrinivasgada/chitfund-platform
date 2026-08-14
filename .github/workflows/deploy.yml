@@ -252,6 +252,13 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy-key.pem
           chmod 600 ~/.ssh/deploy-key.pem
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config << EOF
+          Host ${{ secrets.EC2_HOST }}
+            ServerAliveInterval 60
+            ServerAliveCountMax 30
+            TCPKeepAlive yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       # ── Backend deploy (only if backend changed) ─────────────────────────────
       - name: Sync backend source to EC2
