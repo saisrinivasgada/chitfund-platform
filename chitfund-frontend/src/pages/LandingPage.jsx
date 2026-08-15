@@ -1537,11 +1537,6 @@ export default function LandingPage() {
                 desc: "Each org's data lives in its own isolated space. One organisation can never access another's members or transactions — by design.",
               },
               {
-                icon: Users,
-                title: 'We never sell your data',
-                desc: 'Your member list, collection history, and financials are never shared with third parties, advertisers, or anyone else. Period.',
-              },
-              {
                 icon: FileText,
                 title: 'You are in control',
                 desc: 'Export your full data anytime. Your records belong to your organisation, not to us. Leave whenever you want — with everything.',
