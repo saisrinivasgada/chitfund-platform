@@ -469,8 +469,9 @@ jobs:
             echo "Frontend-only deploy, waiting 5s..."
             sleep 5
           fi
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            http://${{ secrets.EC2_HOST }}/api/auth/login \
+          HTTP_STATUS=$(curl -sk -o /dev/null -w "%{http_code}" \
+            https://${{ secrets.EC2_HOST }}/api/auth/login \
+            -H "Host: api.thechitwise.com" \
             -X POST -H "Content-Type: application/json" \
             -d '{"username":"invalid","password":"invalid"}')
           echo "Auth endpoint HTTP status: $HTTP_STATUS"
