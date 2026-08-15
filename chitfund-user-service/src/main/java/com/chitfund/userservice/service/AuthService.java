@@ -175,6 +175,8 @@ public class AuthService {
         if (request.getFullName() != null && !request.getFullName().isBlank()) {
             user.setFullName(request.getFullName());
         }
+        user.setTermsAcceptedAt(LocalDateTime.now());
+        user.setTermsVersion("1.0");
         userRepository.save(user);
 
         setupToken.setUsedAt(LocalDateTime.now());

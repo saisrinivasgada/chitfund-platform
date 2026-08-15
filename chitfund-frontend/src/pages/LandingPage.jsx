@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getPublicPlans } from '../services/api';
-import { motion, useInView } from 'framer-motion';
+import { motion, useInView, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, ArrowRight, ChevronDown, Shield, Zap, Users, BarChart2,
   Check, Star, ArrowUpRight, RefreshCw, Headphones,
@@ -9,13 +9,13 @@ import {
   Bell, FileText, PieChart, LayoutDashboard, CreditCard, Banknote,
   Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
   TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
-  Phone, PenLine, X, BookMarked, MessageCircle, Smartphone, Lock,
+  Phone, PenLine, X, BookMarked, MessageCircle, Smartphone, Lock, Play,
 } from 'lucide-react';
 const P = '#1E3A5F';
 
 function Reveal({ children, delay = 0, dir = 'up', className = '' }) {
   const ref = useRef(null);
-  const inView = useInView(ref, { once: false, margin: '-80px' });
+  const inView = useInView(ref, { once: true, margin: '-80px' });
   const dirs = { up: { y: 52, x: 0 }, left: { y: 0, x: -52 }, right: { y: 0, x: 52 }, none: { y: 0, x: 0 } };
   return (
     <motion.div
@@ -109,6 +109,702 @@ function MemberRow({ name, phone, initial }) {
         <p className="text-xs text-gray-400">{phone}</p>
       </div>
       <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">ACTIVE</span>
+    </div>
+  );
+}
+
+const FEATURE_SLIDES = [
+  {
+    badge: 'Admin dashboard',
+    badgeIcon: BarChart2,
+    headline: ['Everything at a', 'glance.'],
+    accentWord: 'glance.',
+    desc: 'Collections, payouts, treasury balance, draw status, cash pickup workflow — your entire operation visible from one screen.',
+    bullets: ['Live chit group overview', 'Cash & digital collections', 'Draw winner tracking', 'Treasury balance'],
+    bulletIcons: [BookOpen, IndianRupee, Trophy, Wallet],
+    mockup: 'dashboard',
+  },
+  {
+    badge: 'Reports & analytics',
+    badgeIcon: BarChart2,
+    headline: ['Your numbers,', 'always clear.'],
+    accentWord: 'always clear.',
+    desc: 'Monthly collection trends, payment completion rates, chit group performance — see exactly how your business is doing at any point.',
+    bullets: ['Monthly collection trends', 'Group-wise performance view', 'Member payment completion rates', 'One-click export'],
+    bulletIcons: [TrendingUp, BarChart2, Users, FileText],
+    mockup: 'analytics',
+  },
+  {
+    badge: 'Member self-service',
+    badgeIcon: UserCheck,
+    headline: ['Every member gets', 'their own portal.'],
+    accentWord: 'their own portal.',
+    desc: 'Members view their chit group status, installment history, upcoming draws, and payout schedule — without calling you.',
+    bullets: ['Instant portal access after joining', 'Installment receipts always available', 'Draw results and prize notifications', 'See exactly when payout is scheduled'],
+    bulletIcons: [Smartphone, FileText, Bell, Calendar],
+    mockup: 'member',
+  },
+];
+
+function DashboardMockup() {
+  return (
+    <AppFrame url="app.thechitwise.com/dashboard" dark>
+      <div className="flex" style={{ backgroundColor: '#F0F2F5', height: 420 }}>
+        <div className="w-36 bg-white border-r border-gray-100 flex flex-col py-3 px-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 px-2 mb-4">
+            <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ backgroundColor: P }}>
+              <BookOpen size={10} className="text-white" />
+            </div>
+            <span className="text-xs font-bold" style={{ color: P, fontFamily: 'Merriweather, serif' }}>ChitWise</span>
+          </div>
+          {SIDEBAR_NAV.map(({ icon, label, active }) => (
+            <SideNavItem key={label} icon={icon} label={label} active={active} />
+          ))}
+        </div>
+        <div className="flex-1 overflow-hidden p-3 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold" style={{ color: P, fontFamily: 'Merriweather, serif' }}>Welcome back, Admin</p>
+              <p className="text-xs text-gray-400">Here's what's happening today.</p>
+            </div>
+            <div className="flex gap-1.5">
+              <div className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ backgroundColor: P }}>+ New Chit</div>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <BookOpen size={11} style={{ color: P }} />
+              <span className="text-xs font-semibold text-gray-700">At a Glance</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+            <div className="grid grid-cols-5 gap-2">
+              <AppStatCard icon={BookOpen}   label="Total Chits"    value="12" color="#1E3A5F" sub="10 active" />
+              <AppStatCard icon={CreditCard} label="Active Chits"   value="10" color="#16A34A" />
+              <AppStatCard icon={Users}      label="Members"        value="248" color="#D4A017" />
+              <AppStatCard icon={Banknote}   label="Pending Payout" value="3"  color="#7C3AED" sub="winner selected" />
+              <AppStatCard icon={Trophy}     label="Disbursement"   value="2"  color="#DC2626" sub="pending" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60">
+                <span className="text-xs font-semibold text-gray-800">Recent Chit Funds</span>
+                <span className="text-xs text-blue-600">View all →</span>
+              </div>
+              <ChitRow name="1 Lakh - Group 1 (Nov 2024)"  amount="5,000"  members={20} status="ACTIVE" />
+              <ChitRow name="20K - Group 2 (Mar 2025)"     amount="2,000"  members={10} status="ACTIVE" />
+              <ChitRow name="4 Lakhs - Group 3 (Apr 2024)" amount="10,000" members={40} status="COMPLETED" />
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60">
+                <span className="text-xs font-semibold text-gray-800">Recent Members</span>
+                <span className="text-xs text-blue-600">View all →</span>
+              </div>
+              <MemberRow name="Venkatesh R."  phone="+91 98765 43210" initial="V" />
+              <MemberRow name="Padmavathi K." phone="+91 87654 32109" initial="P" />
+              <MemberRow name="Suresh Babu"   phone="+91 76543 21098" initial="S" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </AppFrame>
+  );
+}
+
+function DrawsMockup() {
+  return (
+    <AppFrame url="app.thechitwise.com/chits/42">
+      <div style={{ backgroundColor: '#F0F2F5' }}>
+        <div className="flex items-center gap-3 px-5 py-3 bg-white border-b border-gray-100">
+          <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#EFF4FA' }}>
+            <ArrowLeft size={12} style={{ color: P }} />
+          </div>
+          <div>
+            <p className="text-sm font-bold" style={{ color: P }}>1 Lakh - Group 1 (Nov 2024)</p>
+            <p className="text-xs text-gray-400">₹1,00,000 · 20 members · Draw 8 / 20</p>
+          </div>
+          <span className="ml-auto text-xs px-2.5 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">ACTIVE</span>
+        </div>
+        <div className="flex gap-2 px-5 py-3 bg-white border-b border-gray-100 overflow-x-auto">
+          {['Overview', 'Members', 'Draws', 'Payments', 'Payouts'].map((tab) => (
+            <button key={tab} className="text-xs font-semibold rounded-full px-3 py-1.5 whitespace-nowrap"
+              style={tab === 'Draws' ? { backgroundColor: P, color: 'white', border: `1.5px solid ${P}` } : { backgroundColor: 'white', color: '#374151', border: '1.5px solid #D1D5DB' }}>
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="px-4 py-3">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+              <div>
+                <p className="text-xs font-bold text-gray-900">Draw 8 — July 2025</p>
+                <p className="text-xs text-gray-400">₹15,000 collected of ₹20,000</p>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">In Progress</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {DRAW_ROWS.map(({ name, draw, amount, status, color, bg }) => (
+                <div key={name} className="flex items-center justify-between px-4 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: P }}>
+                      {name.split(' ').map(w => w[0]).join('')}
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-900">{name}</p>
+                      <p className="text-xs text-gray-400">Draw {draw} / 20</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-800">{amount}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: bg, color }}>{status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-100">
+              <p className="text-xs text-yellow-800 font-semibold">🏆 Prized: Venkatesh R. — Dividend ₹4,200 · Commission ₹4,000</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </AppFrame>
+  );
+}
+
+function MemberMockup() {
+  return (
+    <AppFrame url="member.thechitwise.com" dark>
+      <div style={{ backgroundColor: '#F0F2F5' }}>
+        <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: P }}>VR</div>
+            <div>
+              <p className="text-sm font-bold text-gray-900">Venkatesh Reddy</p>
+              <p className="text-xs text-gray-400">Member #2041</p>
+            </div>
+          </div>
+          <Bell size={14} className="text-gray-400" />
+        </div>
+        <div className="bg-white border-b border-gray-100 px-4 py-2 flex gap-2">
+          {MEMBER_TABS.map(({ label, icon: Icon, active }) => (
+            <button key={label} className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
+              style={active ? { backgroundColor: P, color: 'white', border: `1.5px solid ${P}` } : { backgroundColor: 'white', color: '#6B7280', border: '1.5px solid #D1D5DB' }}>
+              <Icon size={11} />{label}
+            </button>
+          ))}
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="bg-white rounded-xl border shadow-sm overflow-hidden" style={{ borderColor: '#86EFAC' }}>
+            <div className="px-4 py-3 border-b flex items-center justify-between" style={{ backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }}>
+              <p className="text-xs font-bold text-gray-800">1 LAKH - GROUP 1 (NOV 2024)</p>
+              <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">Active</span>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-3 gap-4">
+              {[{ label: 'Chit value', val: '₹1,00,000' }, { label: 'Draw', val: '8 / 20' }, { label: 'My installment', val: '₹4,600' }].map(({ label, val }) => (
+                <div key={label}>
+                  <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+                  <p className="text-sm font-bold text-gray-900">{val}</p>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-2 border-t border-gray-50 flex items-center justify-between">
+              <p className="text-xs text-gray-400">Not yet prized</p>
+              <p className="text-xs font-semibold" style={{ color: P }}>Next draw: Aug 1 →</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#1E3A5F18' }}>
+                <IndianRupee size={13} style={{ color: P }} />
+              </div>
+              <div><p className="text-xs text-gray-400">Total paid</p><p className="text-sm font-bold text-gray-900">₹36,800</p></div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#D4A01718' }}>
+                <Trophy size={13} style={{ color: '#D4A017' }} />
+              </div>
+              <div><p className="text-xs text-gray-400">Draws left</p><p className="text-sm font-bold text-gray-900">12 draws</p></div>
+            </div>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <p className="text-xs text-amber-800 font-semibold">🔔 Draw 8: Padmavathi K. is prized — ₹96,000 payout after commission</p>
+          </div>
+        </div>
+      </div>
+    </AppFrame>
+  );
+}
+
+function AnalyticsMockup() {
+  const bars = [
+    { month: 'Mar', pct: 72 }, { month: 'Apr', pct: 85 }, { month: 'May', pct: 91 },
+    { month: 'Jun', pct: 68 }, { month: 'Jul', pct: 100 }, { month: 'Aug', pct: 78 },
+  ];
+  return (
+    <AppFrame url="app.thechitwise.com/reports" dark>
+      <div style={{ backgroundColor: '#F0F2F5' }}>
+        <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-100">
+          <div>
+            <p className="text-sm font-bold" style={{ color: P, fontFamily: 'Merriweather, serif' }}>Reports</p>
+            <p className="text-xs text-gray-400">All chit groups · Aug 2025</p>
+          </div>
+          <div className="px-2.5 py-1 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 bg-white">Export</div>
+        </div>
+        <div className="flex gap-2 px-4 py-2 bg-white border-b border-gray-100">
+          {['Overview', 'Collections', 'Members'].map(t => (
+            <button key={t} className="text-xs font-semibold rounded-full px-3 py-1.5"
+              style={t === 'Overview' ? { backgroundColor: P, color: 'white' } : { backgroundColor: 'white', color: '#6B7280', border: '1px solid #D1D5DB' }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="p-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Collected', val: '₹8.4L', sub: 'this month', color: '#16A34A', bg: '#F0FDF4' },
+              { label: 'Paid Out',  val: '₹6.2L', sub: 'this month', color: P,         bg: '#EFF4FA' },
+              { label: 'Pending',   val: '₹2.2L', sub: '12 members', color: '#D97706', bg: '#FFFBEB' },
+            ].map(({ label, val, sub, color, bg }) => (
+              <div key={label} className="rounded-xl p-2.5" style={{ backgroundColor: bg }}>
+                <p className="text-xs text-gray-500 mb-0.5">{label}</p>
+                <p className="text-sm font-bold" style={{ color }}>{val}</p>
+                <p className="text-xs text-gray-400">{sub}</p>
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-bold text-gray-800">Monthly collections</p>
+              <span className="text-xs text-gray-400">Mar – Aug</span>
+            </div>
+            <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+              {bars.map(({ month, pct }) => (
+                <div key={month} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="w-full rounded-t" style={{ height: `${pct}%`, backgroundColor: pct === 100 ? P : '#93C5FD' }} />
+                  <span className="text-xs text-gray-400">{month}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-2 border-b border-gray-100">
+              <p className="text-xs font-bold text-gray-800">Top chit groups</p>
+            </div>
+            {[
+              { name: '1 Lakh – Group 1', collected: '₹2.1L', rate: '95%', color: '#16A34A' },
+              { name: '50K – Group 2',    collected: '₹1.4L', rate: '88%', color: '#2563EB' },
+              { name: '25K – Group 3',    collected: '₹0.9L', rate: '72%', color: '#D97706' },
+            ].map(({ name, collected, rate, color }) => (
+              <div key={name} className="flex items-center justify-between px-4 py-2 border-b border-gray-50 last:border-0">
+                <p className="text-xs font-medium text-gray-700">{name}</p>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-gray-800">{collected}</span>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: color + '18', color }}>{rate}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </AppFrame>
+  );
+}
+
+const SLIDER_INTERVAL_MS = 5000;
+const PAUSE_MS = 45000;
+
+// Shared hook: auto-advance, pause-on-click toggle, fill-freeze at exact click position, countdown
+function useSlider(count) {
+  const [active, setActive] = useState(0);
+  const [dir, setDir] = useState(1);
+  const [progressKey, setProgressKey] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [frozenFill, setFrozenFill] = useState(0);
+
+  const containerRef = useRef(null);
+  const inView = useInView(containerRef, { once: true, amount: 0.3 });
+  const activeRef = useRef(0);
+  activeRef.current = active;
+  const pauseTimerRef = useRef(null);
+  const pauseEndTimeRef = useRef(0);
+  const slideNetStartRef = useRef(Date.now());
+  const frozenFillRef = useRef(0);
+
+  useEffect(() => {
+    if (!inView) return;
+    clearTimeout(pauseTimerRef.current);
+    slideNetStartRef.current = Date.now();
+    frozenFillRef.current = 0;
+    setDir(1); setActive(0); setProgressKey(k => k + 1);
+    setFrozenFill(0); setPaused(false);
+  }, [inView]);
+
+  const go = useCallback((next) => {
+    const curr = activeRef.current;
+    const n = typeof next === 'function' ? next(curr) : next;
+    setDir(n > curr ? 1 : -1);
+    setActive(n);
+    setProgressKey(k => k + 1);
+    setFrozenFill(0);
+    frozenFillRef.current = 0;
+    slideNetStartRef.current = Date.now();
+  }, []);
+
+  // Toggle: click while playing → pause + freeze fill; click while paused → resume from frozen position
+  const handleClick = useCallback(() => {
+    if (paused) {
+      clearTimeout(pauseTimerRef.current);
+      // Restore slide net-start so remaining time = (1 - frozenFill) * interval
+      slideNetStartRef.current = Date.now() - frozenFillRef.current * SLIDER_INTERVAL_MS;
+      setPaused(false);
+      setTimeLeft(0);
+      setProgressKey(k => k + 1);
+    } else {
+      const elapsed = Date.now() - slideNetStartRef.current;
+      const fill = Math.min(1, elapsed / SLIDER_INTERVAL_MS);
+      frozenFillRef.current = fill;
+      setFrozenFill(fill);
+      setPaused(true);
+      setTimeLeft(PAUSE_MS / 1000);
+      pauseEndTimeRef.current = Date.now() + PAUSE_MS;
+      clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = setTimeout(() => {
+        // Auto-resume: continue from frozen position
+        slideNetStartRef.current = Date.now() - frozenFillRef.current * SLIDER_INTERVAL_MS;
+        setPaused(false);
+        setProgressKey(k => k + 1);
+      }, PAUSE_MS);
+    }
+  }, [paused]);
+
+  useEffect(() => {
+    if (!paused) { setTimeLeft(0); return; }
+    const id = setInterval(() => {
+      setTimeLeft(Math.max(0, Math.ceil((pauseEndTimeRef.current - Date.now()) / 1000)));
+    }, 250);
+    return () => clearInterval(id);
+  }, [paused]);
+
+  // Auto-advance fires after the REMAINING time on current slide (handles resume-from-frozen correctly)
+  useEffect(() => {
+    if (paused) return;
+    const elapsed = Date.now() - slideNetStartRef.current;
+    const remaining = Math.max(100, SLIDER_INTERVAL_MS - elapsed);
+    const id = setTimeout(() => go(a => (a + 1) % count), remaining);
+    return () => clearTimeout(id);
+  }, [paused, progressKey, go, count]);
+
+  useEffect(() => () => clearTimeout(pauseTimerRef.current), []);
+
+  return {
+    active, dir, progressKey, paused, timeLeft, frozenFill, containerRef, go, handleClick,
+    prev: () => go((active - 1 + count) % count),
+    next: () => go((active + 1) % count),
+  };
+}
+
+// Shared pill fill indicator rendered inside a tab button
+function SliderFill({ isActive, paused, progressKey, frozenFill, fillColor = 'white' }) {
+  if (!isActive) return null;
+  if (!paused) return (
+    <motion.div key={progressKey}
+      style={{ position: 'absolute', inset: 0, backgroundColor: fillColor, transformOrigin: 'left', borderRadius: 'inherit' }}
+      initial={{ scaleX: frozenFill }}
+      animate={{ scaleX: 1 }}
+      transition={{ duration: (1 - frozenFill) * SLIDER_INTERVAL_MS / 1000, ease: 'linear' }} />
+  );
+  return (
+    <div style={{ position: 'absolute', inset: 0, backgroundColor: fillColor, borderRadius: 'inherit', transform: `scaleX(${frozenFill})`, transformOrigin: 'left' }} />
+  );
+}
+
+// Shared countdown badge
+function SliderCountdown({ paused, timeLeft }) {
+  return (
+    <AnimatePresence>
+      {paused && timeLeft > 0 && (
+        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }}
+          className="absolute top-0 right-0 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium pointer-events-none"
+          style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(255,255,255,0.55)' }}>
+          <Play size={9} />
+          tap to resume · {timeLeft}s
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function FeatureSlider() {
+  const { active, dir, progressKey, paused, timeLeft, frozenFill, containerRef, go, handleClick, prev, next } = useSlider(FEATURE_SLIDES.length);
+  const slide = FEATURE_SLIDES[active];
+  const MockupMap = { dashboard: DashboardMockup, draws: DrawsMockup, member: MemberMockup, analytics: AnalyticsMockup };
+  const Mockup = MockupMap[slide.mockup];
+
+  return (
+    <div ref={containerRef} className="relative cursor-pointer" onClick={handleClick}>
+      <SliderCountdown paused={paused} timeLeft={timeLeft} />
+
+      {/* Tab labels */}
+      <div className="flex justify-center gap-2 mb-10 flex-wrap">
+        {FEATURE_SLIDES.map((s, i) => {
+          const Icon = s.badgeIcon;
+          const isActive = i === active;
+          return (
+            <button key={i} onClick={() => go(i)}
+              className="relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold overflow-hidden"
+              style={isActive ? { backgroundColor: 'rgba(255,255,255,0.35)', color: P } : { backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.65)', transition: 'all 0.2s' }}>
+              <SliderFill isActive={isActive} paused={paused} progressKey={progressKey} frozenFill={frozenFill} />
+              <span className="relative z-10 flex items-center gap-2"><Icon size={13} />{s.badge}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+        <div className="relative overflow-hidden" style={{ height: 420 }}>
+          <AnimatePresence initial={false}>
+            <motion.div key={active} style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}
+              initial={{ opacity: 0, x: dir * 40 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: dir * -40 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}>
+              <h2 className="text-4xl md:text-5xl font-extrabold text-white leading-snug mb-6" style={{ fontFamily: 'Merriweather, serif' }}>
+                {slide.headline[0]}<br /><span style={{ color: '#93C5FD' }}>{slide.headline[1]}</span>
+              </h2>
+              <p className="text-white/70 text-lg leading-relaxed mb-8">{slide.desc}</p>
+              <div className="grid grid-cols-2 gap-3">
+                {slide.bullets.map((b, i) => {
+                  const Icon = slide.bulletIcons[i];
+                  return (
+                    <div key={b} className="flex items-center gap-3 rounded-2xl px-4 py-3" style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}>
+                      <Icon size={14} className="text-blue-300 flex-shrink-0" />
+                      <span className="text-sm text-white/80">{b}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="hidden lg:block relative overflow-hidden" style={{ height: 420 }}>
+          <AnimatePresence initial={false}>
+            <motion.div key={active} style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}
+              initial={{ opacity: 0, x: dir * 60 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: dir * -60 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}>
+              <Mockup />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center gap-6 mt-12">
+        <button onClick={prev} className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110"
+          style={{ backgroundColor: 'rgba(255,255,255,0.15)', border: '1.5px solid rgba(255,255,255,0.25)' }}>
+          <ChevronLeft size={20} className="text-white" />
+        </button>
+        <div className="flex items-center gap-2.5">
+          {FEATURE_SLIDES.map((_, i) => (
+            <button key={i} onClick={() => go(i)} className="transition-all duration-200 rounded-full"
+              style={{ width: i === active ? 28 : 8, height: 8, backgroundColor: i === active ? 'white' : 'rgba(255,255,255,0.3)' }} />
+          ))}
+        </div>
+        <button onClick={next} className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110"
+          style={{ backgroundColor: 'rgba(255,255,255,0.15)', border: '1.5px solid rgba(255,255,255,0.25)' }}>
+          <ChevronRight size={20} className="text-white" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Problems slider (WHEN RECORDS BREAK DOWN section) ──────────────────────────
+const PROBLEM_SLIDES = [
+  {
+    badge: 'Payment dispute',
+    badgeIcon: MessageCircle,
+    color: '#F87171',
+    visual: 'chat',
+    headline: 'No proof of payment.',
+    accent: "And now it's personal.",
+    desc: "Without a digital receipt, any payment dispute turns into a he-said-she-said. Members call each other liars. Trust breaks down fast — and word spreads through the neighbourhood.",
+  },
+  {
+    badge: 'Lost records',
+    badgeIcon: FileText,
+    color: '#FBBF24',
+    visual: 'icon',
+    headline: '"The register got damaged."',
+    accent: 'Years of records, gone.',
+    desc: 'A notebook destroyed in rain, a page torn out, entries crossed and re-written — years of member records gone or disputed. No way to recover the truth.',
+    quote: '"I can\'t find the payment record. The notebook got wet in the rains last month."',
+  },
+  {
+    badge: 'Draw dispute',
+    badgeIcon: Trophy,
+    color: '#34D399',
+    visual: 'icon',
+    headline: '"Who actually won the draw?"',
+    accent: 'No audit trail. No answer.',
+    desc: 'Draw run verbally in a room. Winner announced. But another member contests it a week later. Without a record, there is no official answer — just conflicting memories.',
+    quote: '"I heard a different name announced. When was it changed? Who decided?"',
+  },
+  {
+    badge: 'Missing cash',
+    badgeIcon: IndianRupee,
+    color: '#A78BFA',
+    visual: 'icon',
+    headline: '"The cash that never reached."',
+    accent: 'No receipts. No proof.',
+    desc: "A staff member collected from 6 members. Says it was ₹30,000. The register shows ₹25,000. No receipts were given. Two members swear they paid. Who's right?",
+    quote: '"I gave ₹5,000 to Ravi anna. Why is it not in the register?"',
+  },
+  {
+    badge: 'Trust collapses',
+    badgeIcon: AlertTriangle,
+    color: '#F87171',
+    visual: 'icon',
+    headline: 'One dispute can collapse everything.',
+    accent: "Trust is a chit fund's only currency.",
+    desc: 'Word spreads fast in a neighbourhood. One unresolved payment dispute, one unclear draw result, and members start pulling out. A chit fund runs on trust — and trust is fragile.',
+    quote: '"I am telling everyone in the group about this. This is not okay."',
+  },
+];
+
+function ProblemVisual({ slide }) {
+  const Icon = slide.badgeIcon;
+  if (slide.visual === 'chat') {
+    return (
+      <div className="rounded-3xl overflow-hidden shadow-2xl border border-red-900/30">
+        <div className="px-4 py-3 flex items-center gap-3" style={{ backgroundColor: '#075E54' }}>
+          <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">RK</div>
+          <div>
+            <p className="text-sm font-bold text-white">Ramesh (Member)</p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>1 Lakh - Group 1 (Jan 2026)</p>
+          </div>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">Real situation</span>
+        </div>
+        <div className="p-4 space-y-3" style={{ backgroundColor: '#0B141A' }}>
+          {[
+            { from: 'member', text: 'Bhai, I paid ₹5,000 last month. Why is it showing unpaid in your list?', time: '10:14 AM' },
+            { from: 'admin',  text: "Ramesh bhai I am checking the register... I don't see your payment here", time: '10:22 AM' },
+            { from: 'member', text: 'I paid cash to Ravi anna! Ask him!', time: '10:23 AM' },
+            { from: 'admin',  text: "Ravi says he didn't collect from you this draw...", time: '10:35 AM' },
+            { from: 'member', text: 'Are you calling me a liar??? I have given ₹40,000 over 8 draws without any problem!!', time: '10:36 AM' },
+            { from: 'admin',  text: '😰 Ramesh bhai please calm down, let me check with Ravi again...', time: '10:52 AM' },
+            { from: 'member', text: 'I am telling everyone in the group about this. This is not okay.', time: '10:53 AM' },
+          ].map((msg, i) => (
+            <div key={i} className={`flex ${msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}>
+              <div className="max-w-[80%] rounded-2xl px-3 py-2 shadow-sm"
+                style={{ backgroundColor: msg.from === 'admin' ? '#202C33' : '#005C4B' }}>
+                <p className="text-xs text-white leading-relaxed">{msg.text}</p>
+                <p className="text-right mt-1" style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{msg.time}</p>
+              </div>
+            </div>
+          ))}
+          <div className="rounded-xl px-3 py-2 border border-red-900/50" style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}>
+            <p className="text-xs text-red-400 font-semibold">⚠️ No receipt. No digital record. No way to prove either side.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-3xl p-8 flex flex-col justify-between" style={{ backgroundColor: '#120808', border: `1px solid ${slide.color}25`, minHeight: 540 }}>
+      <div className="w-16 h-16 rounded-3xl flex items-center justify-center" style={{ backgroundColor: slide.color + '18' }}>
+        <Icon size={30} style={{ color: slide.color }} />
+      </div>
+      <div>
+        <div className="w-8 h-0.5 mb-5" style={{ backgroundColor: slide.color + '50' }} />
+        <p className="text-xl sm:text-2xl font-bold leading-snug" style={{ color: 'rgba(255,255,255,0.88)' }}>{slide.quote}</p>
+        <p className="mt-3 text-xs" style={{ color: 'rgba(255,255,255,0.28)' }}>— Member, during a dispute</p>
+      </div>
+      <div className="flex gap-1.5">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="h-1 rounded-full" style={{ width: i === 0 ? 32 : 12, backgroundColor: i === 0 ? slide.color : slide.color + '30' }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProblemsSlider() {
+  const { active, dir, progressKey, paused, timeLeft, frozenFill, containerRef, go, handleClick, prev, next } = useSlider(PROBLEM_SLIDES.length);
+  const slide = PROBLEM_SLIDES[active];
+
+  return (
+    <div ref={containerRef} className="relative cursor-pointer" onClick={handleClick}>
+      <SliderCountdown paused={paused} timeLeft={timeLeft} />
+
+      {/* Tab labels */}
+      <div className="flex justify-center gap-2 mb-10 flex-wrap">
+        {PROBLEM_SLIDES.map((s, i) => {
+          const Icon = s.badgeIcon;
+          const isActive = i === active;
+          return (
+            <button key={i} onClick={() => go(i)}
+              className="relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold overflow-hidden"
+              style={isActive ? { backgroundColor: 'rgba(255,255,255,0.25)', color: '#1A0A0A' } : { backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)', transition: 'all 0.2s' }}>
+              <SliderFill isActive={isActive} paused={paused} progressKey={progressKey} frozenFill={frozenFill} />
+              <span className="relative z-10 flex items-center gap-2"><Icon size={13} />{s.badge}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+        {/* Visual side */}
+        <div className="relative overflow-hidden" style={{ height: 600 }}>
+          <AnimatePresence initial={false}>
+            <motion.div key={active} style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}
+              initial={{ opacity: 0, x: dir * 50 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: dir * -50 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}>
+              <ProblemVisual slide={slide} />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Text side */}
+        <div className="relative overflow-hidden" style={{ height: 600 }}>
+          <AnimatePresence initial={false}>
+            <motion.div key={active} style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}
+              initial={{ opacity: 0, x: dir * 40 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: dir * -40 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}>
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ backgroundColor: slide.color + '20' }}>
+                  <slide.badgeIcon size={15} style={{ color: slide.color }} />
+                </div>
+                <span className="text-sm font-semibold" style={{ color: slide.color }}>{slide.badge}</span>
+              </div>
+              <h3 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight mb-2" style={{ fontFamily: 'Merriweather, serif' }}>
+                {slide.headline}
+              </h3>
+              <p className="text-lg font-semibold mb-6" style={{ color: slide.color }}>{slide.accent}</p>
+              <p className="text-base leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{slide.desc}</p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-center gap-6 mt-12">
+        <button onClick={prev} className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110"
+          style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1.5px solid rgba(255,255,255,0.2)' }}>
+          <ChevronLeft size={20} className="text-white" />
+        </button>
+        <div className="flex items-center gap-2.5">
+          {PROBLEM_SLIDES.map((_, i) => (
+            <button key={i} onClick={() => go(i)} className="transition-all duration-200 rounded-full"
+              style={{ width: i === active ? 28 : 8, height: 8, backgroundColor: i === active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)' }} />
+          ))}
+        </div>
+        <button onClick={next} className="w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110"
+          style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1.5px solid rgba(255,255,255,0.2)' }}>
+          <ChevronRight size={20} className="text-white" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -286,10 +982,12 @@ export default function LandingPage() {
 
         <div className="relative z-10 max-w-4xl">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold mb-8 border border-white/20"
-            style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)' }}>
-            <Star size={12} className="text-yellow-300" />
-            🇮🇳 Built in India, for India · First 6 months free · No credit card needed
+            className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full text-sm font-bold mb-8 border border-white/25"
+            style={{ backgroundColor: 'rgba(255,255,255,0.13)', color: 'white' }}>
+            <Star size={14} className="text-yellow-300 flex-shrink-0" />
+            🇮🇳 Built by India, for India
+            <span className="w-px h-4 bg-white/20" />
+            <span className="font-medium text-white/75">First 6 months free · No credit card needed</span>
           </motion.div>
 
           <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
@@ -334,7 +1032,7 @@ export default function LandingPage() {
 
           {/* Headline */}
           <Reveal>
-            <p className="text-center text-xs font-bold uppercase tracking-widest text-amber-600 mb-4">Sound familiar?</p>
+            <p className="text-center text-base sm:text-lg font-extrabold uppercase tracking-wider text-amber-600 mb-4">Sound familiar?</p>
             <h2 className="text-4xl sm:text-5xl font-extrabold text-gray-900 text-center leading-tight mb-5"
               style={{ fontFamily: 'Merriweather, serif' }}>
               Running a chit fund on<br />pen & paper — year after year.
@@ -505,7 +1203,7 @@ export default function LandingPage() {
                 dividerColor: 'rgba(255,255,255,0.15)',
                 checkColor: '#C4B5FD',
                 badgeColor: '#EDE9FE',
-                title: 'Scale without limits',
+                title: 'Scale without the paperwork',
                 desc: 'Run 50 chit groups the same way you run 5. ChitWise handles the tracking so you can focus on growing your business.',
               },
             ].map(({ icon: Icon, cardBg, iconBg, iconColor, titleColor, descColor, dividerColor, checkColor, badgeColor, title, desc }, i) => (
@@ -537,7 +1235,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
 
           <Reveal>
-            <p className="text-center text-xs font-bold uppercase tracking-widest mb-4" style={{ color: '#FCA5A5' }}>
+            <p className="text-center text-base sm:text-lg font-extrabold uppercase tracking-wider mb-4" style={{ color: '#FCA5A5' }}>
               When records break down
             </p>
             <h2 className="text-4xl sm:text-5xl font-extrabold text-white text-center leading-tight mb-5"
@@ -549,115 +1247,8 @@ export default function LandingPage() {
             </p>
           </Reveal>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-16 items-start">
-
-            {/* WhatsApp dispute mockup */}
-            <Reveal dir="left">
-              <div className="rounded-3xl overflow-hidden shadow-2xl border border-red-900/30">
-                <div className="px-4 py-3 flex items-center gap-3" style={{ backgroundColor: '#075E54' }}>
-                  <div className="w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">RK</div>
-                  <div>
-                    <p className="text-sm font-bold text-white">Ramesh (Member)</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>1 Lakh - Group 1 (Jan 2026)</p>
-                  </div>
-                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500 text-white font-semibold">Real situation</span>
-                </div>
-                <div className="p-4 space-y-3" style={{ backgroundColor: '#0B141A' }}>
-                  {[
-                    { from: 'member', text: 'Bhai, I paid ₹5,000 last month. Why is it showing unpaid in your list?', time: '10:14 AM' },
-                    { from: 'admin',  text: "Ramesh bhai I am checking the register... I don't see your payment here", time: '10:22 AM' },
-                    { from: 'member', text: 'I paid cash to Ravi anna! Ask him!', time: '10:23 AM' },
-                    { from: 'admin',  text: "Ravi says he didn't collect from you this draw...", time: '10:35 AM' },
-                    { from: 'member', text: 'Are you calling me a liar??? I have given ₹40,000 over 8 draws without any problem!!', time: '10:36 AM' },
-                    { from: 'admin',  text: '😰 Ramesh bhai please calm down, let me check with Ravi again...', time: '10:52 AM' },
-                    { from: 'member', text: 'I am telling everyone in the group about this. This is not okay.', time: '10:53 AM' },
-                  ].map((msg, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, y: 10 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: false }}
-                      transition={{ delay: 0.1 + i * 0.1, duration: 0.4 }}
-                      className={`flex ${msg.from === 'admin' ? 'justify-start' : 'justify-end'}`}
-                    >
-                      <div className="max-w-[80%] rounded-2xl px-3 py-2 shadow-sm"
-                        style={{ backgroundColor: msg.from === 'admin' ? '#202C33' : '#005C4B' }}>
-                        <p className="text-xs text-white leading-relaxed">{msg.text}</p>
-                        <p className="text-right mt-1" style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{msg.time}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: false }}
-                    transition={{ delay: 1, duration: 0.6 }}
-                    className="rounded-xl px-3 py-2 border border-red-900/50"
-                    style={{ backgroundColor: 'rgba(239,68,68,0.12)' }}
-                  >
-                    <p className="text-xs text-red-400 font-semibold">⚠️ No receipt. No digital record. No way to prove either side.</p>
-                  </motion.div>
-                </div>
-              </div>
-            </Reveal>
-
-            {/* Failure scenarios */}
-            <Reveal dir="right" delay={0.1}>
-              <div className="space-y-5 pt-2">
-                {[
-                  {
-                    icon: FileText,
-                    color: '#F87171',
-                    bg: 'rgba(248,113,113,0.12)',
-                    border: 'rgba(248,113,113,0.2)',
-                    title: '"The register got damaged"',
-                    desc: 'A notebook destroyed in rain, a page torn out, entries crossed and re-written — years of member records gone or disputed. No way to recover the truth.',
-                  },
-                  {
-                    icon: Trophy,
-                    color: '#FBBF24',
-                    bg: 'rgba(251,191,36,0.12)',
-                    border: 'rgba(251,191,36,0.2)',
-                    title: '"Who actually won the draw?"',
-                    desc: 'Draw run verbally in a room. Winner announced. But another member contests it a week later. Without an audit trail, there is no official record — just conflicting memories.',
-                  },
-                  {
-                    icon: IndianRupee,
-                    color: '#34D399',
-                    bg: 'rgba(52,211,153,0.12)',
-                    border: 'rgba(52,211,153,0.2)',
-                    title: '"The cash that never reached"',
-                    desc: "A staff member collected from 6 members. Says it was ₹30,000. The register shows ₹25,000. No receipts were given. Two members swear they paid. Who's right?",
-                  },
-                  {
-                    icon: AlertTriangle,
-                    color: '#A78BFA',
-                    bg: 'rgba(167,139,250,0.12)',
-                    border: 'rgba(167,139,250,0.2)',
-                    title: 'One dispute can collapse everything',
-                    desc: 'Word spreads fast in a neighbourhood. One unresolved payment dispute, one unclear draw result, and members start pulling out. A chit fund runs on trust — and trust is fragile.',
-                  },
-                ].map(({ icon: Icon, color, bg, border, title, desc }, i) => (
-                  <motion.div
-                    key={title}
-                    initial={{ opacity: 0, x: 30 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: false }}
-                    transition={{ delay: 0.1 + i * 0.12, duration: 0.5 }}
-                    className="flex gap-4 p-5 rounded-2xl"
-                    style={{ backgroundColor: bg, border: `1px solid ${border}` }}
-                  >
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
-                      <Icon size={18} style={{ color }} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white mb-1">{title}</h4>
-                      <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.6)' }}>{desc}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </Reveal>
+          <div className="mb-16">
+            <ProblemsSlider />
           </div>
 
           {/* Transition to solution */}
@@ -687,7 +1278,7 @@ export default function LandingPage() {
                 icon: Trophy,
                 iconColor: '#FCD34D',
                 title: 'Draw results on record forever',
-                desc: 'Every draw — winner, dividend, admin commission, and disbursement — logged with full history. Fully isolated to your organisation. Not even ChitWise can view it.',
+                desc: 'Every draw — winner, dividend, admin commission, and disbursement — logged with full history. Fully isolated to your organisation, protected by role-based access controls.',
                 note: '🔒 Your organisation only — fully isolated',
               },
               {
@@ -725,9 +1316,9 @@ export default function LandingPage() {
               style={{ backgroundColor: 'rgba(147,197,253,0.07)', border: '1px solid rgba(147,197,253,0.15)' }}>
               <Lock size={18} className="flex-shrink-0 mt-0.5" style={{ color: '#93C5FD' }} />
               <p className="text-sm leading-relaxed" style={{ color: 'rgba(255,255,255,0.65)' }}>
-                <span className="font-semibold text-white">Everything is encrypted, end-to-end.</span>{' '}
+                <span className="font-semibold text-white">Encrypted in transit and at rest.</span>{' '}
                 Your organisation's data is fully isolated — members, payments, draw records, and reports are visible only to your admin and staff (limited access).
-                Not other organisations. Not ChitWise. Only you.
+                No other organisation can access your data. Access within ChitWise is governed by strict role-based controls.
               </p>
             </div>
           </Reveal>
@@ -754,30 +1345,18 @@ export default function LandingPage() {
           </Reveal>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
-              { val: '₹1.5L Cr+', label: 'Estimated annual chit fund collections in India', sub: 'organized + unorganized sector' },
-              { val: '5 Cr+',     label: 'Indians actively participate in chit funds', sub: 'across all income groups' },
-              { val: '₹500–₹10L', label: 'Chit value range — accessible to every income group', sub: 'from small neighbourhood groups to large corporate chitties' },
-              { val: '25,000+',   label: 'Registered chit fund companies', sub: 'under Chit Funds Act, 1982' },
+              { val: 'Centuries old', label: "India's chit fund tradition", sub: 'predating modern banking by generations' },
+              { val: 'Every state',   label: 'Chit funds exist across all of India', sub: 'from Tamil Nadu to Rajasthan, in every community' },
+              { val: '₹500–₹10L',    label: 'Accessible at every income level', sub: 'from small neighbourhood groups to large registered companies' },
+              { val: 'Still on paper', label: 'How most chit funds run today', sub: 'ChitWise is built to change exactly this' },
             ].map(({ val, label, sub }, i) => (
               <Reveal key={label} delay={i * 0.1}>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: false }}
-                  transition={{ delay: i * 0.1, duration: 0.6 }}
-                >
-                  <p className="text-3xl sm:text-4xl font-extrabold mb-2" style={{ color: '#93C5FD' }}>{val}</p>
-                  <p className="text-xs font-semibold text-white leading-snug mb-1">{label}</p>
-                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>{sub}</p>
-                </motion.div>
+                <p className="text-3xl sm:text-4xl font-extrabold mb-2" style={{ color: '#93C5FD' }}>{val}</p>
+                <p className="text-xs font-semibold text-white leading-snug mb-1">{label}</p>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>{sub}</p>
               </Reveal>
             ))}
           </div>
-          <Reveal delay={0.4}>
-            <p className="text-center text-xs mt-12" style={{ color: 'rgba(255,255,255,0.25)' }}>
-              Sources: RBI Financial Inclusion Reports, NITI Aayog, Foreman Commission of India (estimates)
-            </p>
-          </Reveal>
         </div>
       </section>
 
@@ -899,336 +1478,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Feature 2 — Admin Dashboard (real app look) ── */}
-      <section className="py-16 sm:py-32 px-4 sm:px-8" style={{ backgroundColor: P }}>
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-          <Reveal dir="left" delay={0.1}>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold mb-6"
-              style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)' }}>
-              <BarChart2 size={12} /> Admin dashboard
-            </div>
-            <h2 className="text-4xl md:text-5xl font-extrabold text-white leading-snug mb-6"
-              style={{ fontFamily: 'Merriweather, serif' }}>
-              Everything at a<br /><span style={{ color: '#93C5FD' }}>glance.</span>
-            </h2>
-            <p className="text-white/70 text-lg leading-relaxed mb-8">
-              Collections, payouts, treasury balance, draw status, cash pickup workflow — your entire operation visible from one screen.
-            </p>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { icon: BookOpen,    label: 'Live chit group overview' },
-                { icon: IndianRupee, label: 'Cash & digital collections' },
-                { icon: Trophy,      label: 'Draw winner tracking' },
-                { icon: Wallet,      label: 'Treasury balance' },
-              ].map(({ icon: Icon, label }) => (
-                <div key={label} className="flex items-center gap-3 bg-white/10 rounded-2xl px-4 py-3">
-                  <Icon size={15} className="text-blue-300 flex-shrink-0" />
-                  <span className="text-sm text-white/80">{label}</span>
-                </div>
-              ))}
-            </div>
-          </Reveal>
-
-          {/* Admin dashboard mockup — hidden on small screens */}
-          <Reveal dir="right" delay={0.2} className="hidden lg:block">
-            <AppFrame url="app.chitwise.in/dashboard" dark>
-              <div className="flex" style={{ backgroundColor: '#F0F2F5', height: 420 }}>
-                {/* Sidebar */}
-                <div className="w-36 bg-white border-r border-gray-100 flex flex-col py-3 px-2 flex-shrink-0">
-                  <div className="flex items-center gap-1.5 px-2 mb-4">
-                    <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ backgroundColor: P }}>
-                      <BookOpen size={10} className="text-white" />
-                    </div>
-                    <span className="text-xs font-bold" style={{ color: P, fontFamily: 'Merriweather, serif' }}>ChitWise</span>
-                  </div>
-                  {SIDEBAR_NAV.map(({ icon, label, active }) => (
-                    <SideNavItem key={label} icon={icon} label={label} active={active} />
-                  ))}
-                </div>
-
-                {/* Main */}
-                <div className="flex-1 overflow-hidden p-3 flex flex-col gap-3">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold" style={{ color: P, fontFamily: 'Merriweather, serif' }}>Welcome back, Admin</p>
-                      <p className="text-xs text-gray-400">Here's what's happening with your chit funds today.</p>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <div className="px-2.5 py-1 rounded-lg text-xs font-semibold text-white" style={{ backgroundColor: P }}>+ New Chit</div>
-                      <div className="px-2.5 py-1 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 bg-white">+ Add Member</div>
-                    </div>
-                  </div>
-
-                  {/* At a Glance */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <BookOpen size={11} style={{ color: P }} />
-                      <span className="text-xs font-semibold text-gray-700">At a Glance</span>
-                      <div className="flex-1 h-px bg-gray-100" />
-                    </div>
-                    <div className="grid grid-cols-5 gap-2">
-                      <AppStatCard icon={BookOpen}    label="Total Chits"    value="12" color="#1E3A5F" sub="10 active" />
-                      <AppStatCard icon={CreditCard}  label="Active Chits"   value="10" color="#16A34A" />
-                      <AppStatCard icon={Users}       label="Members"        value="248" color="#D4A017" />
-                      <AppStatCard icon={Banknote}    label="Pending Payout" value="3"  color="#7C3AED" sub="winner selected" />
-                      <AppStatCard icon={Trophy}      label="Pending Disbursement" value="2" color="#DC2626" sub="not disbursed" />
-                    </div>
-                  </div>
-
-                  {/* Recent tables */}
-                  <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60">
-                        <span className="text-xs font-semibold text-gray-800">Recent Chit Funds</span>
-                        <span className="text-xs text-blue-600">View all →</span>
-                      </div>
-                      <ChitRow name="1 Lakh - Group 1 (Nov 2024)"  amount="5,000"  members={20} status="ACTIVE" />
-                      <ChitRow name="20K - Group 2 (Mar 2025)"     amount="2,000"  members={10} status="ACTIVE" />
-                      <ChitRow name="4 Lakhs - Group 3 (Apr 2024)" amount="10,000" members={40} status="COMPLETED" />
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-gray-50/60">
-                        <span className="text-xs font-semibold text-gray-800">Recent Members</span>
-                        <span className="text-xs text-blue-600">View all →</span>
-                      </div>
-                      <MemberRow name="Venkatesh R."  phone="+91 98765 43210" initial="V" />
-                      <MemberRow name="Padmavathi K." phone="+91 87654 32109" initial="P" />
-                      <MemberRow name="Suresh Babu"   phone="+91 76543 21098" initial="S" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </AppFrame>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ── Feature 3 — Draw collections (real app look) ── */}
-      <section className="py-16 sm:py-32 px-4 sm:px-8 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-20 items-center">
-          {/* Chit detail mockup — hidden on small screens */}
-          <Reveal dir="left" delay={0.1} className="hidden lg:block">
-            <AppFrame url="app.chitwise.in/chits/42">
-              <div style={{ backgroundColor: '#F0F2F5' }}>
-                {/* Page header */}
-                <div className="flex items-center gap-3 px-5 py-3 bg-white border-b border-gray-100">
-                  <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#EFF4FA' }}>
-                    <ArrowLeft size={12} style={{ color: P }} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold" style={{ color: P }}>1 Lakh - Group 1 (Nov 2024)</p>
-                    <p className="text-xs text-gray-400">₹1,00,000 · 20 members · Draw 8 / 20</p>
-                  </div>
-                  <span className="ml-auto text-xs px-2.5 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">ACTIVE</span>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex gap-2 px-5 py-3 bg-white border-b border-gray-100 overflow-x-auto">
-                  {['Overview', 'Members', 'Draws', 'Payments', 'Payouts'].map((tab) => (
-                    <button key={tab} className="text-xs font-semibold rounded-full px-3 py-1.5 whitespace-nowrap"
-                      style={tab === 'Draws'
-                        ? { backgroundColor: P, color: 'white', border: `1.5px solid ${P}` }
-                        : { backgroundColor: 'white', color: '#374151', border: '1.5px solid #D1D5DB' }}>
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Draw 8 */}
-                <div className="px-4 py-3">
-                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-                      <div>
-                        <p className="text-xs font-bold text-gray-900">Draw 8 — July 2025</p>
-                        <p className="text-xs text-gray-400">₹15,000 collected of ₹20,000</p>
-                      </div>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">In Progress</span>
-                    </div>
-                    <div className="divide-y divide-gray-50">
-                      {DRAW_ROWS.map(({ name, draw, amount, status, color, bg }) => (
-                        <motion.div key={name}
-                          initial={{ opacity: 0, x: -16 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: false }}
-                          transition={{ delay: 0.15, duration: 0.45 }}
-                          className="flex items-center justify-between px-4 py-2.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                              style={{ backgroundColor: P }}>
-                              {name.split(' ').map(w => w[0]).join('')}
-                            </div>
-                            <div>
-                              <p className="text-xs font-medium text-gray-900">{name}</p>
-                              <p className="text-xs text-gray-400">Draw {draw} / 20</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-gray-800">{amount}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: bg, color }}>{status}</span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                    <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-100">
-                      <p className="text-xs text-yellow-800 font-semibold">🏆 Prized: Venkatesh R. — Dividend ₹4,200 · Admin commission ₹4,000</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </AppFrame>
-          </Reveal>
-
-          <Reveal dir="right" delay={0.15}>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold mb-6"
-              style={{ backgroundColor: '#EFF4FA', color: P }}>
-              <Zap size={12} /> Real-time draw tracking
-            </div>
-            <h2 className="text-4xl md:text-5xl font-extrabold text-gray-900 leading-snug mb-6"
-              style={{ fontFamily: 'Merriweather, serif' }}>
-              Draw collections<br /><span style={{ color: P }}>tracked live.</span>
-            </h2>
-            <p className="text-gray-500 text-lg leading-relaxed mb-8">
-              Record installments, track pending members per draw, and close each chit auction in one click.
-              Cash and digital collections — all in one view.
-            </p>
-            <ul className="space-y-4">
-              {[
-                'Draw-wise collection view — collected vs pending',
-                'Cash & digital payment tracking in one place',
-                'Prized member selection with dividend calculation',
-                'Full admin audit trail per draw',
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3 text-gray-600 text-sm">
-                  <Check size={16} className="flex-shrink-0 mt-0.5 text-green-500" />{item}
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ── Feature 4 — Member portal (real app look) ── */}
-      <section className="py-16 sm:py-32 px-4 sm:px-8" style={{ backgroundColor: P }}>
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-          <Reveal dir="left" delay={0.1}>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold mb-6"
-              style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)' }}>
-              <UserCheck size={12} /> Member self-service
-            </div>
-            <h2 className="text-4xl md:text-5xl font-extrabold text-white leading-snug mb-6"
-              style={{ fontFamily: 'Merriweather, serif' }}>
-              Every member gets<br /><span style={{ color: '#93C5FD' }}>their own portal.</span>
-            </h2>
-            <p className="text-white/70 text-lg leading-relaxed mb-8">
-              Members can view their chit group status, installment history, upcoming draws, and payout schedule.
-              Fewer calls to the admin, happier members.
-            </p>
-            <ul className="space-y-4">
-              {[
-                'Instant portal access after joining — no paper forms',
-                'Installment receipts and draw history always available',
-                'Draw results and prize notifications in real-time',
-                'See exactly when their payout draw is scheduled',
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3 text-white/80 text-sm">
-                  <Check size={16} className="flex-shrink-0 mt-0.5 text-green-400" />{item}
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-
-          {/* Member portal mockup — hidden on small screens */}
-          <Reveal dir="right" delay={0.2} className="hidden lg:block">
-            <AppFrame url="member.chitwise.in" dark>
-              <div style={{ backgroundColor: '#F0F2F5' }}>
-                {/* Member header */}
-                <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: P }}>VR</div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">Venkatesh Reddy</p>
-                      <p className="text-xs text-gray-400">Member #2041</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Bell size={14} className="text-gray-400" />
-                  </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="bg-white border-b border-gray-100 px-4 py-2 flex gap-2">
-                  {MEMBER_TABS.map(({ label, icon: Icon, active, color }) => (
-                    <button key={label} className="flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5"
-                      style={active
-                        ? { backgroundColor: P, color: 'white', border: `1.5px solid ${P}` }
-                        : { backgroundColor: 'white', color: '#6B7280', border: '1.5px solid #D1D5DB' }}>
-                      <Icon size={11} />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Home tab content */}
-                <div className="p-4 space-y-3">
-                  {/* Chit card — matches CHIT_STATUS.ACTIVE styling */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: false }}
-                    transition={{ duration: 0.45 }}
-                    className="bg-white rounded-xl border shadow-sm overflow-hidden"
-                    style={{ borderColor: '#86EFAC' }}>
-                    <div className="px-4 py-3 border-b" style={{ backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }}>
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-gray-800">LAKSHMI CHIT GROUP</p>
-                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-green-100 text-green-700">Active</span>
-                      </div>
-                    </div>
-                    <div className="px-4 py-3 grid grid-cols-3 gap-4">
-                      {[
-                        { label: 'Chit value',     val: '₹1,00,000' },
-                        { label: 'Draw',            val: '8 / 20' },
-                        { label: 'My installment',  val: '₹4,600' },
-                      ].map(({ label, val }) => (
-                        <div key={label}>
-                          <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                          <p className="text-sm font-bold text-gray-900">{val}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="px-4 py-2 border-t border-gray-50 flex items-center justify-between">
-                      <p className="text-xs text-gray-400">Not yet prized</p>
-                      <p className="text-xs font-semibold" style={{ color: P }}>Next draw: Aug 1 →</p>
-                    </div>
-                  </motion.div>
-
-                  {/* Quick stats */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#1E3A5F18' }}>
-                        <IndianRupee size={13} style={{ color: P }} />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">Total paid</p>
-                        <p className="text-sm font-bold text-gray-900">₹36,800</p>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#D4A01718' }}>
-                        <Trophy size={13} style={{ color: '#D4A017' }} />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">Draws left</p>
-                        <p className="text-sm font-bold text-gray-900">12 draws</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Notification */}
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                    <p className="text-xs text-amber-800 font-semibold">🔔 Draw 8: Padmavathi K. is prized — ₹96,000 payout after commission</p>
-                  </div>
-                </div>
-              </div>
-            </AppFrame>
-          </Reveal>
+      {/* ── Feature Slider ── */}
+      <section className="py-16 sm:py-24 px-4 sm:px-8" style={{ backgroundColor: P }}>
+        <div className="max-w-7xl mx-auto">
+          <FeatureSlider />
         </div>
       </section>
 
@@ -1268,7 +1521,7 @@ export default function LandingPage() {
               Your data stays yours. Always.
             </h2>
             <p className="text-center text-gray-500 mb-12 max-w-xl mx-auto">
-              In India, trust is everything. We built ChitWise so that your members' data, collections, and financials are never visible to anyone outside your organisation — not even us.
+              Your organisation's data stays isolated. Members, payments, draw records, and reports are protected by role-based access controls and are not accessible to other organisations. ChitWise support personnel may access data only when necessary to provide support and with appropriate authorisation.
             </p>
           </Reveal>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -1337,14 +1590,28 @@ export default function LandingPage() {
             <div className="relative">
               {planCanLeft && (
                 <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })}
-                  className="scroll-arrow-glow absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                  <ChevronLeft size={18} />
+                  className="absolute -left-5 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 cursor-pointer"
+                  style={{
+                    backdropFilter: 'blur(16px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                    backgroundColor: 'rgba(255,255,255,0.22)',
+                    border: '1px solid rgba(255,255,255,0.5)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+                  }}>
+                  <ChevronLeft size={20} className="text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }} />
                 </button>
               )}
               {planCanRight && (
                 <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })}
-                  className="scroll-arrow-glow absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                  <ChevronRight size={18} />
+                  className="absolute -right-5 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-110 cursor-pointer"
+                  style={{
+                    backdropFilter: 'blur(16px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                    backgroundColor: 'rgba(255,255,255,0.22)',
+                    border: '1px solid rgba(255,255,255,0.5)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+                  }}>
+                  <ChevronRight size={20} className="text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }} />
                 </button>
               )}
             <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
@@ -1423,6 +1690,57 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
+      {/* ── About ── */}
+      <section className="py-16 sm:py-28 px-4 sm:px-8 border-t border-gray-100" style={{ backgroundColor: '#FDFBF7' }}>
+        <div className="max-w-3xl mx-auto">
+          <Reveal>
+            <p className="text-xs font-bold tracking-widest uppercase mb-5" style={{ color: P }}>About ChitWise</p>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 leading-snug mb-10" style={{ fontFamily: 'Merriweather, serif' }}>
+              Built for the people who run<br />India's chit-fund businesses.
+            </h2>
+          </Reveal>
+          <div className="space-y-5">
+            <Reveal delay={0.1}>
+              <p className="text-lg text-gray-600 leading-relaxed">
+                ChitWise started as a personal project. My mother runs chit funds — keeping paper ledgers,
+                chasing payments, reconciling draw records by hand. I built the first version just for her.
+              </p>
+            </Reveal>
+            <Reveal delay={0.13}>
+              <p className="text-lg text-gray-600 leading-relaxed">
+                Every problem you saw on this page — the payment disputes, the missing records, the arguments
+                at draw time — my parents dealt with all of it. Not as examples. As their actual life.
+              </p>
+            </Reveal>
+            <Reveal delay={0.18}>
+              <p className="text-lg text-gray-600 leading-relaxed">
+                Then I realised: their problem isn't unique. Thousands of chit-fund organisers across India
+                are running businesses that move crores of rupees, still on notebooks and WhatsApp threads.
+                ChitWise exists to change that.
+              </p>
+            </Reveal>
+            <Reveal delay={0.2}>
+              <p className="text-lg text-gray-600 leading-relaxed">
+                That origin is also why our pricing is what it is — accessible enough that the organiser
+                running 20 chits from a small town can use the same tools as a registered company managing 200.
+              </p>
+            </Reveal>
+          </div>
+          <Reveal delay={0.25}>
+            <div className="mt-10 pt-8 border-t border-gray-200 flex items-center gap-4">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
+                style={{ backgroundColor: P }}>
+                S
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">Sai Srinivas Gada</p>
+                <p className="text-sm text-gray-500">Founder · ChitWise</p>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
       {/* ── Final CTA ── */}
       <section className="relative py-24 sm:py-40 px-4 sm:px-8 text-center overflow-hidden" style={{ backgroundColor: P }}>
         <div className="absolute inset-0 pointer-events-none"
@@ -1464,7 +1782,6 @@ export default function LandingPage() {
             </div>
             <span className="font-bold text-gray-700" style={{ fontFamily: 'Merriweather, serif' }}>ChitWise</span>
           </div>
-          <p className="text-sm text-gray-400">© {new Date().getFullYear()} ChitWise</p>
           <div className="flex items-center gap-6">
             <button onClick={() => navigate('/login')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Sign in</button>
             <button onClick={() => navigate('/register')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Register</button>
@@ -1472,7 +1789,8 @@ export default function LandingPage() {
             <button onClick={() => navigate('/terms')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Terms</button>
           </div>
         </div>
-        <div className="max-w-6xl mx-auto mt-4 text-center space-y-1">
+        <div className="max-w-6xl mx-auto mt-6 text-center space-y-1">
+          <p className="text-sm text-gray-400">© {new Date().getFullYear()} ChitWise</p>
           <p className="text-xs text-gray-400">🇮🇳 Indian-owned · Built for India's chit fund businesses</p>
           <p className="text-xs text-gray-400">For any enquiries: <a href="mailto:saisrinivasgada@gmail.com" className="text-gray-500 hover:text-gray-700 underline">saisrinivasgada@gmail.com</a></p>
         </div>

@@ -76,6 +76,8 @@ public class TenantService {
                 .contactPhone(req.getAdminPhone())
                 .contactEmail(req.getAdminEmail())
                 .referralCode(referralCode)
+                .termsAcceptedAt(java.time.LocalDateTime.now())
+                .termsVersion("1.0")
                 .build();
         tenantRepository.save(tenant);
 
@@ -108,6 +110,8 @@ public class TenantService {
                 .mustChangePassword(false)
                 .role(Role.ADMIN)
                 .tenantId(tenant.getId().toString())
+                .termsAcceptedAt(java.time.LocalDateTime.now())
+                .termsVersion("1.0")
                 .build();
         userRepository.save(admin);
 

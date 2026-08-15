@@ -1,5 +1,6 @@
 package com.chitfund.userservice.dto.request;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -44,4 +45,7 @@ public class RegisterOrgRequest {
     private String plan; // BASIC | GROWTH | ENTERPRISE — defaults to BASIC
 
     private String promoCode; // optional promo or referral code applied at registration
+
+    @AssertTrue(message = "You must accept the Terms of Service to register")
+    private boolean termsAccepted;
 }

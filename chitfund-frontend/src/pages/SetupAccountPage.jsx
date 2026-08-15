@@ -19,6 +19,7 @@ export default function SetupAccountPage() {
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState('');
   const [done, setDone]                   = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   if (!token) {
     return (
@@ -37,10 +38,11 @@ export default function SetupAccountPage() {
     e.preventDefault();
     if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
     if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    if (!termsAccepted) { setError('Please accept the Terms of Service to continue.'); return; }
     setError('');
     setLoading(true);
     try {
-      const result = await setupAccount({ token, newPassword, fullName: fullName || undefined });
+      const result = await setupAccount({ token, newPassword, fullName: fullName || undefined, termsAccepted });
       // result is LoginResponse or AuthResponse
       if (result?.requiresTenantSelection && result.tenants?.length > 0) {
         if (result.tenants.length === 1) {
@@ -169,7 +171,27 @@ export default function SetupAccountPage() {
             </div>
           )}
 
-          <Button type="submit" loading={loading} className="w-full mt-2">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              onChange={e => setTermsAccepted(e.target.checked)}
+              className="mt-0.5 w-4 h-4 flex-shrink-0 cursor-pointer accent-[#1E3A5F]"
+            />
+            <span className="text-sm text-gray-600 leading-relaxed">
+              I agree to the ChitWise{' '}
+              <button type="button" onClick={() => window.open('/terms', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
+                Terms of Service
+              </button>
+              {' '}and acknowledge the{' '}
+              <button type="button" onClick={() => window.open('/privacy', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
+                Privacy Policy
+              </button>
+              .
+            </span>
+          </label>
+
+          <Button type="submit" loading={loading} disabled={!termsAccepted} className="w-full mt-2">
             Activate account
           </Button>
         </form>

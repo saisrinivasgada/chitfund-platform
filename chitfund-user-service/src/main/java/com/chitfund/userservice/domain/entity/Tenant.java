@@ -61,6 +61,11 @@ public class Tenant {
 
     private LocalDateTime promoDiscountUntil;
 
+    private LocalDateTime termsAcceptedAt;
+
+    @Column(length = 20)
+    private String termsVersion;
+
     @Column(columnDefinition = "char(36)")
     private UUID createdBy;
 

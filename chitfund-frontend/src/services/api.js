@@ -61,8 +61,8 @@ export const registerOrg = async (body) => {
 };
 
 // Member sets up their account via SMS link token
-export const setupAccount = async ({ token, newPassword, fullName }) => {
-  const res = await api.post('/auth/setup-account', { token, newPassword, fullName });
+export const setupAccount = async ({ token, newPassword, fullName, termsAccepted }) => {
+  const res = await api.post('/auth/setup-account', { token, newPassword, fullName, termsAccepted });
   return res.data.data; // AuthResponse or LoginResponse
 };
 

@@ -121,6 +121,11 @@ public class User implements UserDetails {
 
     private LocalDateTime passwordResetTokenExpiresAt;
 
+    private LocalDateTime termsAcceptedAt;
+
+    @Column(length = 20)
+    private String termsVersion;
+
     private LocalDateTime lastLoginAt;
 
     private LocalDateTime deletedAt;

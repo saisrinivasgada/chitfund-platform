@@ -93,6 +93,7 @@ export default function RegisterOrgPage() {
   const [error, setError]             = useState('');
   const [fe, setFe]                   = useState({});
   const [done, setDone]               = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   // Promo code state
   const [promoValidating, setPromoValidating] = useState(false);
   const [promoResult, setPromoResult]         = useState(null); // null | { valid, discountPct, label, referralOrgName, errorMessage }
@@ -233,10 +234,14 @@ export default function RegisterOrgPage() {
       setError('Please verify your phone number before submitting.');
       return;
     }
+    if (!termsAccepted) {
+      setError('Please accept the Terms of Service to continue.');
+      return;
+    }
     setLoading(true);
     setFe({});
     try {
-      await registerOrg({ ...form });
+      await registerOrg({ ...form, termsAccepted });
       setDone(true);
     } catch (err) {
       const fieldErrors = err.response?.data?.fieldErrors;
@@ -603,14 +608,28 @@ export default function RegisterOrgPage() {
                 <div className="relative">
                   {planCanLeft && (
                     <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: -280, behavior: 'smooth' })}
-                      className="scroll-arrow-glow absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                      <ChevronLeft size={18} />
+                      className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                      style={{
+                        backdropFilter: 'blur(16px) saturate(180%)',
+                        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                        backgroundColor: 'rgba(255,255,255,0.65)',
+                        border: '1px solid rgba(255,255,255,0.85)',
+                        boxShadow: '0 4px 16px rgba(30,58,95,0.12), inset 0 1px 0 rgba(255,255,255,1)',
+                      }}>
+                      <ChevronLeft size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                     </button>
                   )}
                   {planCanRight && (
                     <button type="button" onClick={() => planScrollRef.current?.scrollBy({ left: 280, behavior: 'smooth' })}
-                      className="scroll-arrow-glow absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                      <ChevronRight size={18} />
+                      className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                      style={{
+                        backdropFilter: 'blur(16px) saturate(180%)',
+                        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                        backgroundColor: 'rgba(255,255,255,0.65)',
+                        border: '1px solid rgba(255,255,255,0.85)',
+                        boxShadow: '0 4px 16px rgba(30,58,95,0.12), inset 0 1px 0 rgba(255,255,255,1)',
+                      }}>
+                      <ChevronRight size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                     </button>
                   )}
                 <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
@@ -713,14 +732,36 @@ export default function RegisterOrgPage() {
 
             {/* Submit */}
             {form.plan === 'CUSTOM' && (
-              <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700 leading-relaxed">
+              <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700 leading-relaxed mb-5">
                 You've selected the <strong>Custom plan</strong>. Submit your details and our sales team will contact you to design a plan that works for you.
               </div>
             )}
+
+            {/* Terms checkbox */}
+            <label className="flex items-start gap-3 cursor-pointer mb-5 select-none">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={e => setTermsAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 flex-shrink-0 cursor-pointer accent-[#1E3A5F]"
+              />
+              <span className="text-sm text-gray-600 leading-relaxed">
+                I agree to the ChitWise{' '}
+                <button type="button" onClick={() => window.open('/terms', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
+                  Terms of Service
+                </button>
+                {' '}and acknowledge the{' '}
+                <button type="button" onClick={() => window.open('/privacy', '_blank')} className="underline text-[#1E3A5F] hover:opacity-75">
+                  Privacy Policy
+                </button>
+                .
+              </span>
+            </label>
+
             <button
               type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 cursor-pointer"
+              disabled={loading || !termsAccepted}
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-xl text-white text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 cursor-pointer"
               style={{ backgroundColor: '#1E3A5F' }}
             >
               {loading ? (
@@ -732,13 +773,6 @@ export default function RegisterOrgPage() {
                 <>Submit application <ChevronRight size={18} /></>
               )}
             </button>
-
-            <p className="text-center text-xs text-gray-400 mt-5">
-              By submitting, you agree to ChitWise{' '}
-              <button type="button" onClick={() => navigate('/terms')} className="underline hover:text-gray-600 cursor-pointer">Terms of Service</button>
-              {' '}and{' '}
-              <button type="button" onClick={() => navigate('/privacy')} className="underline hover:text-gray-600 cursor-pointer">Privacy Policy</button>.
-            </p>
           </form>
         </div>
       </div>
