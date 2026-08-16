@@ -545,7 +545,7 @@ export default function LoginPage() {
         }} />
 
         <div className="relative z-10">
-          <div className="flex items-center gap-4 mb-12">
+          <div className="flex items-center gap-4 mb-12 cursor-pointer" onClick={() => navigate('/')}>
             <BookOpen size={36} className="text-white flex-shrink-0" />
             <div>
               <h1 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#FFFFFF' }}>ChitWise</h1>
@@ -623,7 +623,7 @@ export default function LoginPage() {
           <div className="w-full max-w-sm">
 
             {/* Mobile logo */}
-            <div className="flex items-center gap-3 mb-10 lg:hidden">
+            <div className="flex items-center gap-3 mb-10 lg:hidden cursor-pointer" onClick={() => navigate('/')}>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#1E3A5F' }}>
                 <BookOpen size={24} className="text-white" />
               </div>

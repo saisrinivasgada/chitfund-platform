@@ -118,7 +118,7 @@ export default function AppLayout() {
             </button>
 
             {/* Centre: logo + org name */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/dashboard')}>
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ backgroundColor: '#1E3A5F' }}

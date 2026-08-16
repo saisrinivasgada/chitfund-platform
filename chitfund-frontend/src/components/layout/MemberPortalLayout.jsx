@@ -302,7 +302,7 @@ export default function MemberPortalLayout() {
       {/* Top nav */}
       <header className="print:hidden bg-white border-b border-gray-100 px-4 sm:px-8 sticky top-0 z-20">
         <div className="flex items-center justify-between h-14">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate('/member')}>
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: '#1E3A5F' }}

@@ -932,7 +932,7 @@ export default function LandingPage() {
         style={{ backdropFilter: navScrolled ? 'blur(16px)' : 'none' }}
         transition={{ duration: 0.3 }}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: P }}>
             <BookOpen size={28} className="text-white" />
           </div>

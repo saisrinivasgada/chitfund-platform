@@ -560,7 +560,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
       </button>
       {/* ── Logo row ─────────────────────────────────────────────────────── */}
       <div className={`py-4 border-b border-gray-100 flex items-center flex-shrink-0 ${collapsed ? 'lg:justify-center lg:px-0 px-4 justify-between' : 'px-4 justify-between'}`}>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate('/dashboard')}>
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: '#1E3A5F' }}
