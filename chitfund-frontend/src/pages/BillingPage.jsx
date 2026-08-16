@@ -573,7 +573,7 @@ export default function BillingPage() {
   async function handleRequestRenewal() {
     setRenewing(true); setRenewError('');
     try { await requestRenewal(); setRenewed(true); }
-    catch { setRenewError('Could not send request. Try again or contact support.'); }
+    catch { setRenewError('Could not send request. Try again or email help@thechitwise.com.'); }
     finally { setRenewing(false); }
   }
 
@@ -862,6 +862,17 @@ export default function BillingPage() {
                 )}
               </div>
             )}
+          </div>
+          {/* ── Help card ── */}
+          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 text-center">
+            <p className="text-sm font-medium text-gray-700 mb-1">Need help with billing?</p>
+            <p className="text-xs text-gray-400">
+              Reach us at{' '}
+              <a href="mailto:help@thechitwise.com" className="text-[#1E3A5F] font-medium hover:underline">
+                help@thechitwise.com
+              </a>
+              {' '}— we usually respond within one business day.
+            </p>
           </div>
         </>
       )}
