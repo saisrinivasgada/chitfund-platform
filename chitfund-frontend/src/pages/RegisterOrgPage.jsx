@@ -325,7 +325,7 @@ export default function RegisterOrgPage() {
               Back to login
             </button>
             <p className="text-center text-xs text-gray-400 mt-3">
-              Questions? Reach us at <span className="text-gray-600 font-medium">support@thechitwise.com</span>
+              Questions? Reach us at <span className="text-gray-600 font-medium">help@thechitwise.com</span>
             </p>
           </div>
         </div>

@@ -167,8 +167,8 @@ export default function PrivacyPolicyPage() {
             </p>
             <p>
               For any privacy-related queries:{' '}
-              <a href="mailto:saisrinivasgada@gmail.com" className="underline font-medium" style={{ color: P }}>
-                saisrinivasgada@gmail.com
+              <a href="mailto:help@thechitwise.com" className="underline font-medium" style={{ color: P }}>
+                help@thechitwise.com
               </a>
             </p>
           </S>
@@ -289,8 +289,8 @@ export default function PrivacyPolicyPage() {
             </div>
             <p>
               To report a suspected security issue:{' '}
-              <a href="mailto:saisrinivasgada@gmail.com" className="underline font-medium" style={{ color: P }}>
-                saisrinivasgada@gmail.com
+              <a href="mailto:help@thechitwise.com" className="underline font-medium" style={{ color: P }}>
+                help@thechitwise.com
               </a>
             </p>
           </S>
@@ -342,8 +342,8 @@ export default function PrivacyPolicyPage() {
             </ul>
             <p>
               To exercise any of these rights, contact{' '}
-              <a href="mailto:saisrinivasgada@gmail.com" className="underline font-medium" style={{ color: P }}>
-                saisrinivasgada@gmail.com
+              <a href="mailto:help@thechitwise.com" className="underline font-medium" style={{ color: P }}>
+                help@thechitwise.com
               </a>
               . We will respond within a reasonable timeframe.
             </p>
@@ -377,10 +377,10 @@ export default function PrivacyPolicyPage() {
 
           <S id="s16" title="16. Contact Us" icon={Mail} r={sectionRefs}>
             <p>For any questions about this Privacy Policy or how we handle your data:</p>
-            <a href="mailto:saisrinivasgada@gmail.com"
+            <a href="mailto:help@thechitwise.com"
               className="inline-flex items-center gap-2 mt-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
               style={{ backgroundColor: P }}>
-              <Mail size={14} /> saisrinivasgada@gmail.com
+              <Mail size={14} /> help@thechitwise.com
             </a>
           </S>
 

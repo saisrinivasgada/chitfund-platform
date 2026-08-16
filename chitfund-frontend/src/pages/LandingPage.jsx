@@ -1787,7 +1787,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto mt-6 text-center space-y-1">
           <p className="text-sm text-gray-400">© {new Date().getFullYear()} ChitWise</p>
           <p className="text-xs text-gray-400">🇮🇳 Indian-owned · Built for India's chit fund businesses</p>
-          <p className="text-xs text-gray-400">For any enquiries: <a href="mailto:saisrinivasgada@gmail.com" className="text-gray-500 hover:text-gray-700 underline">saisrinivasgada@gmail.com</a></p>
+          <p className="text-xs text-gray-400">For any enquiries: <a href="mailto:help@thechitwise.com" className="text-gray-500 hover:text-gray-700 underline">help@thechitwise.com</a></p>
         </div>
       </footer>
     </div>

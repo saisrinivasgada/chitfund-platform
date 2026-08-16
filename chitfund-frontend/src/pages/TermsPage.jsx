@@ -483,11 +483,11 @@ export default function TermsPage() {
           <S id="s27" title="27. Contact Us" icon={Mail} r={sectionRefs}>
             <p>For questions about these Terms, billing, or your account:</p>
             <a
-              href="mailto:saisrinivasgada@gmail.com"
+              href="mailto:help@thechitwise.com"
               className="inline-flex items-center gap-2 mt-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90"
               style={{ backgroundColor: P }}
             >
-              <Mail size={14} /> saisrinivasgada@gmail.com
+              <Mail size={14} /> help@thechitwise.com
             </a>
           </S>
 
