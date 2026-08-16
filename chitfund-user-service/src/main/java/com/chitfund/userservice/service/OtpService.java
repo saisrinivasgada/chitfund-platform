@@ -21,19 +21,30 @@ public class OtpService {
     private final PhoneOtpRepository otpRepo;
     private final SmsService smsService;
 
-    private static final int OTP_TTL_MINUTES = 5;
+    private static final int OTP_TTL_MINUTES = 30;
     private static final int MAX_ATTEMPTS = 3;
-    private static final int RATE_LIMIT_SECONDS = 60;
+    private static final int MAX_RESENDS = 5; // 1 initial + 5 resends = 6 total
 
     @Transactional
     public void sendOtp(String phone, String countryCode, String purpose, String userId) {
-        otpRepo.findTopByPhoneAndPurposeOrderByCreatedAtDesc(phone, purpose).ifPresent(existing -> {
-            long secondsSince = ChronoUnit.SECONDS.between(existing.getCreatedAt(), LocalDateTime.now());
-            if (secondsSince < RATE_LIMIT_SECONDS) {
-                throw new BusinessException(ErrorCode.OTP_RATE_LIMITED,
-                        "Please wait " + (RATE_LIMIT_SECONDS - secondsSince) + " seconds before requesting another OTP");
-            }
-        });
+        long existingCount = otpRepo.countByPhoneAndPurpose(phone, purpose);
+
+        if (existingCount > MAX_RESENDS) {
+            throw new BusinessException(ErrorCode.OTP_RESEND_LIMIT,
+                    "Too many OTP requests. Please contact help@thechitwise.com for assistance.");
+        }
+
+        if (existingCount > 0) {
+            otpRepo.findTopByPhoneAndPurposeOrderByCreatedAtDesc(phone, purpose).ifPresent(last -> {
+                long requiredWaitSeconds = existingCount * 60L; // 1 min, 2 min, … 5 min
+                long secondsElapsed = ChronoUnit.SECONDS.between(last.getCreatedAt(), LocalDateTime.now());
+                if (secondsElapsed < requiredWaitSeconds) {
+                    long secondsRemaining = requiredWaitSeconds - secondsElapsed;
+                    throw new BusinessException(ErrorCode.OTP_RATE_LIMITED,
+                            "Please wait " + secondsRemaining + " second(s) before requesting another OTP");
+                }
+            });
+        }
 
         String otp = generateOtp();
         PhoneOtp record = PhoneOtp.builder()

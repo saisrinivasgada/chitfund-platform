@@ -32,6 +32,8 @@ function ForgotPasswordFlow({ onClose }) {
   // OTP-wrong lockout: countdown in seconds (0 = allowed)
   const [otpLockout, setOtpLockout] = useState(0);
   const [resendTimer, setResendTimer] = useState(0);
+  const [sendCount, setSendCount]     = useState(0);
+  const [resendBlocked, setResendBlocked] = useState(false);
   const lockoutRef = useRef(null);
   const resendRef  = useRef(null);
 
@@ -48,8 +50,8 @@ function ForgotPasswordFlow({ onClose }) {
     }, 1000);
   }
 
-  function startResend() {
-    setResendTimer(60);
+  function startResend(seconds) {
+    setResendTimer(seconds);
     clearInterval(resendRef.current);
     resendRef.current = setInterval(() => {
       setResendTimer((t) => { if (t <= 1) { clearInterval(resendRef.current); return 0; } return t - 1; });
@@ -81,12 +83,16 @@ function ForgotPasswordFlow({ onClose }) {
     setError(''); setLoading(true);
     try {
       await forgotPasswordSendOtp({ userId: lookup.userId, last4 });
+      const nextCount = sendCount + 1;
+      setSendCount(nextCount);
       setOtp('');
       setOtpLockout(0);
-      startResend();
+      startResend(nextCount * 60); // 1 min after 1st, 2 min after 2nd, …
       setStep('otp');
     } catch (err) {
-      setError(err.response?.data?.message ?? 'Phone digits do not match. Try again.');
+      const code = err.response?.data?.errorCode;
+      if (code === 'OTP_005') { setResendBlocked(true); setStep('otp'); }
+      else setError(err.response?.data?.message ?? 'Phone digits do not match. Try again.');
     } finally { setLoading(false); }
   }
 
@@ -210,10 +216,12 @@ function ForgotPasswordFlow({ onClose }) {
           <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
         )}
         <div className="flex justify-between text-xs text-gray-400">
-          {resendTimer > 0
-            ? <span>Resend in {resendTimer}s</span>
-            : <button type="button" onClick={() => { setStep('last4'); setOtp(''); setError(''); setOtpLockout(0); clearInterval(lockoutRef.current); }}
-                className="hover:text-gray-600 cursor-pointer">← Resend OTP</button>
+          {resendBlocked
+            ? <span className="text-red-500">Max attempts reached — <a href="mailto:help@thechitwise.com" className="underline">help@thechitwise.com</a></span>
+            : resendTimer > 0
+              ? <span>Resend in {fmtSecs(resendTimer)}</span>
+              : <button type="button" onClick={() => { setStep('last4'); setOtp(''); setError(''); setOtpLockout(0); clearInterval(lockoutRef.current); }}
+                  className="hover:text-gray-600 cursor-pointer">← Resend OTP</button>
           }
           <button type="button" onClick={() => { setStep('lookup'); setLookup(null); setError(''); }}
             className="hover:text-gray-600 cursor-pointer">Start over</button>

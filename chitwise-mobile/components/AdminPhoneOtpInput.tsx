@@ -31,6 +31,8 @@ export function AdminPhoneOtpInput({
   const [otpCode, setOtpCode] = useState('');
   const [otpError, setOtpError] = useState('');
   const [otpTimer, setOtpTimer] = useState(0);
+  const [sendCount, setSendCount] = useState(0);
+  const [resendBlocked, setResendBlocked] = useState(false);
   const [verified, setVerified] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -44,13 +46,15 @@ export function AdminPhoneOtpInput({
     setOtpStep(null);
     setOtpCode('');
     setOtpError('');
+    setSendCount(0);
+    setResendBlocked(false);
     onVerified(false);
   }, [phone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
 
-  function startTimer() {
-    setOtpTimer(60);
+  function startTimer(seconds: number) {
+    setOtpTimer(seconds);
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setOtpTimer((t) => {
@@ -60,16 +64,25 @@ export function AdminPhoneOtpInput({
     }, 1000);
   }
 
+  function fmtSecs(s: number) {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
+  }
+
   const sendMut = useMutation({
     mutationFn: adminSendPhoneOtp,
     onSuccess: () => {
+      const nextCount = sendCount + 1;
+      setSendCount(nextCount);
       setOtpStep('pending');
       setOtpCode('');
       setOtpError('');
-      startTimer();
+      startTimer(nextCount * 60);
     },
     onError: (e: any) => {
-      setOtpError(e.response?.data?.message ?? 'Failed to send OTP');
+      const code = e.response?.data?.errorCode;
+      if (code === 'OTP_005') { setResendBlocked(true); setOtpStep('pending'); }
+      else setOtpError(e.response?.data?.message ?? 'Failed to send OTP');
     },
   });
 
@@ -195,8 +208,10 @@ export function AdminPhoneOtpInput({
 
           {/* Resend / Change number row */}
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            {otpTimer > 0 ? (
-              <Text style={{ fontSize: 12, color: C.gray400 }}>Resend in {otpTimer}s</Text>
+            {resendBlocked ? (
+              <Text style={{ fontSize: 12, color: C.red }}>Max attempts — help@thechitwise.com</Text>
+            ) : otpTimer > 0 ? (
+              <Text style={{ fontSize: 12, color: C.gray400 }}>Resend in {fmtSecs(otpTimer)}</Text>
             ) : (
               <TouchableOpacity onPress={handleSend} disabled={sendMut.isPending}>
                 <Text style={{ fontSize: 12, color: '#4F46E5', fontWeight: '600' }}>

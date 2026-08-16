@@ -35,6 +35,8 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
   const [lockoutSecs, setLockoutSecs] = useState(0);
   const lockoutRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [resendSecs, setResendSecs] = useState(0);
+  const [sendCount, setSendCount] = useState(0);
+  const [resendBlocked, setResendBlocked] = useState(false);
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -55,9 +57,9 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
     }, 1000);
   }
 
-  function startResend() {
+  function startResend(seconds: number) {
     if (resendRef.current) clearInterval(resendRef.current);
-    setResendSecs(60);
+    setResendSecs(seconds);
     resendRef.current = setInterval(() => {
       setResendSecs((s) => {
         if (s <= 1) { clearInterval(resendRef.current!); resendRef.current = null; return 0; }
@@ -90,10 +92,14 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
     setLoading(true); setError('');
     try {
       await forgotPasswordSendOtp({ userId: userIdRef.current, last4 });
-      startResend();
+      const nextCount = sendCount + 1;
+      setSendCount(nextCount);
+      startResend(nextCount * 60);
       setStep('otp');
     } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Invalid digits. Check the last 4 digits of your registered phone.');
+      const code = err.response?.data?.errorCode;
+      if (code === 'OTP_005') { setResendBlocked(true); setStep('otp'); }
+      else setError(err.response?.data?.message ?? 'Invalid digits. Check the last 4 digits of your registered phone.');
     } finally { setLoading(false); }
   }
 
@@ -252,7 +258,11 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
                   fullWidth
                   size="lg"
                 />
-                {resendSecs > 0 ? (
+                {resendBlocked ? (
+                  <Text style={{ textAlign: 'center', fontSize: 13, color: '#DC2626', marginTop: 14 }}>
+                    Max OTP attempts — contact help@thechitwise.com
+                  </Text>
+                ) : resendSecs > 0 ? (
                   <Text style={{ textAlign: 'center', fontSize: 13, color: '#9CA3AF', marginTop: 14 }}>
                     Resend OTP in {fmt(resendSecs)}
                   </Text>

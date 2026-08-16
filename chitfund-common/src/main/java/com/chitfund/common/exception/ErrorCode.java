@@ -90,6 +90,7 @@ public enum ErrorCode {
     OTP_EXPIRED("OTP_002", "OTP expired or not found — please request a new one"),
     OTP_INVALID("OTP_003", "Incorrect OTP"),
     OTP_MAX_ATTEMPTS("OTP_004", "Too many incorrect attempts — please request a new OTP"),
+    OTP_RESEND_LIMIT("OTP_005", "Too many OTP requests — please contact help@thechitwise.com"),
 
     // ─── Plan Limits ──────────────────────────────────────────────────────
     PLAN_LIMIT_EXCEEDED("PLAN_001", "Your current plan limit has been reached — upgrade to continue"),
