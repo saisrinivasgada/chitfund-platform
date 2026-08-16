@@ -1,6 +1,9 @@
 package com.chitfund.paymentservice.controller;
 
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
 import com.chitfund.paymentservice.dto.request.MarkPayoutDeductedRequest;
@@ -147,7 +150,12 @@ public class PaymentController {
     @GetMapping("/credits/{memberId}")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<com.chitfund.paymentservice.dto.response.MemberCreditResponse>> getMemberCredit(
-            @PathVariable UUID memberId) {
+            @PathVariable UUID memberId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberCredit(memberId)));
     }
 
@@ -159,7 +167,13 @@ public class PaymentController {
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberBalanceResponse>> getMemberBalance(
             @RequestParam UUID memberId,
-            @RequestParam UUID chitId) {
+            @RequestParam UUID chitId,
+            Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberBalance(memberId, chitId)));
     }
 
@@ -169,7 +183,13 @@ public class PaymentController {
      */
     @GetMapping("/balance/total")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
-    public ResponseEntity<ApiResponse<BigDecimal>> getMemberTotalBalance(@RequestParam UUID memberId) {
+    public ResponseEntity<ApiResponse<BigDecimal>> getMemberTotalBalance(
+            @RequestParam UUID memberId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMemberTotalBalance(memberId)));
     }
 

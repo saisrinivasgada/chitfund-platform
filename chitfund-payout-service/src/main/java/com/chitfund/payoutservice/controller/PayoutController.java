@@ -1,6 +1,9 @@
 package com.chitfund.payoutservice.controller;
 
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.payoutservice.dto.request.CancelPayoutRequest;
 import com.chitfund.payoutservice.dto.request.CreatePayoutRequest;
 import com.chitfund.payoutservice.dto.request.DisburseRequest;
@@ -76,7 +79,12 @@ public class PayoutController {
     @GetMapping("/member/{memberId}")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getPayoutsForMember(
-            @PathVariable UUID memberId) {
+            @PathVariable UUID memberId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(payoutService.getPayoutsForMember(memberId)));
     }
 

@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.security;
 
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.context.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -43,6 +44,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(auth);
 
                 if (tenantId != null) TenantContext.set(tenantId);
+                String memberId = claims.get("memberId", String.class);
+                if (memberId != null) MemberContext.set(memberId);
 
                 String tenantStatus = claims.get("tenantStatus", String.class);
                 if (("PENDING".equals(tenantStatus) || "SUSPENDED".equals(tenantStatus)) && isWriteMethod(request.getMethod())) {
@@ -55,6 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            MemberContext.clear();
         }
     }
 

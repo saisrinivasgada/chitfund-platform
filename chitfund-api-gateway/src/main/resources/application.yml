@@ -21,6 +21,14 @@ spring:
           predicates:
             - Path=/api/auth/**
 
+        - id: user-service-plans-protected
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/plans/upgrade-request,/api/plans/renewal-request
+            - Method=POST
+          filters:
+            - JwtAuthGatewayFilter
+
         - id: user-service-plans-public
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:

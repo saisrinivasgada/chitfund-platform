@@ -1,5 +1,6 @@
 package com.chitfund.reportingservice.security;
 
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.context.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -39,6 +40,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String tenantId = claims.get("tenantId", String.class);
 
                 if (tenantId != null) TenantContext.set(tenantId);
+                String memberId = claims.get("memberId", String.class);
+                if (memberId != null) MemberContext.set(memberId);
 
                 UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                         userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
@@ -49,6 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            MemberContext.clear();
         }
     }
 

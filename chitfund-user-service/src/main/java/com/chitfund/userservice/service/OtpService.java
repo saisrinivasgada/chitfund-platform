@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.security.crypto.bcrypt.BCrypt;
+
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Random;
@@ -47,10 +49,11 @@ public class OtpService {
         }
 
         String otp = generateOtp();
+        String otpHash = BCrypt.hashpw(otp, BCrypt.gensalt());
         PhoneOtp record = PhoneOtp.builder()
                 .phone(phone)
                 .countryCode(countryCode != null ? countryCode : "+91")
-                .otpHash(otp)
+                .otpHash(otpHash)
                 .purpose(purpose)
                 .userId(userId)
                 .expiresAt(LocalDateTime.now().plusMinutes(OTP_TTL_MINUTES))
@@ -76,7 +79,7 @@ public class OtpService {
 
         record.setAttempts(record.getAttempts() + 1);
 
-        if (!code.equals(record.getOtpHash())) {
+        if (!BCrypt.checkpw(code, record.getOtpHash())) {
             otpRepo.save(record);
             int remaining = MAX_ATTEMPTS - record.getAttempts();
             throw new BusinessException(ErrorCode.OTP_INVALID,

@@ -1,6 +1,9 @@
 package com.chitfund.reportingservice.controller;
 
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.reportingservice.dto.response.ChitCollectionReport;
 import com.chitfund.reportingservice.dto.response.MemberStatementReport;
 import com.chitfund.reportingservice.dto.response.PayoutSummaryReport;
@@ -8,6 +11,7 @@ import com.chitfund.reportingservice.service.ReportQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -48,7 +52,12 @@ public class ReportController {
     @GetMapping("/member/{memberId}/statement")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<MemberStatementReport>>> getMemberStatement(
-            @PathVariable String memberId) {
+            @PathVariable String memberId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(queryService.getMemberStatement(memberId)));
     }
 
@@ -64,7 +73,12 @@ public class ReportController {
     @GetMapping("/member/{memberId}/payouts")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PayoutSummaryReport>>> getMemberPayouts(
-            @PathVariable String memberId) {
+            @PathVariable String memberId, Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(queryService.getMemberPayouts(memberId)));
     }
 }

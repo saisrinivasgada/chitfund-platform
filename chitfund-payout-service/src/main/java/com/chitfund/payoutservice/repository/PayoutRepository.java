@@ -15,6 +15,8 @@ import java.util.UUID;
 
 public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
+    Optional<Payout> findByIdAndTenantId(UUID id, String tenantId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Payout p WHERE p.id = :id")
     Optional<Payout> findByIdForUpdate(@Param("id") UUID id);

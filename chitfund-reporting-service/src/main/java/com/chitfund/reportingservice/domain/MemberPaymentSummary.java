@@ -1,6 +1,9 @@
 package com.chitfund.reportingservice.domain;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -8,6 +11,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Entity
 @Table(name = "member_payment_summaries")
 @Getter

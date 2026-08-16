@@ -12,8 +12,11 @@ import com.chitfund.chitservice.dto.response.MonthReservationResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.dto.PagedResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -51,11 +54,13 @@ public class ChitController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<ChitResponse>> getChit(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(chitService.getChit(id)));
     }
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PagedResponse<ChitResponse>>> listChits(
             @RequestParam(required = false) ChitStatus status,
             @RequestParam(required = false) String tenantFilter,
@@ -86,9 +91,16 @@ public class ChitController {
     }
 
     @GetMapping("/member/{memberId}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<List<ChitResponse>>> listChitsForMember(
             @PathVariable UUID memberId,
-            @RequestParam(required = false) ChitStatus status) {
+            @RequestParam(required = false) ChitStatus status,
+            Authentication auth) {
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && !memberId.toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
         return ResponseEntity.ok(ApiResponse.success(chitService.listChitsForMember(memberId, status)));
     }
 

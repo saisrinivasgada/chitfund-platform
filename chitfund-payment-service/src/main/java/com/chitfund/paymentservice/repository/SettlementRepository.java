@@ -16,6 +16,8 @@ import java.util.UUID;
 
 public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
 
+    Optional<Settlement> findByIdAndTenantId(UUID id, String tenantId);
+
     // All settlements for a member within a tenant, newest first — paginated
     Page<Settlement> findByMemberIdAndTenantIdOrderBySettledAtDesc(UUID memberId, String tenantId, Pageable pageable);
 

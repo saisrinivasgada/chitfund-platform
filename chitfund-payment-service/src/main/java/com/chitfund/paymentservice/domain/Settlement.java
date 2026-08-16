@@ -2,6 +2,9 @@ package com.chitfund.paymentservice.domain;
 
 import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -22,6 +25,8 @@ import java.util.UUID;
  * totalRefunded = absolute value of sum of negative chit amounts (fund pays member)
  * netAmount    = totalOwed - totalRefunded (positive = member pays, negative = fund pays)
  */
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Entity
 @Table(name = "settlements",
         indexes = {

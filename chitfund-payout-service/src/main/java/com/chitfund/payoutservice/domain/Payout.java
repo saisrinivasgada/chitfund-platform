@@ -3,12 +3,17 @@ package com.chitfund.payoutservice.domain;
 import com.chitfund.payoutservice.domain.enums.DisbursementMode;
 import com.chitfund.payoutservice.domain.enums.PayoutStatus;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Entity
 @Table(name = "payouts")
 @Data

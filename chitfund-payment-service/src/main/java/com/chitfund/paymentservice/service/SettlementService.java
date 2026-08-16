@@ -301,8 +301,8 @@ public class SettlementService {
 
     @Transactional(readOnly = true)
     public SettlementResponse getById(UUID settlementId) {
-        Settlement s = settlementRepository.findById(settlementId)
-                .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
+        Settlement s = settlementRepository.findByIdAndTenantId(settlementId, TenantContext.get())
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found"));
         return toSettlementResponse(s);
     }
 
