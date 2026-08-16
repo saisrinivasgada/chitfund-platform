@@ -19,6 +19,7 @@ public final class SqsQueues {
     // ── Consolidated consumer queues (one per service) ───────────────────────────
     public static final String NOTIFICATION_EVENTS = "chitfund-notification-events";
     public static final String AUDIT_EVENTS        = "chitfund-audit-events";
+    public static final String REPORTING_EVENTS    = "chitfund-reporting-events";
 
     // ── Event type constants used inside SqsEventEnvelope.eventType ─────────────
     public static final String EVT_MONTH_OPENED            = "MONTH_OPENED";

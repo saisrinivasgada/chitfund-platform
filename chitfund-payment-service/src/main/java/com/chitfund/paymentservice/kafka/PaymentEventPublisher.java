@@ -32,10 +32,12 @@ public class PaymentEventPublisher {
 
     public void publish(ChitMonthOpenedEvent event) {
         sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_MONTH_OPENED, event);
+        sendTo(SqsQueues.REPORTING_EVENTS,    SqsQueues.EVT_MONTH_OPENED, event);
     }
 
     public void publish(ChitMonthSkippedEvent event) {
         sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_MONTH_SKIPPED, event);
+        sendTo(SqsQueues.REPORTING_EVENTS,    SqsQueues.EVT_MONTH_SKIPPED, event);
     }
 
     public void publish(CashCollectedEvent event) {
@@ -48,6 +50,7 @@ public class PaymentEventPublisher {
     public void publish(PaymentCompletedEvent event) {
         sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_PAYMENT_COMPLETED, event);
         sendTo(SqsQueues.AUDIT_EVENTS,        SqsQueues.EVT_PAYMENT_COMPLETED, event);
+        sendTo(SqsQueues.REPORTING_EVENTS,    SqsQueues.EVT_PAYMENT_COMPLETED, event);
     }
 
     public void publish(CashRequestEvent event) {

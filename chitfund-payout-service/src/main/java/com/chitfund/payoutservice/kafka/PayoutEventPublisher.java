@@ -22,10 +22,12 @@ public class PayoutEventPublisher {
 
     public void publish(PayoutCreatedEvent event) {
         sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_PAYOUT_CREATED, event);
+        sendTo(SqsQueues.REPORTING_EVENTS,    SqsQueues.EVT_PAYOUT_CREATED, event);
     }
 
     public void publish(PayoutDisbursedEvent event) {
         sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_PAYOUT_DISBURSED, event);
+        sendTo(SqsQueues.REPORTING_EVENTS,    SqsQueues.EVT_PAYOUT_DISBURSED, event);
     }
 
     private void sendTo(String queue, String eventType, Object event) {
