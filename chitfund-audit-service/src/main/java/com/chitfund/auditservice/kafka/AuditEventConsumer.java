@@ -10,13 +10,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumes platform events from SQS and writes immutable audit records.
+ * Consumes platform events from the consolidated audit SQS queue and writes
+ * immutable audit records.
  *
- * WHY SQS instead of Kafka?
- * All event producers (payment-service, payout-service, member-service) publish
- * to AWS SQS. Kafka was the original plan but was replaced by SQS to avoid
- * running a Kafka broker on the EC2 instance. SQS is managed, serverless, and
- * free-tier friendly for this workload.
+ * WHY one queue instead of per-event queues?
+ * With 10 queues polled continuously, the app was generating ~2.6M SQS requests
+ * per month — over the 1M free-tier limit. One queue per consumer service drops
+ * this to ~260K requests/month (2 queues × 3 polls/min × 60 × 24 × 30).
+ *
+ * WHY only CASH_COLLECTED and PAYMENT_COMPLETED here?
+ * All other events (draws, payouts, org reservations, member updates) are audited
+ * via direct HTTP calls from the originating service to /internal/audit. Only
+ * events that need both notification and audit fan-out go through SQS.
  */
 @Component
 @RequiredArgsConstructor
@@ -26,14 +31,25 @@ public class AuditEventConsumer {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
-    // DRAW_OPENED and DRAW_SKIPPED are now audited via direct HTTP in payment-service.
-    // The SQS listeners for MONTH_OPENED / MONTH_SKIPPED are removed to prevent duplicate
-    // audit records. SQS events are still published for notification-service consumers.
-
-    @SqsListener(SqsQueues.CASH_COLLECTED)
-    public void onCashCollected(String payload) {
+    @SqsListener(SqsQueues.AUDIT_EVENTS)
+    public void onEvent(String raw) {
         try {
-            CashCollectedEvent event = objectMapper.readValue(payload, CashCollectedEvent.class);
+            SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            switch (envelope.eventType()) {
+                case SqsQueues.EVT_CASH_COLLECTED ->
+                    onCashCollected(objectMapper.readValue(envelope.payload(), CashCollectedEvent.class));
+                case SqsQueues.EVT_PAYMENT_COMPLETED ->
+                    onPaymentCompleted(objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class));
+                default ->
+                    log.warn("Unknown audit event type: {}", envelope.eventType());
+            }
+        } catch (Exception e) {
+            log.error("Failed to process audit event: {}", e.getMessage(), e);
+        }
+    }
+
+    private void onCashCollected(CashCollectedEvent event) {
+        try {
             auditService.record(new AuditLogRequest(
                     "payment-service", "PAYMENT_BATCH", event.batchId(),
                     event.chitId(), "CASH_COLLECTED",
@@ -48,10 +64,8 @@ public class AuditEventConsumer {
         }
     }
 
-    @SqsListener(SqsQueues.PAYMENT_COMPLETED)
-    public void onPaymentCompleted(String payload) {
+    private void onPaymentCompleted(PaymentCompletedEvent event) {
         try {
-            PaymentCompletedEvent event = objectMapper.readValue(payload, PaymentCompletedEvent.class);
             auditService.record(new AuditLogRequest(
                     "payment-service", "PAYMENT_BATCH", event.batchId(),
                     event.chitId(), "PAYMENT_COMPLETED",
@@ -66,48 +80,4 @@ public class AuditEventConsumer {
             log.error("Failed to audit PAYMENT_COMPLETED: {}", e.getMessage(), e);
         }
     }
-
-    // PAYOUT_CREATED and PAYOUT_DISBURSED are now audited via direct HTTP in payout-service.
-    // SQS listeners removed to prevent duplicate entries; SQS events still consumed by notification-service.
-
-    @SqsListener(SqsQueues.ORG_RESERVATION_CREATED)
-    public void onOrgReservationCreated(String payload) {
-        try {
-            OrgReservationCreatedEvent event = objectMapper.readValue(payload, OrgReservationCreatedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "chit-service", "ORG_RESERVATION", event.reservationId(),
-                    event.chitId(), "ORG_RESERVATION_CREATED",
-                    event.createdBy(), "ROLE_ADMIN", null,
-                    null,
-                    "{\"monthNumber\":" + event.monthNumber()
-                            + ",\"payoutAmount\":" + event.payoutAmount() + "}",
-                    null,
-                    event.tenantId()
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit ORG_RESERVATION_CREATED: {}", e.getMessage(), e);
-        }
-    }
-
-    @SqsListener(SqsQueues.ORG_PAYOUT_REALIZED)
-    public void onOrgPayoutRealized(String payload) {
-        try {
-            OrgPayoutRealizedEvent event = objectMapper.readValue(payload, OrgPayoutRealizedEvent.class);
-            auditService.record(new AuditLogRequest(
-                    "chit-service", "ORG_RESERVATION", event.reservationId(),
-                    event.chitId(), "ORG_PAYOUT_REALIZED",
-                    event.realizedBy(), "ROLE_ADMIN", null,
-                    "{\"status\":\"RESERVED\"}",
-                    "{\"status\":\"PROCESSED\",\"payoutAmount\":" + event.payoutAmount() + "}",
-                    null,
-                    event.tenantId()
-            ));
-        } catch (Exception e) {
-            log.error("Failed to audit ORG_PAYOUT_REALIZED: {}", e.getMessage(), e);
-        }
-    }
-
-    // MEMBER_UPDATED audit now written directly by member-service via /internal/audit HTTP call.
-    // The SQS listener is kept only for the notification-service consumer (referral change alerts).
-    // This class no longer needs to listen to MEMBER_UPDATED to avoid duplicate audit entries.
 }

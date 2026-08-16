@@ -32,19 +32,45 @@ public class NotificationEventConsumer {
     private final UserServiceClient userServiceClient;
     private final ChitServiceClient chitServiceClient;
 
+    @SqsListener(SqsQueues.NOTIFICATION_EVENTS)
+    public void onEvent(String raw) {
+        try {
+            SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            switch (envelope.eventType()) {
+                case SqsQueues.EVT_MONTH_OPENED ->
+                    onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));
+                case SqsQueues.EVT_MONTH_SKIPPED ->
+                    onMonthSkipped(objectMapper.readValue(envelope.payload(), ChitMonthSkippedEvent.class));
+                case SqsQueues.EVT_CASH_COLLECTED ->
+                    onCashCollected(objectMapper.readValue(envelope.payload(), CashCollectedEvent.class));
+                case SqsQueues.EVT_PAYMENT_COMPLETED ->
+                    onPaymentCompleted(objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class));
+                case SqsQueues.EVT_PAYOUT_CREATED ->
+                    onPayoutCreated(objectMapper.readValue(envelope.payload(), PayoutCreatedEvent.class));
+                case SqsQueues.EVT_PAYOUT_DISBURSED ->
+                    onPayoutDisbursed(objectMapper.readValue(envelope.payload(), PayoutDisbursedEvent.class));
+                case SqsQueues.EVT_MEMBER_UPDATED ->
+                    onMemberUpdated(objectMapper.readValue(envelope.payload(), MemberUpdatedEvent.class));
+                case SqsQueues.EVT_CASH_REQUEST_EVENT ->
+                    onCashRequestEvent(objectMapper.readValue(envelope.payload(), CashRequestEvent.class));
+                default ->
+                    log.warn("Unknown notification event type: {}", envelope.eventType());
+            }
+        } catch (Exception e) {
+            log.error("Failed to process notification event: {}", e.getMessage(), e);
+        }
+    }
+
     // ── Month opened — all members get "installment due" alert ───────────────
 
-    @SqsListener(SqsQueues.MONTH_OPENED)
-    public void onMonthOpened(String payload) {
+    private void onMonthOpened(ChitMonthOpenedEvent event) {
         try {
-            ChitMonthOpenedEvent event = objectMapper.readValue(payload, ChitMonthOpenedEvent.class);
             log.info("Sending PAYMENT_DUE notifications for chit {} month {} ({} members)",
                     event.chitId(), event.monthNumber(), event.memberIds().size());
 
             String amtFormatted = "₹" + event.installmentAmount().toPlainString();
             String chitLabel = event.chitName() != null ? event.chitName() : event.chitId();
 
-            // Resolve member profile UUIDs → user account UUIDs in one batch call
             Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
 
             for (String memberId : event.memberIds()) {
@@ -83,10 +109,8 @@ public class NotificationEventConsumer {
 
     // ── Month skipped ─────────────────────────────────────────────────────────
 
-    @SqsListener(SqsQueues.MONTH_SKIPPED)
-    public void onMonthSkipped(String payload) {
+    private void onMonthSkipped(ChitMonthSkippedEvent event) {
         try {
-            ChitMonthSkippedEvent event = objectMapper.readValue(payload, ChitMonthSkippedEvent.class);
             log.info("Sending MONTH_SKIPPED notifications for chit {} month {} ({} members)",
                     event.chitId(), event.monthNumber(), event.memberIds().size());
 
@@ -127,10 +151,8 @@ public class NotificationEventConsumer {
 
     // ── Cash collected (worker confirms pickup to admin) ──────────────────────
 
-    @SqsListener(SqsQueues.CASH_COLLECTED)
-    public void onCashCollected(String payload) {
+    private void onCashCollected(CashCollectedEvent event) {
         try {
-            CashCollectedEvent event = objectMapper.readValue(payload, CashCollectedEvent.class);
             log.info("Cash collected alert: ₹{} from member {} by worker {}",
                     event.amount(), event.memberId(), event.collectedByUserId());
 
@@ -149,7 +171,6 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            // Worker confirmation in-app (collectedByUserId is already a userId)
             inAppService.create(
                 UUID.fromString(event.collectedByUserId()),
                 "Cash Collected",
@@ -170,10 +191,8 @@ public class NotificationEventConsumer {
 
     // ── Payment completed — member gets receipt ────────────────────────────────
 
-    @SqsListener(SqsQueues.PAYMENT_COMPLETED)
-    public void onPaymentCompleted(String payload) {
+    private void onPaymentCompleted(PaymentCompletedEvent event) {
         try {
-            PaymentCompletedEvent event = objectMapper.readValue(payload, PaymentCompletedEvent.class);
             String remaining = event.totalOutstanding().compareTo(java.math.BigDecimal.ZERO) > 0
                     ? "Remaining balance: ₹" + event.totalOutstanding().toPlainString()
                     : "Account is fully settled for this chit.";
@@ -192,7 +211,6 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            // Resolve memberId → userId for in-app notification
             String userId = memberServiceClient.getUserId(event.memberId());
             if (userId != null) {
                 inAppService.create(
@@ -214,10 +232,8 @@ public class NotificationEventConsumer {
 
     // ── Payout created — winner notified + all chit members get draw result ───
 
-    @SqsListener(SqsQueues.PAYOUT_CREATED)
-    public void onPayoutCreated(String payload) {
+    private void onPayoutCreated(PayoutCreatedEvent event) {
         try {
-            PayoutCreatedEvent event = objectMapper.readValue(payload, PayoutCreatedEvent.class);
             String amtFormatted = "₹" + event.netPayoutAmount().toPlainString();
 
             NotifyRequest req = buildRequest(
@@ -232,7 +248,6 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            // Winner in-app notification
             String winnerUserId = memberServiceClient.getUserId(event.memberId());
             if (winnerUserId != null) {
                 inAppService.create(
@@ -246,11 +261,10 @@ public class NotificationEventConsumer {
                 );
             }
 
-            // Notify ALL members in this chit about the draw result
             List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId());
             Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(allMemberIds);
             for (String memberId : allMemberIds) {
-                if (memberId.equals(event.memberId())) continue; // winner already notified above
+                if (memberId.equals(event.memberId())) continue;
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
                     inAppService.create(
@@ -273,10 +287,8 @@ public class NotificationEventConsumer {
 
     // ── Payout disbursed — member gets disbursement confirmation ──────────────
 
-    @SqsListener(SqsQueues.PAYOUT_DISBURSED)
-    public void onPayoutDisbursed(String payload) {
+    private void onPayoutDisbursed(PayoutDisbursedEvent event) {
         try {
-            PayoutDisbursedEvent event = objectMapper.readValue(payload, PayoutDisbursedEvent.class);
             String amtFormatted = "₹" + event.netPayoutAmount().toPlainString();
             String ref = event.referenceNumber() != null ? event.referenceNumber() : "N/A";
 
@@ -315,10 +327,8 @@ public class NotificationEventConsumer {
 
     // ── Member profile updated ────────────────────────────────────────────────
 
-    @SqsListener(SqsQueues.MEMBER_UPDATED)
-    public void onMemberUpdated(String payload) {
+    private void onMemberUpdated(MemberUpdatedEvent event) {
         try {
-            MemberUpdatedEvent event = objectMapper.readValue(payload, MemberUpdatedEvent.class);
             String newValue = event.newReferredByName() != null ? event.newReferredByName() : "None";
 
             String userId = memberServiceClient.getUserId(event.memberId());
@@ -340,10 +350,8 @@ public class NotificationEventConsumer {
 
     // ── Cash request lifecycle — member + worker + admin notifications ─────────
 
-    @SqsListener(SqsQueues.CASH_REQUEST_EVENT)
-    public void onCashRequestEvent(String payload) {
+    private void onCashRequestEvent(CashRequestEvent event) {
         try {
-            CashRequestEvent event = objectMapper.readValue(payload, CashRequestEvent.class);
             log.info("Cash request event: {} for request {}", event.eventType(), event.requestId());
 
             switch (event.eventType()) {
@@ -369,7 +377,6 @@ public class NotificationEventConsumer {
                 ? event.memberName() : "A member";
         String amtStr = event.amount() != null ? " ₹" + event.amount().toPlainString() : "";
 
-        // Notify member: request submitted
         if (event.memberUserId() != null) {
             inAppService.create(
                 UUID.fromString(event.memberUserId()),
@@ -381,7 +388,6 @@ public class NotificationEventConsumer {
             );
         }
 
-        // Notify all admins and managers
         notifyAdminsAndManagers(
             "New Cash Pickup Request",
             memberDisplay + " has requested a cash pickup" + amtStr + ". Assign a staff member.",
@@ -398,7 +404,6 @@ public class NotificationEventConsumer {
                 ? event.memberName() : "a member";
         String amtStr = event.amount() != null ? " ₹" + event.amount().toPlainString() : "";
 
-        // Notify member: staff assigned
         if (event.memberUserId() != null) {
             inAppService.create(
                 UUID.fromString(event.memberUserId()),
@@ -410,7 +415,6 @@ public class NotificationEventConsumer {
             );
         }
 
-        // Notify staff: new task
         if (event.staffId() != null) {
             inAppService.create(
                 UUID.fromString(event.staffId()),
@@ -430,7 +434,6 @@ public class NotificationEventConsumer {
                 ? event.memberName() : "a member";
         String amtStr = event.amount() != null ? " ₹" + event.amount().toPlainString() : "";
 
-        // Notify member: cash picked up
         if (event.memberUserId() != null) {
             inAppService.create(
                 UUID.fromString(event.memberUserId()),
@@ -442,7 +445,6 @@ public class NotificationEventConsumer {
             );
         }
 
-        // Notify admins and managers: ready to confirm
         notifyAdminsAndManagers(
             "Cash Ready to Confirm",
             workerDisplay + " has picked up" + amtStr + " from " + memberDisplay + ". Please confirm receipt.",
@@ -455,7 +457,6 @@ public class NotificationEventConsumer {
     private void handleCashRequestCollected(CashRequestEvent event) {
         String amtStr = event.amount() != null ? "₹" + event.amount().toPlainString() : "Cash";
 
-        // Notify member: payment confirmed and posted
         if (event.memberUserId() != null) {
             inAppService.create(
                 UUID.fromString(event.memberUserId()),
@@ -467,7 +468,6 @@ public class NotificationEventConsumer {
             );
         }
 
-        // Notify staff: task complete
         if (event.staffId() != null) {
             inAppService.create(
                 UUID.fromString(event.staffId()),

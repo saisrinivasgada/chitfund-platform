@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.kafka;
 
 import com.chitfund.common.event.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,7 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Publishes domain events to SQS queues.
+ * Publishes domain events to consolidated SQS queues.
  *
  * WHY try-catch instead of letting exceptions propagate?
  * The DB write already committed when this is called. If SQS is temporarily
@@ -27,40 +28,40 @@ import java.util.concurrent.CompletableFuture;
 public class PaymentEventPublisher {
 
     private final SqsTemplate sqsTemplate;
+    private final ObjectMapper objectMapper;
 
     public void publish(ChitMonthOpenedEvent event) {
-        send(SqsQueues.MONTH_OPENED, event);
+        sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_MONTH_OPENED, event);
     }
 
     public void publish(ChitMonthSkippedEvent event) {
-        send(SqsQueues.MONTH_SKIPPED, event);
+        sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_MONTH_SKIPPED, event);
     }
 
     public void publish(CashCollectedEvent event) {
-        send(SqsQueues.CASH_COLLECTED, event);
+        // Both notification and audit need this event — send to each queue separately
+        // so each service gets its own copy (SQS is point-to-point, not pub/sub).
+        sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_CASH_COLLECTED, event);
+        sendTo(SqsQueues.AUDIT_EVENTS,        SqsQueues.EVT_CASH_COLLECTED, event);
     }
 
     public void publish(PaymentCompletedEvent event) {
-        send(SqsQueues.PAYMENT_COMPLETED, event);
+        sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_PAYMENT_COMPLETED, event);
+        sendTo(SqsQueues.AUDIT_EVENTS,        SqsQueues.EVT_PAYMENT_COMPLETED, event);
     }
 
     public void publish(CashRequestEvent event) {
-        send(SqsQueues.CASH_REQUEST_EVENT, event);
+        sendTo(SqsQueues.NOTIFICATION_EVENTS, SqsQueues.EVT_CASH_REQUEST_EVENT, event);
     }
 
-    // WHY CompletableFuture.runAsync()?
-    // sqsTemplate.send() blocks until AWS SQS responds. If the queue doesn't exist
-    // or IAM credentials aren't set up, the AWS SDK retries with backoff for 30-60s
-    // before throwing — making every draw open hang for a minute. Running async means
-    // the HTTP response returns immediately after the DB commit; SQS delivery is
-    // best-effort in the background (matches the try-catch contract above).
-    private void send(String queue, Object event) {
+    private void sendTo(String queue, String eventType, Object event) {
         CompletableFuture.runAsync(() -> {
             try {
-                sqsTemplate.send(queue, event);
-                log.debug("Published {} to queue {}", event.getClass().getSimpleName(), queue);
+                String payload = objectMapper.writeValueAsString(event);
+                sqsTemplate.send(queue, new SqsEventEnvelope(eventType, payload));
+                log.debug("Published {} to queue {}", eventType, queue);
             } catch (Exception e) {
-                log.warn("Failed to publish {} to queue {}: {}", event.getClass().getSimpleName(), queue, e.getMessage());
+                log.warn("Failed to publish {} to queue {}: {}", eventType, queue, e.getMessage());
             }
         });
     }

@@ -30,6 +30,9 @@ spring:
     aws:
       region:
         static: ${AWS_REGION:ap-south-1}
+      sqs:
+        listener:
+          poll-timeout: PT20S
 
 server:
   port: 8088
