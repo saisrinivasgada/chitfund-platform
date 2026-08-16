@@ -7,15 +7,15 @@ WORKDIR /workspace
 # Copy only pom files first so Maven dependency layer is cached separately.
 # Rebuilding source code does NOT re-download deps — Docker cache hit on this layer.
 COPY pom.xml ./
-COPY common/pom.xml common/
-COPY reporting-service/pom.xml reporting-service/
+COPY chitfund-common/pom.xml chitfund-common/
+COPY chitfund-reporting-service/pom.xml chitfund-reporting-service/
 
-RUN mvn -pl common,reporting-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
+RUN mvn -pl chitfund-common,chitfund-reporting-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
-COPY common/src common/src
-COPY reporting-service/src reporting-service/src
+COPY chitfund-common/src chitfund-common/src
+COPY chitfund-reporting-service/src chitfund-reporting-service/src
 
-RUN mvn -pl common,reporting-service -am package -DskipTests -q --no-transfer-progress
+RUN mvn -pl chitfund-common,chitfund-reporting-service -am package -DskipTests -q --no-transfer-progress
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 # WHY JRE not JDK? Runtime needs only the JRE (~85MB vs ~400MB for JDK).
@@ -28,7 +28,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-COPY --from=build /workspace/reporting-service/target/reporting-service-*.jar app.jar
+COPY --from=build /workspace/chitfund-reporting-service/target/reporting-service-*.jar app.jar
 
 EXPOSE 8087
 

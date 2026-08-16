@@ -31,6 +31,7 @@ services:
       PAYOUT_SERVICE_URL: http://payout-service:8085
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       AUDIT_SERVICE_URL: http://audit-service:8088
+      REPORTING_SERVICE_URL: http://reporting-service:8087
     depends_on:
       user-service:
         condition: service_healthy
@@ -43,6 +44,8 @@ services:
       payout-service:
         condition: service_healthy
       audit-service:
+        condition: service_healthy
+      reporting-service:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -177,6 +180,24 @@ services:
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Reporting Service ────────────────────────────────────────────────────────
+  reporting-service:
+    image: ghcr.io/saisrinivasgada/reporting-service:latest
+    container_name: chitfund-reporting-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitfund_reporting
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5
