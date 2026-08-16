@@ -1543,7 +1543,7 @@ export default function LandingPage() {
               {
                 icon: Lock,
                 title: 'Role-based access',
-                desc: 'Admins, managers, and members each see only what they need. No manager can touch admin settings. No member can see another member's account.',
+                desc: "Admins, managers, and members each see only what they need. No manager can touch admin settings. No member can see another member's account.",
               },
             ].map(({ icon: Icon, title, desc }, i) => (
               <Reveal key={title} delay={i * 0.08}>
