@@ -1730,6 +1730,7 @@ export default function LandingPage() {
               <div>
                 <p className="font-semibold text-gray-900">Sai Srinivas Gada</p>
                 <p className="text-sm text-gray-500">Founder · ChitWise</p>
+                <a href="mailto:founder@thechitwise.com" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">founder@thechitwise.com</a>
               </div>
             </div>
           </Reveal>
