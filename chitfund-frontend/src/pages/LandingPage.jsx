@@ -414,7 +414,7 @@ const SLIDER_INTERVAL_MS = 5000;
 const PAUSE_MS = 45000;
 
 // Shared hook: auto-advance, pause-on-click toggle, fill-freeze at exact click position, countdown
-function useSlider(count) {
+function useSlider(count, { autoPlay = true } = {}) {
   const [active, setActive] = useState(0);
   const [dir, setDir] = useState(1);
   const [progressKey, setProgressKey] = useState(0);
@@ -488,12 +488,13 @@ function useSlider(count) {
 
   // Auto-advance fires after the REMAINING time on current slide (handles resume-from-frozen correctly)
   useEffect(() => {
+    if (!autoPlay) return;
     if (paused) return;
     const elapsed = Date.now() - slideNetStartRef.current;
     const remaining = Math.max(100, SLIDER_INTERVAL_MS - elapsed);
     const id = setTimeout(() => go(a => (a + 1) % count), remaining);
     return () => clearTimeout(id);
-  }, [paused, progressKey, go, count]);
+  }, [autoPlay, paused, progressKey, go, count]);
 
   useEffect(() => () => clearTimeout(pauseTimerRef.current), []);
 
@@ -730,12 +731,11 @@ function ProblemVisual({ slide }) {
 }
 
 function ProblemsSlider() {
-  const { active, dir, progressKey, paused, timeLeft, frozenFill, containerRef, go, handleClick, prev, next } = useSlider(PROBLEM_SLIDES.length);
+  const { active, dir, progressKey, paused, frozenFill, containerRef, go, prev, next } = useSlider(PROBLEM_SLIDES.length, { autoPlay: false });
   const slide = PROBLEM_SLIDES[active];
 
   return (
-    <div ref={containerRef} className="relative cursor-pointer" onClick={handleClick}>
-      <SliderCountdown paused={paused} timeLeft={timeLeft} />
+    <div ref={containerRef} className="relative">
 
       {/* Tab labels */}
       <div className="flex justify-center gap-2 mb-10 flex-wrap">
@@ -743,10 +743,9 @@ function ProblemsSlider() {
           const Icon = s.badgeIcon;
           const isActive = i === active;
           return (
-            <button key={i} onClick={() => go(i)}
+            <button key={i} onClick={(e) => { e.stopPropagation(); go(i); }}
               className="relative flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold overflow-hidden"
               style={isActive ? { backgroundColor: 'rgba(255,255,255,0.25)', color: '#1A0A0A' } : { backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)', transition: 'all 0.2s' }}>
-              <SliderFill isActive={isActive} paused={paused} progressKey={progressKey} frozenFill={frozenFill} />
               <span className="relative z-10 flex items-center gap-2"><Icon size={13} />{s.badge}</span>
             </button>
           );
@@ -754,12 +753,12 @@ function ProblemsSlider() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
-        {/* Visual side */}
-        <div className="relative overflow-hidden" style={{ height: 600 }}>
+        {/* Visual side — no overflow-hidden so rounded card shadow isn't clipped */}
+        <div className="relative" style={{ height: 600, overflow: 'clip' }}>
           <AnimatePresence initial={false}>
             <motion.div key={active} style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}
               initial={{ opacity: 0, x: dir * 50 }} animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: dir * -50 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.35, ease: 'easeOut' }}>
               <ProblemVisual slide={slide} />
             </motion.div>
@@ -1540,6 +1539,11 @@ export default function LandingPage() {
                 icon: FileText,
                 title: 'You are in control',
                 desc: 'Export your full data anytime. Your records belong to your organisation, not to us. Leave whenever you want — with everything.',
+              },
+              {
+                icon: Lock,
+                title: 'Role-based access',
+                desc: 'Admins, managers, and members each see only what they need. No manager can touch admin settings. No member can see another member's account.',
               },
             ].map(({ icon: Icon, title, desc }, i) => (
               <Reveal key={title} delay={i * 0.08}>
