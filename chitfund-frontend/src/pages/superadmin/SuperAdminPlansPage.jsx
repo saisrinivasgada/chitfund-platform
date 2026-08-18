@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   superAdminListPlans,
   superAdminCreatePlanDef,
   superAdminUpdatePlanDef,
   superAdminDeletePlanDef,
+  superAdminListCapabilities,
+  superAdminAddCapability,
+  superAdminDeleteCapability,
 } from '../../services/api';
 import {
   Plus, Edit2, Trash2, X, RefreshCw, Tag,
@@ -151,6 +155,12 @@ function PlanPreviewModal({ plans, onClose }) {
   );
 }
 
+// Capabilities whose labels are also tied to enforcement boolean columns
+const ENFORCEMENT_MAP = {
+  'Full analytics':  { field: 'analyticsEnabled' },
+  'Priority support': { field: 'prioritySupport' },
+};
+
 function PlanModal({ plan, onSave, onClose }) {
   const isEdit = !!plan;
   const [form, setForm] = useState({
@@ -169,14 +179,67 @@ function PlanModal({ plan, onSave, onClose }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [capDefs, setCapDefs] = useState([]);
+  const [newCapLabel, setNewCapLabel] = useState('');
+  const [addingCap, setAddingCap] = useState(false);
+  const [showAddCap, setShowAddCap] = useState(false);
+
+  const isLive = isEdit && plan.isPublic && plan.isActive;
+  const enabledSet = new Set(form.featuresText.split('\n').map(s => s.trim()).filter(Boolean));
+
+  useEffect(() => {
+    superAdminListCapabilities().then(setCapDefs).catch(() => {});
+  }, []);
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
+
+  function toggleCapability(label, checked) {
+    setForm(p => {
+      const lines = p.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
+      const without = lines.filter(l => l !== label);
+      const updated = checked ? [...without, label] : without;
+      const enforcement = ENFORCEMENT_MAP[label];
+      return {
+        ...p,
+        featuresText: updated.join('\n'),
+        ...(enforcement ? { [enforcement.field]: checked } : {}),
+      };
+    });
+  }
+
+  async function handleAddCapability() {
+    const label = newCapLabel.trim();
+    if (!label) return;
+    setAddingCap(true);
+    try {
+      const created = await superAdminAddCapability(label);
+      setCapDefs(prev => [...prev, created]);
+      toggleCapability(label, true);
+      setNewCapLabel('');
+      setShowAddCap(false);
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Failed to add capability');
+    } finally {
+      setAddingCap(false);
+    }
+  }
+
+  async function handleDeleteCapability(key, label) {
+    if (!window.confirm(`Remove capability "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
+    try {
+      await superAdminDeleteCapability(key);
+      setCapDefs(prev => prev.filter(c => c.key !== key));
+    } catch { setError('Failed to remove capability'); }
+  }
 
   async function handleSave() {
     if (!isEdit && !form.plan.trim()) { setError('Plan code is required'); return; }
     if (!form.displayName.trim()) { setError('Display name is required'); return; }
+    if (isLive && !confirming) { setConfirming(true); return; }
     setSaving(true);
     setError('');
+    setConfirming(false);
     try {
       const features = form.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
       const priceInPaise = Math.round(parseFloat(form.priceRupees || '0') * 100);
@@ -277,16 +340,50 @@ function PlanModal({ plan, onSave, onClose }) {
             </div>
           </div>
 
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-600 mb-2">Capabilities</p>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.prioritySupport} onChange={e => set('prioritySupport', e.target.checked)} className="rounded accent-[#1E3A5F]" />
-              <span className="text-sm text-gray-700">Priority support</span>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.analyticsEnabled} onChange={e => set('analyticsEnabled', e.target.checked)} className="rounded accent-[#1E3A5F]" />
-              <span className="text-sm text-gray-700">Analytics</span>
-            </label>
+          <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-600">Capabilities</p>
+              <button type="button" onClick={() => setShowAddCap(v => !v)}
+                className="text-xs text-[#1E3A5F] font-semibold hover:underline cursor-pointer">
+                + Add capability
+              </button>
+            </div>
+            {showAddCap && (
+              <div className="flex gap-2 mb-2">
+                <input
+                  className={`${INPUT} flex-1`}
+                  placeholder="e.g. SMS notifications"
+                  value={newCapLabel}
+                  onChange={e => setNewCapLabel(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddCapability()}
+                  autoFocus
+                />
+                <button type="button" onClick={handleAddCapability} disabled={addingCap || !newCapLabel.trim()}
+                  className="px-3 py-2 rounded-xl text-white text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                  style={{ backgroundColor: '#1E3A5F' }}>
+                  {addingCap ? '…' : 'Add'}
+                </button>
+              </div>
+            )}
+            {capDefs.length === 0 && <p className="text-xs text-gray-400 italic">No capabilities defined yet — click "+ Add capability"</p>}
+            {capDefs.map(cap => (
+              <div key={cap.key} className="flex items-center justify-between group">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input type="checkbox"
+                    checked={enabledSet.has(cap.label)}
+                    onChange={e => toggleCapability(cap.label, e.target.checked)}
+                    className="rounded accent-[#1E3A5F]" />
+                  <span className="text-sm text-gray-700">{cap.label}</span>
+                  {ENFORCEMENT_MAP[cap.label] && (
+                    <span className="text-xs text-blue-500">(enforced)</span>
+                  )}
+                </label>
+                <button type="button" onClick={() => handleDeleteCapability(cap.key, cap.label)}
+                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs cursor-pointer transition-opacity">
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
 
           <div>
@@ -296,16 +393,24 @@ function PlanModal({ plan, onSave, onClose }) {
 
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
+        {confirming && (
+          <div className="px-6 py-4 bg-amber-50 border-t border-amber-200">
+            <p className="text-sm font-semibold text-amber-900 mb-1">This plan is currently live</p>
+            <p className="text-xs text-amber-700">Changes will reflect immediately on the landing page, registration, and all user-facing views. Are you sure?</p>
+          </div>
+        )}
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">Cancel</button>
+          <button type="button" onClick={confirming ? () => setConfirming(false) : onClose} className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">
+            {confirming ? 'Go back' : 'Cancel'}
+          </button>
           <button
             type="button"
             onClick={handleSave}
             disabled={saving}
             className="px-5 py-2 rounded-xl text-white text-sm font-semibold cursor-pointer hover:opacity-90 disabled:opacity-60"
-            style={{ backgroundColor: '#1E3A5F' }}
+            style={{ backgroundColor: confirming ? '#B45309' : '#1E3A5F' }}
           >
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create plan'}
+            {saving ? 'Saving…' : confirming ? 'Yes, save live plan' : isLive ? 'Save changes' : isEdit ? 'Save changes' : 'Create plan'}
           </button>
         </div>
       </div>
@@ -314,6 +419,7 @@ function PlanModal({ plan, onSave, onClose }) {
 }
 
 export default function SuperAdminPlansPage() {
+  const queryClient = useQueryClient();
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -626,14 +732,14 @@ export default function SuperAdminPlansPage() {
 
       {showCreate && (
         <PlanModal
-          onSave={() => { setShowCreate(false); load(); showToast('Plan created — click "Make Live" to publish it'); }}
+          onSave={() => { setShowCreate(false); load(); queryClient.invalidateQueries({ queryKey: ['public-plans'] }); showToast('Plan created — click "Make Live" to publish it'); }}
           onClose={() => setShowCreate(false)}
         />
       )}
       {editPlan && (
         <PlanModal
           plan={editPlan}
-          onSave={() => { setEditPlan(null); load(); showToast('Plan updated'); }}
+          onSave={() => { setEditPlan(null); load(); queryClient.invalidateQueries({ queryKey: ['public-plans'] }); showToast('Plan updated'); }}
           onClose={() => setEditPlan(null)}
         />
       )}

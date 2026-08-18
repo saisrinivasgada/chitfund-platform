@@ -2,15 +2,19 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.domain.entity.PlanCapabilityDef;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.TenantDiscount;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
+import com.chitfund.userservice.dto.response.CapabilityDefResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.dto.response.TenantDiscountResponse;
+import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantDiscountRepository;
 import com.chitfund.userservice.repository.TenantRepository;
@@ -24,11 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.List;
-import java.util.UUID;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +39,7 @@ import java.util.Optional;
 public class PlanService {
 
     private final PlanLimitsRepository planRepo;
+    private final PlanCapabilityDefRepository capabilityRepo;
     private final TenantDiscountRepository discountRepo;
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
@@ -160,6 +164,38 @@ public class PlanService {
 
     public Optional<PlanLimits> findByCode(String code) {
         return planRepo.findById(code != null ? code.toUpperCase() : "BASIC");
+    }
+
+    // ── Capability definitions ───────────────────────────────────────────────────
+
+    public List<CapabilityDefResponse> getCapabilityDefs() {
+        return capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().map(this::toCapabilityResponse).toList();
+    }
+
+    @Transactional
+    public CapabilityDefResponse addCapabilityDef(CreateCapabilityDefRequest req) {
+        String label = req.getLabel().trim();
+        if (capabilityRepo.existsByLabel(label)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Capability \"" + label + "\" already exists");
+        }
+        String key = label.toLowerCase().replaceAll("[^a-z0-9]+", "_");
+        if (capabilityRepo.existsById(key)) key = key + "_" + System.currentTimeMillis();
+        int maxOrder = capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().mapToInt(PlanCapabilityDef::getSortOrder).max().orElse(0);
+        PlanCapabilityDef def = PlanCapabilityDef.builder()
+                .key(key).label(label).sortOrder(maxOrder + 1).build();
+        return toCapabilityResponse(capabilityRepo.save(def));
+    }
+
+    @Transactional
+    public void deleteCapabilityDef(String key) {
+        capabilityRepo.deleteById(key);
+    }
+
+    private CapabilityDefResponse toCapabilityResponse(PlanCapabilityDef d) {
+        return CapabilityDefResponse.builder()
+                .key(d.getKey()).label(d.getLabel()).sortOrder(d.getSortOrder()).build();
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────

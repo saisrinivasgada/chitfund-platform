@@ -471,6 +471,12 @@ export const superAdminCreatePlan = async (body: any) =>
   unwrapObj(await api.post('/super-admin/plans', body));
 export const superAdminUpdatePlan2 = async (code: string, body: any) =>
   unwrapObj(await api.put(`/super-admin/plans/${code}`, body));
+export const superAdminListCapabilities = async () =>
+  unwrapList(await api.get('/super-admin/capabilities'));
+export const superAdminAddCapability = async (label: string) =>
+  unwrapObj(await api.post('/super-admin/capabilities', { label }));
+export const superAdminDeleteCapability = async (key: string) =>
+  api.delete(`/super-admin/capabilities/${key}`);
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));

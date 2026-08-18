@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, TextInput, Modal, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2 } from '../../../services/api';
+import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListCapabilities, superAdminAddCapability, superAdminDeleteCapability } from '../../../services/api';
 import { C } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
@@ -19,6 +19,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   onDone: () => void;
 }) {
   const isEdit = !!plan;
+  const isLive = isEdit && plan.isPublic && plan.isActive;
 
   const [code,        setCode]        = useState(plan?.plan ?? '');
   const [displayName, setDisplayName] = useState(plan?.displayName ?? '');
@@ -28,8 +29,49 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [maxChits,    setMaxChits]    = useState(String(plan?.limits?.maxChits ?? -1));
   const [maxStaff,    setMaxStaff]    = useState(String(plan?.limits?.maxStaff ?? -1));
   const [maxManagers, setMaxManagers] = useState(String(plan?.limits?.maxManagers ?? -1));
-  const [featuresStr, setFeaturesStr] = useState((plan?.features ?? []).join('\n'));
-  const [isActive,    setIsActive]    = useState<boolean>(plan?.active ?? true);
+  const [featuresStr,      setFeaturesStr]      = useState((plan?.features ?? []).join('\n'));
+  const [analyticsEnabled, setAnalyticsEnabled] = useState<boolean>(plan?.analyticsEnabled ?? false);
+  const [prioritySupport,  setPrioritySupport]  = useState<boolean>(plan?.prioritySupport ?? false);
+  const [isActive,         setIsActive]         = useState<boolean>(plan?.active ?? true);
+  const [capDefs, setCapDefs] = useState<any[]>([]);
+  const [newCapLabel, setNewCapLabel] = useState('');
+  const [showAddCap, setShowAddCap] = useState(false);
+  const [addingCap, setAddingCap] = useState(false);
+
+  const ENFORCEMENT_MAP: Record<string, string> = {
+    'Full analytics':   'analyticsEnabled',
+    'Priority support': 'prioritySupport',
+  };
+
+  useEffect(() => {
+    superAdminListCapabilities().then(setCapDefs).catch(() => {});
+  }, []);
+
+  const enabledSet = new Set(featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean));
+
+  function toggleCapability(label: string, checked: boolean) {
+    const lines = featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean);
+    const without = lines.filter((l: string) => l !== label);
+    setFeaturesStr(checked ? [...without, label].join('\n') : without.join('\n'));
+    const enfField = ENFORCEMENT_MAP[label];
+    if (enfField === 'analyticsEnabled') setAnalyticsEnabled(checked);
+    if (enfField === 'prioritySupport') setPrioritySupport(checked);
+  }
+
+  async function handleAddCapability() {
+    const label = newCapLabel.trim();
+    if (!label) return;
+    setAddingCap(true);
+    try {
+      const created = await superAdminAddCapability(label);
+      setCapDefs((prev: any[]) => [...prev, created]);
+      toggleCapability(label, true);
+      setNewCapLabel('');
+      setShowAddCap(false);
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.message ?? 'Failed to add capability');
+    } finally { setAddingCap(false); }
+  }
 
   const mut = useMutation({
     mutationFn: () => {
@@ -43,6 +85,8 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
           maxManagers: Number(maxManagers),
         },
         features: featuresStr.split('\n').map((f: string) => f.trim()).filter(Boolean),
+        analyticsEnabled,
+        prioritySupport,
         active: isActive,
       };
       return isEdit
@@ -116,6 +160,39 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 13, color: C.gray900, minHeight: 120 }} />
           </View>
 
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>CAPABILITIES</Text>
+            <TouchableOpacity onPress={() => setShowAddCap(v => !v)}>
+              <Text style={{ fontSize: 12, color: C.navy, fontWeight: '700' }}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showAddCap && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput value={newCapLabel} onChangeText={setNewCapLabel}
+                placeholder="e.g. SMS notifications" autoFocus
+                style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 13, color: C.gray900 }} />
+              <TouchableOpacity onPress={handleAddCapability} disabled={addingCap || !newCapLabel.trim()}
+                style={{ backgroundColor: C.navy, borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center', opacity: addingCap || !newCapLabel.trim() ? 0.5 : 1 }}>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{addingCap ? '…' : 'Add'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {capDefs.length === 0 && (
+            <Text style={{ fontSize: 12, color: C.gray400, fontStyle: 'italic' }}>No capabilities yet — tap + Add</Text>
+          )}
+
+          {capDefs.map((cap: any) => (
+            <View key={cap.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
+              <View>
+                <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
+                {ENFORCEMENT_MAP[cap.label] && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
+              </View>
+              <Switch value={enabledSet.has(cap.label)} onValueChange={v => toggleCapability(cap.label, v)} trackColor={{ true: C.navy }} />
+            </View>
+          ))}
+
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
             <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Active (visible to orgs)</Text>
             <Switch value={isActive} onValueChange={setIsActive} trackColor={{ true: '#16A34A' }} />
@@ -124,7 +201,20 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
 
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
           <TouchableOpacity
-            onPress={() => mut.mutate()}
+            onPress={() => {
+              if (isLive) {
+                Alert.alert(
+                  'This plan is live',
+                  'Changes will reflect immediately on the landing page, registration, and all user-facing views. Save anyway?',
+                  [
+                    { text: 'Go back', style: 'cancel' },
+                    { text: 'Yes, save', style: 'destructive', onPress: () => mut.mutate() },
+                  ]
+                );
+              } else {
+                mut.mutate();
+              }
+            }}
             disabled={mut.isPending || (!isEdit && !code)}
             style={{ backgroundColor: C.navy, borderRadius: 14, padding: 15, alignItems: 'center', opacity: (mut.isPending || (!isEdit && !code)) ? 0.5 : 1 }}
           >

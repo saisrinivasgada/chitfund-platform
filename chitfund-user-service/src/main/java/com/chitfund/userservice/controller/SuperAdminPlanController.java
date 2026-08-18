@@ -1,9 +1,11 @@
 package com.chitfund.userservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
+import com.chitfund.userservice.dto.response.CapabilityDefResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.dto.response.TenantDiscountResponse;
 import com.chitfund.userservice.service.PlanService;
@@ -49,6 +51,26 @@ public class SuperAdminPlanController {
     public ResponseEntity<ApiResponse<Void>> deletePlan(@PathVariable String code) {
         planService.deletePlan(code);
         return ResponseEntity.ok(ApiResponse.success(null, "Plan deactivated"));
+    }
+
+    // ── Capability definitions ─────────────────────────────────────────────────
+
+    @GetMapping("/api/super-admin/capabilities")
+    public ResponseEntity<ApiResponse<List<CapabilityDefResponse>>> listCapabilities() {
+        return ResponseEntity.ok(ApiResponse.success(planService.getCapabilityDefs()));
+    }
+
+    @PostMapping("/api/super-admin/capabilities")
+    public ResponseEntity<ApiResponse<CapabilityDefResponse>> addCapability(
+            @Valid @RequestBody CreateCapabilityDefRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(planService.addCapabilityDef(req), "Capability added"));
+    }
+
+    @DeleteMapping("/api/super-admin/capabilities/{key}")
+    public ResponseEntity<ApiResponse<Void>> deleteCapability(@PathVariable String key) {
+        planService.deleteCapabilityDef(key);
+        return ResponseEntity.ok(ApiResponse.success(null, "Capability removed"));
     }
 
     // ── Per-tenant discount ────────────────────────────────────────────────────

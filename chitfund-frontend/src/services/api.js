@@ -294,6 +294,19 @@ export const superAdminDeletePlanDef = async (code) => {
   await api.delete(`/super-admin/plans/${code}`);
 };
 
+// ─── Capability definitions ────────────────────────────────────────────────
+export const superAdminListCapabilities = async () => {
+  const res = await api.get('/super-admin/capabilities');
+  return res.data.data ?? [];
+};
+export const superAdminAddCapability = async (label) => {
+  const res = await api.post('/super-admin/capabilities', { label });
+  return res.data.data;
+};
+export const superAdminDeleteCapability = async (key) => {
+  await api.delete(`/super-admin/capabilities/${key}`);
+};
+
 // ─── Per-org discount ──────────────────────────────────────────────────────
 export const superAdminGetDiscount = async (tenantId) => {
   const res = await api.get(`/super-admin/tenants/${tenantId}/discount`);
