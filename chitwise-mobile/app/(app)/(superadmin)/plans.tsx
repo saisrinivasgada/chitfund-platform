@@ -29,33 +29,31 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [maxChits,    setMaxChits]    = useState(String(plan?.limits?.maxChits ?? -1));
   const [maxStaff,    setMaxStaff]    = useState(String(plan?.limits?.maxStaff ?? -1));
   const [maxManagers, setMaxManagers] = useState(String(plan?.limits?.maxManagers ?? -1));
-  const [featuresStr,      setFeaturesStr]      = useState((plan?.features ?? []).join('\n'));
-  const [analyticsEnabled, setAnalyticsEnabled] = useState<boolean>(plan?.analyticsEnabled ?? false);
-  const [prioritySupport,  setPrioritySupport]  = useState<boolean>(plan?.prioritySupport ?? false);
-  const [isActive,         setIsActive]         = useState<boolean>(plan?.active ?? true);
+  const [featuresStr,         setFeaturesStr]         = useState((plan?.features ?? []).join('\n'));
+  const [enabledCapabilities, setEnabledCapabilities] = useState<string[]>(plan?.enabledCapabilities ?? []);
+  const [isActive,            setIsActive]            = useState<boolean>(plan?.active ?? true);
   const [capDefs, setCapDefs] = useState<any[]>([]);
   const [newCapLabel, setNewCapLabel] = useState('');
   const [showAddCap, setShowAddCap] = useState(false);
   const [addingCap, setAddingCap] = useState(false);
 
-  const ENFORCEMENT_MAP: Record<string, string> = {
-    'Full analytics':   'analyticsEnabled',
-    'Priority support': 'prioritySupport',
-  };
+  const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
 
   useEffect(() => {
     superAdminListCapabilities().then(setCapDefs).catch(() => {});
   }, []);
 
-  const enabledSet = new Set(featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean));
+  const enabledLabelSet = new Set(featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean));
 
-  function toggleCapability(label: string, checked: boolean) {
+  function toggleCapability(label: string, checked: boolean, key?: string) {
     const lines = featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean);
     const without = lines.filter((l: string) => l !== label);
     setFeaturesStr(checked ? [...without, label].join('\n') : without.join('\n'));
-    const enfField = ENFORCEMENT_MAP[label];
-    if (enfField === 'analyticsEnabled') setAnalyticsEnabled(checked);
-    if (enfField === 'prioritySupport') setPrioritySupport(checked);
+    if (key) {
+      setEnabledCapabilities(prev =>
+        checked ? [...new Set([...prev, key])] : prev.filter(k => k !== key)
+      );
+    }
   }
 
   async function handleAddCapability() {
@@ -65,7 +63,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
     try {
       const created = await superAdminAddCapability(label);
       setCapDefs((prev: any[]) => [...prev, created]);
-      toggleCapability(label, true);
+      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (e: any) {
@@ -85,8 +83,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
           maxManagers: Number(maxManagers),
         },
         features: featuresStr.split('\n').map((f: string) => f.trim()).filter(Boolean),
-        analyticsEnabled,
-        prioritySupport,
+        enabledCapabilities,
         active: isActive,
       };
       return isEdit
@@ -187,9 +184,9 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <View key={cap.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
               <View>
                 <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
-                {ENFORCEMENT_MAP[cap.label] && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
+                {ENFORCED_KEYS.has(cap.key) && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
               </View>
-              <Switch value={enabledSet.has(cap.label)} onValueChange={v => toggleCapability(cap.label, v)} trackColor={{ true: C.navy }} />
+              <Switch value={enabledLabelSet.has(cap.label)} onValueChange={v => toggleCapability(cap.label, v, cap.key)} trackColor={{ true: C.navy }} />
             </View>
           ))}
 
