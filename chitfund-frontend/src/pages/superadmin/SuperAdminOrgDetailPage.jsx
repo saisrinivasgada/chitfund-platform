@@ -30,6 +30,7 @@ import {
   unlockUser,
   resendSetupLink,
   superAdminSetupAppAccess,
+  superAdminListCapabilities,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -447,8 +448,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
     maxActiveChits: existing?.maxActiveChits ?? 5,
     maxMembers: existing?.maxMembers ?? 100,
     maxStaff: existing?.maxStaff ?? 3,
-    analyticsEnabled: existing?.analyticsEnabled ?? false,
-    prioritySupport: existing?.prioritySupport ?? false,
+    enabledCapabilities: existing?.enabledCapabilities ?? [],
     allowedChitTypes: existing?.allowedChitTypes
       ? existing.allowedChitTypes.split(',').map((s) => s.trim()).filter(t => ['RESERVATION','LOTTERY','AUCTION'].includes(t))
       : ['RESERVATION'],
@@ -460,9 +460,11 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const [resetPlan, setResetPlan] = useState('BASIC');
   const [resetting, setResetting] = useState(false);
   const [plans, setPlans] = useState([]);
+  const [capDefs, setCapDefs] = useState([]);
 
   useEffect(() => {
     superAdminListPlans().then(all => setPlans(all.filter(p => p.isPublic && p.isActive))).catch(() => {});
+    superAdminListCapabilities().then(setCapDefs).catch(() => {});
   }, []);
 
   async function handleReset() {
@@ -501,8 +503,7 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
         maxActiveChits: Number(form.maxActiveChits),
         maxMembers: Number(form.maxMembers),
         maxStaff: Number(form.maxStaff),
-        analyticsEnabled: form.analyticsEnabled,
-        prioritySupport: form.prioritySupport,
+        enabledCapabilities: form.enabledCapabilities,
         allowedChitTypes: form.allowedChitTypes.join(','),
         priceMonthlyInr: Math.round(Number(form.priceMonthlyInr) * 100),
         notes: form.notes || null,
@@ -559,26 +560,33 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
             ))}
           </div>
 
-          {/* Feature toggles */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Features</label>
-            <div className="flex gap-3">
-              {[
-                { key: 'analyticsEnabled', label: 'Analytics' },
-                { key: 'prioritySupport',  label: 'Priority Support' },
-              ].map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setForm({ ...form, [key]: !form[key] })}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${form[key] ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
-                >
-                  <div className={`w-3 h-3 rounded-full ${form[key] ? 'bg-green-500' : 'bg-gray-300'}`} />
-                  {label}
-                </button>
-              ))}
+          {/* Capability toggles */}
+          {capDefs.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-2">Capabilities</label>
+              <div className="flex flex-wrap gap-2">
+                {capDefs.map((cap) => {
+                  const on = form.enabledCapabilities.includes(cap.key);
+                  return (
+                    <button
+                      key={cap.key}
+                      type="button"
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        enabledCapabilities: on
+                          ? f.enabledCapabilities.filter(k => k !== cap.key)
+                          : [...f.enabledCapabilities, cap.key],
+                      }))}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${on ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full ${on ? 'bg-green-500' : 'bg-gray-300'}`} />
+                      {cap.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-2">Allowed Chit Types</label>
             <div className="flex flex-wrap gap-2">

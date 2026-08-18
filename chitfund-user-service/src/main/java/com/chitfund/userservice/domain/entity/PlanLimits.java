@@ -57,12 +57,6 @@ public class PlanLimits {
     @Column(name = "max_staff", nullable = false)
     private int maxStaff = 0;
 
-    @Column(name = "analytics_enabled", nullable = false)
-    private boolean analyticsEnabled = false;
-
-    @Column(name = "priority_support", nullable = false)
-    private boolean prioritySupport = false;
-
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 

@@ -20,5 +20,5 @@ public class TenantInfo {
     private LocalDateTime planExpiresAt;
     private String role;           // role in THIS tenant (ADMIN, MEMBER, etc.)
     private String memberId;       // null if not a MEMBER role
-    private boolean analyticsEnabled; // whether this org's plan includes analytics/reports
+    private boolean analyticsEnabled;
 }

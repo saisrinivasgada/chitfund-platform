@@ -17,10 +17,6 @@ public class SetCustomLimitsRequest {
     @Min(-1)
     private int maxStaff;         // -1 = unlimited
 
-    private boolean analyticsEnabled;
-
-    private boolean prioritySupport;
-
     private List<String> enabledCapabilities;
 
     @NotBlank

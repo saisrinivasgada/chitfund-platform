@@ -14,22 +14,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Internal-only endpoint consumed by sibling services (reporting, payment, etc.)
- * to check what capabilities a tenant's plan grants.
- *
- * Resolution order:
- *   1. tenant_custom_limits row (if the tenant has custom overrides) — takes full precedence
- *   2. plan_limits for the tenant's assigned plan — used when no custom row exists
- *
- * Security: not routed through the API gateway; lives inside the Docker network.
- * X-Internal-Key is a defence-in-depth guard in case the port is ever accidentally
- * exposed — callers without the shared key are rejected.
+ * Internal-only endpoint consumed by sibling services to check what capabilities
+ * a tenant's plan grants.  Not routed through the API gateway; X-Internal-Key is
+ * a defence-in-depth guard.
  */
 @RestController
 @RequestMapping("/internal/capabilities")
@@ -66,14 +58,18 @@ public class InternalCapabilityController {
             Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId)).orElse(null);
             if (tenant == null) return ResponseEntity.ok(List.of());
 
-            // Custom limits row takes full precedence over plan_limits
-            Optional<TenantCustomLimits> custom = customLimitsRepository.findById(tenantId);
-            if (custom.isPresent()) {
-                return ResponseEntity.ok(resolveCustomCapabilities(custom.get()));
+            String planCode = tenant.getPlan() != null ? tenant.getPlan().toUpperCase() : "BASIC";
+
+            // CUSTOM plan: capabilities are individually configured per-tenant in tenant_custom_limits.
+            // All other plans: capabilities come directly from plan_limits so that editing a plan
+            // immediately applies to every tenant on it — no per-tenant sync needed.
+            if ("CUSTOM".equals(planCode)) {
+                Optional<TenantCustomLimits> custom = customLimitsRepository.findById(tenantId);
+                return ResponseEntity.ok(
+                        custom.map(this::resolveCustomCapabilities).orElse(List.of()));
             }
 
-            // Fall back to the plan's capabilities
-            PlanLimits plan = planRepo.findById(tenant.getPlan().toUpperCase()).orElse(null);
+            PlanLimits plan = planRepo.findById(planCode).orElse(null);
             if (plan == null) return ResponseEntity.ok(List.of());
             return ResponseEntity.ok(parse(plan.getCapabilities()));
 
@@ -83,17 +79,8 @@ public class InternalCapabilityController {
         }
     }
 
-    /**
-     * Builds the capability list from a tenant_custom_limits row.
-     * Uses the capabilities JSON column as the primary source; the legacy boolean
-     * columns (analytics_enabled, priority_support) are kept in sync on write,
-     * but we also union them here as a safety net for rows written before V135.
-     */
     private List<String> resolveCustomCapabilities(TenantCustomLimits c) {
-        List<String> caps = new ArrayList<>(parse(c.getCapabilities()));
-        if (c.isAnalyticsEnabled()  && !caps.contains("full_analytics"))  caps.add("full_analytics");
-        if (c.isPrioritySupport()   && !caps.contains("priority_support")) caps.add("priority_support");
-        return caps;
+        return parse(c.getCapabilities());
     }
 
     private List<String> parse(String json) {

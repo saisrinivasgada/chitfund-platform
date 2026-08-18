@@ -654,8 +654,8 @@ export default function SuperAdminPlansPage() {
                         <td className="px-5 py-4">
                           <div className="flex flex-col gap-1.5">
                             <StaffLabel max={plan.maxStaff} />
-                            <CapBadge on={plan.analyticsEnabled} label="Analytics" icon={BarChart2} />
-                            <CapBadge on={plan.prioritySupport} label="Priority support" icon={HeadphonesIcon} />
+                            <CapBadge on={plan.enabledCapabilities?.includes('full_analytics')} label="Analytics" icon={BarChart2} />
+                            <CapBadge on={plan.enabledCapabilities?.includes('priority_support')} label="Priority support" icon={HeadphonesIcon} />
                           </div>
                         </td>
                         {/* Status — fixed: isActive === false (not falsy) means inactive */}

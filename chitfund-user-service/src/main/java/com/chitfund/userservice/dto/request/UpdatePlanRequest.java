@@ -19,7 +19,5 @@ public class UpdatePlanRequest {
     private Boolean isActive;
     private Integer displayOrder;
     private Integer maxStaff;
-    private Boolean analyticsEnabled;
-    private Boolean prioritySupport;
     private List<String> enabledCapabilities;
 }

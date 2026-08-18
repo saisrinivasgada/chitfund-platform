@@ -23,7 +23,5 @@ public class PlanResponse {
     private Boolean isActive;
     private int displayOrder;
     private int maxStaff;
-    private boolean analyticsEnabled;
-    private boolean prioritySupport;
     private List<String> enabledCapabilities;
 }

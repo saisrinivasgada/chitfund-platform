@@ -26,12 +26,6 @@ public class TenantCustomLimits {
     @Column(name = "max_staff", nullable = false)
     private int maxStaff;
 
-    @Column(name = "analytics_enabled", nullable = false)
-    private boolean analyticsEnabled;
-
-    @Column(name = "priority_support", nullable = false)
-    private boolean prioritySupport;
-
     @Column(name = "capabilities", columnDefinition = "text")
     private String capabilities;
 

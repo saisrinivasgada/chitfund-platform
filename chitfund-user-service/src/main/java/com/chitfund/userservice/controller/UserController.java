@@ -104,7 +104,9 @@ public class UserController {
         if (tenantId == null) {
             return ResponseEntity.ok(ApiResponse.success(
                     EffectiveLimitsResponse.builder().plan("UNLIMITED").maxActiveChits(-1)
-                            .maxMembers(-1).maxStaff(-1).analyticsEnabled(true).prioritySupport(true).build()));
+                            .maxMembers(-1).maxStaff(-1)
+                            .enabledCapabilities(java.util.List.of("full_analytics", "priority_support"))
+                            .analyticsEnabled(true).prioritySupport(true).build()));
         }
         return ResponseEntity.ok(ApiResponse.success(tenantService.getEffectiveLimits(tenantId)));
     }

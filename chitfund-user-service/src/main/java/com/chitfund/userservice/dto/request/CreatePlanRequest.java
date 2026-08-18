@@ -25,7 +25,5 @@ public class CreatePlanRequest {
     private boolean isPublic = false;
     private int displayOrder = 99;
     private int maxStaff = 0;
-    private boolean analyticsEnabled = false;
-    private boolean prioritySupport = false;
     private List<String> enabledCapabilities;
 }

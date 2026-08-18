@@ -144,12 +144,17 @@ public class TenantService {
     private TenantInfo buildTenantInfo(UUID tenantId, String role, String memberId) {
         Tenant t = tenantRepository.findById(tenantId).orElse(null);
         if (t == null) return null;
-        boolean analytics = customLimitsRepository.findById(t.getId().toString())
-                .map(TenantCustomLimits::isAnalyticsEnabled)
-                .orElseGet(() -> planLimitsRepository
-                        .findById(t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC")
-                        .map(p -> p.isAnalyticsEnabled())
-                        .orElse(true));
+        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
+        boolean analytics;
+        if ("CUSTOM".equals(planCode)) {
+            analytics = customLimitsRepository.findById(t.getId().toString())
+                    .map(c -> parseCaps(c.getCapabilities()).contains("full_analytics"))
+                    .orElse(false);
+        } else {
+            analytics = planLimitsRepository.findById(planCode)
+                    .map(p -> parseCaps(p.getCapabilities()).contains("full_analytics"))
+                    .orElse(true);
+        }
         return TenantInfo.builder()
                 .tenantId(t.getId().toString())
                 .name(t.getName())
@@ -556,15 +561,9 @@ public class TenantService {
         limits.setPriceMonthlyInr(req.getPriceMonthlyInr());
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
-        // Capabilities: use explicit list if provided, else derive from legacy booleans
         if (req.getEnabledCapabilities() != null) {
-            java.util.List<String> caps = req.getEnabledCapabilities();
-            try { limits.setCapabilities(objectMapper.writeValueAsString(caps)); } catch (Exception ignored) {}
-            limits.setAnalyticsEnabled(caps.contains("full_analytics"));
-            limits.setPrioritySupport(caps.contains("priority_support"));
-        } else {
-            limits.setAnalyticsEnabled(req.isAnalyticsEnabled());
-            limits.setPrioritySupport(req.isPrioritySupport());
+            try { limits.setCapabilities(objectMapper.writeValueAsString(req.getEnabledCapabilities())); }
+            catch (Exception ignored) {}
         }
         customLimitsRepository.save(limits);
 
@@ -584,7 +583,7 @@ public class TenantService {
                         "maxStaff", String.valueOf(req.getMaxStaff())),
                 tenantId.toString());
 
-        return toEffectiveLimits(limits, t.getPlanExpiresAt());
+        return toEffectiveLimits(limits, t.getPlanExpiresAt(), parseCaps(limits.getCapabilities()));
     }
 
     public void removeCustomLimits(UUID tenantId, String fallbackPlan) {
@@ -612,7 +611,8 @@ public class TenantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
         java.time.LocalDateTime expiresAt = tenant != null ? tenant.getPlanExpiresAt() : null;
-        return toEffectiveLimits(limits, expiresAt);
+        java.util.List<String> caps = resolveCaps(limits);
+        return toEffectiveLimits(limits, expiresAt, caps);
     }
 
     @Transactional(readOnly = true)
@@ -627,21 +627,42 @@ public class TenantService {
                 .toList();
     }
 
-    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, java.time.LocalDateTime planExpiresAt) {
-        boolean isCustom = "CUSTOM".equals(c.getPlanCode());
+    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, java.time.LocalDateTime planExpiresAt,
+                                                      java.util.List<String> caps) {
         return EffectiveLimitsResponse.builder()
                 .plan(c.getPlanCode())
-                .isCustom(isCustom)
+                .isCustom("CUSTOM".equals(c.getPlanCode()))
                 .maxActiveChits(c.getMaxActiveChits())
                 .maxMembers(c.getMaxMembers())
                 .maxStaff(c.getMaxStaff())
-                .analyticsEnabled(c.isAnalyticsEnabled())
-                .prioritySupport(c.isPrioritySupport())
+                .enabledCapabilities(caps)
+                .analyticsEnabled(caps.contains("full_analytics"))
+                .prioritySupport(caps.contains("priority_support"))
                 .allowedChitTypes(c.getAllowedChitTypes())
                 .priceMonthlyInr(c.getPriceMonthlyInr())
                 .notes(c.getNotes())
                 .planExpiresAt(planExpiresAt != null ? planExpiresAt.toString() : null)
                 .build();
+    }
+
+    /** Resolves capabilities for a tenant_custom_limits row.
+     *  CUSTOM plan: use the row's own capabilities.
+     *  All other plans: use plan_limits.capabilities so that plan edits auto-apply. */
+    private java.util.List<String> resolveCaps(TenantCustomLimits c) {
+        if ("CUSTOM".equals(c.getPlanCode())) return parseCaps(c.getCapabilities());
+        return planLimitsRepository.findById(c.getPlanCode())
+                .map(p -> parseCaps(p.getCapabilities()))
+                .orElse(java.util.List.of());
+    }
+
+    private java.util.List<String> parseCaps(String json) {
+        if (json == null || json.isBlank()) return java.util.List.of();
+        try {
+            return objectMapper.readValue(json,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+        } catch (Exception e) {
+            return java.util.List.of();
+        }
     }
 
     void seedLimitsFromPlan(String tenantId, PlanLimits plan) {
@@ -650,8 +671,7 @@ public class TenantService {
         limits.setMaxActiveChits(plan.getMaxActiveChits());
         limits.setMaxMembers(plan.getMaxMembers());
         limits.setMaxStaff(plan.getMaxStaff());
-        limits.setAnalyticsEnabled(plan.isAnalyticsEnabled());
-        limits.setPrioritySupport(plan.isPrioritySupport());
+        limits.setCapabilities(plan.getCapabilities());
         limits.setAllowedChitTypes(plan.getAllowedChitTypes());
         limits.setPriceMonthlyInr(plan.getPriceMonthlyInr());
         limits.setPlanCode(plan.getPlan());

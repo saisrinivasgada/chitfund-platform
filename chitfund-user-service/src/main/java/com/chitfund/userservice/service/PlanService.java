@@ -108,8 +108,6 @@ public class PlanService {
                 .isActive(true)
                 .displayOrder(req.getDisplayOrder())
                 .maxStaff(req.getMaxStaff())
-                .analyticsEnabled(caps.contains("full_analytics"))
-                .prioritySupport(caps.contains("priority_support"))
                 .build();
         return toResponse(planRepo.save(p));
     }
@@ -130,15 +128,8 @@ public class PlanService {
         if (req.getIsActive() != null) p.setActive(req.getIsActive());
         if (req.getDisplayOrder() != null) p.setDisplayOrder(req.getDisplayOrder());
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
-        if (req.getAnalyticsEnabled() != null) p.setAnalyticsEnabled(req.getAnalyticsEnabled());
-        if (req.getPrioritySupport() != null) p.setPrioritySupport(req.getPrioritySupport());
-        if (req.getEnabledCapabilities() != null) {
-            List<String> caps = req.getEnabledCapabilities();
-            p.setCapabilities(serializeFeatures(caps));
-            // Keep legacy boolean columns in sync
-            p.setAnalyticsEnabled(caps.contains("full_analytics"));
-            p.setPrioritySupport(caps.contains("priority_support"));
-        }
+        if (req.getEnabledCapabilities() != null)
+            p.setCapabilities(serializeFeatures(req.getEnabledCapabilities()));
         return toResponse(planRepo.save(p));
     }
 
@@ -227,8 +218,6 @@ public class PlanService {
                 .isActive(p.isActive())
                 .displayOrder(p.getDisplayOrder())
                 .maxStaff(p.getMaxStaff())
-                .analyticsEnabled(p.isAnalyticsEnabled())
-                .prioritySupport(p.isPrioritySupport())
                 .build();
     }
 
