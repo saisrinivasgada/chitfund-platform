@@ -132,14 +132,28 @@ function PlanPreviewModal({ plans, onClose }) {
             <div className="relative">
               {canLeft && (
                 <button type="button" onClick={() => scrollRef.current?.scrollBy({ left: -280, behavior: 'smooth' })}
-                  className="scroll-arrow-glow absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                  <ChevronLeft size={18} />
+                  className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                  style={{
+                    backdropFilter: 'blur(16px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                    backgroundColor: 'rgba(255,255,255,0.65)',
+                    border: '1px solid rgba(255,255,255,0.85)',
+                    boxShadow: '0 4px 16px rgba(30,58,95,0.12), inset 0 1px 0 rgba(255,255,255,1)',
+                  }}>
+                  <ChevronLeft size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                 </button>
               )}
               {canRight && (
                 <button type="button" onClick={() => scrollRef.current?.scrollBy({ left: 280, behavior: 'smooth' })}
-                  className="scroll-arrow-glow absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center text-white cursor-pointer transition-transform">
-                  <ChevronRight size={18} />
+                  className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-110"
+                  style={{
+                    backdropFilter: 'blur(16px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+                    backgroundColor: 'rgba(255,255,255,0.65)',
+                    border: '1px solid rgba(255,255,255,0.85)',
+                    boxShadow: '0 4px 16px rgba(30,58,95,0.12), inset 0 1px 0 rgba(255,255,255,1)',
+                  }}>
+                  <ChevronRight size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                 </button>
               )}
               <div ref={scrollRef} className="flex gap-4 overflow-x-auto pb-2 items-stretch" style={{ scrollbarWidth: 'none' }}>
@@ -197,8 +211,15 @@ function PlanModal({ plan, onSave, onClose }) {
   function toggleCapability(label, checked) {
     setForm(p => {
       const lines = p.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
-      const without = lines.filter(l => l !== label);
-      const updated = checked ? [...without, label] : without;
+      const capLabelSet = new Set(capDefs.map(c => c.label));
+      const nonCapFeatures = lines.filter(l => !capLabelSet.has(l));
+      const checkedCapLabels = lines.filter(l => capLabelSet.has(l));
+      const newCheckedCapLabels = checked
+        ? [...new Set([...checkedCapLabels, label])]
+        : checkedCapLabels.filter(l => l !== label);
+      // Keep caps in sort_order defined by capDefs
+      const sortedCaps = capDefs.filter(c => newCheckedCapLabels.includes(c.label)).map(c => c.label);
+      const updated = [...nonCapFeatures, ...sortedCaps];
       const enforcement = ENFORCEMENT_MAP[label];
       return {
         ...p,
@@ -379,8 +400,9 @@ function PlanModal({ plan, onSave, onClose }) {
                   )}
                 </label>
                 <button type="button" onClick={() => handleDeleteCapability(cap.key, cap.label)}
-                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs cursor-pointer transition-opacity">
-                  ✕
+                  title="Remove from master list"
+                  className="text-gray-300 hover:text-red-500 cursor-pointer transition-colors flex-shrink-0">
+                  <Trash2 size={13} />
                 </button>
               </div>
             ))}

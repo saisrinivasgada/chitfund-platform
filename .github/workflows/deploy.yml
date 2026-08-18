@@ -29,17 +29,17 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      user:         ${{ steps.f.outputs.user         == 'true' || inputs.deploy_backend  == 'true' }}
-      member:       ${{ steps.f.outputs.member       == 'true' || inputs.deploy_backend  == 'true' }}
-      chit:         ${{ steps.f.outputs.chit         == 'true' || inputs.deploy_backend  == 'true' }}
-      payment:      ${{ steps.f.outputs.payment      == 'true' || inputs.deploy_backend  == 'true' }}
-      payout:       ${{ steps.f.outputs.payout       == 'true' || inputs.deploy_backend  == 'true' }}
-      notification: ${{ steps.f.outputs.notification == 'true' || inputs.deploy_backend  == 'true' }}
-      gateway:      ${{ steps.f.outputs.gateway      == 'true' || inputs.deploy_backend  == 'true' }}
-      audit:        ${{ steps.f.outputs.audit        == 'true' || inputs.deploy_backend  == 'true' }}
-      reporting:    ${{ steps.f.outputs.reporting    == 'true' || inputs.deploy_backend  == 'true' }}
-      frontend:     ${{ steps.f.outputs.frontend     == 'true' || inputs.deploy_frontend == 'true' }}
-      backend:      ${{ steps.f.outputs.backend      == 'true' || inputs.deploy_backend  == 'true' }}
+      user:         ${{ steps.out.outputs.user }}
+      member:       ${{ steps.out.outputs.member }}
+      chit:         ${{ steps.out.outputs.chit }}
+      payment:      ${{ steps.out.outputs.payment }}
+      payout:       ${{ steps.out.outputs.payout }}
+      notification: ${{ steps.out.outputs.notification }}
+      gateway:      ${{ steps.out.outputs.gateway }}
+      audit:        ${{ steps.out.outputs.audit }}
+      reporting:    ${{ steps.out.outputs.reporting }}
+      frontend:     ${{ steps.out.outputs.frontend }}
+      backend:      ${{ steps.out.outputs.backend }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -86,6 +86,26 @@ jobs:
               - 'chitfund-api-gateway/**'
               - 'chitfund-audit-service/**'
               - 'chitfund-reporting-service/**'
+      - name: Resolve outputs (paths-filter + force-deploy inputs)
+        id: out
+        run: |
+          force_be="${{ inputs.deploy_backend }}"
+          force_fe="${{ inputs.deploy_frontend }}"
+          be() { [[ "${{ steps.f.outputs.backend }}"      == "true" || "$force_be" == "true" ]] && echo true || echo false; }
+          fe() { [[ "${{ steps.f.outputs.frontend }}"     == "true" || "$force_fe" == "true" ]] && echo true || echo false; }
+          {
+            echo "user=$(       [[ "${{ steps.f.outputs.user }}"         == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "member=$(     [[ "${{ steps.f.outputs.member }}"       == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "chit=$(       [[ "${{ steps.f.outputs.chit }}"         == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "payment=$(    [[ "${{ steps.f.outputs.payment }}"      == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "payout=$(     [[ "${{ steps.f.outputs.payout }}"      == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "notification=$([[ "${{ steps.f.outputs.notification }}" == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "gateway=$(    [[ "${{ steps.f.outputs.gateway }}"      == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "audit=$(      [[ "${{ steps.f.outputs.audit }}"        == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "reporting=$(  [[ "${{ steps.f.outputs.reporting }}"    == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "frontend=$(   fe )"
+            echo "backend=$(    be )"
+          } >> "$GITHUB_OUTPUT"
 
   # ── 2. Per-service compile checks (run in parallel) ───────────────────────────
 
