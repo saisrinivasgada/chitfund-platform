@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+import java.util.List;
+
 @Data
 public class SetCustomLimitsRequest {
     @Min(-1)
@@ -18,6 +20,8 @@ public class SetCustomLimitsRequest {
     private boolean analyticsEnabled;
 
     private boolean prioritySupport;
+
+    private List<String> enabledCapabilities;
 
     @NotBlank
     private String allowedChitTypes; // comma-separated: STANDARD,POST_PAYOUT,RESERVATION,FLEXI

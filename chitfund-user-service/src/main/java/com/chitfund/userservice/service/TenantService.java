@@ -51,6 +51,7 @@ public class TenantService {
     private final PromotionService promotionService;
     private final NotificationServiceClient notificationServiceClient;
     private final AuditClient auditClient;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -551,12 +552,20 @@ public class TenantService {
         limits.setMaxActiveChits(req.getMaxActiveChits());
         limits.setMaxMembers(req.getMaxMembers());
         limits.setMaxStaff(req.getMaxStaff());
-        limits.setAnalyticsEnabled(req.isAnalyticsEnabled());
-        limits.setPrioritySupport(req.isPrioritySupport());
         limits.setAllowedChitTypes(req.getAllowedChitTypes().toUpperCase());
         limits.setPriceMonthlyInr(req.getPriceMonthlyInr());
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
+        // Capabilities: use explicit list if provided, else derive from legacy booleans
+        if (req.getEnabledCapabilities() != null) {
+            java.util.List<String> caps = req.getEnabledCapabilities();
+            try { limits.setCapabilities(objectMapper.writeValueAsString(caps)); } catch (Exception ignored) {}
+            limits.setAnalyticsEnabled(caps.contains("full_analytics"));
+            limits.setPrioritySupport(caps.contains("priority_support"));
+        } else {
+            limits.setAnalyticsEnabled(req.isAnalyticsEnabled());
+            limits.setPrioritySupport(req.isPrioritySupport());
+        }
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM

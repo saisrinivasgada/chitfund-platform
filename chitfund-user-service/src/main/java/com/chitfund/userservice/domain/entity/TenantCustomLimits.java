@@ -32,6 +32,9 @@ public class TenantCustomLimits {
     @Column(name = "priority_support", nullable = false)
     private boolean prioritySupport;
 
+    @Column(name = "capabilities", columnDefinition = "text")
+    private String capabilities;
+
     @Column(name = "allowed_chit_types", nullable = false, length = 200)
     private String allowedChitTypes;
 
