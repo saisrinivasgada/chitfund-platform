@@ -92,6 +92,19 @@ public class JwtTokenProvider {
         }
     }
 
+    // Login OTP pending token — 10 min, used only at /auth/verify-login-otp
+    public String generateLoginOtpToken(User user) {
+        return Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("username", user.getUsername())
+                .claim("role", user.getRole().name())
+                .claim("scope", "LOGIN_OTP_PENDING")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L)) // 10 min
+                .signWith(getSigningKey())
+                .compact();
+    }
+
     // Transfer token for cross-subdomain switching: 30 seconds, opaque UUID stored in Redis/DB
     public String generateRefreshTokenValue() {
         return UUID.randomUUID().toString();

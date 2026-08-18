@@ -21,7 +21,7 @@ public class InternalTenantController {
     @GetMapping("/{tenantId}/effective-limits")
     public ResponseEntity<EffectiveLimitsResponse> getEffectiveLimits(
             @PathVariable String tenantId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.ok(tenantService.getEffectiveLimits(tenantId));
     }

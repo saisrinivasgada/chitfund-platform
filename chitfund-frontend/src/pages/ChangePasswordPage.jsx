@@ -4,7 +4,22 @@ import { useAuth } from '../context/AuthContext';
 import { changePassword } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
-import { BookOpen, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, ShieldCheck, Eye, EyeOff, Check, X } from 'lucide-react';
+
+const PASSWORD_RULES = [
+  { label: 'At least 8 characters', test: (p) => p.length >= 8 },
+  { label: 'One uppercase letter', test: (p) => /[A-Z]/.test(p) },
+  { label: 'One lowercase letter', test: (p) => /[a-z]/.test(p) },
+  { label: 'One number', test: (p) => /[0-9]/.test(p) },
+  { label: 'One special character', test: (p) => /[^A-Za-z0-9]/.test(p) },
+];
+
+function validatePassword(pw) {
+  for (const rule of PASSWORD_RULES) {
+    if (!rule.test(pw)) return rule.label.replace('One ', 'Must contain at least one ').replace('At least 8', 'Password must be at least 8');
+  }
+  return null;
+}
 
 export default function ChangePasswordPage() {
   const { user, updateUser } = useAuth();
@@ -23,8 +38,9 @@ export default function ChangePasswordPage() {
       setError('New passwords do not match.');
       return;
     }
-    if (form.newPassword.length < 8) {
-      setError('New password must be at least 8 characters.');
+    const pwError = validatePassword(form.newPassword);
+    if (pwError) {
+      setError(pwError);
       return;
     }
     if (form.newPassword === form.currentPassword) {
@@ -127,14 +143,18 @@ export default function ChangePasswordPage() {
                 </button>
               </div>
               {form.newPassword.length > 0 && (
-                <div className="flex gap-1 mt-0.5">
-                  {[...Array(4)].map((_, i) => (
-                    <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      form.newPassword.length >= 8 + i * 4
-                        ? i < 2 ? 'bg-red-400' : i === 2 ? 'bg-amber-400' : 'bg-green-400'
-                        : 'bg-gray-200'
-                    }`} />
-                  ))}
+                <div className="mt-2 space-y-1">
+                  {PASSWORD_RULES.map((rule) => {
+                    const ok = rule.test(form.newPassword);
+                    return (
+                      <div key={rule.label} className="flex items-center gap-1.5">
+                        {ok
+                          ? <Check size={12} className="text-green-500 flex-shrink-0" />
+                          : <X size={12} className="text-red-400 flex-shrink-0" />}
+                        <span className={`text-xs ${ok ? 'text-green-600' : 'text-gray-400'}`}>{rule.label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

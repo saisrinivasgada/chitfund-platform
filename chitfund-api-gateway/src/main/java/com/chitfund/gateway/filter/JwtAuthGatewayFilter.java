@@ -62,6 +62,11 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                         .parseSignedClaims(token)
                         .getPayload();
 
+                String scope = claims.get("scope", String.class);
+                if ("TENANT_SELECT".equals(scope) || "LOGIN_OTP_PENDING".equals(scope)) {
+                    return unauthorized(exchange, "Token scope not allowed for this endpoint");
+                }
+
                 // Forward user identity headers to downstream services
                 ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
                         .header("X-User-Id", claims.getSubject())

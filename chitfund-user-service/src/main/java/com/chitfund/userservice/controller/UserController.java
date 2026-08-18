@@ -12,6 +12,8 @@ import com.chitfund.userservice.dto.request.SendPhoneOtpRequest;
 import com.chitfund.userservice.dto.request.UpdateUserProfileRequest;
 import com.chitfund.userservice.dto.request.VerifyPhoneOtpRequest;
 import com.chitfund.userservice.service.OtpService;
+import com.chitfund.userservice.service.RateLimiterService;
+import jakarta.servlet.http.HttpServletRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
 import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
 import com.chitfund.userservice.dto.response.ResetPasswordResponse;
@@ -52,6 +54,7 @@ public class UserController {
     private final UserService userService;
     private final AuthService authService;
     private final OtpService otpService;
+    private final RateLimiterService rateLimiterService;
     private final PlanService planService;
     private final TenantService tenantService;
     private final PromotionService promotionService;
@@ -179,14 +182,20 @@ public class UserController {
 
     @PostMapping("/admin/phone/send-otp")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<Void>> adminSendPhoneOtp(@Valid @RequestBody SendPhoneOtpRequest req) {
+    public ResponseEntity<ApiResponse<Void>> adminSendPhoneOtp(@Valid @RequestBody SendPhoneOtpRequest req, HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         otpService.sendOtp(req.getPhone(), req.getCountryCode(), "ADMIN_PHONE_VERIFY", null);
         return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
     }
 
     @PostMapping("/admin/phone/verify-otp")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<Void>> adminVerifyPhoneOtp(@Valid @RequestBody VerifyPhoneOtpRequest req) {
+    public ResponseEntity<ApiResponse<Void>> adminVerifyPhoneOtp(@Valid @RequestBody VerifyPhoneOtpRequest req, HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         otpService.verifyOtp(req.getPhone(), "ADMIN_PHONE_VERIFY", req.getCode());
         return ResponseEntity.ok(ApiResponse.success(null, "Phone verified"));
     }
@@ -207,7 +216,10 @@ public class UserController {
 
     @PostMapping("/me/phone/send-otp")
     public ResponseEntity<ApiResponse<Void>> sendPhoneChangeOtp(
-            @Valid @RequestBody SendPhoneOtpRequest req, Authentication auth) {
+            @Valid @RequestBody SendPhoneOtpRequest req, Authentication auth, HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         User user = (User) auth.getPrincipal();
         otpService.sendOtp(req.getPhone(), req.getCountryCode(), "PHONE_CHANGE", user.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
@@ -215,7 +227,10 @@ public class UserController {
 
     @PostMapping("/me/phone/verify-otp")
     public ResponseEntity<ApiResponse<UserResponse>> verifyPhoneChangeOtp(
-            @Valid @RequestBody VerifyPhoneOtpRequest req, Authentication auth) {
+            @Valid @RequestBody VerifyPhoneOtpRequest req, Authentication auth, HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
         User user = (User) auth.getPrincipal();
         otpService.verifyOtp(req.getPhone(), "PHONE_CHANGE", req.getCode());
         String cc = req.getCountryCode() != null ? req.getCountryCode() : "+91";
@@ -319,7 +334,13 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserResponse>> changeRole(
             @PathVariable UUID id,
             @RequestBody Map<String, String> body) {
-        Role newRole = Role.valueOf(body.get("role"));
+        String roleStr = body.get("role");
+        Role newRole;
+        try {
+            newRole = Role.valueOf(roleStr);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_001", "Invalid role: " + roleStr));
+        }
         return ResponseEntity.ok(ApiResponse.success(userService.changeRole(id, newRole), "Role updated"));
     }
 
@@ -334,5 +355,11 @@ public class UserController {
         User admin = (User) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
                 userService.softDeleteStaff(id, admin.getId()), "Staff account deleted"));
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) return realIp.trim();
+        return request.getRemoteAddr();
     }
 }

@@ -13,7 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCrypt;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Random;
+import java.security.SecureRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -93,8 +93,10 @@ public class OtpService {
         return record.getId();
     }
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private String generateOtp() {
-        return String.format("%06d", new Random().nextInt(1_000_000));
+        return String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
     }
 
 }

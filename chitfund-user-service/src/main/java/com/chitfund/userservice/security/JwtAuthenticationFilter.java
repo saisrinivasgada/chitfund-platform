@@ -59,7 +59,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
                 // Reject pre-scope tokens from accessing protected endpoints
                 String scope = jwtTokenProvider.extractScope(token);
-                if ("TENANT_SELECT".equals(scope)) {
+                if ("TENANT_SELECT".equals(scope) || "LOGIN_OTP_PENDING".equals(scope)) {
                     filterChain.doFilter(request, response);
                     return;
                 }

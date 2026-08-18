@@ -46,6 +46,7 @@ public class AuthService {
     private final UserMapper userMapper;
     private final TenantService tenantService;
     private final OtpService otpService;
+    private final PasswordValidator passwordValidator;
 
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
@@ -76,6 +77,11 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         user = authenticateUser(user, request.getPassword());
+
+        if (requiresLoginOtp(user)) {
+            return buildLoginOtpResponse(user);
+        }
+
         updateLoginState(user, false);
         userRepository.save(user);
 
@@ -106,6 +112,11 @@ public class AuthService {
         }
 
         user = authenticateUser(user, request.getPassword());
+
+        if (requiresLoginOtp(user)) {
+            return buildLoginOtpResponse(user);
+        }
+
         updateLoginState(user, false);
         userRepository.save(user);
 
@@ -169,6 +180,7 @@ public class AuthService {
         User user = userRepository.findById(setupToken.getUserId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
+        passwordValidator.validate(request.getNewPassword());
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
         user.setTempPasswordHash(null);
@@ -227,6 +239,9 @@ public class AuthService {
 
         boolean isTempPassword = (request.getPassword() == null || request.getPassword().isBlank());
         String plainPassword = isTempPassword ? generateTempPassword() : request.getPassword();
+        if (!isTempPassword) {
+            passwordValidator.validate(plainPassword);
+        }
 
         String tenantId = TenantContext.get();
 
@@ -324,6 +339,7 @@ public class AuthService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Current password is incorrect", HttpStatus.BAD_REQUEST);
         }
+        passwordValidator.validate(request.getNewPassword());
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setTempPasswordHash(null);
         user.setMustChangePassword(false);
@@ -332,7 +348,11 @@ public class AuthService {
     }
 
     public AuthResponse refresh(RefreshTokenRequest request) {
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(request.getRefreshToken())
+        return refreshByToken(request.getRefreshToken());
+    }
+
+    public AuthResponse refreshByToken(String tokenValue) {
+        RefreshToken refreshToken = refreshTokenRepository.findByToken(tokenValue)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
         if (refreshToken.isRevoked()) {
             refreshTokenRepository.revokeAllActiveByUser(refreshToken.getUser());
@@ -344,6 +364,25 @@ public class AuthService {
         refreshToken.setRevoked(true);
         refreshTokenRepository.save(refreshToken);
         return buildAuthResponse(refreshToken.getUser(), null);
+    }
+
+    public LoginResponse verifyLoginOtp(String otpToken, String code) {
+        if (!jwtTokenProvider.validateToken(otpToken)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "OTP session expired — please log in again");
+        }
+        String scope = jwtTokenProvider.extractScope(otpToken);
+        if (!"LOGIN_OTP_PENDING".equals(scope)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Invalid OTP token");
+        }
+        String userId = jwtTokenProvider.extractUserId(otpToken);
+        User user = userRepository.findById(UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        otpService.verifyOtp(user.getPhone(), "LOGIN", code);
+
+        updateLoginState(user, false);
+        userRepository.save(user);
+        return buildLoginResponse(user);
     }
 
     public void logout(String refreshTokenValue) {
@@ -471,6 +510,7 @@ public class AuthService {
                     "Reset link has expired (15 min). Please start over.");
         }
 
+        passwordValidator.validate(newPassword);
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setTempPasswordHash(null);
         user.setMustChangePassword(false);
@@ -516,6 +556,24 @@ public class AuthService {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    private boolean requiresLoginOtp(User user) {
+        return (user.getRole() == Role.ADMIN || user.getRole() == Role.SUPER_ADMIN || user.getRole() == Role.MANAGER)
+                && user.getPhone() != null && !user.getPhone().isBlank();
+    }
+
+    private LoginResponse buildLoginOtpResponse(User user) {
+        String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
+        otpService.sendOtp(user.getPhone(), cc, "LOGIN", user.getId().toString());
+        String phone = user.getPhone().replaceAll("\\D", "");
+        String masked = phone.length() >= 4 ? "*".repeat(phone.length() - 4) + phone.substring(phone.length() - 4) : "****";
+        String otpToken = jwtTokenProvider.generateLoginOtpToken(user);
+        return LoginResponse.builder()
+                .requiresOtp(true)
+                .otpToken(otpToken)
+                .maskedPhone(masked)
+                .build();
+    }
 
     private static final int MAX_FAILED_ATTEMPTS = 5;
 

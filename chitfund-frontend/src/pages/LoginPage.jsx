@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
@@ -12,6 +12,16 @@ import {
   Lock, AlertTriangle,
 } from 'lucide-react';
 import { useRef, useEffect } from 'react';
+
+/* ── Password validation ── */
+function validatePassword(pw) {
+  if (!pw || pw.length < 8) return 'Password must be at least 8 characters';
+  if (!/[A-Z]/.test(pw)) return 'Must contain at least one uppercase letter';
+  if (!/[a-z]/.test(pw)) return 'Must contain at least one lowercase letter';
+  if (!/[0-9]/.test(pw)) return 'Must contain at least one number';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain at least one special character';
+  return null;
+}
 
 /* ── Forgot password — 4-step flow ── */
 const OTP_LOCKOUT_SECS = 300; // 5-minute lockout after wrong OTP
@@ -123,7 +133,8 @@ function ForgotPasswordFlow({ onClose }) {
   async function handleReset(e) {
     e.preventDefault();
     if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
-    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    const pwError = validatePassword(newPassword);
+    if (pwError) { setError(pwError); return; }
     setError(''); setLoading(true);
     try {
       await forgotPasswordResetWithToken({ resetToken, newPassword });
@@ -450,13 +461,15 @@ export default function LoginPage() {
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
-  const [step, setStep]           = useState('choose'); // 'choose' | 'login'
+  const [step, setStep]           = useState('choose'); // 'choose' | 'login' | 'login-otp'
   const [selectedRole, setSelectedRole] = useState(null); // one of ROLES
   const [loginMode, setLoginMode] = useState('username');
   const [form, setForm]           = useState({ username: '', password: '' });
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
   const [showOtpReset, setShowOtpReset] = useState(false);
+  const [loginOtpState, setLoginOtpState] = useState(null); // { otpToken, maskedPhone }
+  const [loginOtp, setLoginOtp]   = useState('');
 
   if (isAuthenticated) {
     if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;
@@ -527,9 +540,31 @@ export default function LoginPage() {
     setError(''); setLoading(true);
     try {
       const data = await loginApi(form);
+      if (data.requiresOtp) {
+        setLoginOtpState({ otpToken: data.otpToken, maskedPhone: data.maskedPhone });
+        setLoginOtp('');
+        setStep('login-otp');
+        return;
+      }
       await handleLoginResponse(data);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleLoginOtpSubmit(e) {
+    e.preventDefault();
+    if (!loginOtp || loginOtp.length !== 6) return;
+    setError(''); setLoading(true);
+    try {
+      const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code: loginOtp });
+      if (data.requiresOtp) {
+        setError('OTP verification failed. Please try again.');
+        return;
+      }
+      await handleLoginResponse(data);
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
     } finally { setLoading(false); }
   }
 
@@ -784,6 +819,37 @@ export default function LoginPage() {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {/* ── Step 3: Login OTP verification ── */}
+              {step === 'login-otp' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-8">
+                    <button type="button" onClick={() => { setStep('login'); setLoginOtpState(null); setError(''); }}
+                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
+                      <ChevronLeft size={16} /> Back
+                    </button>
+                  </div>
+                  <div className="mb-7">
+                    <h2 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#1A202C' }}>
+                      Verify your identity
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-2">
+                      A 6-digit OTP was sent to <span className="font-semibold">{loginOtpState?.maskedPhone}</span>.
+                    </p>
+                  </div>
+                  <form onSubmit={handleLoginOtpSubmit} className="space-y-5">
+                    <input
+                      type="text" inputMode="numeric" maxLength={6} value={loginOtp}
+                      onChange={(e) => { setLoginOtp(e.target.value.replace(/\D/g, '')); setError(''); }}
+                      placeholder="6-digit code" autoFocus
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] tracking-widest text-center text-lg font-mono"
+                    />
+                    {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
+                    <Button type="submit" loading={loading} disabled={loginOtp.length !== 6} className="w-full">Verify &amp; Sign In</Button>
+                    <p className="text-xs text-center text-gray-400">Wrong number or didn't receive it? Go back and try again.</p>
+                  </form>
                 </div>
               )}
 

@@ -3,7 +3,7 @@ import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Mo
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
+import { login, selectTenant, verifyLoginOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import {
   isBiometricAvailable,
@@ -15,6 +15,15 @@ import {
 } from '../../utils/biometrics';
 
 const OTP_LOCKOUT_SECS = 300;
+
+function validatePassword(pw: string): string | null {
+  if (!pw || pw.length < 8) return 'Password must be at least 8 characters';
+  if (!/[A-Z]/.test(pw)) return 'Must contain at least one uppercase letter';
+  if (!/[a-z]/.test(pw)) return 'Must contain at least one lowercase letter';
+  if (!/[0-9]/.test(pw)) return 'Must contain at least one number';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain at least one special character';
+  return null;
+}
 
 function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<'lookup' | 'last4' | 'otp' | 'password' | 'done' | 'locked'>('lookup');
@@ -124,7 +133,8 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
 
   async function handleResetPassword() {
     if (!newPassword || newPassword !== confirmPassword) { setError('Passwords do not match'); return; }
-    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
+    const pwError = validatePassword(newPassword);
+    if (pwError) { setError(pwError); return; }
     setLoading(true); setError('');
     try {
       await forgotPasswordResetWithToken({ resetToken: resetTokenRef.current, newPassword });
@@ -326,6 +336,8 @@ export default function LoginScreen() {
   const [pendingCreds, setPendingCreds] = useState<{ username: string; password: string } | null>(null);
   const [tenantPicker, setTenantPicker] = useState<{ loginToken: string; tenants: TenantOption[] } | null>(null);
   const [showForgot, setShowForgot] = useState(false);
+  const [loginOtpState, setLoginOtpState] = useState<{ otpToken: string; maskedPhone: string } | null>(null);
+  const [loginOtp, setLoginOtp] = useState('');
   const { setUser } = useAuthStore();
   const router  = useRouter();
 
@@ -421,6 +433,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const data = await login(username.trim(), password);
+      if (data.requiresOtp && data.otpToken) {
+        setLoginOtpState({ otpToken: data.otpToken, maskedPhone: data.maskedPhone ?? '****' });
+        setLoginOtp('');
+        return;
+      }
       if (data.requiresTenantSelection && data.loginToken) {
         if (data.tenants?.length === 1) {
           await handleTenantSelect(data.loginToken, data.tenants[0].tenantId, data.tenants[0].status);
@@ -432,6 +449,29 @@ export default function LoginScreen() {
       applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? err.message ?? 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLoginOtpSubmit() {
+    if (!loginOtpState || loginOtp.length !== 6) return;
+    setError('');
+    setLoading(true);
+    try {
+      const data = await verifyLoginOtp(loginOtpState.otpToken, loginOtp);
+      setLoginOtpState(null);
+      if (data.requiresTenantSelection && data.loginToken) {
+        if (data.tenants?.length === 1) {
+          await handleTenantSelect(data.loginToken, data.tenants[0].tenantId, data.tenants[0].status);
+        } else {
+          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
+        }
+        return;
+      }
+      applyAuth(data, true);
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -595,6 +635,35 @@ export default function LoginScreen() {
             ))}</ScrollView>
             <TouchableOpacity onPress={() => setTenantPicker(null)} style={{ marginTop: 6, alignItems: 'center', paddingVertical: 10 }}>
               <Text style={{ fontSize: 14, color: '#9CA3AF' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Login OTP verification */}
+      <Modal visible={!!loginOtpState} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your identity</Text>
+            <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+              A 6-digit OTP was sent to {loginOtpState?.maskedPhone}
+            </Text>
+            <Input
+              label="6-digit OTP"
+              value={loginOtp}
+              onChangeText={(v) => { setLoginOtp(v.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+              placeholder="123456"
+              keyboardType="numeric"
+            />
+            {error ? (
+              <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
+                <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>
+              </View>
+            ) : null}
+            <View style={{ height: 20 }} />
+            <Button label="Verify &amp; Sign In" onPress={handleLoginOtpSubmit} loading={loading} disabled={loginOtp.length !== 6} fullWidth size="lg" />
+            <TouchableOpacity onPress={() => { setLoginOtpState(null); setLoginOtp(''); setError(''); }} style={{ marginTop: 14, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Cancel — go back</Text>
             </TouchableOpacity>
           </View>
         </View>

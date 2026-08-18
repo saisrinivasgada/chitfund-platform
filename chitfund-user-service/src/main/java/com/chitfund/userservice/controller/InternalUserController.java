@@ -32,7 +32,7 @@ public class InternalUserController {
     @GetMapping("/{userId}/name")
     public ResponseEntity<Map<String, String>> getUserName(
             @PathVariable UUID userId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         return userRepository.findById(userId)
                 .map(u -> ResponseEntity.ok(Map.of("name",
@@ -43,7 +43,7 @@ public class InternalUserController {
     @GetMapping("/ids-by-role")
     public ResponseEntity<List<String>> getUserIdsByRole(
             @RequestParam String role,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(List.of());
         try {
             Role r = Role.valueOf(role.toUpperCase());
@@ -65,7 +65,7 @@ public class InternalUserController {
      */
     @PostMapping("/link-or-create")
     public ResponseEntity<Map<String, String>> linkOrCreate(
-            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
             @RequestBody Map<String, String> body) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
 
@@ -128,7 +128,7 @@ public class InternalUserController {
     @PostMapping("/{userId}/setup-token")
     public ResponseEntity<Map<String, String>> generateSetupToken(
             @PathVariable UUID userId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         return userRepository.findById(userId)
                 .map(u -> {

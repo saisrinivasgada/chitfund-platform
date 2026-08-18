@@ -2,11 +2,17 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: '/api' });
 
+// In-memory token store — JWT access token never touches localStorage
+let _authToken = null;
+export const setAuthToken = (token) => { _authToken = token; };
+export const clearAuthToken = () => { _authToken = null; };
+
 // Attach auth token on every request except auth endpoints (login, etc.)
+// Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
 api.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
-    const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
+    const token = sessionStorage.getItem('token') ?? _authToken;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -18,8 +24,15 @@ api.interceptors.response.use(
   (err) => {
     const isAuthEndpoint = err.config?.url?.includes('/auth/');
     if (err.response?.status === 401 && !isAuthEndpoint) {
-      localStorage.removeItem('token');
+      clearAuthToken();
       localStorage.removeItem('user');
+      localStorage.removeItem('tenantId');
+      localStorage.removeItem('tenantSlug');
+      localStorage.removeItem('tenantName');
+      localStorage.removeItem('tenantPlan');
+      localStorage.removeItem('tenantStatus');
+      localStorage.removeItem('planExpiresAt');
+      localStorage.removeItem('analyticsEnabled');
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
       window.location.href = '/session-expired';
@@ -32,7 +45,20 @@ api.interceptors.response.use(
 );
 
 // ─── Auth (user-service, no strip) ────────────────────────────────────────
-// Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse? }
+
+// Restores session using HttpOnly refresh token cookie (called on page load)
+export const refreshSession = async () => {
+  const res = await api.post('/auth/refresh', {});
+  return res.data.data; // AuthResponse { accessToken, refreshToken, user }
+};
+
+// Verifies the login OTP for ADMIN/MANAGER/SUPER_ADMIN after password step
+export const verifyLoginOtp = async ({ otpToken, code }) => {
+  const res = await api.post('/auth/verify-login-otp', { otpToken, code });
+  return res.data.data; // LoginResponse
+};
+
+// Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse?, requiresOtp?, otpToken?, maskedPhone? }
 export const login = async ({ username, password }) => {
   const res = await api.post('/auth/login', { username, password });
   return res.data.data;

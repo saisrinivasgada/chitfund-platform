@@ -7,6 +7,15 @@ import { useAuthStore } from '../../store/authStore';
 import { changePassword } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 
+function validatePassword(pw: string): string | null {
+  if (!pw || pw.length < 8) return 'Password must be at least 8 characters';
+  if (!/[A-Z]/.test(pw)) return 'Must contain at least one uppercase letter';
+  if (!/[a-z]/.test(pw)) return 'Must contain at least one lowercase letter';
+  if (!/[0-9]/.test(pw)) return 'Must contain at least one number';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain at least one special character';
+  return null;
+}
+
 export default function ForceChangePasswordScreen() {
   const { user, setUser, logout } = useAuthStore();
   const router = useRouter();
@@ -35,8 +44,9 @@ export default function ForceChangePasswordScreen() {
     if (!currentPwd || !newPwd || !confirmPwd) {
       setError('All fields are required'); return;
     }
-    if (newPwd.length < 8) {
-      setError('New password must be at least 8 characters'); return;
+    const pwError = validatePassword(newPwd);
+    if (pwError) {
+      setError(pwError); return;
     }
     if (newPwd !== confirmPwd) {
       setError('Passwords do not match'); return;
@@ -97,8 +107,8 @@ export default function ForceChangePasswordScreen() {
               placeholder="Min 8 characters"
               secureTextEntry
             />
-            {newPwd.length > 0 && newPwd.length < 8 && (
-              <Text style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>Must be at least 8 characters</Text>
+            {newPwd.length > 0 && validatePassword(newPwd) && (
+              <Text style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>{validatePassword(newPwd)}</Text>
             )}
             <View style={{ height: 14 }} />
             <Input
@@ -131,7 +141,7 @@ export default function ForceChangePasswordScreen() {
               variant="primary"
               onPress={handleSubmit}
               loading={changeMut.isPending}
-              disabled={!currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || newPwd.length < 8}
+              disabled={!currentPwd || !newPwd || !confirmPwd || newPwd !== confirmPwd || !!validatePassword(newPwd)}
               fullWidth
               size="lg"
             />

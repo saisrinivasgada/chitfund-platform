@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { setAuthToken, clearAuthToken, refreshSession } from '../services/api';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
@@ -11,32 +12,37 @@ function normalizeUser(userData) {
   return userData;
 }
 
-// Proxy sessions use sessionStorage (tab-isolated); real sessions use localStorage.
-// sessionStorage takes priority if present so the main tab's localStorage is never touched.
+// Proxy sessions use sessionStorage (tab-isolated); real sessions use in-memory token.
+// Non-sensitive display data (user info, tenant) stays in localStorage for UX persistence.
 function readStore(key, fallback = null) {
   return sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? fallback;
 }
 
 export function AuthProvider({ children }) {
   const [isProxySession, setIsProxySession] = useState(() => !!sessionStorage.getItem('token'));
-  const [token, setToken]       = useState(() => readStore('token'));
+  // Token lives in memory only — never in localStorage (XSS protection)
+  const [token, setToken]       = useState(null);
   const [user, setUser]         = useState(() => {
-    try { return normalizeUser(JSON.parse(readStore('user'))); } catch { return null; }
+    try { return normalizeUser(JSON.parse(localStorage.getItem('user'))); } catch { return null; }
   });
-  const [tenantId, setTenantId] = useState(() => readStore('tenantId'));
-  const [tenantSlug, setTenantSlug] = useState(() => readStore('tenantSlug'));
-  const [tenantName, setTenantName] = useState(() => readStore('tenantName'));
-  const [tenantPlan, setTenantPlan] = useState(() => readStore('tenantPlan') ?? 'BASIC');
-  const [tenantStatus, setTenantStatus] = useState(() => readStore('tenantStatus') ?? 'ACTIVE');
-  const [planExpiresAt, setPlanExpiresAt] = useState(() => readStore('planExpiresAt') ?? null);
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => readStore('analyticsEnabled') !== 'false');
+  const [tenantId, setTenantId] = useState(() => localStorage.getItem('tenantId'));
+  const [tenantSlug, setTenantSlug] = useState(() => localStorage.getItem('tenantSlug'));
+  const [tenantName, setTenantName] = useState(() => localStorage.getItem('tenantName'));
+  const [tenantPlan, setTenantPlan] = useState(() => localStorage.getItem('tenantPlan') ?? 'BASIC');
+  const [tenantStatus, setTenantStatus] = useState(() => localStorage.getItem('tenantStatus') ?? 'ACTIVE');
+  const [planExpiresAt, setPlanExpiresAt] = useState(() => localStorage.getItem('planExpiresAt') ?? null);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') !== 'false');
+  // True while restoring session from HttpOnly refresh cookie on page load
+  const [isRestoring, setIsRestoring] = useState(() => !!localStorage.getItem('user'));
 
   const idleTimer    = useRef(null);
   const lastActivity = useRef(Date.now());
 
   const logout = useCallback(() => {
-    ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+    clearAuthToken();
+    ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
       .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
+    sessionStorage.removeItem('token'); // clear proxy session token if any
     setToken(null);
     setUser(null);
     setTenantId(null);
@@ -68,6 +74,32 @@ export function AuthProvider({ children }) {
     scheduleIdleCheck(logout);
   }, [logout, scheduleIdleCheck]);
 
+  // On mount: if localStorage has user info but no token in memory, restore via HttpOnly cookie
+  useEffect(() => {
+    if (!localStorage.getItem('user')) {
+      setIsRestoring(false);
+      return;
+    }
+    // Check for proxy session first — it already has a token in sessionStorage
+    const proxyToken = sessionStorage.getItem('token');
+    if (proxyToken) {
+      setToken(proxyToken);
+      setIsRestoring(false);
+      return;
+    }
+    refreshSession()
+      .then((auth) => {
+        const accessToken = auth.accessToken ?? auth.token;
+        setAuthToken(accessToken);
+        setToken(accessToken);
+      })
+      .catch(() => {
+        logout();
+      })
+      .finally(() => setIsRestoring(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     resetIdleTimer();
@@ -93,15 +125,20 @@ export function AuthProvider({ children }) {
   // Called after step 2 (select-tenant) with the full scoped AuthResponse.
   // Pass { proxy: true } for proxy sessions — writes to sessionStorage only so the
   // real session in other tabs (localStorage) is never touched.
+  // For real sessions: token lives in memory only (setAuthToken), never in localStorage.
   function login(tokenValue, userData, tenantData = {}, { proxy = false } = {}) {
     const store = proxy ? sessionStorage : localStorage;
     if (!proxy) {
       // Real login: clear any leftover proxy state
       ['token','user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
         .forEach((k) => sessionStorage.removeItem(k));
+      // Store token in memory only — HttpOnly cookie handles persistence
+      setAuthToken(tokenValue);
+    } else {
+      // Proxy sessions: keep token in sessionStorage for tab isolation
+      store.setItem('token', tokenValue);
     }
     const normalized = normalizeUser(userData);
-    store.setItem('token', tokenValue);
     store.setItem('user', JSON.stringify(normalized));
     if (tenantData.tenantId)     { store.setItem('tenantId',     tenantData.tenantId);     setTenantId(tenantData.tenantId); }
     if (tenantData.tenantSlug)   { store.setItem('tenantSlug',   tenantData.tenantSlug);   setTenantSlug(tenantData.tenantSlug); }
@@ -141,6 +178,7 @@ export function AuthProvider({ children }) {
       isAuthenticated: !!token,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',
       isProxySession,
+      isRestoring,
     }}>
       {children}
     </AuthContext.Provider>

@@ -3,8 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
 
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://3.21.196.51/api';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
@@ -49,6 +48,10 @@ export interface LoginResponse {
   requiresTenantSelection?: boolean;
   loginToken?: string;
   tenants?: TenantOption[];
+  // set when OTP step required (ADMIN/MANAGER/SUPER_ADMIN with phone)
+  requiresOtp?: boolean;
+  otpToken?: string;
+  maskedPhone?: string;
 }
 
 function parseAuthResponse(auth: any): LoginResponse {
@@ -65,12 +68,29 @@ function parseAuthResponse(auth: any): LoginResponse {
 export const login = async (username: string, password: string): Promise<LoginResponse> => {
   const res = await api.post('/auth/login', { username, password });
   const d = res.data.data ?? res.data;
+  // OTP step required (ADMIN/MANAGER/SUPER_ADMIN with registered phone)
+  if (d.requiresOtp) {
+    return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
+      requiresOtp: true, otpToken: d.otpToken, maskedPhone: d.maskedPhone };
+  }
   // Single-step: authResponse present immediately
   const auth = d.accessToken ? d : d.authResponse;
   if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
   // Two-step: tenant selection required
   if (d.requiresTenantSelection && d.loginToken) {
     return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
+      requiresTenantSelection: true, loginToken: d.loginToken, tenants: d.tenants ?? [] };
+  }
+  return d;
+};
+
+export const verifyLoginOtp = async (otpToken: string, code: string): Promise<LoginResponse> => {
+  const res = await api.post('/auth/verify-login-otp', { otpToken, code });
+  const d = res.data.data ?? res.data;
+  const auth = d.accessToken ? d : d.authResponse;
+  if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
+  if (d.requiresTenantSelection && d.loginToken) {
+    return { token: '', userId: '', username: '', fullName: '', role: '', mustChangePassword: false,
       requiresTenantSelection: true, loginToken: d.loginToken, tenants: d.tenants ?? [] };
   }
   return d;

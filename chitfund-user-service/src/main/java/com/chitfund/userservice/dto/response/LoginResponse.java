@@ -6,9 +6,10 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * Universal login response. Discriminated by requiresTenantSelection:
- * - false + authResponse present: SUPER_ADMIN or direct-scoped login (no picker needed)
- * - true + loginToken + tenants present: user must select a tenant
+ * Universal login response. Discriminated by requiresTenantSelection / requiresOtp:
+ * - requiresOtp = true: ADMIN/MANAGER/SUPER_ADMIN must verify a phone OTP before getting tokens
+ * - requiresTenantSelection = true: user must pick a tenant after OTP (or after password for MEMBER/STAFF)
+ * - requiresTenantSelection = false + authResponse present: SUPER_ADMIN direct login
  */
 @Data
 @Builder
@@ -21,4 +22,9 @@ public class LoginResponse {
 
     // Populated when requiresTenantSelection = false
     private AuthResponse authResponse;
+
+    // Populated when OTP step is required (ADMIN/MANAGER/SUPER_ADMIN with phone)
+    private boolean requiresOtp;
+    private String otpToken;
+    private String maskedPhone;
 }

@@ -834,11 +834,14 @@ const PRINT_CSS = `
   .gray{background:#f3f4f6;color:#374151}
 `;
 
+const escHtml = (s) => s == null ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
 function openPrint(title, html) {
   const w = window.open('', '_blank');
   if (!w) { alert('Allow pop-ups to print reports.'); return; }
-  w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>${PRINT_CSS}</style></head><body>
-    <h1>${title}</h1>${html}
+  const safeTitle = escHtml(title);
+  w.document.write(`<!DOCTYPE html><html><head><title>${safeTitle}</title><style>${PRINT_CSS}</style></head><body>
+    <h1>${safeTitle}</h1>${html}
     <div class="footer">Generated on ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; ChitWise Management System</div>
     <script>window.onload=()=>setTimeout(()=>window.print(),400);</script>
   </body></html>`);
