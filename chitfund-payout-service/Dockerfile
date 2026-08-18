@@ -16,6 +16,7 @@ COPY chitfund-payment-service/pom.xml chitfund-payment-service/
 COPY chitfund-api-gateway/pom.xml chitfund-api-gateway/
 COPY chitfund-notification-service/pom.xml chitfund-notification-service/
 COPY chitfund-audit-service/pom.xml chitfund-audit-service/
+COPY chitfund-reporting-service/pom.xml chitfund-reporting-service/
 
 RUN mvn -pl chitfund-common,chitfund-payout-service -am dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
