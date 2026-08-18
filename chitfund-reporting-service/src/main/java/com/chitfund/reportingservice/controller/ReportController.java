@@ -1,9 +1,11 @@
 package com.chitfund.reportingservice.controller;
 
 import com.chitfund.common.context.MemberContext;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.reportingservice.client.PlanCapabilityClient;
 import com.chitfund.reportingservice.dto.response.ChitCollectionReport;
 import com.chitfund.reportingservice.dto.response.MemberStatementReport;
 import com.chitfund.reportingservice.dto.response.PayoutSummaryReport;
@@ -22,6 +24,19 @@ import java.util.List;
 public class ReportController {
 
     private final ReportQueryService queryService;
+    private final PlanCapabilityClient capabilityClient;
+
+    private static final String CAP_ANALYTICS = "full_analytics";
+    private static final String UPGRADE_MSG =
+            "Analytics reports are not included in your current plan. " +
+            "Please upgrade to access reports.";
+
+    private void requireAnalytics() {
+        String tenantId = TenantContext.get();
+        if (!capabilityClient.hasCapability(tenantId, CAP_ANALYTICS)) {
+            throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED, UPGRADE_MSG);
+        }
+    }
 
     // ─── Collection reports (chit-level) ────────────────────────────────────
 
@@ -29,6 +44,7 @@ public class ReportController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<ChitCollectionReport>>> getChitCollections(
             @PathVariable String chitId) {
+        requireAnalytics();
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitCollectionReport(chitId)));
     }
 
@@ -37,6 +53,7 @@ public class ReportController {
     public ResponseEntity<ApiResponse<ChitCollectionReport>> getMonthSnapshot(
             @PathVariable String chitId,
             @PathVariable Integer monthNumber) {
+        requireAnalytics();
         return ResponseEntity.ok(ApiResponse.success(queryService.getMonthSnapshot(chitId, monthNumber)));
     }
 
@@ -46,6 +63,7 @@ public class ReportController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<MemberStatementReport>>> getChitMemberStatements(
             @PathVariable String chitId) {
+        requireAnalytics();
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitMemberStatements(chitId)));
     }
 
@@ -53,6 +71,7 @@ public class ReportController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<MemberStatementReport>>> getMemberStatement(
             @PathVariable String memberId, Authentication auth) {
+        requireAnalytics();
         boolean isMember = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
         if (isMember && !memberId.equals(MemberContext.get())) {
@@ -67,6 +86,7 @@ public class ReportController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<List<PayoutSummaryReport>>> getChitPayouts(
             @PathVariable String chitId) {
+        requireAnalytics();
         return ResponseEntity.ok(ApiResponse.success(queryService.getChitPayouts(chitId)));
     }
 
@@ -74,6 +94,7 @@ public class ReportController {
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF', 'ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PayoutSummaryReport>>> getMemberPayouts(
             @PathVariable String memberId, Authentication auth) {
+        requireAnalytics();
         boolean isMember = auth.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
         if (isMember && !memberId.equals(MemberContext.get())) {

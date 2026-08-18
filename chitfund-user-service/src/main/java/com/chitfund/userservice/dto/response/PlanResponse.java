@@ -25,4 +25,5 @@ public class PlanResponse {
     private int maxStaff;
     private boolean analyticsEnabled;
     private boolean prioritySupport;
+    private List<String> enabledCapabilities;
 }

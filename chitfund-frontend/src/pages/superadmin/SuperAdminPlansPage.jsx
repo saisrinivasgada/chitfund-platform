@@ -169,27 +169,23 @@ function PlanPreviewModal({ plans, onClose }) {
   );
 }
 
-// Capabilities whose labels are also tied to enforcement boolean columns
-const ENFORCEMENT_MAP = {
-  'Full analytics':  { field: 'analyticsEnabled' },
-  'Priority support': { field: 'prioritySupport' },
-};
+// Capability keys that are also enforced by the backend (shown as "(enforced)" hint)
+const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
 
 function PlanModal({ plan, onSave, onClose }) {
   const isEdit = !!plan;
   const [form, setForm] = useState({
-    plan:              plan?.plan ?? '',
-    displayName:       plan?.displayName ?? '',
-    tagline:           plan?.tagline ?? '',
-    featuresText:      (plan?.features ?? []).join('\n'),
-    priceRupees:       plan?.priceMonthlyInr != null ? String(plan.priceMonthlyInr / 100) : '0',
-    globalDiscountPct: plan?.globalDiscountPct != null ? String(plan.globalDiscountPct) : '',
-    maxActiveChits:    plan?.maxActiveChits != null ? String(plan.maxActiveChits) : '1',
-    maxMembers:        plan?.maxMembers != null ? String(plan.maxMembers) : '20',
-    maxStaff:          plan?.maxStaff != null ? String(plan.maxStaff) : '0',
-    analyticsEnabled:  plan?.analyticsEnabled ?? false,
-    prioritySupport:   plan?.prioritySupport ?? false,
-    displayOrder:      plan?.displayOrder != null ? String(plan.displayOrder) : '99',
+    plan:                   plan?.plan ?? '',
+    displayName:            plan?.displayName ?? '',
+    tagline:                plan?.tagline ?? '',
+    featuresText:           (plan?.features ?? []).join('\n'),
+    enabledCapabilityKeys:  plan?.enabledCapabilities ?? [],
+    priceRupees:            plan?.priceMonthlyInr != null ? String(plan.priceMonthlyInr / 100) : '0',
+    globalDiscountPct:      plan?.globalDiscountPct != null ? String(plan.globalDiscountPct) : '',
+    maxActiveChits:         plan?.maxActiveChits != null ? String(plan.maxActiveChits) : '1',
+    maxMembers:             plan?.maxMembers != null ? String(plan.maxMembers) : '20',
+    maxStaff:               plan?.maxStaff != null ? String(plan.maxStaff) : '0',
+    displayOrder:           plan?.displayOrder != null ? String(plan.displayOrder) : '99',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -208,7 +204,7 @@ function PlanModal({ plan, onSave, onClose }) {
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
-  function toggleCapability(label, checked) {
+  function toggleCapability(label, checked, key) {
     setForm(p => {
       const lines = p.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
       const capLabelSet = new Set(capDefs.map(c => c.label));
@@ -219,12 +215,18 @@ function PlanModal({ plan, onSave, onClose }) {
         : checkedCapLabels.filter(l => l !== label);
       // Keep caps in sort_order defined by capDefs
       const sortedCaps = capDefs.filter(c => newCheckedCapLabels.includes(c.label)).map(c => c.label);
-      const updated = [...nonCapFeatures, ...sortedCaps];
-      const enforcement = ENFORCEMENT_MAP[label];
+
+      // Update enforcement keys (the capability key, not the display label)
+      const newKeys = key
+        ? checked
+          ? [...new Set([...p.enabledCapabilityKeys, key])]
+          : p.enabledCapabilityKeys.filter(k => k !== key)
+        : p.enabledCapabilityKeys;
+
       return {
         ...p,
-        featuresText: updated.join('\n'),
-        ...(enforcement ? { [enforcement.field]: checked } : {}),
+        featuresText: [...nonCapFeatures, ...sortedCaps].join('\n'),
+        enabledCapabilityKeys: newKeys,
       };
     });
   }
@@ -236,7 +238,7 @@ function PlanModal({ plan, onSave, onClose }) {
     try {
       const created = await superAdminAddCapability(label);
       setCapDefs(prev => [...prev, created]);
-      toggleCapability(label, true);
+      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (err) {
@@ -265,17 +267,16 @@ function PlanModal({ plan, onSave, onClose }) {
       const features = form.featuresText.split('\n').map(s => s.trim()).filter(Boolean);
       const priceInPaise = Math.round(parseFloat(form.priceRupees || '0') * 100);
       const body = {
-        displayName:       form.displayName,
-        tagline:           form.tagline || null,
+        displayName:         form.displayName,
+        tagline:             form.tagline || null,
         features,
-        priceMonthlyInr:   priceInPaise,
-        globalDiscountPct: form.globalDiscountPct ? parseFloat(form.globalDiscountPct) : null,
-        maxActiveChits:    parseInt(form.maxActiveChits) || 1,
-        maxMembers:        parseInt(form.maxMembers) || 20,
-        maxStaff:          parseInt(form.maxStaff) || 0,
-        analyticsEnabled:  form.analyticsEnabled,
-        prioritySupport:   form.prioritySupport,
-        displayOrder:      parseInt(form.displayOrder) || 99,
+        enabledCapabilities: form.enabledCapabilityKeys,
+        priceMonthlyInr:     priceInPaise,
+        globalDiscountPct:   form.globalDiscountPct ? parseFloat(form.globalDiscountPct) : null,
+        maxActiveChits:      parseInt(form.maxActiveChits) || 1,
+        maxMembers:          parseInt(form.maxMembers) || 20,
+        maxStaff:            parseInt(form.maxStaff) || 0,
+        displayOrder:        parseInt(form.displayOrder) || 99,
       };
       if (!isEdit) {
         body.plan = form.plan.toUpperCase().replace(/\s+/g, '_');
@@ -392,10 +393,10 @@ function PlanModal({ plan, onSave, onClose }) {
                 <label className="flex items-center gap-3 cursor-pointer flex-1">
                   <input type="checkbox"
                     checked={enabledSet.has(cap.label)}
-                    onChange={e => toggleCapability(cap.label, e.target.checked)}
+                    onChange={e => toggleCapability(cap.label, e.target.checked, cap.key)}
                     className="rounded accent-[#1E3A5F]" />
                   <span className="text-sm text-gray-700">{cap.label}</span>
-                  {ENFORCEMENT_MAP[cap.label] && (
+                  {ENFORCED_KEYS.has(cap.key) && (
                     <span className="text-xs text-blue-500">(enforced)</span>
                   )}
                 </label>

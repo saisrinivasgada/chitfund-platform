@@ -91,11 +91,14 @@ public class PlanService {
     @Transactional
     public PlanResponse createPlan(CreatePlanRequest req) {
         String code = req.getPlan().toUpperCase();
+        List<String> caps = req.getEnabledCapabilities() != null
+                ? req.getEnabledCapabilities() : List.of();
         PlanLimits p = PlanLimits.builder()
                 .plan(code)
                 .displayName(req.getDisplayName())
                 .tagline(req.getTagline())
                 .features(serializeFeatures(req.getFeatures()))
+                .capabilities(serializeFeatures(caps))
                 .maxActiveChits(req.getMaxActiveChits())
                 .maxMembers(req.getMaxMembers())
                 .allowedChitTypes(req.getAllowedChitTypes() != null ? req.getAllowedChitTypes() : "RESERVATION")
@@ -105,8 +108,8 @@ public class PlanService {
                 .isActive(true)
                 .displayOrder(req.getDisplayOrder())
                 .maxStaff(req.getMaxStaff())
-                .analyticsEnabled(req.isAnalyticsEnabled())
-                .prioritySupport(req.isPrioritySupport())
+                .analyticsEnabled(caps.contains("full_analytics"))
+                .prioritySupport(caps.contains("priority_support"))
                 .build();
         return toResponse(planRepo.save(p));
     }
@@ -129,6 +132,13 @@ public class PlanService {
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
         if (req.getAnalyticsEnabled() != null) p.setAnalyticsEnabled(req.getAnalyticsEnabled());
         if (req.getPrioritySupport() != null) p.setPrioritySupport(req.getPrioritySupport());
+        if (req.getEnabledCapabilities() != null) {
+            List<String> caps = req.getEnabledCapabilities();
+            p.setCapabilities(serializeFeatures(caps));
+            // Keep legacy boolean columns in sync
+            p.setAnalyticsEnabled(caps.contains("full_analytics"));
+            p.setPrioritySupport(caps.contains("priority_support"));
+        }
         return toResponse(planRepo.save(p));
     }
 
@@ -206,6 +216,7 @@ public class PlanService {
                 .displayName(p.getDisplayName())
                 .tagline(p.getTagline())
                 .features(parseFeatures(p.getFeatures()))
+                .enabledCapabilities(parseFeatures(p.getCapabilities()))
                 .maxActiveChits(p.getMaxActiveChits())
                 .maxMembers(p.getMaxMembers())
                 .allowedChitTypes(p.getAllowedChitTypes())

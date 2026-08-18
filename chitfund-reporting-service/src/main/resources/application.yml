@@ -43,6 +43,9 @@ jwt:
 reporting:
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
 
+user-service:
+  url: ${USER_SERVICE_URL:http://user-service:8081}
+
 management:
   endpoints:
     web:

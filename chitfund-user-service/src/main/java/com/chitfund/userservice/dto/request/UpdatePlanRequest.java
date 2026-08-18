@@ -21,4 +21,5 @@ public class UpdatePlanRequest {
     private Integer maxStaff;
     private Boolean analyticsEnabled;
     private Boolean prioritySupport;
+    private List<String> enabledCapabilities;
 }

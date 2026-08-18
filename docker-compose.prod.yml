@@ -196,6 +196,7 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_reporting
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      USER_SERVICE_URL: http://user-service:8081
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
       interval: 30s

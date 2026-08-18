@@ -27,6 +27,9 @@ public class PlanLimits {
     @Column(name = "features", columnDefinition = "text")
     private String features;
 
+    @Column(name = "capabilities", columnDefinition = "text")
+    private String capabilities;
+
     @Column(name = "max_active_chits", nullable = false)
     private int maxActiveChits;
 
