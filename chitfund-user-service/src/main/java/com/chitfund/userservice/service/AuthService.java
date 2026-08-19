@@ -5,7 +5,6 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.RefreshToken;
-import com.chitfund.userservice.domain.entity.TrustedDevice;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.*;
@@ -389,7 +388,11 @@ public class AuthService {
 
         LoginResponse response = buildLoginResponse(user);
         if (rememberDevice) {
-            response.setDeviceToken(issueDeviceToken(user.getId()));
+            try {
+                response.setDeviceToken(issueDeviceToken(user.getId()));
+            } catch (Exception ignored) {
+                // race condition on concurrent OTP verifications — proceed without device token
+            }
         }
         return response;
     }
@@ -414,12 +417,9 @@ public class AuthService {
         new SecureRandom().nextBytes(raw);
         String rawToken = HexFormat.of().formatHex(raw);
         String hash = sha256(rawToken);
-        trustedDeviceRepository.deleteByUserId(userId);
-        trustedDeviceRepository.save(TrustedDevice.builder()
-                .userId(userId)
-                .tokenHash(hash)
-                .expiresAt(LocalDateTime.now().plusDays(DEVICE_TOKEN_EXPIRY_DAYS))
-                .build());
+        trustedDeviceRepository.upsertByUserId(
+                UUID.randomUUID().toString(), userId.toString(), hash,
+                LocalDateTime.now().plusDays(DEVICE_TOKEN_EXPIRY_DAYS));
         return rawToken;
     }
 

@@ -156,13 +156,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   markSessionInvalid: async (userId: string) => {
+    const isCurrentUser = get().user?.id === userId;
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
       a.userId === userId ? { ...a, sessionValid: false } : a
     );
     await saveAccounts(updated);
     set((s) => ({ accounts: updated, user: s.user?.id === userId ? null : s.user }));
-    if (get().user?.id === userId) {
+    if (isCurrentUser) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
@@ -188,6 +189,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.setItemAsync(TOKEN_KEY, target.token);
     if (target.refreshToken) {
       await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, target.refreshToken);
+    } else {
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     }
     await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
 

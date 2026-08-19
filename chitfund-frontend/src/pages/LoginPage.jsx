@@ -474,6 +474,7 @@ export default function LoginPage() {
   const [otpResendTimer, setOtpResendTimer] = useState(0);
   const [otpResendBlocked, setOtpResendBlocked] = useState(false);
   const otpResendRef = useRef(null);
+  useEffect(() => () => clearInterval(otpResendRef.current), []);
 
   if (isAuthenticated) {
     if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;

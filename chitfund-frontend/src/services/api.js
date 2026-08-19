@@ -64,9 +64,9 @@ export const resendLoginOtp = async ({ otpToken }) => {
 
 const DEVICE_TOKEN_KEY = 'chitwise_device_token';
 
-export const getStoredDeviceToken = () => localStorage.getItem(DEVICE_TOKEN_KEY);
-export const saveDeviceToken = (token) => localStorage.setItem(DEVICE_TOKEN_KEY, token);
-export const clearDeviceToken = () => localStorage.removeItem(DEVICE_TOKEN_KEY);
+export const getStoredDeviceToken = () => { try { return localStorage.getItem(DEVICE_TOKEN_KEY); } catch { return null; } };
+export const saveDeviceToken = (token) => { try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch {} };
+export const clearDeviceToken = () => { try { localStorage.removeItem(DEVICE_TOKEN_KEY); } catch {} };
 
 // Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse?, requiresOtp?, otpToken?, maskedPhone? }
 export const login = async ({ username, password }) => {
