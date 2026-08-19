@@ -526,6 +526,7 @@ export default function RegisterOrgPage() {
                     ? <FieldError msg={fe.adminUsername} />
                     : <p className="text-xs text-gray-400 mt-2">Lowercase letters, digits, dots, underscores, hyphens</p>
                   }
+                  <p className="text-xs text-gray-400 mt-1.5">A temporary password will be sent to you after your application is approved.</p>
                 </div>
                 <div data-field="adminEmail">
                   <FieldLabel required>Email</FieldLabel>

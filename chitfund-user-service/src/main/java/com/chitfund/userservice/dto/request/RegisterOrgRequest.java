@@ -32,9 +32,7 @@ public class RegisterOrgRequest {
     @Email
     private String adminEmail;
 
-    @NotBlank
-    @Size(min = 8, max = 50)
-    private String adminPassword;
+    private String adminPassword; // optional — service generates a temp password if absent
 
     @NotBlank
     private String adminPhone;
