@@ -13,11 +13,49 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+let isRefreshing = false;
+let failedQueue: Array<{ resolve: (v: any) => void; reject: (e: any) => void }> = [];
+
+function processQueue(error: any, token: string | null) {
+  failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token)));
+  failedQueue = [];
+}
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      useAuthStore.getState().logout();
+  async (err) => {
+    const original = err.config;
+    if (err.response?.status === 401 && !original._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          original.headers.Authorization = `Bearer ${token}`;
+          return api(original);
+        });
+      }
+      original._retry = true;
+      isRefreshing = true;
+      try {
+        const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
+        if (!refreshToken) throw new Error('no_refresh');
+        const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+        const { accessToken, refreshToken: newRefresh } = resp.data?.data ?? resp.data;
+        await SecureStore.setItemAsync('chitwise_token', accessToken);
+        if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
+        const { user } = useAuthStore.getState();
+        if (user) await useAuthStore.getState().updateTokenForAccount(user.id, accessToken, newRefresh);
+        processQueue(null, accessToken);
+        original.headers.Authorization = `Bearer ${accessToken}`;
+        return api(original);
+      } catch (refreshErr) {
+        processQueue(refreshErr, null);
+        const { user } = useAuthStore.getState();
+        if (user) await useAuthStore.getState().markSessionInvalid(user.id);
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
+      }
     }
     if (err.response?.data?.errorCode === 'PLAN_002') {
       useUIStore.getState().showPlanExpired();
@@ -42,8 +80,14 @@ export interface TenantOption {
   tenantId: string; name: string; slug: string; plan: string; role: string; status?: string;
 }
 export interface LoginResponse {
-  token: string; userId: string; username: string; fullName: string; role: string;
+  token: string;
+  refreshToken?: string;
+  userId: string;
+  username: string;
+  fullName: string;
+  role: string;
   mustChangePassword: boolean;
+  tenantId?: string;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
   loginToken?: string;
@@ -57,26 +101,25 @@ export interface LoginResponse {
 function parseAuthResponse(auth: any): LoginResponse {
   return {
     token: auth.accessToken,
+    refreshToken: auth.refreshToken,
     userId: auth.user.id,
     username: auth.user.username,
     fullName: auth.user.fullName,
     role: auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
+    tenantId: auth.user.tenantId,
   };
 }
 
 export const login = async (username: string, password: string): Promise<LoginResponse> => {
   const res = await api.post('/auth/login', { username, password });
   const d = res.data.data ?? res.data;
-  // OTP step required (ADMIN/MANAGER/SUPER_ADMIN with registered phone)
   if (d.requiresOtp) {
     return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
       requiresOtp: true, otpToken: d.otpToken, maskedPhone: d.maskedPhone };
   }
-  // Single-step: authResponse present immediately
   const auth = d.accessToken ? d : d.authResponse;
   if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
-  // Two-step: tenant selection required
   if (d.requiresTenantSelection && d.loginToken) {
     return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
       requiresTenantSelection: true, loginToken: d.loginToken, tenants: d.tenants ?? [] };
@@ -102,6 +145,14 @@ export const selectTenant = async (loginToken: string, tenantId: string): Promis
   const auth = d.accessToken ? d : d.authResponse;
   if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
   return d;
+};
+
+export const logoutAccount = async (refreshToken: string) => {
+  try { await api.post('/auth/logout', { refreshToken }); } catch {}
+};
+
+export const logoutAllDevices = async () => {
+  await api.post('/auth/logout-all');
 };
 
 export const getMe = async () => unwrapObj(await api.get('/users/me'));

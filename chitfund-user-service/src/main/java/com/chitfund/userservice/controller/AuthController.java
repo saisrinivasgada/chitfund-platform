@@ -74,19 +74,33 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest request,
+            @RequestHeader(value = "X-Device-Token", required = false) String deviceToken,
             HttpServletRequest httpRequest,
             HttpServletResponse response) {
         if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many login attempts. Please try again later."));
         }
-        LoginResponse loginResponse = authService.login(request);
+        LoginResponse loginResponse = authService.login(request, deviceToken);
         if (loginResponse.getAuthResponse() != null) {
             setRefreshCookie(response, loginResponse.getAuthResponse().getRefreshToken());
         }
         return ResponseEntity.ok(ApiResponse.success(loginResponse, "Login successful"));
     }
 
-    // ── Step 1b: verify OTP after login (for ADMIN/MANAGER/SUPER_ADMIN) ──────
+    // ── Step 1b: resend OTP (same session, rate-limited by OtpService) ─────────
+
+    @PostMapping("/resend-login-otp")
+    public ResponseEntity<ApiResponse<Void>> resendLoginOtp(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many attempts. Please try again later."));
+        }
+        authService.resendLoginOtp(body.get("otpToken"));
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP resent"));
+    }
+
+    // ── Step 1c: verify OTP after login (for ADMIN/MANAGER/SUPER_ADMIN) ──────
 
     @PostMapping("/verify-login-otp")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyLoginOtp(
@@ -96,7 +110,7 @@ public class AuthController {
         if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many attempts. Please try again later."));
         }
-        LoginResponse loginResponse = authService.verifyLoginOtp(request.getOtpToken(), request.getCode());
+        LoginResponse loginResponse = authService.verifyLoginOtp(request.getOtpToken(), request.getCode(), request.isRememberDevice());
         if (loginResponse.getAuthResponse() != null) {
             setRefreshCookie(response, loginResponse.getAuthResponse().getRefreshToken());
         }
@@ -162,6 +176,16 @@ public class AuthController {
         String tokenValue = (request != null && request.getRefreshToken() != null) ? request.getRefreshToken() : cookieToken;
         if (tokenValue != null) authService.logout(tokenValue);
         return ResponseEntity.ok(ApiResponse.success(null, "Logged out successfully"));
+    }
+
+    @PostMapping("/logout-all")
+    public ResponseEntity<ApiResponse<Void>> logoutAll(
+            @AuthenticationPrincipal User user,
+            HttpServletResponse response) {
+        if (user == null) throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        clearRefreshCookie(response);
+        authService.logoutAll(user.getId());
+        return ResponseEntity.ok(ApiResponse.success(null, "Logged out from all devices"));
     }
 
     // ── Self-service password reset — 4-step flow ───────────────────────────

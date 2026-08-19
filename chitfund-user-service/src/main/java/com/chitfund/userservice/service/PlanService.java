@@ -19,7 +19,7 @@ import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantDiscountRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.chitfund.userservice.util.CapabilityJson;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -206,8 +206,8 @@ public class PlanService {
                 .plan(p.getPlan())
                 .displayName(p.getDisplayName())
                 .tagline(p.getTagline())
-                .features(parseFeatures(p.getFeatures()))
-                .enabledCapabilities(parseFeatures(p.getCapabilities()))
+                .features(CapabilityJson.parse(p.getFeatures(), objectMapper))
+                .enabledCapabilities(CapabilityJson.parse(p.getCapabilities(), objectMapper))
                 .maxActiveChits(p.getMaxActiveChits())
                 .maxMembers(p.getMaxMembers())
                 .allowedChitTypes(p.getAllowedChitTypes())
@@ -238,13 +238,9 @@ public class PlanService {
         return p.subtract(disc).longValue();
     }
 
-    private List<String> parseFeatures(String json) {
-        if (json == null || json.isBlank()) return List.of();
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
-        } catch (Exception e) {
-            return List.of();
-        }
+    public List<String> getAllCapabilityKeys() {
+        return capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
+                .stream().map(PlanCapabilityDef::getKey).toList();
     }
 
     private String serializeFeatures(List<String> features) {

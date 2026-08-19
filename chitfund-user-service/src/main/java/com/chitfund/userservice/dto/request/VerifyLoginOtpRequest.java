@@ -10,4 +10,6 @@ public class VerifyLoginOtpRequest {
 
     @NotBlank
     private String code;
+
+    private boolean rememberDevice;
 }

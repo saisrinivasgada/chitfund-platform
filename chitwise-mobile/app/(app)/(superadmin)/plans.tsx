@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, TextInput, Modal, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,18 +32,15 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [featuresStr,         setFeaturesStr]         = useState((plan?.features ?? []).join('\n'));
   const [enabledCapabilities, setEnabledCapabilities] = useState<string[]>(plan?.enabledCapabilities ?? []);
   const [isActive,            setIsActive]            = useState<boolean>(plan?.active ?? true);
-  const [capDefs, setCapDefs] = useState<any[]>([]);
   const [newCapLabel, setNewCapLabel] = useState('');
   const [showAddCap, setShowAddCap] = useState(false);
   const [addingCap, setAddingCap] = useState(false);
 
   const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
 
-  useEffect(() => {
-    superAdminListCapabilities().then(setCapDefs).catch(() => {});
-  }, []);
+  const { data: capDefsQuery = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
+  const capDefs = capDefsQuery as any[];
 
-  const enabledLabelSet = new Set(featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean));
 
   function toggleCapability(label: string, checked: boolean, key?: string) {
     const lines = featuresStr.split('\n').map((s: string) => s.trim()).filter(Boolean);
@@ -186,7 +183,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
                 <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
                 {ENFORCED_KEYS.has(cap.key) && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
               </View>
-              <Switch value={enabledLabelSet.has(cap.label)} onValueChange={v => toggleCapability(cap.label, v, cap.key)} trackColor={{ true: C.navy }} />
+              <Switch value={enabledCapabilities.includes(cap.key)} onValueChange={v => toggleCapability(cap.label, v, cap.key)} trackColor={{ true: C.navy }} />
             </View>
           ))}
 

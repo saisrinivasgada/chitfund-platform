@@ -24,7 +24,7 @@ public class PhoneOtp {
     @Column(name = "country_code", length = 10)
     private String countryCode;
 
-    @Column(name = "otp_hash", nullable = false, length = 100)
+    @Column(name = "verification_code", nullable = false, length = 10)
     private String otpHash;
 
     @Column(nullable = false, length = 30)

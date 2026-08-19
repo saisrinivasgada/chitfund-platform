@@ -9,8 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import org.springframework.security.crypto.bcrypt.BCrypt;
-
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.security.SecureRandom;
@@ -25,20 +23,21 @@ public class OtpService {
 
     private static final int OTP_TTL_MINUTES = 30;
     private static final int MAX_ATTEMPTS = 3;
-    private static final int MAX_RESENDS = 5; // 1 initial + 5 resends = 6 total
+    private static final int MAX_PER_PHONE_PER_DAY = 6; // resets at midnight each day
 
     @Transactional
     public void sendOtp(String phone, String countryCode, String purpose, String userId) {
-        long existingCount = otpRepo.countByPhoneAndPurpose(phone, purpose);
+        LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
+        long todayCount = otpRepo.countByPhoneAndPurposeAndCreatedAtAfter(phone, purpose, startOfDay);
 
-        if (existingCount > MAX_RESENDS) {
+        if (todayCount >= MAX_PER_PHONE_PER_DAY) {
             throw new BusinessException(ErrorCode.OTP_RESEND_LIMIT,
-                    "Too many OTP requests. Please contact help@thechitwise.com for assistance.");
+                    "Too many OTP requests today. Please try again tomorrow or contact help@thechitwise.com.");
         }
 
-        if (existingCount > 0) {
+        if (todayCount > 0) {
             otpRepo.findTopByPhoneAndPurposeOrderByCreatedAtDesc(phone, purpose).ifPresent(last -> {
-                long requiredWaitSeconds = existingCount * 60L; // 1 min, 2 min, … 5 min
+                long requiredWaitSeconds = todayCount * 60L; // 1 min after 1st, 2 min after 2nd, …
                 long secondsElapsed = ChronoUnit.SECONDS.between(last.getCreatedAt(), LocalDateTime.now());
                 if (secondsElapsed < requiredWaitSeconds) {
                     long secondsRemaining = requiredWaitSeconds - secondsElapsed;
@@ -49,11 +48,10 @@ public class OtpService {
         }
 
         String otp = generateOtp();
-        String otpHash = BCrypt.hashpw(otp, BCrypt.gensalt());
         PhoneOtp record = PhoneOtp.builder()
                 .phone(phone)
                 .countryCode(countryCode != null ? countryCode : "+91")
-                .otpHash(otpHash)
+                .otpHash(otp)
                 .purpose(purpose)
                 .userId(userId)
                 .expiresAt(LocalDateTime.now().plusMinutes(OTP_TTL_MINUTES))
@@ -79,7 +77,7 @@ public class OtpService {
 
         record.setAttempts(record.getAttempts() + 1);
 
-        if (!BCrypt.checkpw(code, record.getOtpHash())) {
+        if (!code.equals(record.getOtpHash())) {
             otpRepo.save(record);
             int remaining = MAX_ATTEMPTS - record.getAttempts();
             throw new BusinessException(ErrorCode.OTP_INVALID,

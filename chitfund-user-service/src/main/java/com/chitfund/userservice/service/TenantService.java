@@ -32,6 +32,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.chitfund.userservice.util.CapabilityJson;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -145,16 +146,7 @@ public class TenantService {
         Tenant t = tenantRepository.findById(tenantId).orElse(null);
         if (t == null) return null;
         String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-        boolean analytics;
-        if ("CUSTOM".equals(planCode)) {
-            analytics = customLimitsRepository.findById(t.getId().toString())
-                    .map(c -> parseCaps(c.getCapabilities()).contains("full_analytics"))
-                    .orElse(false);
-        } else {
-            analytics = planLimitsRepository.findById(planCode)
-                    .map(p -> parseCaps(p.getCapabilities()).contains("full_analytics"))
-                    .orElse(true);
-        }
+        java.util.List<String> caps = resolveCapabilitiesForTenant(t.getId().toString());
         return TenantInfo.builder()
                 .tenantId(t.getId().toString())
                 .name(t.getName())
@@ -164,7 +156,7 @@ public class TenantService {
                 .planExpiresAt(t.getPlanExpiresAt())
                 .role(role)
                 .memberId(memberId)
-                .analyticsEnabled(analytics)
+                .analyticsEnabled(caps.contains("full_analytics"))
                 .build();
     }
 
@@ -583,7 +575,7 @@ public class TenantService {
                         "maxStaff", String.valueOf(req.getMaxStaff())),
                 tenantId.toString());
 
-        return toEffectiveLimits(limits, t.getPlanExpiresAt(), parseCaps(limits.getCapabilities()));
+        return toEffectiveLimits(limits, t.getPlanExpiresAt(), CapabilityJson.parse(limits.getCapabilities(), objectMapper));
     }
 
     public void removeCustomLimits(UUID tenantId, String fallbackPlan) {
@@ -649,20 +641,25 @@ public class TenantService {
      *  CUSTOM plan: use the row's own capabilities.
      *  All other plans: use plan_limits.capabilities so that plan edits auto-apply. */
     private java.util.List<String> resolveCaps(TenantCustomLimits c) {
-        if ("CUSTOM".equals(c.getPlanCode())) return parseCaps(c.getCapabilities());
+        if ("CUSTOM".equals(c.getPlanCode())) return CapabilityJson.parse(c.getCapabilities(), objectMapper);
         return planLimitsRepository.findById(c.getPlanCode())
-                .map(p -> parseCaps(p.getCapabilities()))
+                .map(p -> CapabilityJson.parse(p.getCapabilities(), objectMapper))
                 .orElse(java.util.List.of());
     }
 
-    private java.util.List<String> parseCaps(String json) {
-        if (json == null || json.isBlank()) return java.util.List.of();
-        try {
-            return objectMapper.readValue(json,
-                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
-        } catch (Exception e) {
-            return java.util.List.of();
+    /** Single authoritative resolution point used by buildTenantInfo and InternalCapabilityController. */
+    public java.util.List<String> resolveCapabilitiesForTenant(String tenantId) {
+        Tenant t = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
+        if (t == null) return java.util.List.of();
+        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
+        if ("CUSTOM".equals(planCode)) {
+            return customLimitsRepository.findById(tenantId)
+                    .map(c -> CapabilityJson.parse(c.getCapabilities(), objectMapper))
+                    .orElse(java.util.List.of());
         }
+        return planLimitsRepository.findById(planCode)
+                .map(p -> CapabilityJson.parse(p.getCapabilities(), objectMapper))
+                .orElse(java.util.List.of());
     }
 
     void seedLimitsFromPlan(String tenantId, PlanLimits plan) {

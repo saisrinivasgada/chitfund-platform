@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, saveDeviceToken } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
@@ -470,6 +470,10 @@ export default function LoginPage() {
   const [showOtpReset, setShowOtpReset] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState(null); // { otpToken, maskedPhone }
   const [loginOtp, setLoginOtp]   = useState('');
+  const [rememberDevice, setRememberDevice] = useState(false);
+  const [otpResendTimer, setOtpResendTimer] = useState(0);
+  const [otpResendBlocked, setOtpResendBlocked] = useState(false);
+  const otpResendRef = useRef(null);
 
   if (isAuthenticated) {
     if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;
@@ -552,15 +556,46 @@ export default function LoginPage() {
     } finally { setLoading(false); }
   }
 
+  async function handleResendLoginOtp() {
+    setError(''); setLoading(true);
+    try {
+      await resendLoginOtp({ otpToken: loginOtpState.otpToken });
+      const nextWait = 60;
+      setOtpResendTimer(nextWait);
+      clearInterval(otpResendRef.current);
+      otpResendRef.current = setInterval(() => {
+        setOtpResendTimer(t => { if (t <= 1) { clearInterval(otpResendRef.current); return 0; } return t - 1; });
+      }, 1000);
+      setLoginOtp('');
+    } catch (err) {
+      const code = err.response?.data?.code;
+      if (code === 'OTP_005') { setOtpResendBlocked(true); return; }
+      const msg = err.response?.data?.message ?? '';
+      const secs = msg.match(/(\d+) second/)?.[1];
+      if (secs) {
+        setOtpResendTimer(Number(secs));
+        clearInterval(otpResendRef.current);
+        otpResendRef.current = setInterval(() => {
+          setOtpResendTimer(t => { if (t <= 1) { clearInterval(otpResendRef.current); return 0; } return t - 1; });
+        }, 1000);
+      } else {
+        setError(msg || 'Failed to resend OTP. Please try again.');
+      }
+    } finally { setLoading(false); }
+  }
+
   async function handleLoginOtpSubmit(e) {
     e.preventDefault();
     if (!loginOtp || loginOtp.length !== 6) return;
     setError(''); setLoading(true);
     try {
-      const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code: loginOtp });
+      const data = await verifyLoginOtp({ otpToken: loginOtpState.otpToken, code: loginOtp, rememberDevice });
       if (data.requiresOtp) {
         setError('OTP verification failed. Please try again.');
         return;
+      }
+      if (rememberDevice && data.deviceToken) {
+        saveDeviceToken(data.deviceToken);
       }
       await handleLoginResponse(data);
     } catch (err) {
@@ -847,8 +882,21 @@ export default function LoginPage() {
                       className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] tracking-widest text-center text-lg font-mono"
                     />
                     {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                      <input type="checkbox" checked={rememberDevice} onChange={(e) => setRememberDevice(e.target.checked)}
+                        className="w-4 h-4 rounded border-gray-300 text-[#1E3A5F] focus:ring-[#1E3A5F]/30 cursor-pointer" />
+                      <span className="text-sm text-gray-600">Remember this device — skip OTP next time</span>
+                    </label>
                     <Button type="submit" loading={loading} disabled={loginOtp.length !== 6} className="w-full">Verify &amp; Sign In</Button>
-                    <p className="text-xs text-center text-gray-400">Wrong number or didn't receive it? Go back and try again.</p>
+                    <div className="text-center text-xs text-gray-400 pt-1">
+                      {otpResendBlocked
+                        ? <span className="text-red-500">Max resends reached — <a href="mailto:help@thechitwise.com" className="underline">contact support</a></span>
+                        : otpResendTimer > 0
+                          ? <span>Resend OTP in <span className="font-mono font-semibold">{otpResendTimer}s</span></span>
+                          : <button type="button" onClick={handleResendLoginOtp} disabled={loading}
+                              className="text-[#1E3A5F] hover:underline cursor-pointer disabled:opacity-50">Didn't receive it? Resend OTP</button>
+                      }
+                    </div>
                   </form>
                 </div>
               )}

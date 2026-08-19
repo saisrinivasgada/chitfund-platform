@@ -27,4 +27,7 @@ public class LoginResponse {
     private boolean requiresOtp;
     private String otpToken;
     private String maskedPhone;
+
+    // Populated after OTP verified with rememberDevice=true (web only)
+    private String deviceToken;
 }

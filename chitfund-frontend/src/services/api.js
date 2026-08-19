@@ -53,14 +53,26 @@ export const refreshSession = async () => {
 };
 
 // Verifies the login OTP for ADMIN/MANAGER/SUPER_ADMIN after password step
-export const verifyLoginOtp = async ({ otpToken, code }) => {
-  const res = await api.post('/auth/verify-login-otp', { otpToken, code });
-  return res.data.data; // LoginResponse
+export const verifyLoginOtp = async ({ otpToken, code, rememberDevice = false }) => {
+  const res = await api.post('/auth/verify-login-otp', { otpToken, code, rememberDevice });
+  return res.data.data; // LoginResponse — includes deviceToken if rememberDevice=true
 };
+
+export const resendLoginOtp = async ({ otpToken }) => {
+  await api.post('/auth/resend-login-otp', { otpToken });
+};
+
+const DEVICE_TOKEN_KEY = 'chitwise_device_token';
+
+export const getStoredDeviceToken = () => localStorage.getItem(DEVICE_TOKEN_KEY);
+export const saveDeviceToken = (token) => localStorage.setItem(DEVICE_TOKEN_KEY, token);
+export const clearDeviceToken = () => localStorage.removeItem(DEVICE_TOKEN_KEY);
 
 // Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse?, requiresOtp?, otpToken?, maskedPhone? }
 export const login = async ({ username, password }) => {
-  const res = await api.post('/auth/login', { username, password });
+  const deviceToken = getStoredDeviceToken();
+  const headers = deviceToken ? { 'X-Device-Token': deviceToken } : {};
+  const res = await api.post('/auth/login', { username, password }, { headers });
   return res.data.data;
 };
 

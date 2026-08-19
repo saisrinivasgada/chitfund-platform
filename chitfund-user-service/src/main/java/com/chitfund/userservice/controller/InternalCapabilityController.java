@@ -1,13 +1,6 @@
 package com.chitfund.userservice.controller;
 
-import com.chitfund.userservice.domain.entity.PlanLimits;
-import com.chitfund.userservice.domain.entity.Tenant;
-import com.chitfund.userservice.domain.entity.TenantCustomLimits;
-import com.chitfund.userservice.repository.PlanLimitsRepository;
-import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
-import com.chitfund.userservice.repository.TenantRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.chitfund.userservice.service.TenantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,8 +8,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Internal-only endpoint consumed by sibling services to check what capabilities
@@ -29,10 +20,7 @@ import java.util.UUID;
 @Slf4j
 public class InternalCapabilityController {
 
-    private final TenantRepository tenantRepository;
-    private final PlanLimitsRepository planRepo;
-    private final TenantCustomLimitsRepository customLimitsRepository;
-    private final ObjectMapper objectMapper;
+    private final TenantService tenantService;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -55,40 +43,10 @@ public class InternalCapabilityController {
         }
 
         try {
-            Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId)).orElse(null);
-            if (tenant == null) return ResponseEntity.ok(List.of());
-
-            String planCode = tenant.getPlan() != null ? tenant.getPlan().toUpperCase() : "BASIC";
-
-            // CUSTOM plan: capabilities are individually configured per-tenant in tenant_custom_limits.
-            // All other plans: capabilities come directly from plan_limits so that editing a plan
-            // immediately applies to every tenant on it — no per-tenant sync needed.
-            if ("CUSTOM".equals(planCode)) {
-                Optional<TenantCustomLimits> custom = customLimitsRepository.findById(tenantId);
-                return ResponseEntity.ok(
-                        custom.map(this::resolveCustomCapabilities).orElse(List.of()));
-            }
-
-            PlanLimits plan = planRepo.findById(planCode).orElse(null);
-            if (plan == null) return ResponseEntity.ok(List.of());
-            return ResponseEntity.ok(parse(plan.getCapabilities()));
-
+            return ResponseEntity.ok(tenantService.resolveCapabilitiesForTenant(tenantId));
         } catch (Exception e) {
             log.error("Error fetching capabilities for tenant {}: {}", tenantId, e.getMessage());
             return ResponseEntity.ok(List.of());
-        }
-    }
-
-    private List<String> resolveCustomCapabilities(TenantCustomLimits c) {
-        return parse(c.getCapabilities());
-    }
-
-    private List<String> parse(String json) {
-        if (json == null || json.isBlank()) return List.of();
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
-        } catch (Exception e) {
-            return List.of();
         }
     }
 }

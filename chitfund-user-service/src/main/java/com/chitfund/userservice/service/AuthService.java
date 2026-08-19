@@ -5,6 +5,7 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.AccountSetupToken;
 import com.chitfund.userservice.domain.entity.RefreshToken;
+import com.chitfund.userservice.domain.entity.TrustedDevice;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.*;
@@ -39,6 +40,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final TrustedDeviceRepository trustedDeviceRepository;
     private final AccountSetupTokenRepository setupTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
@@ -47,6 +49,8 @@ public class AuthService {
     private final TenantService tenantService;
     private final OtpService otpService;
     private final PasswordValidator passwordValidator;
+
+    private static final int DEVICE_TOKEN_EXPIRY_DAYS = 30;
 
     @Value("${jwt.access-token-expiry-ms}")
     private long accessTokenExpiryMs;
@@ -72,13 +76,13 @@ public class AuthService {
     // SUPER_ADMIN: returns full AuthResponse inside LoginResponse (no tenant pick)
     // Others: returns pre-scope token + tenant list; frontend calls select-tenant next
 
-    public LoginResponse login(LoginRequest request) {
+    public LoginResponse login(LoginRequest request, String deviceToken) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         user = authenticateUser(user, request.getPassword());
 
-        if (requiresLoginOtp(user)) {
+        if (requiresLoginOtp(user) && !isDeviceTrusted(user.getId(), deviceToken)) {
             return buildLoginOtpResponse(user);
         }
 
@@ -366,7 +370,7 @@ public class AuthService {
         return buildAuthResponse(refreshToken.getUser(), null);
     }
 
-    public LoginResponse verifyLoginOtp(String otpToken, String code) {
+    public LoginResponse verifyLoginOtp(String otpToken, String code, boolean rememberDevice) {
         if (!jwtTokenProvider.validateToken(otpToken)) {
             throw new BusinessException(ErrorCode.TOKEN_INVALID, "OTP session expired — please log in again");
         }
@@ -382,7 +386,12 @@ public class AuthService {
 
         updateLoginState(user, false);
         userRepository.save(user);
-        return buildLoginResponse(user);
+
+        LoginResponse response = buildLoginResponse(user);
+        if (rememberDevice) {
+            response.setDeviceToken(issueDeviceToken(user.getId()));
+        }
+        return response;
     }
 
     public void logout(String refreshTokenValue) {
@@ -391,6 +400,35 @@ public class AuthService {
                     token.setRevoked(true);
                     refreshTokenRepository.save(token);
                 });
+    }
+
+    public void logoutAll(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        refreshTokenRepository.revokeAllActiveByUser(user);
+        trustedDeviceRepository.deleteByUserId(userId);
+    }
+
+    private String issueDeviceToken(UUID userId) {
+        byte[] raw = new byte[32];
+        new SecureRandom().nextBytes(raw);
+        String rawToken = HexFormat.of().formatHex(raw);
+        String hash = sha256(rawToken);
+        trustedDeviceRepository.deleteByUserId(userId);
+        trustedDeviceRepository.save(TrustedDevice.builder()
+                .userId(userId)
+                .tokenHash(hash)
+                .expiresAt(LocalDateTime.now().plusDays(DEVICE_TOKEN_EXPIRY_DAYS))
+                .build());
+        return rawToken;
+    }
+
+    private boolean isDeviceTrusted(UUID userId, String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) return false;
+        String hash = sha256(rawToken);
+        return trustedDeviceRepository.findByTokenHash(hash)
+                .map(d -> d.getUserId().equals(userId) && !d.isExpired())
+                .orElse(false);
     }
 
     public MobileLookupResponse lookupByMobile(String phone, String phoneCountryCode) {
@@ -560,6 +598,20 @@ public class AuthService {
     private boolean requiresLoginOtp(User user) {
         return (user.getRole() == Role.ADMIN || user.getRole() == Role.SUPER_ADMIN || user.getRole() == Role.MANAGER)
                 && user.getPhone() != null && !user.getPhone().isBlank();
+    }
+
+    public void resendLoginOtp(String otpToken) {
+        if (!jwtTokenProvider.validateToken(otpToken)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Session expired — please log in again");
+        }
+        if (!"LOGIN_OTP_PENDING".equals(jwtTokenProvider.extractScope(otpToken))) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Invalid token");
+        }
+        String userId = jwtTokenProvider.extractUserId(otpToken);
+        User user = userRepository.findById(UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "User not found"));
+        String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
+        otpService.sendOtp(user.getPhone(), cc, "LOGIN", userId);
     }
 
     private LoginResponse buildLoginOtpResponse(User user) {

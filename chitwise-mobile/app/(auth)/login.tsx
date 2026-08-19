@@ -368,13 +368,16 @@ export default function LoginScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biometricOn]);
 
-  function applyAuth(data: any, offerBiometric = false) {
+  function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
     setUser({
-      id:                data.userId,
-      username:          data.username,
-      fullName:          data.fullName,
-      role:              data.role as any,
-      token:             data.token,
+      id:                 data.userId,
+      username:           data.username,
+      fullName:           data.fullName,
+      role:               data.role as any,
+      token:              data.token,
+      refreshToken:       data.refreshToken,
+      tenantId:           data.tenantId,
+      tenantName:         tenantName,
       mustChangePassword: data.mustChangePassword,
     });
     if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword) {
@@ -383,7 +386,7 @@ export default function LoginScreen() {
     }
   }
 
-  async function handleTenantSelect(loginToken: string, tenantId: string, tenantStatus?: string) {
+  async function handleTenantSelect(loginToken: string, tenantId: string, tenantStatus?: string, tenantName?: string) {
     if (tenantStatus === 'PENDING') {
       setError('Your organisation is pending activation. Please contact ChitWise support.');
       setTenantPicker(null);
@@ -393,7 +396,7 @@ export default function LoginScreen() {
     try {
       const data = await selectTenant(loginToken, tenantId);
       setTenantPicker(null);
-      applyAuth(data, true);
+      applyAuth(data, true, tenantName);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Tenant selection failed');
     } finally {
@@ -410,7 +413,8 @@ export default function LoginScreen() {
       const data = await login(creds.username, creds.password);
       if (data.requiresTenantSelection && data.loginToken) {
         if (data.tenants?.length === 1) {
-          await handleTenantSelect(data.loginToken, data.tenants[0].tenantId, data.tenants[0].status);
+          const t = data.tenants[0];
+          await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
           setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
         }
@@ -440,7 +444,8 @@ export default function LoginScreen() {
       }
       if (data.requiresTenantSelection && data.loginToken) {
         if (data.tenants?.length === 1) {
-          await handleTenantSelect(data.loginToken, data.tenants[0].tenantId, data.tenants[0].status);
+          const t = data.tenants[0];
+          await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
           setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
         }
@@ -463,7 +468,8 @@ export default function LoginScreen() {
       setLoginOtpState(null);
       if (data.requiresTenantSelection && data.loginToken) {
         if (data.tenants?.length === 1) {
-          await handleTenantSelect(data.loginToken, data.tenants[0].tenantId, data.tenants[0].status);
+          const t = data.tenants[0];
+          await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
         } else {
           setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
         }
@@ -618,7 +624,7 @@ export default function LoginScreen() {
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Select Organisation</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Choose the org you want to sign into</Text>
             <ScrollView style={{ maxHeight: 320 }}>{tenantPicker?.tenants.map((t) => (
-              <TouchableOpacity key={t.tenantId} onPress={() => handleTenantSelect(tenantPicker!.loginToken, t.tenantId, t.status)}
+              <TouchableOpacity key={t.tenantId} onPress={() => handleTenantSelect(tenantPicker!.loginToken, t.tenantId, t.status, t.name)}
                 disabled={loading}
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                   padding: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#E5E7EB',

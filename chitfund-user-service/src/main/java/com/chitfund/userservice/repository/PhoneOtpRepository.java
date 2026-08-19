@@ -13,5 +13,5 @@ public interface PhoneOtpRepository extends JpaRepository<PhoneOtp, String> {
     Optional<PhoneOtp> findFirstByPhoneAndPurposeAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
             String phone, String purpose, LocalDateTime now);
 
-    long countByPhoneAndPurpose(String phone, String purpose);
+    long countByPhoneAndPurposeAndCreatedAtAfter(String phone, String purpose, LocalDateTime since);
 }

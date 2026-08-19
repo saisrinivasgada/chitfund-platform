@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   superAdminListPlans,
   superAdminCreatePlanDef,
@@ -190,17 +190,14 @@ function PlanModal({ plan, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
-  const [capDefs, setCapDefs] = useState([]);
   const [newCapLabel, setNewCapLabel] = useState('');
   const [addingCap, setAddingCap] = useState(false);
   const [showAddCap, setShowAddCap] = useState(false);
+  const queryClient = useQueryClient();
+  const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
 
   const isLive = isEdit && plan.isPublic && plan.isActive;
   const enabledSet = new Set(form.featuresText.split('\n').map(s => s.trim()).filter(Boolean));
-
-  useEffect(() => {
-    superAdminListCapabilities().then(setCapDefs).catch(() => {});
-  }, []);
 
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
@@ -237,7 +234,7 @@ function PlanModal({ plan, onSave, onClose }) {
     setAddingCap(true);
     try {
       const created = await superAdminAddCapability(label);
-      setCapDefs(prev => [...prev, created]);
+      queryClient.setQueryData(['super-capabilities'], (prev = []) => [...prev, created]);
       toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
@@ -252,7 +249,7 @@ function PlanModal({ plan, onSave, onClose }) {
     if (!window.confirm(`Remove capability "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
     try {
       await superAdminDeleteCapability(key);
-      setCapDefs(prev => prev.filter(c => c.key !== key));
+      queryClient.setQueryData(['super-capabilities'], (prev = []) => prev.filter(c => c.key !== key));
     } catch { setError('Failed to remove capability'); }
   }
 

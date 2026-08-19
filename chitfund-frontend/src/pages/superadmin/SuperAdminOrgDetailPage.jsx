@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Users, BookOpen, Settings, ChevronDown,
@@ -459,13 +460,9 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
   const [error, setError] = useState('');
   const [resetPlan, setResetPlan] = useState('BASIC');
   const [resetting, setResetting] = useState(false);
-  const [plans, setPlans] = useState([]);
-  const [capDefs, setCapDefs] = useState([]);
-
-  useEffect(() => {
-    superAdminListPlans().then(all => setPlans(all.filter(p => p.isPublic && p.isActive))).catch(() => {});
-    superAdminListCapabilities().then(setCapDefs).catch(() => {});
-  }, []);
+  const { data: rawPlans = [] } = useQuery({ queryKey: ['super-plans'], queryFn: superAdminListPlans });
+  const plans = rawPlans.filter(p => p.isPublic && p.isActive);
+  const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
 
   async function handleReset() {
     setResetting(true);
@@ -571,12 +568,15 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
                     <button
                       key={cap.key}
                       type="button"
-                      onClick={() => setForm(f => ({
-                        ...f,
-                        enabledCapabilities: on
-                          ? f.enabledCapabilities.filter(k => k !== cap.key)
-                          : [...f.enabledCapabilities, cap.key],
-                      }))}
+                      onClick={() => setForm(f => {
+                        const isOn = f.enabledCapabilities.includes(cap.key);
+                        return {
+                          ...f,
+                          enabledCapabilities: isOn
+                            ? f.enabledCapabilities.filter(k => k !== cap.key)
+                            : [...f.enabledCapabilities, cap.key],
+                        };
+                      })}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${on ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-400 hover:bg-gray-50'}`}
                     >
                       <div className={`w-3 h-3 rounded-full ${on ? 'bg-green-500' : 'bg-gray-300'}`} />

@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, Modal, TouchableOpacity, TextInput,
-  Alert, KeyboardAvoidingView, Platform,
+  Alert, KeyboardAvoidingView, Platform, ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuthStore, StoredAccount } from '../store/authStore';
-import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp } from '../services/api';
+import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
+import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
 function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint }: {
@@ -56,10 +58,14 @@ function passwordStrength(pw: string) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { user, logout, accounts, switchToAccount, removeAccount } = useAuthStore();
+  const { user, logout, accounts, switchToAccount, removeAccount, logoutFromAccount, logoutAll } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
   const role = user?.role ?? 'MEMBER';
+
+  const [biometricAvail, setBiometricAvail] = useState(false);
+  const [biometricOn, setBiometricOn] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState('Biometric');
 
   // Fetch current user data on open
   const { data: me } = useQuery({ queryKey: ['edit-profile-me'], queryFn: getMe, enabled: visible });
@@ -95,6 +101,95 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const [curPwd,     setCurPwd]     = useState('');
   const [newPwd,     setNewPwd]     = useState('');
   const [confPwd,    setConfPwd]    = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    Promise.all([isBiometricAvailable(), isBiometricEnabled(), biometricTypeName()]).then(
+      ([avail, on, label]) => { setBiometricAvail(avail); setBiometricOn(on); setBiometricLabel(label); }
+    );
+  }, [visible]);
+
+  async function handleSwitchAccount(acc: StoredAccount) {
+    if (!acc.sessionValid) {
+      onClose();
+      router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
+      return;
+    }
+    const biometricEnabled = await isBiometricEnabled();
+    if (biometricEnabled) {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: `Switch to ${acc.fullName || acc.username}`,
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: false,
+      });
+      if (!result.success) return;
+    }
+    const result = await switchToAccount(acc.userId);
+    if (result === 'needs-login') {
+      onClose();
+      router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
+    } else if (result) {
+      onClose();
+    } else {
+      Alert.alert('Switch Failed', 'Could not switch account. Please log in again.');
+    }
+  }
+
+  async function handleAccountOptions(acc: StoredAccount) {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Logout', 'Delete Account'],
+          destructiveButtonIndex: 2,
+          cancelButtonIndex: 0,
+        },
+        async (idx) => {
+          if (idx === 1) await doLogoutAccount(acc);
+          if (idx === 2) await doDeleteAccount(acc);
+        }
+      );
+    } else {
+      Alert.alert(acc.fullName || acc.username, `@${acc.username} · ${acc.role}`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Logout', onPress: () => doLogoutAccount(acc) },
+        { text: 'Delete Account', style: 'destructive', onPress: () => doDeleteAccount(acc) },
+      ]);
+    }
+  }
+
+  async function doLogoutAccount(acc: StoredAccount) {
+    if (acc.refreshToken) {
+      try { await logoutAccount(acc.refreshToken); } catch {}
+    }
+    await logoutFromAccount(acc.userId);
+  }
+
+  async function doDeleteAccount(acc: StoredAccount) {
+    if (acc.refreshToken) {
+      try { await logoutAccount(acc.refreshToken); } catch {}
+    }
+    await removeAccount(acc.userId);
+  }
+
+  async function handleLogoutAll() {
+    Alert.alert(
+      'Logout from All Devices',
+      'This will sign you out on all devices including this one. You will need to login again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout All', style: 'destructive',
+          onPress: async () => {
+            try {
+              await logoutAllDevices();
+            } catch {}
+            await logoutAll();
+            onClose();
+          },
+        },
+      ]
+    );
+  }
 
   // Pre-fill when data loads
   useEffect(() => {
@@ -367,6 +462,62 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 )}
                 <Field label="Confirm New Password" value={confPwd} onChangeText={setConfPwd} placeholder="Repeat new password" secureTextEntry autoCapitalize="none"
                   hint={confPwd && newPwd !== confPwd ? 'Passwords do not match' : confPwd && newPwd === confPwd ? '✓ Passwords match' : undefined} />
+
+                {biometricAvail && (
+                  <>
+                    <View style={{ height: 1, backgroundColor: C.gray200, marginVertical: 16 }} />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>APP LOCK</Text>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        if (biometricOn) {
+                          Alert.alert(`Disable ${biometricLabel}?`, 'You will need your password to open the app.', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Disable', style: 'destructive', onPress: async () => { await disableBiometric(); setBiometricOn(false); } },
+                          ]);
+                        } else {
+                          Alert.alert(`Enable ${biometricLabel}`, `Log out and sign in again — you'll be prompted to enable ${biometricLabel} after login.`, [{ text: 'OK' }]);
+                        }
+                      }}
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                        backgroundColor: biometricOn ? C.navy50 : C.gray50,
+                        borderRadius: 12, padding: 14, borderWidth: 1.5,
+                        borderColor: biometricOn ? C.navy + '40' : C.gray200,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ fontSize: 22 }}>🔒</Text>
+                        <View>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{biometricLabel} Unlock</Text>
+                          <Text style={{ fontSize: 11, color: C.gray500, marginTop: 1 }}>
+                            {biometricOn ? 'Tap to disable' : `Use ${biometricLabel} to open app`}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: biometricOn ? C.navy : C.gray300,
+                        justifyContent: 'center',
+                        paddingHorizontal: 2,
+                      }}>
+                        <View style={{
+                          width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
+                          alignSelf: biometricOn ? 'flex-end' : 'flex-start',
+                        }} />
+                      </View>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                <View style={{ height: 1, backgroundColor: C.gray200, marginVertical: 16 }} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>DANGER ZONE</Text>
+                <TouchableOpacity
+                  onPress={handleLogoutAll}
+                  style={{ borderWidth: 1.5, borderColor: '#DC2626', borderRadius: 12, padding: 14, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#DC2626' }}>Logout from All Devices</Text>
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>Signs out every device including this one</Text>
+                </TouchableOpacity>
               </>
             )}
 
@@ -376,78 +527,107 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>
                   SAVED ACCOUNTS
                 </Text>
-                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 14 }}>
-                  Switch between accounts on this device without re-entering your password.
-                </Text>
 
                 {accounts.map((acc: StoredAccount) => {
                   const isCurrent = acc.userId === user?.id;
                   const initials = (acc.fullName || acc.username || '?')[0].toUpperCase();
+                  const needsLogin = !acc.sessionValid;
+                  const roleBadgeColor: Record<string, string> = {
+                    ADMIN: '#1D4ED8', MANAGER: '#7C3AED', STAFF: '#059669',
+                    MEMBER: '#D97706', SUPER_ADMIN: '#9F1239',
+                  };
+                  const badgeColor = roleBadgeColor[acc.role] ?? C.navy;
+
+                  const cachedLine = (() => {
+                    if (!acc.cachedInfo) return null;
+                    const { outstandingBalance, pendingCollectionAmount, activeGroupsCount, totalMembersCount } = acc.cachedInfo;
+                    if (acc.role === 'MEMBER' && outstandingBalance != null)
+                      return `Outstanding: ₹${outstandingBalance.toLocaleString('en-IN')}`;
+                    if ((acc.role === 'STAFF' || acc.role === 'MANAGER') && pendingCollectionAmount != null)
+                      return `To collect: ₹${pendingCollectionAmount.toLocaleString('en-IN')}`;
+                    if (acc.role === 'ADMIN') {
+                      const parts = [];
+                      if (activeGroupsCount != null) parts.push(`${activeGroupsCount} groups`);
+                      if (totalMembersCount != null) parts.push(`${totalMembersCount} members`);
+                      if (parts.length) return parts.join(' · ');
+                    }
+                    return null;
+                  })();
+
                   return (
                     <View key={acc.userId} style={{
-                      flexDirection: 'row', alignItems: 'center', gap: 12,
-                      backgroundColor: isCurrent ? C.navy50 : C.white,
-                      borderRadius: 14, padding: 14, marginBottom: 10,
+                      backgroundColor: isCurrent ? C.navy50 : needsLogin ? '#FFFBEB' : C.white,
+                      borderRadius: 16, padding: 14, marginBottom: 10,
                       borderWidth: 1.5,
-                      borderColor: isCurrent ? C.navy + '40' : C.gray200,
+                      borderColor: isCurrent ? C.navy + '40' : needsLogin ? '#FCD34D' : C.gray200,
                     }}>
-                      {/* Avatar */}
-                      <View style={{
-                        width: 42, height: 42, borderRadius: 21,
-                        backgroundColor: isCurrent ? C.navy : C.gray200,
-                        alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: isCurrent ? '#fff' : C.gray600 ?? C.gray500 }}>
-                          {initials}
-                        </Text>
-                      </View>
-
-                      {/* Info */}
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14, fontWeight: '700', color: isCurrent ? C.navy : C.gray900 }}>
-                            {acc.fullName || acc.username}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        {/* Avatar */}
+                        <View style={{
+                          width: 46, height: 46, borderRadius: 23,
+                          backgroundColor: isCurrent ? C.navy : needsLogin ? '#FCD34D' : C.gray200,
+                          alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Text style={{ fontSize: 17, fontWeight: '800', color: isCurrent ? '#fff' : needsLogin ? '#92400E' : C.gray500 }}>
+                            {needsLogin ? '!' : initials}
                           </Text>
-                          {isCurrent && (
-                            <View style={{ backgroundColor: C.navy, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>ACTIVE</Text>
+                        </View>
+
+                        {/* Info */}
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: isCurrent ? C.navy : C.gray900 }}>
+                              {acc.fullName || acc.username}
+                            </Text>
+                            {isCurrent && (
+                              <View style={{ backgroundColor: C.navy, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>ACTIVE</Text>
+                              </View>
+                            )}
+                            {needsLogin && (
+                              <View style={{ backgroundColor: '#FEF3C7', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#FCD34D' }}>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: '#92400E' }}>LOGIN REQUIRED</Text>
+                              </View>
+                            )}
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                            <View style={{ backgroundColor: badgeColor + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: badgeColor }}>{acc.role}</Text>
                             </View>
+                            {acc.tenantName ? (
+                              <Text style={{ fontSize: 11, color: C.gray500 }} numberOfLines={1}>{acc.tenantName}</Text>
+                            ) : (
+                              <Text style={{ fontSize: 11, color: C.gray400 }}>@{acc.username}</Text>
+                            )}
+                          </View>
+                          {cachedLine && !needsLogin && (
+                            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>{cachedLine}</Text>
                           )}
                         </View>
-                        <Text style={{ fontSize: 12, color: C.gray500 }}>@{acc.username} · {acc.role}</Text>
-                      </View>
 
-                      {/* Actions */}
-                      {!isCurrent && (
-                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {/* Actions */}
+                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                          {!isCurrent && (
+                            <TouchableOpacity
+                              onPress={() => handleSwitchAccount(acc)}
+                              style={{
+                                backgroundColor: needsLogin ? '#F59E0B' : C.navy,
+                                borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>
+                                {needsLogin ? 'Login' : 'Switch'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
-                            onPress={async () => {
-                              const ok = await switchToAccount(acc.userId);
-                              if (ok) {
-                                onClose();
-                              } else {
-                                Alert.alert('Switch Failed', 'Could not switch account. Please log in again.');
-                              }
-                            }}
-                            style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+                            onPress={() => handleAccountOptions(acc)}
+                            style={{ padding: 6 }}
                           >
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Switch</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            onPress={() => Alert.alert(
-                              'Remove Account',
-                              `Remove @${acc.username} from this device?`,
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                { text: 'Remove', style: 'destructive', onPress: () => removeAccount(acc.userId) },
-                              ]
-                            )}
-                            style={{ backgroundColor: '#FEE2E2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
-                          >
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#DC2626' }}>✕</Text>
+                            <Text style={{ fontSize: 20, color: C.gray400, lineHeight: 20 }}>⋮</Text>
                           </TouchableOpacity>
                         </View>
-                      )}
+                      </View>
                     </View>
                   );
                 })}
@@ -456,7 +636,6 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 <TouchableOpacity
                   onPress={() => {
                     onClose();
-                    // Navigate to login with "add account" mode
                     router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
                   }}
                   style={{
@@ -470,7 +649,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                 </TouchableOpacity>
 
                 <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 12 }}>
-                  Accounts are stored securely on this device. Removing an account only removes access on this device — it doesn't delete the account.
+                  Accounts are stored securely on this device. Removing an account only removes it from this device.
                 </Text>
               </>
             )}
@@ -574,9 +753,17 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
 
             {/* Logout — always visible */}
             <TouchableOpacity
-              onPress={() => Alert.alert('Log Out', 'Are you sure you want to log out?', [
+              onPress={() => Alert.alert('Log Out', 'Sign out of this account? The account will remain saved on this device.', [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Log Out', style: 'destructive', onPress: () => { onClose(); logout(); } },
+                {
+                  text: 'Log Out', style: 'destructive',
+                  onPress: async () => {
+                    const refreshToken = user ? accounts.find(a => a.userId === user.id)?.refreshToken : undefined;
+                    if (refreshToken) { try { await logoutAccount(refreshToken); } catch {} }
+                    onClose();
+                    await logout();
+                  },
+                },
               ])}
               style={{ borderWidth: 1.5, borderColor: C.red ?? '#DC2626', borderRadius: 12, padding: 14, alignItems: 'center' }}>
               <Text style={{ fontSize: 15, fontWeight: '700', color: C.red ?? '#DC2626' }}>Log Out</Text>
