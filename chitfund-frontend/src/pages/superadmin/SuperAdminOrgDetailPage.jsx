@@ -32,6 +32,8 @@ import {
   resendSetupLink,
   superAdminSetupAppAccess,
   superAdminListCapabilities,
+  superAdminCancelTenant,
+  superAdminResumeTenant,
 } from '../../services/api';
 import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
@@ -798,6 +800,8 @@ export default function SuperAdminOrgDetailPage() {
   const [setupLoading, setSetupLoading] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
   const [plans, setPlans] = useState([]);
   const [userPage, setUserPage] = useState(1);
@@ -845,6 +849,32 @@ export default function SuperAdminOrgDetailPage() {
     } finally {
       setStatusChanging(false);
       setShowStatusDropdown(false);
+    }
+  }
+
+  async function handleCancelTenant() {
+    setCancelling(true);
+    try {
+      const updated = await superAdminCancelTenant(tenantId);
+      setTenant((prev) => ({ ...prev, cancellationRequestedAt: updated.cancellationRequestedAt, cancellationRequestedBy: updated.cancellationRequestedBy }));
+      showToast('Cancellation scheduled — access continues until plan expires');
+    } catch (err) {
+      showToast(err.response?.data?.message ?? 'Failed to schedule cancellation');
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  async function handleResumeTenant() {
+    setResuming(true);
+    try {
+      const updated = await superAdminResumeTenant(tenantId);
+      setTenant((prev) => ({ ...prev, cancellationRequestedAt: null, cancellationRequestedBy: null }));
+      showToast('Subscription resumed');
+    } catch (err) {
+      showToast(err.response?.data?.message ?? 'Failed to resume subscription');
+    } finally {
+      setResuming(false);
     }
   }
 
@@ -1186,6 +1216,31 @@ export default function SuperAdminOrgDetailPage() {
                 </button>
               )}
 
+              {/* Cancel / Resume subscription */}
+              {tenant.status === 'ACTIVE' && (
+                tenant.cancellationRequestedAt ? (
+                  <button
+                    type="button"
+                    onClick={handleResumeTenant}
+                    disabled={resuming}
+                    className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 cursor-pointer transition-colors disabled:opacity-60"
+                  >
+                    <CheckCircle size={14} />
+                    {resuming ? 'Resuming…' : 'Resume Subscription'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCancelTenant}
+                    disabled={cancelling}
+                    className="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 cursor-pointer transition-colors disabled:opacity-60"
+                  >
+                    <Clock size={14} />
+                    {cancelling ? 'Scheduling…' : 'Schedule Cancellation'}
+                  </button>
+                )
+              )}
+
               {/* Add user */}
               <button
                 type="button"
@@ -1260,6 +1315,31 @@ export default function SuperAdminOrgDetailPage() {
           }
           return null;
         })()}
+
+        {/* Cancellation-pending banner */}
+        {tenant.cancellationRequestedAt && (
+          <div className="mb-4 flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+            <Clock size={18} className="text-amber-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-amber-800">Cancellation scheduled</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Access continues until{' '}
+                {tenant.planExpiresAt
+                  ? new Date(tenant.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                  : 'plan expires'}
+                . Requested on {new Date(tenant.cancellationRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleResumeTenant}
+              disabled={resuming}
+              className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 cursor-pointer disabled:opacity-60"
+            >
+              {resuming ? 'Resuming…' : 'Resume Subscription'}
+            </button>
+          </div>
+        )}
 
         {/* Pending admin banner — shown for PENDING orgs so super-admin can see who registered */}
         {tenant.status === 'PENDING' && (() => {
@@ -1392,6 +1472,14 @@ export default function SuperAdminOrgDetailPage() {
                   </button>
                 )}
               </div>
+              {tenant.cancellationRequestedAt && (
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-400">Cancellation</span>
+                  <span className="text-xs font-medium text-amber-600">
+                    Pending — cancels on expiry
+                  </span>
+                </div>
+              )}
               <div className="pt-1 border-t border-gray-50">
                 <p className="text-xs font-bold text-gray-400 mb-2">Allowed Chit Types</p>
                 <div className="flex flex-wrap gap-1.5">

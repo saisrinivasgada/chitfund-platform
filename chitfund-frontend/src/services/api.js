@@ -165,6 +165,26 @@ export const superAdminSetTenantStatus = async (tenantId, status) => {
   return res.data.data;
 };
 
+export const superAdminCancelTenant = async (tenantId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/cancel`);
+  return res.data.data;
+};
+
+export const superAdminResumeTenant = async (tenantId) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/resume`);
+  return res.data.data;
+};
+
+export const cancelSubscription = async () => {
+  const res = await api.post('/billing/cancel');
+  return res.data.data;
+};
+
+export const resumeSubscription = async () => {
+  const res = await api.post('/billing/resume');
+  return res.data.data;
+};
+
 export const superAdminReactivateTenant = async (tenantId, newSlug) => {
   const params = newSlug ? { newSlug } : {};
   const res = await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, { params });

@@ -1,6 +1,7 @@
 package com.chitfund.userservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.AddOrgUserRequest;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.request.UpdateTenantRequest;
@@ -18,6 +19,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -180,6 +182,22 @@ public class SuperAdminController {
     public ResponseEntity<ApiResponse<Void>> clearRenewalRequest(@PathVariable UUID tenantId) {
         tenantService.clearRenewalRequest(tenantId);
         return ResponseEntity.ok(ApiResponse.success(null, "Renewal request cleared"));
+    }
+
+    @PostMapping("/{tenantId}/cancel")
+    public ResponseEntity<ApiResponse<TenantResponse>> cancelTenant(
+            @PathVariable UUID tenantId,
+            @AuthenticationPrincipal User principal) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.cancelMembership(tenantId, principal.getId().toString()),
+                "Cancellation scheduled"));
+    }
+
+    @PostMapping("/{tenantId}/resume")
+    public ResponseEntity<ApiResponse<TenantResponse>> resumeTenant(@PathVariable UUID tenantId) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.resumeMembership(tenantId),
+                "Subscription resumed"));
     }
 
     @PostMapping("/{tenantId}/credits")

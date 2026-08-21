@@ -65,6 +65,8 @@ public class BillingService {
 
         long creditPaise = expired ? 0
                 : (currentPlanPricePaise * daysRemaining) / PLAN_DURATION_DAYS;
+        boolean isDowngrade = newPlan.getPriceMonthlyInr() < currentPlanPricePaise;
+        long creditToReturnPaise = isDowngrade ? Math.max(0L, creditPaise - newPlan.getPriceMonthlyInr()) : 0L;
         long chargePaise = Math.max(0, newPlan.getPriceMonthlyInr() - creditPaise);
 
         LocalDate newPeriodStart = today;
@@ -87,6 +89,8 @@ public class BillingService {
                 .newPeriodStart(newPeriodStart)
                 .newPeriodEnd(newPeriodEnd)
                 .planExpired(expired)
+                .downgrade(isDowngrade)
+                .creditToReturnPaise(creditToReturnPaise)
                 .build();
     }
 
@@ -209,6 +213,13 @@ public class BillingService {
             java.math.BigDecimal newBalance = tenant.getCreditBalanceInr().subtract(deductInr)
                     .max(java.math.BigDecimal.ZERO);
             tenant.setCreditBalanceInr(newBalance);
+        }
+
+        // Return prorated credit to balance when downgrading (credit > new plan cost)
+        if (preview.getCreditToReturnPaise() > 0) {
+            java.math.BigDecimal returnInr = java.math.BigDecimal.valueOf(preview.getCreditToReturnPaise())
+                    .divide(java.math.BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+            tenant.setCreditBalanceInr(tenant.getCreditBalanceInr().add(returnInr));
         }
 
         tenant.setPlan(newPlan.getPlan());

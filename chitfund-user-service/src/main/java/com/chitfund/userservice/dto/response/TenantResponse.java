@@ -25,4 +25,6 @@ public class TenantResponse {
     private String referralCode;
     private BigDecimal creditBalanceInr;
     private LocalDateTime promoDiscountUntil;
+    private LocalDateTime cancellationRequestedAt;
+    private String        cancellationRequestedBy;
 }

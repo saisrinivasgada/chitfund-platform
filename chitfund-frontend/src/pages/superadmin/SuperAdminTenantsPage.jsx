@@ -7,6 +7,8 @@ import {
   superAdminUpdatePlan,
   superAdminGetAdminCredentials,
   superAdminProxyAs,
+  superAdminCancelTenant,
+  superAdminResumeTenant,
 } from '../../services/api';
 import {
   Building2, CheckCircle, XCircle, Clock, ChevronDown,
@@ -179,7 +181,16 @@ function TenantRow({ tenant, onAction, onNavigate }) {
           </div>
         </button>
       </td>
-      <td className="px-4 py-4"><StatusBadge status={tenant.status} /></td>
+      <td className="px-4 py-4">
+        <div className="flex flex-col gap-1">
+          <StatusBadge status={tenant.status} />
+          {tenant.cancellationRequestedAt && (
+            <span className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 whitespace-nowrap">
+              Cancels {tenant.planExpiresAt ? new Date(tenant.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'at expiry'}
+            </span>
+          )}
+        </div>
+      </td>
       <td className="px-4 py-4">
         <div className="relative inline-block">
           <button
@@ -283,6 +294,25 @@ function TenantRow({ tenant, onAction, onNavigate }) {
                     >
                       Suspend
                     </button>
+                  )}
+                  {tenant.status === 'ACTIVE' && (
+                    tenant.cancellationRequestedAt ? (
+                      <button
+                        type="button"
+                        onClick={() => { onAction('resume', tenant.id); setMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-50 cursor-pointer font-medium"
+                      >
+                        Resume subscription
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { onAction('cancel', tenant.id); setMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 cursor-pointer font-medium"
+                      >
+                        Schedule cancellation
+                      </button>
+                    )
                   )}
                   <div className="border-t border-gray-50 my-1" />
                   <button
@@ -412,7 +442,14 @@ export default function SuperAdminTenantsPage() {
       }
       if (action === 'suspend')   await superAdminSuspendTenant(tenantId);
       if (action === 'plan')      await superAdminUpdatePlan(tenantId, extra);
-      showToast(action === 'suspend' ? 'Tenant suspended' : `Plan updated to ${extra}`);
+      if (action === 'cancel')    await superAdminCancelTenant(tenantId);
+      if (action === 'resume')    await superAdminResumeTenant(tenantId);
+      showToast(
+        action === 'suspend' ? 'Tenant suspended' :
+        action === 'cancel'  ? 'Cancellation scheduled' :
+        action === 'resume'  ? 'Subscription resumed' :
+        `Plan updated to ${extra}`
+      );
       load();
     } catch (err) {
       showToast(err.response?.data?.message ?? 'Action failed');
@@ -420,18 +457,21 @@ export default function SuperAdminTenantsPage() {
   }
 
   const filtered = tenants.filter((t) => {
+    if (statusFilter === '__CANCEL__') return !!t.cancellationRequestedAt;
     if (!statusFilter && t.status === 'REJECTED') return false;
+    if (statusFilter && statusFilter !== '__CANCEL__' && t.status !== statusFilter) return false;
     return !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.slug?.toLowerCase().includes(search.toLowerCase());
   });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const stats = {
-    total:     tenants.filter((t) => t.status !== 'REJECTED').length,
-    active:    tenants.filter((t) => t.status === 'ACTIVE').length,
-    pending:   tenants.filter((t) => t.status === 'PENDING').length,
-    suspended: tenants.filter((t) => t.status === 'SUSPENDED').length,
-    rejected:  tenants.filter((t) => t.status === 'REJECTED').length,
+    total:               tenants.filter((t) => t.status !== 'REJECTED').length,
+    active:              tenants.filter((t) => t.status === 'ACTIVE').length,
+    pending:             tenants.filter((t) => t.status === 'PENDING').length,
+    suspended:           tenants.filter((t) => t.status === 'SUSPENDED').length,
+    rejected:            tenants.filter((t) => t.status === 'REJECTED').length,
+    cancellationPending: tenants.filter((t) => t.cancellationRequestedAt).length,
   };
 
   return (
@@ -465,12 +505,13 @@ export default function SuperAdminTenantsPage() {
         </div>
 
         {/* Stats row — clickable to filter */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
           {[
-            { label: 'Total',     value: stats.total,     color: '#1E3A5F',  filterVal: '' },
-            { label: 'Active',    value: stats.active,    color: '#16A34A',  filterVal: 'ACTIVE' },
-            { label: 'Pending',   value: stats.pending,   color: '#D97706',  filterVal: 'PENDING' },
-            { label: 'Suspended', value: stats.suspended, color: '#DC2626',  filterVal: 'SUSPENDED' },
+            { label: 'Total',                value: stats.total,               color: '#1E3A5F',  filterVal: '' },
+            { label: 'Active',               value: stats.active,              color: '#16A34A',  filterVal: 'ACTIVE' },
+            { label: 'Pending',              value: stats.pending,             color: '#D97706',  filterVal: 'PENDING' },
+            { label: 'Suspended',            value: stats.suspended,           color: '#DC2626',  filterVal: 'SUSPENDED' },
+            { label: 'Cancel Pending',       value: stats.cancellationPending, color: '#B45309',  filterVal: '__CANCEL__' },
           ].map(({ label, value, color, filterVal }) => {
             const isActive = statusFilter === filterVal;
             return (

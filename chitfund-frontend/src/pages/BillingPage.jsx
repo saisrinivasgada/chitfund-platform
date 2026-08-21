@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview } from '../services/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer } from 'lucide-react';
+import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle } from 'lucide-react';
 
 const PLAN_ORDER = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 const PLAN_LABELS = { BASIC: 'Basic', GROWTH: 'Growth', ENTERPRISE: 'Enterprise', CUSTOM: 'Custom' };
@@ -188,22 +188,34 @@ function UpgradeProrationRows({ newPlan }) {
   return (
     <div className="border-t border-gray-100 pt-3 space-y-1.5 text-xs text-gray-600">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-        <Info size={11} /> Estimated charge
+        <Info size={11} /> {preview.downgrade ? 'Estimated credit' : 'Estimated charge'}
       </p>
       <div className="flex justify-between">
         <span>{preview.newPlanName} price</span>
         <span className="font-medium text-gray-700">{fmtPaise(preview.newPlanPricePaise)}</span>
       </div>
-      {!preview.planExpired && (
+      {!preview.planExpired && preview.creditPaise > 0 && (
         <div className="flex justify-between">
           <span>Unused days credit ({preview.daysRemaining} of {preview.daysInPeriod} days)</span>
           <span className="text-green-600 font-medium">- {fmtPaise(preview.creditPaise)}</span>
         </div>
       )}
-      <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-1.5">
-        <span>You'd pay</span>
-        <span>{fmtPaise(preview.chargePaise)}</span>
-      </div>
+      {preview.downgrade && preview.creditToReturnPaise > 0 ? (
+        <div className="flex justify-between font-semibold text-emerald-700 border-t border-gray-100 pt-1.5">
+          <span>Credit added to your balance</span>
+          <span>+ {fmtPaise(preview.creditToReturnPaise)}</span>
+        </div>
+      ) : preview.downgrade ? (
+        <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-1.5">
+          <span>You'd pay</span>
+          <span>₹0 — credit covers new plan</span>
+        </div>
+      ) : (
+        <div className="flex justify-between font-semibold text-gray-800 border-t border-gray-100 pt-1.5">
+          <span>You'd pay</span>
+          <span>{fmtPaise(preview.chargePaise)}</span>
+        </div>
+      )}
       <p className="text-gray-400 italic">Estimate only — confirmed when our team processes your request.</p>
       {preview.planExpired && (
         <p className="text-amber-600">Plan expired — no unused-days credit applies.</p>
@@ -530,6 +542,7 @@ function PaymentHistoryRow({ payment, onClick }) {
 
 export default function BillingPage() {
   const { tenantName, tenantPlan, tenantId } = useAuth();
+  const queryClient = useQueryClient();
   const [renewed, setRenewed] = useState(false);
   const [renewing, setRenewing] = useState(false);
   const [renewError, setRenewError] = useState('');
@@ -540,6 +553,8 @@ export default function BillingPage() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [paymentPage, setPaymentPage] = useState(0);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const PAYMENT_PAGE_SIZE = 8;
 
   const { data: billing, isLoading } = useQuery({ queryKey: ['billing-info'], queryFn: getMyBillingInfo });
@@ -585,6 +600,20 @@ export default function BillingPage() {
     finally { setUpgrading(false); }
   }
 
+  async function handleCancel() {
+    setCancelling(true);
+    try { await cancelSubscription(); queryClient.invalidateQueries({ queryKey: ['billing-info'] }); }
+    catch { /* ignore */ }
+    finally { setCancelling(false); }
+  }
+
+  async function handleResume() {
+    setResuming(true);
+    try { await resumeSubscription(); queryClient.invalidateQueries({ queryKey: ['billing-info'] }); }
+    catch { /* ignore */ }
+    finally { setResuming(false); }
+  }
+
   function copyReferral() {
     if (billing?.referralCode) {
       navigator.clipboard.writeText(billing.referralCode);
@@ -623,6 +652,24 @@ export default function BillingPage() {
         <div className="flex items-center gap-2 text-sm text-gray-400">
           <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
           Loading billing info…
+        </div>
+      )}
+
+      {billing?.cancellationRequestedAt && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm">
+          <AlertTriangle size={16} className="text-amber-600 flex-shrink-0" />
+          <span className="text-amber-800 flex-1">
+            Subscription cancellation scheduled — access continues until{' '}
+            <strong>{billing.planExpiresAt ? new Date(billing.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'plan expiry'}</strong>.
+          </span>
+          <button
+            onClick={handleResume}
+            disabled={resuming}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-60 cursor-pointer transition-colors"
+            style={{ backgroundColor: '#1E3A5F' }}
+          >
+            {resuming ? 'Resuming…' : 'Resume'}
+          </button>
         </div>
       )}
 
@@ -688,6 +735,27 @@ export default function BillingPage() {
                 <span className="font-medium text-gray-600">{fmt(billing.nextBillingEstimate)}</span>
               </div>
             )}
+
+            <div className="mt-4 border-t border-gray-50 pt-4">
+              {billing.cancellationRequestedAt ? (
+                <button
+                  onClick={handleResume}
+                  disabled={resuming}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-white disabled:opacity-60 cursor-pointer transition-colors"
+                  style={{ backgroundColor: '#1E3A5F' }}
+                >
+                  {resuming ? 'Resuming…' : 'Resume subscription'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleCancel}
+                  disabled={cancelling}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 cursor-pointer transition-colors"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel subscription'}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Usage card */}

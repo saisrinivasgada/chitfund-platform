@@ -808,6 +808,22 @@ public class TenantService {
         return result;
     }
 
+    public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId) {
+        Tenant t = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        t.setCancellationRequestedAt(java.time.LocalDateTime.now());
+        t.setCancellationRequestedBy(requestedByUserId);
+        return toResponse(tenantRepository.save(t));
+    }
+
+    public TenantResponse resumeMembership(UUID tenantId) {
+        Tenant t = tenantRepository.findById(tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        t.setCancellationRequestedAt(null);
+        t.setCancellationRequestedBy(null);
+        return toResponse(tenantRepository.save(t));
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private TenantResponse toResponse(Tenant t) {
@@ -829,6 +845,8 @@ public class TenantService {
                 .referralCode(t.getReferralCode())
                 .creditBalanceInr(t.getCreditBalanceInr())
                 .promoDiscountUntil(t.getPromoDiscountUntil())
+                .cancellationRequestedAt(t.getCancellationRequestedAt())
+                .cancellationRequestedBy(t.getCancellationRequestedBy())
                 .build();
     }
 

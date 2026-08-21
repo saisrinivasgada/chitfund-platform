@@ -43,6 +43,12 @@ public class Tenant {
     @Column(name = "renewal_requested_at")
     private LocalDateTime renewalRequestedAt;
 
+    @Column(name = "cancellation_requested_at")
+    private LocalDateTime cancellationRequestedAt;
+
+    @Column(name = "cancellation_requested_by", length = 36)
+    private String cancellationRequestedBy;
+
     @Column(length = 20)
     private String contactPhone;
 

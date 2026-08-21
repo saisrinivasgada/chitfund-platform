@@ -9,8 +9,10 @@ import com.chitfund.userservice.dto.request.RecordRefundRequest;
 import com.chitfund.userservice.dto.request.RecordUpgradeRequest;
 import com.chitfund.userservice.dto.response.PaymentResponse;
 import com.chitfund.userservice.dto.response.ReceiptResponse;
+import com.chitfund.userservice.dto.response.TenantResponse;
 import com.chitfund.userservice.dto.response.UpgradePreviewResponse;
 import com.chitfund.userservice.service.BillingService;
+import com.chitfund.userservice.service.TenantService;
 import jakarta.validation.Valid;
 import com.chitfund.userservice.domain.entity.User;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ import java.util.List;
 public class BillingController {
 
     private final BillingService billingService;
+    private final TenantService tenantService;
 
     // ── Super-admin endpoints ─────────────────────────────────────────────────
 
@@ -112,6 +115,27 @@ public class BillingController {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(billingService.previewUpgrade(tenantId, newPlan)));
+    }
+
+    @PostMapping("/api/billing/cancel")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<TenantResponse>> cancelMySubscription(
+            @AuthenticationPrincipal User principal) {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.cancelMembership(java.util.UUID.fromString(tenantId), principal.getId().toString()),
+                "Subscription cancellation scheduled"));
+    }
+
+    @PostMapping("/api/billing/resume")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<TenantResponse>> resumeMySubscription() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
+        return ResponseEntity.ok(ApiResponse.success(
+                tenantService.resumeMembership(java.util.UUID.fromString(tenantId)),
+                "Subscription resumed"));
     }
 
     // ── Admin (tenant) read-only billing endpoints ────────────────────────────
