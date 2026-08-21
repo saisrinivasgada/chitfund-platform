@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   superAdminListTenants,
   superAdminListRenewalRequests,
@@ -8,22 +8,24 @@ import {
   superAdminGetAllLimitsBulk,
   superAdminChitUsageSummary,
   superAdminMemberUsageSummary,
+  superAdminResumeTenant,
 } from '../../services/api';
 import {
   RotateCw, TrendingUp, ArrowRight, CheckCircle, Clock,
-  RefreshCw, ExternalLink, XCircle, Bell, ShieldAlert,
+  RefreshCw, ExternalLink, XCircle, Bell, ShieldAlert, CalendarX,
 } from 'lucide-react';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
 
-const PRIORITY = { OVER_LIMIT: 0, EXPIRED: 1, PENDING: 2, RENEWAL: 3, UPGRADE: 4, EXPIRING: 5 };
+const PRIORITY = { OVER_LIMIT: 0, EXPIRED: 1, PENDING: 2, CANCELLATION: 3, RENEWAL: 4, UPGRADE: 5, EXPIRING: 6 };
 
 const TYPE_META = {
-  OVER_LIMIT: { label: 'Over Limit',    dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-100',       icon: ShieldAlert },
-  EXPIRED:    { label: 'Expired',       dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-100',       icon: XCircle },
-  PENDING:    { label: 'Pending',       dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-100', icon: Bell },
-  RENEWAL:    { label: 'Renewal Req',   dot: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-100', icon: RotateCw },
-  UPGRADE:    { label: 'Upgrade Req',   dot: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border-blue-100',    icon: TrendingUp },
-  EXPIRING:   { label: 'Expiring Soon', dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-100', icon: Clock },
+  OVER_LIMIT:   { label: 'Over Limit',     dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-100',          icon: ShieldAlert },
+  EXPIRED:      { label: 'Expired',        dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-100',          icon: XCircle },
+  PENDING:      { label: 'Pending',        dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-100',    icon: Bell },
+  CANCELLATION: { label: 'Cancel Pending', dot: 'bg-rose-400',   badge: 'bg-rose-50 text-rose-700 border-rose-100',       icon: CalendarX },
+  RENEWAL:      { label: 'Renewal Req',    dot: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700 border-orange-100', icon: RotateCw },
+  UPGRADE:      { label: 'Upgrade Req',    dot: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border-blue-100',       icon: TrendingUp },
+  EXPIRING:     { label: 'Expiring Soon',  dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-100',    icon: Clock },
 };
 
 function OrgAvatar({ name }) {
@@ -47,6 +49,7 @@ function TypeBadge({ type }) {
 }
 
 export default function SuperAdminAlertsPage() {
+  const navigate = useNavigate();
   const [tenants, setTenants] = useState([]);
   const [renewalRequests, setRenewalRequests] = useState([]);
   const [upgradeRequests, setUpgradeRequests] = useState([]);
@@ -117,6 +120,7 @@ export default function SuperAdminAlertsPage() {
   const renewalIds = new Set(renewalRequests.map(r => r.id));
 
   const pendingActivations = tenants.filter(t => t.status === 'PENDING');
+  const cancellationPending = tenants.filter(t => t.cancellationRequestedAt);
   const expiredOrgs = tenants.filter(t => {
     if (!t.planExpiresAt || t.status !== 'ACTIVE') return false;
     return new Date(t.planExpiresAt) < now && !renewalIds.has(t.id);
@@ -133,7 +137,7 @@ export default function SuperAdminAlertsPage() {
       id: `ol-${t.id}`, type: 'OVER_LIMIT', priority: PRIORITY.OVER_LIMIT, tenant: t,
       detail: violations.map(v => `${v.type}: ${v.current}/${v.limit} (+${v.current - v.limit})`).join('  ·  '),
       actions: (
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
           <Link to={`/superadmin/tenants/${t.id}`}
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#1E3A5F] text-white text-xs font-semibold hover:bg-[#162d4a] transition-colors">
             <ExternalLink size={11} />Set Limits
@@ -151,7 +155,7 @@ export default function SuperAdminAlertsPage() {
       detail: `Expired ${new Date(t.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}  ·  ${t.plan} plan`,
       actions: (
         <button type="button"
-          onClick={() => openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`))}
+          onClick={e => { e.stopPropagation(); openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`)); }}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 cursor-pointer transition-colors flex-shrink-0">
           <RotateCw size={11} />Renew
         </button>
@@ -162,12 +166,36 @@ export default function SuperAdminAlertsPage() {
       detail: `Registered ${t.createdAt ? new Date(t.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}${t.contactEmail ? `  ·  ${t.contactEmail}` : ''}`,
       actions: (
         <button type="button"
-          onClick={() => openBilling(t, 'PURCHASE', t.plan ?? 'BASIC', async () => {
+          onClick={e => { e.stopPropagation(); openBilling(t, 'PURCHASE', t.plan ?? 'BASIC', async () => {
             await superAdminActivateTenant(t.id);
             showToast(`${t.name} activated`);
-          })}
+          }); }}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer transition-colors flex-shrink-0">
           <CheckCircle size={11} />Activate
+        </button>
+      ),
+    })),
+    ...cancellationPending.map(t => ({
+      id: `cp-${t.id}`, type: 'CANCELLATION', priority: PRIORITY.CANCELLATION, tenant: t,
+      detail: [
+        t.plan && `${t.plan} plan`,
+        t.planExpiresAt && `Access until ${new Date(t.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        t.cancellationRequestedAt && `Requested ${new Date(t.cancellationRequestedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
+      ].filter(Boolean).join('  ·  '),
+      actions: (
+        <button type="button"
+          onClick={async e => {
+            e.stopPropagation();
+            try {
+              await superAdminResumeTenant(t.id);
+              showToast(`${t.name} cancellation reversed`);
+              load();
+            } catch (err) {
+              showToast(err?.response?.data?.message ?? 'Failed to resume');
+            }
+          }}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700 cursor-pointer transition-colors flex-shrink-0">
+          <RotateCw size={11} />Resume
         </button>
       ),
     })),
@@ -180,7 +208,7 @@ export default function SuperAdminAlertsPage() {
       ].filter(Boolean).join('  ·  '),
       actions: (
         <button type="button"
-          onClick={() => openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`))}
+          onClick={e => { e.stopPropagation(); openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`)); }}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700 cursor-pointer transition-colors flex-shrink-0">
           <CheckCircle size={11} />Collect &amp; Renew
         </button>
@@ -194,7 +222,7 @@ export default function SuperAdminAlertsPage() {
       ].filter(Boolean).join('  ·  '),
       actions: (
         <button type="button"
-          onClick={() => openBilling(t, 'UPGRADE', t.requestedPlan, () => showToast(`${t.name} upgraded to ${t.requestedPlan}`))}
+          onClick={e => { e.stopPropagation(); openBilling(t, 'UPGRADE', t.requestedPlan, () => showToast(`${t.name} upgraded to ${t.requestedPlan}`)); }}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 cursor-pointer transition-colors flex-shrink-0">
           <CheckCircle size={11} />Collect &amp; Upgrade
         </button>
@@ -207,7 +235,7 @@ export default function SuperAdminAlertsPage() {
         detail: `${daysLeft === 0 ? 'Expires today' : `Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}  ·  ${new Date(t.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}  ·  ${t.plan} plan`,
         actions: (
           <button type="button"
-            onClick={() => openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`))}
+            onClick={e => { e.stopPropagation(); openBilling(t, 'RENEWAL', t.plan ?? 'BASIC', () => showToast(`${t.name} plan renewed`)); }}
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 cursor-pointer transition-colors flex-shrink-0">
             <RotateCw size={11} />Renew
           </button>
@@ -257,6 +285,7 @@ export default function SuperAdminAlertsPage() {
                 { label: 'Over Limit', count: overLimitOrgs.length },
                 { label: 'Expired', count: expiredOrgs.length },
                 { label: 'Pending', count: pendingActivations.length },
+                { label: 'Cancellations', count: cancellationPending.length },
                 { label: 'Renewals', count: renewalRequests.length },
                 { label: 'Upgrades', count: upgradeRequests.length },
                 { label: 'Expiring', count: expiringSoon.length },
@@ -273,7 +302,9 @@ export default function SuperAdminAlertsPage() {
             {/* Alert rows */}
             <div className="divide-y divide-gray-50">
               {alertItems.map(item => (
-                <div key={item.id} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 transition-colors">
+                <div key={item.id}
+                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/superadmin/tenants/${item.tenant.id}`)}>
                   {/* Priority dot */}
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${TYPE_META[item.type].dot}`} />
 
@@ -283,13 +314,9 @@ export default function SuperAdminAlertsPage() {
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <Link
-                        to={`/superadmin/tenants/${item.tenant.id}`}
-                        className="text-sm font-semibold text-gray-900 hover:text-[#1E3A5F] hover:underline inline-flex items-center gap-1"
-                      >
+                      <span className="text-sm font-semibold text-gray-900">
                         {item.tenant.name}
-                        <ExternalLink size={11} className="text-gray-400" />
-                      </Link>
+                      </span>
                       <TypeBadge type={item.type} />
                     </div>
                     <p className="text-xs text-gray-400 truncate">{item.detail}</p>

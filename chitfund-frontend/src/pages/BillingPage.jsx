@@ -766,22 +766,35 @@ export default function BillingPage() {
 
             <div className="mt-4 border-t border-gray-50 pt-4">
               {billing.cancellationRequestedAt ? (
-                <button
-                  onClick={handleResume}
-                  disabled={resuming}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg text-white disabled:opacity-60 cursor-pointer transition-colors"
-                  style={{ backgroundColor: '#1E3A5F' }}
-                >
-                  {resuming ? 'Resuming…' : 'Resume subscription'}
-                </button>
+                <div className="space-y-2">
+                  <p className="text-xs text-amber-600 font-medium">
+                    Cancellation scheduled — you have full access until{' '}
+                    {billing.planExpiresAt
+                      ? new Date(billing.planExpiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : 'end of billing cycle'}.
+                  </p>
+                  <button
+                    onClick={handleResume}
+                    disabled={resuming}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg text-white disabled:opacity-60 cursor-pointer transition-colors"
+                    style={{ backgroundColor: '#1E3A5F' }}
+                  >
+                    {resuming ? 'Resuming…' : 'Resume subscription'}
+                  </button>
+                </div>
               ) : (
-                <button
-                  onClick={handleCancel}
-                  disabled={cancelling}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 cursor-pointer transition-colors"
-                >
-                  {cancelling ? 'Cancelling…' : 'Cancel subscription'}
-                </button>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={handleCancel}
+                    disabled={cancelling}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 cursor-pointer transition-colors"
+                  >
+                    {cancelling ? 'Cancelling…' : 'Cancel subscription'}
+                  </button>
+                  <p className="text-xs text-gray-400">
+                    If cancelled, you still have full access until your current billing cycle ends.
+                  </p>
+                </div>
               )}
             </div>
           </div>
