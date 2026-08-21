@@ -57,6 +57,7 @@ export default function SuperAdminAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
   const [billingTarget, setBillingTarget] = useState(null);
+  const [activeFilter, setActiveFilter] = useState(null);
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
@@ -244,6 +245,17 @@ export default function SuperAdminAlertsPage() {
     }),
   ].sort((a, b) => a.priority - b.priority);
 
+  const pillDefs = [
+    { label: 'Over Limit',    type: 'OVER_LIMIT',   count: overLimitOrgs.length },
+    { label: 'Expired',       type: 'EXPIRED',       count: expiredOrgs.length },
+    { label: 'Pending',       type: 'PENDING',       count: pendingActivations.length },
+    { label: 'Cancellations', type: 'CANCELLATION',  count: cancellationPending.length },
+    { label: 'Renewals',      type: 'RENEWAL',       count: renewalRequests.length },
+    { label: 'Upgrades',      type: 'UPGRADE',       count: upgradeRequests.length },
+    { label: 'Expiring',      type: 'EXPIRING',      count: expiringSoon.length },
+  ].filter(p => p.count > 0);
+
+  const visibleAlerts = activeFilter ? alertItems.filter(i => i.type === activeFilter) : alertItems;
   const totalAlerts = alertItems.length;
 
   return (
@@ -254,7 +266,7 @@ export default function SuperAdminAlertsPage() {
             <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>Alerts</h1>
             <p className="text-sm text-gray-500 mt-1">
               {!loading && (totalAlerts > 0
-                ? <><span className="text-red-600 font-medium">{totalAlerts} item{totalAlerts !== 1 ? 's' : ''}</span> need your attention</>
+                ? <><span className="text-red-600 font-medium">{visibleAlerts.length}{activeFilter ? ` of ${totalAlerts}` : ''} item{visibleAlerts.length !== 1 ? 's' : ''}</span> need your attention</>
                 : 'All orgs are up to date — no alerts')}
             </p>
           </div>
@@ -279,29 +291,40 @@ export default function SuperAdminAlertsPage() {
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            {/* Category summary pills */}
+            {/* Category summary pills — click to filter, click again to clear */}
             <div className="px-6 py-4 border-b border-gray-50 flex flex-wrap gap-2">
-              {[
-                { label: 'Over Limit', count: overLimitOrgs.length },
-                { label: 'Expired', count: expiredOrgs.length },
-                { label: 'Pending', count: pendingActivations.length },
-                { label: 'Cancellations', count: cancellationPending.length },
-                { label: 'Renewals', count: renewalRequests.length },
-                { label: 'Upgrades', count: upgradeRequests.length },
-                { label: 'Expiring', count: expiringSoon.length },
-              ].filter(row => row.count > 0).map(({ label, count }) => (
-                <span key={label} className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-gray-100 text-gray-600">
-                  {label}
-                  <span className="bg-white border border-gray-200 text-gray-700 rounded-full min-w-[18px] h-[18px] inline-flex items-center justify-center text-[10px] font-bold px-1">
-                    {count}
-                  </span>
-                </span>
-              ))}
+              {pillDefs.map(({ label, type, count }) => {
+                const active = activeFilter === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setActiveFilter(active ? null : type)}
+                    className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full transition-colors cursor-pointer
+                      ${active
+                        ? 'bg-[#1E3A5F] text-white ring-2 ring-[#1E3A5F]/30'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                    {label}
+                    <span className={`rounded-full min-w-[18px] h-[18px] inline-flex items-center justify-center text-[10px] font-bold px-1
+                      ${active ? 'bg-white/20 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+              {activeFilter && (
+                <button
+                  type="button"
+                  onClick={() => setActiveFilter(null)}
+                  className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 px-2 py-1 cursor-pointer">
+                  ✕ Clear filter
+                </button>
+              )}
             </div>
 
             {/* Alert rows */}
             <div className="divide-y divide-gray-50">
-              {alertItems.map(item => (
+              {visibleAlerts.map(item => (
                 <div key={item.id}
                   className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50/60 transition-colors cursor-pointer"
                   onClick={() => navigate(`/superadmin/tenants/${item.tenant.id}`)}>

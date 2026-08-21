@@ -26,4 +26,7 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
     List<Tenant> findAllByRenewalRequestedAtIsNotNullOrderByRenewalRequestedAtAsc();
 
     Optional<Tenant> findByReferralCode(String referralCode);
+
+    List<Tenant> findAllByCancellationRequestedAtIsNotNullAndStatusAndPlanExpiresAtBefore(
+            String status, java.time.LocalDateTime now);
 }
