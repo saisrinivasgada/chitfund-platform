@@ -5,6 +5,7 @@ import com.chitfund.memberservice.domain.enums.MemberStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,6 +26,14 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     boolean existsByUserIdAndTenantId(UUID userId, String tenantId);
 
     Optional<Member> findByUserIdAndTenantId(UUID userId, String tenantId);
+
+    // Clears userId on any member in the same tenant that already occupies the unique slot,
+    // so a new member can claim it without violating uk_member_user_tenant.
+    // Uses @Modifying so the SQL runs immediately (not deferred to flush), guaranteeing
+    // the slot is free before the new member's userId is written.
+    @Modifying
+    @Query("UPDATE Member m SET m.userId = null WHERE m.userId = :userId AND m.tenantId = :tenantId AND m.id <> :excludeId")
+    int clearUserIdInTenantExcept(@Param("userId") UUID userId, @Param("tenantId") String tenantId, @Param("excludeId") UUID excludeId);
 
     // ── Super-admin usage summary ────────────────────────────────────────────────
     @Query("SELECT m.tenantId AS tenantId, COUNT(m) AS memberCount FROM Member m WHERE m.deletedAt IS NULL GROUP BY m.tenantId")

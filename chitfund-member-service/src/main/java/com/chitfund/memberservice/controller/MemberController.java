@@ -20,6 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +29,15 @@ import java.util.UUID;
 public class MemberController {
 
     private final MemberService memberService;
+
+    @GetMapping("/phone-taken")
+    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> isPhoneTaken(
+            @RequestParam String phone,
+            @RequestParam(required = false, defaultValue = "+91") String countryCode) {
+        boolean taken = memberService.isPhoneTaken(phone, countryCode);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("taken", taken)));
+    }
 
     /**
      * Create a member profile. Admin-only.

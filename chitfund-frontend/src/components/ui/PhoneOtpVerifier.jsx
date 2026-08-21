@@ -20,6 +20,7 @@ export default function PhoneOtpVerifier({
   onPhoneChange,
   onCountryChange,
   onVerified,
+  onBeforeSend = null,
   required = false,
   label = 'Mobile Number',
   fieldError = null,
@@ -93,8 +94,16 @@ export default function PhoneOtpVerifier({
     },
   });
 
-  function handleSend() {
+  async function handleSend() {
     setOtpError('');
+    if (onBeforeSend) {
+      try {
+        await onBeforeSend();
+      } catch (err) {
+        setOtpError(err.message || 'Cannot send OTP. Please try a different number.');
+        return;
+      }
+    }
     sendMut.mutate({ phone, countryCode });
   }
 

@@ -96,6 +96,10 @@ public class MemberService {
                     member.getFullName(), member.getEmail());
             if (userResult != null && userResult.get("userId") != null) {
                 UUID linkedUserId = UUID.fromString(userResult.get("userId"));
+                // Clear any stale link from a previously-deleted member that still occupies
+                // the (user_id, tenant_id) unique slot, to avoid a deferred-flush constraint
+                // violation at commit (TransactionSystemException / 500).
+                memberRepository.clearUserIdInTenantExcept(linkedUserId, tid, member.getId());
                 member.setUserId(linkedUserId);
                 memberRepository.save(member);
                 setupToken = userResult.get("setupToken");
@@ -108,6 +112,12 @@ public class MemberService {
         MemberResponse response = toResponse(member);
         response.setSetupToken(setupToken);
         return response;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isPhoneTaken(String phone, String countryCode) {
+        String cc = countryCode != null ? countryCode : "+91";
+        return memberRepository.existsByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(phone, cc, tenantId());
     }
 
     @Transactional(readOnly = true)

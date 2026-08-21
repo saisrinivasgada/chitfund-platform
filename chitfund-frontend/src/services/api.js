@@ -506,6 +506,11 @@ export const createMember = async (body) => {
   return res.data.data;
 };
 
+export const checkMemberPhoneTaken = async ({ phone, countryCode = '+91' }) => {
+  const res = await api.get('/members/phone-taken', { params: { phone, countryCode } });
+  return res.data.data; // { taken: boolean }
+};
+
 export const updateMember = async ({ id, ...body }) => {
   const res = await api.put(`/members/${id}`, body);
   return res.data.data;
