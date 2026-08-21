@@ -16,7 +16,7 @@ const ToastContext = createContext(null);
 export const useToastContext = () => useContext(ToastContext);
 
 export default function AppLayout() {
-  const { isAuthenticated, user, tenantName } = useAuth();
+  const { isAuthenticated, isRestoring, user, tenantName } = useAuth();
   const { toasts, toast, dismiss } = useToast();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -84,6 +84,11 @@ export default function AppLayout() {
     return () => { document.body.style.overflow = ''; };
   }, [sidebarOpen]);
 
+  if (isRestoring) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F8F9FB]">
+      <div className="w-8 h-8 border-4 border-[#1E3A5F] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (user?.role === 'MEMBER') return <Navigate to="/member" replace />;
 

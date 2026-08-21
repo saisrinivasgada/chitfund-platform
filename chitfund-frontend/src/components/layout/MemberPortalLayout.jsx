@@ -267,7 +267,7 @@ const ROLE_LABELS = {
 };
 
 export default function MemberPortalLayout() {
-  const { isAuthenticated, user, tenantId, tenantName, logout } = useAuth();
+  const { isAuthenticated, isRestoring, user, tenantId, tenantName, logout } = useAuth();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
@@ -285,6 +285,11 @@ export default function MemberPortalLayout() {
     enabled: !!me?.phone,
   });
 
+  if (isRestoring) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-[#1E3A5F] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (user?.role !== 'MEMBER') return <Navigate to="/dashboard" replace />;
   if (user?.mustChangePassword) return <Navigate to="/change-password" replace />;

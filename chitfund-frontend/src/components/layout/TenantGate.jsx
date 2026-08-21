@@ -227,7 +227,7 @@ function ExpiryWarningBanner({ daysLeft, orgName, plan, onDismiss }) {
 }
 
 export default function TenantGate() {
-  const { user, tenantId, tenantName, tenantPlan, tenantStatus, planExpiresAt, isProxySession } = useAuth();
+  const { user, tenantId, tenantName, tenantPlan, tenantStatus, planExpiresAt, isProxySession, isAuthenticated } = useAuth();
   const [bannerDismissed, setBannerDismissed] = useState(() => {
     const key = `banner_dismissed_${tenantId}`;
     const val = sessionStorage.getItem(key);
@@ -242,7 +242,7 @@ export default function TenantGate() {
   const { data: billing } = useQuery({
     queryKey: ['my-billing-info'],
     queryFn: getMyBillingInfo,
-    enabled: !!tenantId && role === 'ADMIN',
+    enabled: isAuthenticated && !!tenantId && role === 'ADMIN',
     staleTime: 5 * 60 * 1000,
   });
 
