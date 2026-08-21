@@ -36,8 +36,10 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -124,12 +126,12 @@ public class ChitService {
         var page = (status != null)
                 ? chitRepository.findByTenantIdAndStatusAndDeletedAtIsNull(tid, status, pageable)
                 : chitRepository.findByTenantIdAndDeletedAtIsNull(tid, pageable);
-        return PagedResponse.from(page.map(this::enrich));
+        return pagedResponse(page, enrichPage(page.toList()));
     }
 
     public PagedResponse<ChitResponse> listDeletedChits(Pageable pageable) {
-        return PagedResponse.from(
-                chitRepository.findByTenantIdAndDeletedAtIsNotNull(TenantContext.get(), pageable).map(this::enrich));
+        var page = chitRepository.findByTenantIdAndDeletedAtIsNotNull(TenantContext.get(), pageable);
+        return pagedResponse(page, enrichPage(page.toList()));
     }
 
     public List<ChitResponse> listChitsForMember(UUID memberId, ChitStatus status) {
@@ -139,7 +141,45 @@ public class ChitService {
         List<Chit> chits = (status != null)
                 ? chitRepository.findByTenantIdAndIdInAndStatusAndDeletedAtIsNull(tid, chitIds, status)
                 : chitRepository.findByTenantIdAndIdInAndDeletedAtIsNull(tid, chitIds);
-        return chits.stream().map(this::enrich).toList();
+        return enrichPage(chits);
+    }
+
+    private <C extends org.springframework.data.domain.Page<?>> PagedResponse<ChitResponse> pagedResponse(
+            C page, List<ChitResponse> content) {
+        return PagedResponse.<ChitResponse>builder()
+                .content(content)
+                .pageNumber(page.getNumber())
+                .pageSize(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .last(page.isLast())
+                .first(page.isFirst())
+                .build();
+    }
+
+    // Batch-enrich a list of chits with 2 GROUP BY queries instead of 2N per-row queries.
+    private List<ChitResponse> enrichPage(List<Chit> chits) {
+        if (chits.isEmpty()) return List.of();
+        List<UUID> ids = chits.stream().map(Chit::getId).toList();
+
+        Map<UUID, Long> enrolledCounts = enrollmentRepository.countActiveByChitIds(ids).stream()
+                .collect(Collectors.toMap(
+                        m -> (UUID) m.get("chitId"),
+                        m -> ((Number) m.get("cnt")).longValue(),
+                        (a, b) -> a));
+        Map<UUID, Long> winnerCounts = winnerRepository.countByChitIds(ids).stream()
+                .collect(Collectors.toMap(
+                        m -> (UUID) m.get("chitId"),
+                        m -> ((Number) m.get("cnt")).longValue(),
+                        (a, b) -> a));
+
+        return chits.stream().map(chit -> {
+            ChitResponse r = chitMapper.toResponse(chit);
+            r.setEnrolledCount(enrolledCounts.getOrDefault(chit.getId(), 0L));
+            r.setWinnersAssigned(winnerCounts.getOrDefault(chit.getId(), 0L));
+            r.setAttributes(attributeService.getAll(chit));
+            return r;
+        }).toList();
     }
 
     @Transactional

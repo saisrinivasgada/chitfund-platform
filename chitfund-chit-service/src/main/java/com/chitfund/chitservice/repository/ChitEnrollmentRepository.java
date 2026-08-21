@@ -3,8 +3,10 @@ package com.chitfund.chitservice.repository;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,6 +32,10 @@ public interface ChitEnrollmentRepository extends JpaRepository<ChitEnrollment, 
     // All distinct chit IDs a member is actively enrolled in
     @Query("SELECT DISTINCT e.chit.id FROM ChitEnrollment e WHERE e.memberId = :memberId AND e.active = true")
     List<UUID> findDistinctChitIdsByMemberId(UUID memberId);
+
+    // Batch active-enrollment counts for a list of chits — avoids N+1 in list views
+    @Query("SELECT e.chit.id AS chitId, COUNT(e) AS cnt FROM ChitEnrollment e WHERE e.chit.id IN :chitIds AND e.active = true GROUP BY e.chit.id")
+    List<Map<String, Object>> countActiveByChitIds(@Param("chitIds") List<UUID> chitIds);
 
     // ALL enrollments for a member (active AND inactive) — used by settlement service
     List<ChitEnrollment> findAllByMemberId(UUID memberId);

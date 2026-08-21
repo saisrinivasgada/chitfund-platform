@@ -194,20 +194,20 @@ export default function TodaysActivityFeed() {
   const dismiss = useCallback((key) => setDismissed((prev) => new Set([...prev, key])), []);
 
   const { data: batches = [], isLoading: batchesLoading, refetch: refetchBatches } =
-    useQuery({ queryKey: ['today-batches'], queryFn: getTodaysPaymentBatches });
+    useQuery({ queryKey: ['today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 30_000 });
 
   const { data: draws = [], isLoading: drawsLoading, refetch: refetchDraws } =
-    useQuery({ queryKey: ['today-draws'], queryFn: getTodaysDraws });
+    useQuery({ queryKey: ['today-draws'], queryFn: getTodaysDraws, staleTime: 30_000 });
 
   const { data: payouts = [], isLoading: payoutsLoading, refetch: refetchPayouts } =
-    useQuery({ queryKey: ['today-payouts'], queryFn: getTodaysPayouts });
+    useQuery({ queryKey: ['today-payouts'], queryFn: getTodaysPayouts, staleTime: 30_000 });
 
   const { data: chitActivity = [], isLoading: chitLoading, refetch: refetchChits } =
-    useQuery({ queryKey: ['today-chit-activity'], queryFn: getTodaysChitActivity });
+    useQuery({ queryKey: ['today-chit-activity'], queryFn: getTodaysChitActivity, staleTime: 30_000 });
 
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff() });
-  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
-  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff(), staleTime: 5 * 60_000 });
+  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => getMembers({ size: 50 }), staleTime: 60_000 });
+  const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 30_000 });
 
   const isLoading = batchesLoading || drawsLoading || payoutsLoading || chitLoading;
 

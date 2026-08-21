@@ -268,23 +268,27 @@ export default function DashboardPage() {
   const { data: chits = [], isLoading: chitsLoading } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
+    staleTime: 30_000,
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members'],
-    queryFn: () => getMembers(),
+    queryFn: () => getMembers({ size: 50 }),
+    staleTime: 60_000,
   });
 
   // Pending Disbursement = payouts in PENDING status
   const { data: pendingPayouts = [] } = useQuery({
     queryKey: ['payouts', 'pending'],
     queryFn: () => getPendingPayouts(),
+    staleTime: 30_000,
   });
 
   const { data: walletBalance } = useQuery({
     queryKey: ['wallet-balance'],
     queryFn: () => getWalletBalance(),
     enabled: isAdmin,
+    staleTime: 30_000,
   });
 
   // Cash request summary (counts per status)
@@ -292,6 +296,7 @@ export default function DashboardPage() {
     queryKey: ['cashRequests', 'summary'],
     queryFn: getCashRequestSummary,
     enabled: isAdmin,
+    staleTime: 30_000,
     refetchInterval: 60_000,
   });
 
@@ -299,12 +304,14 @@ export default function DashboardPage() {
     queryKey: ['remittance', 'pending'],
     queryFn: () => getPendingRemittance(),
     enabled: isAdmin,
+    staleTime: 30_000,
   });
 
   const { data: staff = [] } = useQuery({
     queryKey: ['staff'],
     queryFn: () => listStaff(),
     enabled: isAdmin,
+    staleTime: 5 * 60_000,
   });
 
   const staffMap = Object.fromEntries(staff.map((s) => [String(s.id), s]));
