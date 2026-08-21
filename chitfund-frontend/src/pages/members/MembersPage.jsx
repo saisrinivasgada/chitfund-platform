@@ -12,7 +12,6 @@ import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
-import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import { ListSkeleton, CardGridSkeleton } from '../../components/ui/Spinner';
 import { Plus, Search, Users, Trash2, Eye, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
 import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
@@ -36,7 +35,6 @@ function AddMemberModal({ onClose }) {
   const { tenantPlan } = useAuth();
   const [form, setForm] = useState(INITIAL_FORM);
   const [fe, setFe] = useState({});
-  const [phoneVerified, setPhoneVerified] = useState(false);
   const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
 
   const { data: activeMembers = [] } = useQuery({
@@ -95,17 +93,15 @@ function AddMemberModal({ onClose }) {
           </FormField>
 
           <div className="col-span-2">
-            <PhoneOtpVerifier
-              label="Phone *"
-              phone={form.phone}
-              countryCode={form.phoneCountryCode}
-              originalPhone={null}
-              onPhoneChange={(v) => { set('phone', v); setPhoneVerified(false); }}
-              onCountryChange={(code) => set('phoneCountryCode', code)}
-              onVerified={setPhoneVerified}
-              fieldError={fe.phone}
-              required
-            />
+            <FormField label="Phone *" error={fe.phone}>
+              <PhoneInput
+                phone={form.phone}
+                countryCode={form.phoneCountryCode}
+                onPhoneChange={(v) => set('phone', v)}
+                onCountryChange={(code) => set('phoneCountryCode', code)}
+                required
+              />
+            </FormField>
           </div>
 
           <FormField label="Email" error={fe.email}>
@@ -175,13 +171,7 @@ function AddMemberModal({ onClose }) {
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
-          <Button
-            type="submit"
-            loading={mutation.isPending}
-            disabled={!!form.phone && !phoneVerified}
-            className="flex-1"
-            title={form.phone && !phoneVerified ? 'Verify the phone number first' : undefined}
-          >
+          <Button type="submit" loading={mutation.isPending} className="flex-1">
             Add Member
           </Button>
         </div>
