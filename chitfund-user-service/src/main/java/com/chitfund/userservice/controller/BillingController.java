@@ -138,6 +138,18 @@ public class BillingController {
                 "Subscription resumed"));
     }
 
+    @PostMapping("/api/billing/downgrade")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> applyDowngrade(
+            @RequestParam String toPlan,
+            @AuthenticationPrincipal User principal) {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
+        return ResponseEntity.ok(ApiResponse.success(
+                billingService.applyDowngrade(tenantId, toPlan, principal.getId().toString()),
+                "Plan downgraded successfully — credit added to your balance"));
+    }
+
     // ── Admin (tenant) read-only billing endpoints ────────────────────────────
 
     /** Admin views their own payment history */

@@ -238,6 +238,68 @@ public class BillingService {
         return toResponse(payment, tenant, List.of(receipt));
     }
 
+    // ── Admin-initiated instant downgrade ─────────────────────────────────────
+
+    @Transactional
+    public PaymentResponse applyDowngrade(String tenantId, String newPlanCode, String actorUserId) {
+        Tenant tenant = findTenant(tenantId);
+        PlanLimits newPlan = findPlan(newPlanCode);
+        PlanLimits oldPlan = findPlan(tenant.getPlan());
+
+        if (newPlan.getPriceMonthlyInr() >= oldPlan.getPriceMonthlyInr()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Use the upgrade request flow for upgrading to a higher plan");
+        }
+
+        UpgradePreviewResponse preview = previewUpgrade(tenantId, newPlanCode);
+        LocalDate today = LocalDate.now();
+
+        PlanPayment payment = PlanPayment.builder()
+                .id(UUID.randomUUID().toString())
+                .tenantId(tenantId)
+                .type("DOWNGRADE")
+                .status("COMPLETED")
+                .amountPaise(0L)
+                .grossAmountPaise(0L)
+                .fromPlan(oldPlan.getPlan())
+                .fromPlanName(oldPlan.getDisplayName())
+                .toPlan(newPlan.getPlan())
+                .toPlanName(newPlan.getDisplayName())
+                .prorationCreditPaise(preview.getCreditPaise())
+                .fullPlanPricePaise(preview.getNewPlanPricePaise())
+                .daysRemaining(preview.getDaysRemaining())
+                .daysInPeriod(preview.getDaysInPeriod())
+                .planPeriodStart(preview.getNewPeriodStart())
+                .planPeriodEnd(preview.getNewPeriodEnd())
+                .paymentMethod("SYSTEM")
+                .paymentDate(today)
+                .notes("Admin-initiated downgrade — prorated credit applied automatically")
+                .createdBy(actorUserId)
+                .build();
+        paymentRepo.save(payment);
+
+        if (preview.getCreditToReturnPaise() > 0) {
+            java.math.BigDecimal returnInr = java.math.BigDecimal.valueOf(preview.getCreditToReturnPaise())
+                    .divide(java.math.BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+            tenant.setCreditBalanceInr(tenant.getCreditBalanceInr().add(returnInr));
+        }
+
+        tenant.setPlan(newPlan.getPlan());
+        tenant.setPlanExpiresAt(preview.getNewPeriodEnd().atStartOfDay());
+        tenant.setRequestedPlan(null);
+        tenant.setUpgradeRequestedAt(null);
+        tenantRepo.save(tenant);
+
+        syncLimitsFromPlan(tenantId, newPlan);
+
+        PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
+        log.info("DOWNGRADE {} → {} for tenant {} — credit returned {}p, receipt {}",
+                oldPlan.getPlan(), newPlan.getPlan(), tenantId,
+                preview.getCreditToReturnPaise(), receipt.getReceiptNumber());
+
+        return toResponse(payment, tenant, List.of(receipt));
+    }
+
     // ── Record a REFUND against an existing payment ───────────────────────────
 
     @Transactional

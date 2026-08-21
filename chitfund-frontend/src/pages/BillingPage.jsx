@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
+import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, applyDowngrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToastContext } from '../components/layout/AppLayout';
 import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle } from 'lucide-react';
@@ -557,6 +557,7 @@ export default function BillingPage() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [downgrading, setDowngrading] = useState(false);
   const PAYMENT_PAGE_SIZE = 8;
 
   const { data: billing, isLoading } = useQuery({ queryKey: ['billing-info'], queryFn: getMyBillingInfo });
@@ -584,7 +585,9 @@ export default function BillingPage() {
   const isExpired = expiresAt && expiresAt < now;
   const daysLeft = expiresAt && !isExpired ? Math.ceil((expiresAt - now) / 86400000) : null;
 
-  const hasUpgradablePlans = plans.some(p => p.plan !== plan);
+  const hasOtherPlans = plans.some(p => p.plan !== plan);
+  const PLAN_ORDER_MAP = { BASIC: 0, GROWTH: 1, ENTERPRISE: 2, CUSTOM: 3 };
+  const isDowngradeTarget = upgradeTarget && (PLAN_ORDER_MAP[upgradeTarget] ?? 99) < (PLAN_ORDER_MAP[plan] ?? 99);
   const selectedPlanData = plans.find(p => p.plan === upgradeTarget);
 
   async function handleRequestRenewal() {
@@ -598,8 +601,23 @@ export default function BillingPage() {
     if (!upgradeTarget) return;
     setUpgrading(true);
     try { await requestPlanUpgrade(upgradeTarget); setUpgraded(true); }
-    catch { /* show nothing */ }
+    catch (err) { toast(err.response?.data?.message ?? 'Could not send upgrade request. Try again.'); }
     finally { setUpgrading(false); }
+  }
+
+  async function handleDowngrade() {
+    if (!upgradeTarget) return;
+    setDowngrading(true);
+    try {
+      await applyDowngrade(upgradeTarget);
+      queryClient.invalidateQueries({ queryKey: ['billing-info'] });
+      queryClient.invalidateQueries({ queryKey: ['my-billing-payments'] });
+      setUpgradeTarget(null);
+      setUpgraded(false);
+      toast('Plan downgraded successfully. Credit has been added to your balance.');
+    } catch (err) {
+      toast(err.response?.data?.message ?? 'Downgrade failed. Please try again.');
+    } finally { setDowngrading(false); }
   }
 
   async function handleCancel() {
@@ -818,16 +836,20 @@ export default function BillingPage() {
             </div>
           )}
 
-          {/* ── Upgrade card ── */}
-          {hasUpgradablePlans && (
+          {/* ── Change Plan card ── */}
+          {hasOtherPlans && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-purple-50">
-                  <ArrowUpCircle size={16} className="text-purple-600" />
+                <div className={`p-2 rounded-xl ${isDowngradeTarget ? 'bg-amber-50' : 'bg-purple-50'}`}>
+                  <ArrowUpCircle size={16} className={isDowngradeTarget ? 'text-amber-600' : 'text-purple-600'} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800">Upgrade Plan</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Request an upgrade — our team will contact you to switch your plan.</p>
+                  <p className="text-sm font-semibold text-gray-800">Upgrade / Downgrade Plan</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {isDowngradeTarget
+                      ? 'Downgrade applies instantly — unused days are credited to your balance.'
+                      : 'Upgrade requests are reviewed by our team — we\'ll contact you to process payment.'}
+                  </p>
 
                   {upgraded ? (
                     <div className="flex items-center gap-2 text-sm text-green-600 font-medium mt-3">
@@ -837,7 +859,7 @@ export default function BillingPage() {
                   ) : (
                     <div className="mt-3 space-y-3">
                       {upgradeTarget && selectedPlanData ? (
-                        <div className="flex items-center gap-3 bg-[#1E3A5F]/5 border border-[#1E3A5F]/15 rounded-xl px-3 py-2.5">
+                        <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 border ${isDowngradeTarget ? 'bg-amber-50/50 border-amber-200' : 'bg-[#1E3A5F]/5 border-[#1E3A5F]/15'}`}>
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${PLAN_COLORS[selectedPlanData.plan] ?? PLAN_COLORS.BASIC}`}>
                             {PLAN_LABELS[selectedPlanData.plan] ?? selectedPlanData.plan}
                           </span>
@@ -861,15 +883,26 @@ export default function BillingPage() {
                       )}
 
                       {upgradeTarget && (
-                        <button
-                          onClick={handleUpgrade}
-                          disabled={upgrading}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-colors"
-                          style={{ backgroundColor: '#1E3A5F' }}
-                        >
-                          <ArrowUpCircle size={13} />
-                          {upgrading ? 'Sending…' : 'Request Upgrade'}
-                        </button>
+                        isDowngradeTarget ? (
+                          <button
+                            onClick={handleDowngrade}
+                            disabled={downgrading}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-colors bg-amber-600 hover:bg-amber-700"
+                          >
+                            <ArrowUpCircle size={13} className="rotate-180" />
+                            {downgrading ? 'Downgrading…' : 'Downgrade Now'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleUpgrade}
+                            disabled={upgrading}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-50 cursor-pointer transition-colors"
+                            style={{ backgroundColor: '#1E3A5F' }}
+                          >
+                            <ArrowUpCircle size={13} />
+                            {upgrading ? 'Sending…' : 'Request Upgrade'}
+                          </button>
+                        )
                       )}
                     </div>
                   )}
