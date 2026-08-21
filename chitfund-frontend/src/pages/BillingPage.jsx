@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToastContext } from '../components/layout/AppLayout';
 import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle } from 'lucide-react';
 
 const PLAN_ORDER = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
@@ -543,6 +544,7 @@ function PaymentHistoryRow({ payment, onClick }) {
 export default function BillingPage() {
   const { tenantName, tenantPlan, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToastContext();
   const [renewed, setRenewed] = useState(false);
   const [renewing, setRenewing] = useState(false);
   const [renewError, setRenewError] = useState('');
@@ -602,16 +604,24 @@ export default function BillingPage() {
 
   async function handleCancel() {
     setCancelling(true);
-    try { await cancelSubscription(); queryClient.invalidateQueries({ queryKey: ['billing-info'] }); }
-    catch { /* ignore */ }
-    finally { setCancelling(false); }
+    try {
+      await cancelSubscription();
+      queryClient.invalidateQueries({ queryKey: ['billing-info'] });
+      toast('Subscription cancellation scheduled. Access continues until your billing cycle ends.');
+    } catch (err) {
+      toast(err.response?.data?.message ?? 'Failed to cancel subscription. Please try again.');
+    } finally { setCancelling(false); }
   }
 
   async function handleResume() {
     setResuming(true);
-    try { await resumeSubscription(); queryClient.invalidateQueries({ queryKey: ['billing-info'] }); }
-    catch { /* ignore */ }
-    finally { setResuming(false); }
+    try {
+      await resumeSubscription();
+      queryClient.invalidateQueries({ queryKey: ['billing-info'] });
+      toast('Subscription resumed successfully.');
+    } catch (err) {
+      toast(err.response?.data?.message ?? 'Failed to resume subscription. Please try again.');
+    } finally { setResuming(false); }
   }
 
   function copyReferral() {

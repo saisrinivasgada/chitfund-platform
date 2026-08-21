@@ -765,6 +765,7 @@ public class TenantService {
                 .nextBillingEstimate(nextBilling)
                 .referralCode(t.getReferralCode())
                 .planExpiresAt(t.getPlanExpiresAt())
+                .cancellationRequestedAt(t.getCancellationRequestedAt())
                 .build();
     }
 

@@ -22,4 +22,5 @@ public class BillingInfoResponse {
     private BigDecimal nextBillingEstimate; // effectivePriceInr - min(credit, effectivePriceInr)
     private String referralCode;
     private LocalDateTime planExpiresAt;
+    private LocalDateTime cancellationRequestedAt;
 }
