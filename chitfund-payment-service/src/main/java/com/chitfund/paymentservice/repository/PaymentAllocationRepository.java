@@ -10,7 +10,11 @@ public interface PaymentAllocationRepository extends JpaRepository<PaymentAlloca
 
     List<PaymentAllocation> findByBatchId(UUID batchId);
 
+    List<PaymentAllocation> findByBatchIdIn(List<UUID> batchIds);
+
     List<PaymentAllocation> findByPaymentRecordId(UUID paymentRecordId);
+
+    List<PaymentAllocation> findByPaymentRecordIdIn(List<UUID> paymentRecordIds);
 
     void deleteByPaymentRecordIdIn(List<UUID> paymentRecordIds);
 

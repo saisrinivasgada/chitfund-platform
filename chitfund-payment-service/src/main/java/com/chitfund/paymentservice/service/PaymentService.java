@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -437,16 +438,28 @@ public class PaymentService {
     public void revertPayoutDeductions(UUID payoutId) {
         List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
         List<PaymentRecord> reverted = new java.util.ArrayList<>();
+
+        // Batch-load all allocations and batch statuses upfront to avoid N+1
+        List<UUID> deductedRecordIds = records.stream()
+                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
+                .map(PaymentRecord::getId).toList();
+        Map<UUID, List<PaymentAllocation>> allocsByRecord = deductedRecordIds.isEmpty()
+                ? Map.of()
+                : allocationRepository.findByPaymentRecordIdIn(deductedRecordIds).stream()
+                        .collect(Collectors.groupingBy(PaymentAllocation::getPaymentRecordId));
+        Set<UUID> batchIdSet = allocsByRecord.values().stream()
+                .flatMap(List::stream).map(PaymentAllocation::getBatchId)
+                .collect(java.util.stream.Collectors.toSet());
+        Map<UUID, BatchStatus> batchStatusMap = batchRepository.findAllById(batchIdSet).stream()
+                .collect(Collectors.toMap(PaymentBatch::getId, PaymentBatch::getStatus));
+
         for (PaymentRecord r : records) {
             if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
             // Re-derive how much was actually paid via cash/UPI before the payout withheld the rest.
             // Sum allocations from COMPLETED (non-voided) batches only — voided batches were already
             // reversed and their amount was subtracted from amountPaid at void time.
-            BigDecimal cashPaid = allocationRepository.findByPaymentRecordId(r.getId()).stream()
-                    .filter(a -> {
-                        PaymentBatch b = batchRepository.findById(a.getBatchId()).orElse(null);
-                        return b != null && b.getStatus() == BatchStatus.COMPLETED;
-                    })
+            BigDecimal cashPaid = allocsByRecord.getOrDefault(r.getId(), List.of()).stream()
+                    .filter(a -> batchStatusMap.get(a.getBatchId()) == BatchStatus.COMPLETED)
                     .map(PaymentAllocation::getAllocatedAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             r.setAmountPaid(cashPaid);
@@ -505,16 +518,16 @@ public class PaymentService {
 
         // Cross-chit batches: recorded for another chit but have allocations that spilled into this one
         List<UUID> allBatchIds = allocationRepository.findBatchIdsWithAllocationsForChit(memberId, chitId);
-        List<PaymentBatch> crossChit = allBatchIds.stream()
-                .filter(id -> !seen.contains(id))
-                .map(id -> batchRepository.findById(id).orElse(null))
-                .filter(java.util.Objects::nonNull)
+        List<PaymentBatch> crossChit = batchRepository.findAllById(
+                allBatchIds.stream().filter(id -> !seen.contains(id)).toList())
+                .stream()
                 .sorted(java.util.Comparator.comparing(PaymentBatch::getCreatedAt).reversed())
                 .toList();
 
-        List<PaymentBatchResponse> result = new ArrayList<>();
-        primary.forEach(b -> result.add(toBatchResponse(b, allocationRepository.findByBatchId(b.getId()))));
-        crossChit.forEach(b -> result.add(toBatchResponse(b, allocationRepository.findByBatchId(b.getId()))));
+        List<PaymentBatch> combined = new ArrayList<>();
+        combined.addAll(primary);
+        combined.addAll(crossChit);
+        List<PaymentBatchResponse> result = new ArrayList<>(toBatchResponses(combined));
 
         result.sort(java.util.Comparator.comparing(PaymentBatchResponse::getCreatedAt,
                 java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())));
@@ -524,9 +537,7 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getAllBatchesForMember(UUID memberId) {
         List<PaymentBatch> batches = batchRepository.findByTenantIdAndMemberIdOrderByCreatedAtDesc(tenantId(), memberId);
-        return batches.stream()
-                .map(b -> toBatchResponse(b, allocationRepository.findByBatchId(b.getId())))
-                .toList();
+        return toBatchResponses(batches);
     }
 
     @Transactional(readOnly = true)
@@ -761,12 +772,7 @@ public class PaymentService {
         } else {
             batches = batchRepository.findByTenantIdOrderByCreatedAtDesc(tid);
         }
-        return batches.stream()
-                .map(batch -> {
-                    List<PaymentAllocation> allocs = allocationRepository.findByBatchId(batch.getId());
-                    return toBatchResponse(batch, allocs);
-                })
-                .toList();
+        return toBatchResponses(batches);
     }
 
     @Transactional(readOnly = true)
@@ -787,9 +793,7 @@ public class PaymentService {
         } else {
             result = batchRepository.findByTenantIdOrderByCreatedAtDesc(tid, pr);
         }
-        List<PaymentBatchResponse> content = result.getContent().stream()
-                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
-                .toList();
+        List<PaymentBatchResponse> content = toBatchResponses(result.getContent());
         return PagedResponse.<PaymentBatchResponse>builder()
                 .content(content)
                 .totalElements(result.getTotalElements())
@@ -803,35 +807,25 @@ public class PaymentService {
     public List<PaymentBatchResponse> getTodaysBatches() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);
-        return batchRepository.findTodaysActivityByTenant(tenantId(), start, end).stream()
-                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
-                .toList();
+        return toBatchResponses(batchRepository.findTodaysActivityByTenant(tenantId(), start, end));
     }
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getBatchesByCollector(UUID collectorId) {
-        return batchRepository.findByTenantIdAndCollectedByOrderByCreatedAtDesc(tenantId(), collectorId)
-                .stream()
-                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
-                .toList();
+        return toBatchResponses(
+                batchRepository.findByTenantIdAndCollectedByOrderByCreatedAtDesc(tenantId(), collectorId));
     }
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getMyPendingBatches(UUID collectorId) {
-        return batchRepository.findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(tenantId(), collectorId, BatchStatus.AWAITING_REMITTANCE)
-                .stream()
-                .map(batch -> toBatchResponse(batch, allocationRepository.findByBatchId(batch.getId())))
-                .toList();
+        return toBatchResponses(batchRepository.findByTenantIdAndCollectedByAndStatusOrderByCollectedAtDesc(
+                tenantId(), collectorId, BatchStatus.AWAITING_REMITTANCE));
     }
 
     @Transactional(readOnly = true)
     public List<PaymentBatchResponse> getPendingRemittances() {
-        return batchRepository.findByTenantIdAndStatusOrderByCreatedAtAsc(tenantId(), BatchStatus.AWAITING_REMITTANCE).stream()
-                .map(batch -> {
-                    List<PaymentAllocation> allocs = allocationRepository.findByBatchId(batch.getId());
-                    return toBatchResponse(batch, allocs);
-                })
-                .toList();
+        return toBatchResponses(
+                batchRepository.findByTenantIdAndStatusOrderByCreatedAtAsc(tenantId(), BatchStatus.AWAITING_REMITTANCE));
     }
 
     @Transactional(readOnly = true)
@@ -906,6 +900,16 @@ public class PaymentService {
                 Instant.now(),
                 TenantContext.get()
         );
+    }
+
+    private List<PaymentBatchResponse> toBatchResponses(List<PaymentBatch> batches) {
+        if (batches.isEmpty()) return List.of();
+        List<UUID> ids = batches.stream().map(PaymentBatch::getId).toList();
+        Map<UUID, List<PaymentAllocation>> allocMap = allocationRepository.findByBatchIdIn(ids)
+                .stream().collect(Collectors.groupingBy(PaymentAllocation::getBatchId));
+        return batches.stream()
+                .map(b -> toBatchResponse(b, allocMap.getOrDefault(b.getId(), List.of())))
+                .toList();
     }
 
     private PaymentBatchResponse toBatchResponse(PaymentBatch batch, List<PaymentAllocation> allocations) {
