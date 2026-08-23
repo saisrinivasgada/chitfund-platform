@@ -54,11 +54,13 @@ export default function StaffHomePage() {
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers(),
+    staleTime: 60_000,
   });
 
   const { data: chits = [] } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
+    staleTime: 60_000,
   });
 
   const memberMap = Object.fromEntries(

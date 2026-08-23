@@ -261,6 +261,7 @@ function DrawDetailModal({ draw, chit, onClose }) {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members-all'],
     queryFn: () => getMembers({ size: 1000 }),
+    staleTime: 5 * 60_000,
   });
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m]));
 
@@ -436,7 +437,7 @@ function PayoutDetailModal({ payoutId, onClose }) {
     enabled:  !!payout?.chitId,
   });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const nameMap = Object.fromEntries([
     ...staff.map((s) => [String(s.id), s.fullName ?? s.username]),
     ...allMembers.map((m) => [String(m.id), m.fullName ?? m.username]),
@@ -683,7 +684,7 @@ function PaymentDetailModal({ batchId, onClose }) {
     enabled:  !!batch?.chitId,
   });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const nameMap = Object.fromEntries([
     ...staff.map((s) => [String(s.id), s.fullName ?? s.username]),
     ...allMembers.map((m) => [String(m.id), m.fullName ?? m.username]),
@@ -1109,7 +1110,7 @@ function OverviewTab() {
   const { hidden } = useHiddenAmounts();
   const h = (n) => hidden ? '••••' : fmt(n);
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
-  const { data: members = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
+  const { data: members = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const { data: wallet } = useQuery({ queryKey: ['wallet-balance'], queryFn: getWalletBalance });
   const { data: thisMonthBatches = [] } = useQuery({
     queryKey: ['batches-this-month'],
@@ -1196,7 +1197,7 @@ function MemberReportTab() {
   const h = (n) => hidden ? '••••' : fmt(n);
   const queryClient = useQueryClient();
 
-  const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
+  const { data: members = [], isLoading: loadingMembers } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
 
   const { data: memberDetail, isLoading: loadingMember } = useQuery({
     queryKey: ['member-detail', memberId],
@@ -1587,7 +1588,7 @@ function ChitReportTab() {
     queryFn: () => getChits({ size: 200 }),
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],       queryFn: listStaff });
 
   const { data: chit } = useQuery({
@@ -2158,7 +2159,7 @@ function PaymentsTab() {
   const effectiveTo   = to;
 
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ size: 200 }) });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 })});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const chitMap   = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
   const memberMap = Object.fromEntries(allMembers.map((m) => [String(m.id), m.fullName ?? m.username]));
 
@@ -2345,7 +2346,7 @@ function PayoutsTab() {
   const h = (n) => hidden ? '••••' : fmt(n);
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],      queryFn: () => getChits({ size: 200 }) });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],       queryFn: listStaff });
   const chitMap      = Object.fromEntries(chits.map((c) => [String(c.id), c.name]));
   const chitStartMap = Object.fromEntries(chits.map((c) => [String(c.id), c.startDate]));
@@ -2655,7 +2656,7 @@ function TreasuryTab() {
     queryFn: getWalletTransactions,
   });
   const transactions = Array.isArray(_txData) ? _txData : (_txData?.content ?? []);
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members-all'], queryFn: () => getMembers({ size: 1000 }), staleTime: 5 * 60_000 });
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'],   queryFn: () => getChits({ size: 200 }) });
   const { data: staffList = [] }  = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
 

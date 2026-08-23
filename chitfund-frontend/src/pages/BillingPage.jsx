@@ -564,8 +564,8 @@ export default function BillingPage() {
   const { data: plans = [] } = useQuery({ queryKey: ['public-plans'], queryFn: getPublicPlans });
   const { data: myPayments = [] } = useQuery({ queryKey: ['my-billing-payments'], queryFn: myBillingPayments, staleTime: 60_000 });
   const { data: effectiveLimits } = useQuery({ queryKey: ['myTenantLimits'], queryFn: getMyTenantLimits, staleTime: 60_000 });
-  const { data: membersList = [] } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembers({ page: 0, size: 500 }) });
-  const { data: chitsList = [] }   = useQuery({ queryKey: ['chits-active'], queryFn: () => getChits({ status: 'ACTIVE', page: 0, size: 500 }) });
+  const { data: membersList = [] } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembers({ page: 0, size: 500 }), staleTime: 5 * 60_000 });
+  const { data: chitsList = [] }   = useQuery({ queryKey: ['chits-active'], queryFn: () => getChits({ status: 'ACTIVE', page: 0, size: 500 }), staleTime: 5 * 60_000 });
   const { data: staffList = [] } = useQuery({ queryKey: ['staff-list'], queryFn: listStaff });
 
   const plan = billing?.plan ?? tenantPlan ?? 'BASIC';

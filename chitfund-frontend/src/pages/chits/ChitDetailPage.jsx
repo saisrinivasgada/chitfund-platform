@@ -183,7 +183,7 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
   const [memberId, setMemberId] = useState('');
   const [spots, setSpots] = useState(1);
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
 
@@ -294,7 +294,7 @@ function MembersTab({ chitId, chit }) {
     queryFn: () => getEnrollments(chitId),
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const memberMap = Object.fromEntries(allMembers.map((m) => [m.id, m]));
 
   const removeMutation = useMutation({
@@ -422,7 +422,7 @@ function MembersTab({ chitId, chit }) {
 function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
   const qc = useQueryClient();
   const toast = useToastContext();
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
@@ -1228,7 +1228,7 @@ function ReservationScheduleTab({ chitId, chit }) {
     queryFn: () => getReservations(chitId),
   });
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const adminOptions = staffList.map((s) => ({
     id: s.id,
@@ -1875,7 +1875,7 @@ function OpenDrawModal_LOCAL({ chitId, chit, draws, onClose }) {
     queryKey: ['reservations', chitId],
     queryFn: () => getReservations(chitId),
   });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: staffListDraw = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const memberMap = Object.fromEntries([
     ...staffListDraw.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)`, phone: null }]),
@@ -3172,7 +3172,7 @@ function DrawsTab({ chitId, chit }) {
     queryKey: ['enrollments', chitId],
     queryFn: () => getEnrollments(chitId),
   });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: staffListDraws = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const memberMap = Object.fromEntries([
     ...staffListDraws.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
@@ -3544,7 +3544,7 @@ function RecordWinnerModal({ chitId, winnerSelectionMode, onClose }) {
     queryKey: ['enrollments', chitId],
     queryFn: () => getEnrollments(chitId),
   });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: recStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const memberMap = Object.fromEntries([
     ...(recStaff ?? []).map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
@@ -3621,7 +3621,7 @@ function WinnersTab({ chitId, chit, winnerSelectionMode }) {
     queryKey: ['payouts', chitId],
     queryFn: () => getPayoutsByChit(chitId),
   });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: allStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const memberMap = Object.fromEntries([
     ...allStaff.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)` }]),
@@ -4824,7 +4824,7 @@ function AuditTab({ chitId }) {
     queryFn: () => getChitAuditLogs(chitId, 0, 200),
   });
   const { data: staffList  = [] } = useQuery({ queryKey: ['staff'],   queryFn: listStaff });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
 
   const actorNameMap = Object.fromEntries(
     staffList.map((s) => [String(s.id), s.fullName ?? s.username ?? 'Unknown'])

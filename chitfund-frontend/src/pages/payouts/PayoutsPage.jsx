@@ -79,7 +79,7 @@ function CreatePayoutTab() {
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits });
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
       const entries = [[String(m.id), m]];
@@ -689,7 +689,7 @@ function PendingPayoutsTab() {
   const eligibleChits = chits.filter((c) => c.status !== 'DRAFT');
   const eligibleChitStr = eligibleChits.map((c) => c.id).join(',');
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
       const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);
@@ -839,7 +839,7 @@ function PendingTab() {
   });
 
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: allStaff = [] }   = useQuery({ queryKey: ['staff'], queryFn: listStaff });
 
   const chitMap   = Object.fromEntries(chits.map((c) => [c.id, c]));
@@ -944,7 +944,7 @@ function AllPayoutsTab() {
   const { hidden } = useHiddenAmounts();
   const h = (v) => hidden ? '••••••' : fmtAmt(v);
   const { data: chits = [] }      = useQuery({ queryKey: ['chits'], queryFn: getChits });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {
       const name = m.fullName ?? m.name ?? String(m.id).slice(0, 8);

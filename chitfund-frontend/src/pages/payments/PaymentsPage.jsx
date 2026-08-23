@@ -284,7 +284,7 @@ function SetupCashPickupModal({ onClose }) {
   const [notes, setNotes] = useState('');
   const { hidden } = useHiddenAmounts();
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
 
   const { data: memberChits = [] } = useQuery({
@@ -736,7 +736,7 @@ export function CashRequestsTab() {
   // Use allRequests alias but keep backward compat
   const requests = allRequests;
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers});
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits});
   const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
@@ -1094,6 +1094,7 @@ export function RecordPaymentTab() {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
+    staleTime: 60_000,
   });
   const activeMembers = allMembers.filter((m) => m.status === 'ACTIVE' || !m.status);
 
@@ -1423,6 +1424,7 @@ export function PendingRemittanceTab() {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
+    staleTime: 60_000,
   });
   const { data: allChits = [] } = useQuery({
     queryKey: ['chits'],
@@ -1751,6 +1753,7 @@ export function HistoryTab() {
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
     queryFn: getMembers,
+    staleTime: 60_000,
   });
   const memberMap = Object.fromEntries(
     allMembers.flatMap((m) => {

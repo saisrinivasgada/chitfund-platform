@@ -324,6 +324,7 @@ function EditMemberPanel({ member, onClose }) {
   const { data: activeMembers = [] } = useQuery({
     queryKey: ['members', 'active-for-referral'],
     queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
+    staleTime: 60_000,
   });
 
   const mutation = useMutation({
@@ -1735,6 +1736,7 @@ export default function MemberDetailPage() {
     queryKey: ['members-for-referral'],
     queryFn: () => getMembers({ status: 'ACTIVE', size: 500 }),
     enabled: showReferralEdit,
+    staleTime: 60_000,
   });
 
   const { data: activeCashRequests = [] } = useQuery({

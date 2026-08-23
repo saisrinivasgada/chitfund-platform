@@ -839,8 +839,8 @@ export default function TreasuryPage() {
     }
   }
 
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }) });
-  const { data: allChits = [] } = useQuery({ queryKey: ['chits', 'all'], queryFn: () => getChits({ size: 500 }) });
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: () => getMembers({ size: 500 }), staleTime: 60_000 });
+  const { data: allChits = [] } = useQuery({ queryKey: ['chits', 'all'], queryFn: () => getChits({ size: 500 }), staleTime: 60_000 });
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff()});
 
   const memberMap = Object.fromEntries(
