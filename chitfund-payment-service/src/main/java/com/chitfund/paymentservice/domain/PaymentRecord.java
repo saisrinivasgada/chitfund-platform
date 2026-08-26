@@ -42,6 +42,15 @@ public class PaymentRecord {
     @Column(nullable = false)
     private LocalDate dueDate;
 
+    // Full installment before any auction dividend (null for non-auction draws)
+    @Column(precision = 15, scale = 2)
+    private BigDecimal grossInstallmentAmount;
+
+    // Auction dividend deducted from this member's installment (null for non-auction draws)
+    @Column(precision = 15, scale = 2)
+    private BigDecimal dividendDeductedAmount;
+
+    // Net amount member actually owes (= grossInstallmentAmount - dividendDeductedAmount for auction; = installment for others)
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal amountDue;
 

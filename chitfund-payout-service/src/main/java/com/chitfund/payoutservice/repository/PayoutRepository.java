@@ -18,8 +18,8 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
     Optional<Payout> findByIdAndTenantId(UUID id, String tenantId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT p FROM Payout p WHERE p.id = :id")
-    Optional<Payout> findByIdForUpdate(@Param("id") UUID id);
+    @Query("SELECT p FROM Payout p WHERE p.id = :id AND p.tenantId = :tenantId")
+    Optional<Payout> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
     boolean existsByChitIdAndMonthNumberAndStatusNot(UUID chitId, int monthNumber, PayoutStatus status);
 
@@ -34,8 +34,8 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
     List<Payout> findByTenantIdOrderByCreatedAtDesc(String tenantId);
 
     @Query("SELECT p FROM Payout p WHERE p.tenantId = :tenantId AND " +
-           "(p.createdAt >= :start AND p.createdAt < :end) OR " +
-           "(p.disbursedAt >= :start AND p.disbursedAt < :end) " +
+           "((p.createdAt >= :start AND p.createdAt < :end) OR " +
+           "(p.disbursedAt >= :start AND p.disbursedAt < :end)) " +
            "ORDER BY p.createdAt DESC")
     List<Payout> findByTenantIdAndTodaysPayouts(@Param("tenantId") String tenantId,
                                                 @Param("start") LocalDateTime start,

@@ -621,4 +621,64 @@ export const unregisterPushToken = async (token: string) => {
   }
 };
 
+// ── Auction ───────────────────────────────────────────────────────────────────
+export const openAuction = async (params: {
+  chitId: string;
+  monthNumber: number;
+  scheduledPayoutAmount: number;
+  closesAt?: string | null;
+  minBidStep?: number;
+}) => {
+  const body: any = {
+    monthNumber: params.monthNumber,
+    scheduledPayoutAmount: params.scheduledPayoutAmount,
+    closesAt: params.closesAt ?? null,
+  };
+  if (params.minBidStep != null) body.minBidStep = params.minBidStep;
+  return unwrapObj(await api.post(`/chits/${params.chitId}/auction/open`, body));
+};
+
+export const getAuction = async (chitId: string, auctionId: string) =>
+  unwrapObj(await api.get(`/chits/${chitId}/auction/${auctionId}`));
+
+export const listAuctions = async (chitId: string): Promise<any[]> =>
+  unwrapList(await api.get(`/chits/${chitId}/auction`));
+
+export const placeBid = async (params: {
+  chitId: string;
+  auctionId: string;
+  bidAmount: number;
+  onBehalfOfMemberId?: string;
+}) => {
+  const body: any = { bidAmount: params.bidAmount };
+  if (params.onBehalfOfMemberId) body.onBehalfOfMemberId = params.onBehalfOfMemberId;
+  return unwrapObj(await api.post(`/chits/${params.chitId}/auction/${params.auctionId}/bid`, body));
+};
+
+export const closeAuction = async (params: {
+  chitId: string;
+  auctionId: string;
+  winnerId?: string;
+  wonAmount?: number;
+}) => {
+  const body: any = {};
+  if (params.winnerId) body.winnerId = params.winnerId;
+  if (params.wonAmount != null) body.wonAmount = params.wonAmount;
+  return unwrapObj(await api.post(`/chits/${params.chitId}/auction/${params.auctionId}/close`, body));
+};
+
+export const extendAuction = async (params: {
+  chitId: string;
+  auctionId: string;
+  additionalMinutes: number;
+}) =>
+  unwrapObj(
+    await api.patch(`/chits/${params.chitId}/auction/${params.auctionId}/extend`, {
+      additionalMinutes: params.additionalMinutes,
+    })
+  );
+
+export const voidAuction = async (params: { chitId: string; auctionId: string }) =>
+  unwrapObj(await api.post(`/chits/${params.chitId}/auction/${params.auctionId}/void`));
+
 export default api;

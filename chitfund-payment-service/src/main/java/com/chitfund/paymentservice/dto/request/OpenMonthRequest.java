@@ -32,6 +32,9 @@ public class OpenMonthRequest {
     @Min(1)
     private Integer maxCycles;
 
+    // ONLINE or OFFLINE when this is an auction draw; null for lottery/reservation
+    private String auctionMode;
+
     @NotNull
     @Valid
     @Size(min = 1, message = "At least one member is required")

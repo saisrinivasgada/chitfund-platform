@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.chitwise.mobile"
+      "bundleIdentifier": "com.chitwise.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +25,7 @@
         "backgroundColor": "#1E3A5F"
       },
       "package": "com.chitwise.mobile",
-      "usesCleartextTraffic": true
+      "versionCode": 3
     },
     "web": {
       "bundler": "metro",

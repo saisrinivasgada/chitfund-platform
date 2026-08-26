@@ -17,6 +17,7 @@ import com.chitfund.chitservice.strategy.WinnerSelectionStrategyFactory;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+@Slf4j
 public class WinnerService {
 
     private final ChitService chitService;
@@ -51,10 +53,6 @@ public class WinnerService {
         }
         if (request.getMonthNumber() < 1 || request.getMonthNumber() > chit.getDurationMonths()) {
             throw new BusinessException(ErrorCode.INVALID_MONTH_NUMBER);
-        }
-        if (winnerRepository.existsByChitIdAndMonthNumber(chitId, request.getMonthNumber())) {
-            throw new BusinessException(ErrorCode.INVALID_MONTH_NUMBER,
-                    "A winner has already been assigned for draw #" + request.getMonthNumber() + " — delete it first to reassign");
         }
         // Enrolled spots per member (multi-spot members appear multiple times in the list)
         List<UUID> allMembers = enrollmentRepository.findActiveMemberIdsByChitId(chitId);
@@ -94,9 +92,14 @@ public class WinnerService {
 
         MonthlyWinner saved = winnerRepository.save(winner);
 
+        log.info("Winner assigned: id={} chit={} month={} member={} mode={} winningAmount={} discount={} assignedBy={}",
+                saved.getId(), chitId, saved.getMonthNumber(), winnerId,
+                chit.getWinnerSelectionMode(), winningAmount,
+                saved.getDiscountAmount(), assignedBy);
+
         String actorRole = null; // actorRole not passed into service yet — will show in audit without role
         auditClient.log("WINNER_ASSIGNMENT", saved.getId().toString(), chitId.toString(),
-                "WINNER_ASSIGNED", assignedBy.toString(), actorRole,
+                "WINNER_ASSIGNED", assignedBy != null ? assignedBy.toString() : null, actorRole,
                 null,
                 Map.of("monthNumber", saved.getMonthNumber(),
                         "memberId", String.valueOf(winnerId),

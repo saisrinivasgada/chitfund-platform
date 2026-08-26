@@ -225,7 +225,8 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         const spotsCount = spotCounts[mid] ?? 1;
         const isEligible = winsCount < spotsCount;
         const isWinner = lotteryMode === 'PICK' && mid === String(pickedWinnerId);
-        const amountDue = winsCount > 0 ? defaultPostPayout : baseInstallment;
+        const effectivePostPayout = chit.postPayoutContributionEnabled ? defaultPostPayout : baseInstallment;
+        const amountDue = winsCount * effectivePostPayout + (spotsCount - winsCount) * baseInstallment;
         const previousBalance = Number(balanceMap[mid] ?? 0);
         members.push({
           memberId: mid,
@@ -414,12 +415,14 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         }
         return;
       }
+      const isAuctionDraw = (chit?.winnerSelectionMode ?? chit?.chitType) === 'AUCTION';
       await openDraw({
         chitId,
         monthNumber: nextCycleNum,
         dueDate,
         installmentAmount: baseInstallment,
         maxCycles: chit?.totalMembers ?? nextCycleNum,
+        auctionMode: isAuctionDraw ? (chit?.auctionMode ?? 'OFFLINE') : undefined,
         members: preview.members.filter((m) => !m.isOrg).map((m) => ({ memberId: m.memberId, amountDue: m.amountDue })),
       });
 

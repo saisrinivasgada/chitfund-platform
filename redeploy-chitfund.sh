@@ -149,7 +149,12 @@ deploy_service() {
 
   # 3. Start new JAR
   log "Starting $short from $(basename $jar)..."
-  nohup java -jar "$jar" > "$LOG_DIR/$dir.log" 2>&1 &
+  nohup java \
+    -DJWT_SECRET="${JWT_SECRET:-dev-local-jwt-secret-not-for-production-32+}" \
+    -jar "$jar" \
+    --spring.datasource.password="${DB_PASSWORD:-ChitWise@Local1}" \
+    --app.jwt.secret="${JWT_SECRET:-dev-local-jwt-secret-not-for-production-32+}" \
+    > "$LOG_DIR/$dir.log" 2>&1 &
 
   # 4. Wait for health
   wait_healthy "$port" "$short" || return 1

@@ -40,6 +40,10 @@ public class ChitMonthDraw {
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private DrawStatus status;
 
+    // ONLINE or OFFLINE; null for non-auction chits
+    @Column(columnDefinition = "varchar(10)")
+    private String auctionMode;
+
     @Column(columnDefinition = "text")
     private String skipReason;
 

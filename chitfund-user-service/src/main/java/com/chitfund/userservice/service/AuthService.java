@@ -366,7 +366,20 @@ public class AuthService {
         }
         refreshToken.setRevoked(true);
         refreshTokenRepository.save(refreshToken);
-        return buildAuthResponse(refreshToken.getUser(), null);
+        User user = refreshToken.getUser();
+        String tenantId = refreshToken.getTenantId();
+        if (tenantId != null) {
+            List<TenantInfo> tenants = tenantService.buildTenantInfoList(user.getId());
+            return tenants.stream()
+                    .filter(t -> tenantId.equals(t.getTenantId()))
+                    .findFirst()
+                    .map(tenant -> buildScopedAuthResponse(user, tenant))
+                    .orElseGet(() -> buildAuthResponse(user, null));
+        }
+        if (user.getRole() != null && user.getRole().name().equals("SUPER_ADMIN")) {
+            return buildSuperAdminAuthResponse(user);
+        }
+        return buildAuthResponse(user, null);
     }
 
     public LoginResponse verifyLoginOtp(String otpToken, String code, boolean rememberDevice) {
@@ -695,7 +708,7 @@ public class AuthService {
     private AuthResponse buildSuperAdminAuthResponse(User user) {
         String accessToken = jwtTokenProvider.generateSuperAdminToken(user);
         String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
-        saveRefreshToken(user, refreshTokenValue);
+        saveRefreshToken(user, refreshTokenValue, null);
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshTokenValue)
@@ -709,7 +722,7 @@ public class AuthService {
         String accessToken = jwtTokenProvider.generateScopedToken(
                 user, tenant.getTenantId(), tenant.getSlug(), tenant.getPlan(), tenant.getStatus(), tenant.getRole(), tenant.getMemberId());
         String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
-        saveRefreshToken(user, refreshTokenValue);
+        saveRefreshToken(user, refreshTokenValue, tenant.getTenantId());
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshTokenValue)
@@ -722,7 +735,7 @@ public class AuthService {
     private AuthResponse buildAuthResponse(User user, String tempPassword) {
         String accessToken = jwtTokenProvider.generateAccessToken(user);
         String refreshTokenValue = jwtTokenProvider.generateRefreshTokenValue();
-        saveRefreshToken(user, refreshTokenValue);
+        saveRefreshToken(user, refreshTokenValue, null);
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshTokenValue)
@@ -733,10 +746,11 @@ public class AuthService {
                 .build();
     }
 
-    private void saveRefreshToken(User user, String tokenValue) {
+    private void saveRefreshToken(User user, String tokenValue, String tenantId) {
         RefreshToken refreshToken = RefreshToken.builder()
                 .token(tokenValue)
                 .user(user)
+                .tenantId(tenantId)
                 .expiresAt(LocalDateTime.now().plusDays(refreshTokenExpiryDays))
                 .build();
         refreshTokenRepository.save(refreshToken);

@@ -21,6 +21,8 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     List<ChitMonthDraw> findByStatusOrderByDueDateAsc(DrawStatus status);
 
+    List<ChitMonthDraw> findByStatusInOrderByDueDateAsc(List<DrawStatus> statuses);
+
     List<ChitMonthDraw> findByChitIdAndStatus(UUID chitId, DrawStatus status);
 
     List<ChitMonthDraw> findByChitIdOrderByMonthNumberAsc(UUID chitId);

@@ -19,27 +19,75 @@ api.interceptors.request.use((config) => {
 });
 
 // Handle 401 + plan-expiry globally
+// On 401: try a silent token refresh first; only evict the session if refresh fails.
+let _isRefreshing = false;
+let _refreshQueue = []; // { resolve, reject }
+
+function _flushRefreshQueue(error, token = null) {
+  _refreshQueue.forEach(({ resolve, reject }) => error ? reject(error) : resolve(token));
+  _refreshQueue = [];
+}
+
+function _evictSession() {
+  clearAuthToken();
+  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+    .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
+  sessionStorage.removeItem('token');
+  window.location.href = '/session-expired';
+}
+
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
-    const isAuthEndpoint = err.config?.url?.includes('/auth/');
-    if (err.response?.status === 401 && !isAuthEndpoint) {
-      clearAuthToken();
-      localStorage.removeItem('user');
-      localStorage.removeItem('tenantId');
-      localStorage.removeItem('tenantSlug');
-      localStorage.removeItem('tenantName');
-      localStorage.removeItem('tenantPlan');
-      localStorage.removeItem('tenantStatus');
-      localStorage.removeItem('planExpiresAt');
-      localStorage.removeItem('analyticsEnabled');
-      sessionStorage.removeItem('token');
-      sessionStorage.removeItem('user');
-      window.location.href = '/session-expired';
-    }
+  async (err) => {
+    const originalRequest = err.config;
+    const isAuthEndpoint  = originalRequest?.url?.includes('/auth/');
+
     if (err.response?.data?.errorCode === 'PLAN_002') {
       window.dispatchEvent(new CustomEvent('plan-expired'));
     }
+
+    if (err.response?.status === 401 && !isAuthEndpoint && !originalRequest._retry) {
+      // Proxy sessions (super-admin impersonation) don't have an HttpOnly refresh cookie — evict immediately.
+      if (sessionStorage.getItem('token')) {
+        _evictSession();
+        return Promise.reject(err);
+      }
+
+      // If a refresh is already in-flight, queue this request to retry once it completes.
+      if (_isRefreshing) {
+        return new Promise((resolve, reject) => {
+          _refreshQueue.push({ resolve, reject });
+        }).then((token) => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        });
+      }
+
+      originalRequest._retry = true;
+      _isRefreshing = true;
+
+      try {
+        const res  = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        const json = await res.json();
+        if (!res.ok || !json.data?.accessToken) throw new Error('refresh_failed');
+
+        const newToken = json.data.accessToken;
+        setAuthToken(newToken);
+        // Let AuthContext update its in-memory token state (for isAuthenticated / idle-timer reset).
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: { token: newToken } }));
+        _flushRefreshQueue(null, newToken);
+
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      } catch (refreshErr) {
+        _flushRefreshQueue(refreshErr);
+        _evictSession();
+        return Promise.reject(refreshErr);
+      } finally {
+        _isRefreshing = false;
+      }
+    }
+
     return Promise.reject(err);
   }
 );
@@ -1371,6 +1419,50 @@ export const myBillingPayments = async () => {
 
 export const myBillingReceipt = async (receiptId) => {
   const res = await api.get(`/billing/receipts/${receiptId}`);
+  return res.data.data;
+};
+
+// ─── Auction ───────────────────────────────────────────────────────────────────
+export const openAuction = async ({ chitId, monthNumber, scheduledPayoutAmount, closesAt, minBidStep, commissionType, commissionValue, showCommissionToMembers }) => {
+  const body = { monthNumber, scheduledPayoutAmount, closesAt, showCommissionToMembers: !!showCommissionToMembers };
+  if (minBidStep != null) body.minBidStep = minBidStep;
+  if (commissionType && commissionValue != null) {
+    body.commissionType = commissionType;
+    body.commissionValue = Number(commissionValue);
+  }
+  const res = await api.post(`/chits/${chitId}/auction/open`, body);
+  return res.data.data;
+};
+
+export const getAuction = async (chitId, auctionId) => {
+  const res = await api.get(`/chits/${chitId}/auction/${auctionId}`);
+  return res.data.data;
+};
+
+export const listAuctions = async (chitId) => {
+  const res = await api.get(`/chits/${chitId}/auction`);
+  return res.data.data ?? [];
+};
+
+export const placeBid = async ({ chitId, auctionId, bidAmount, onBehalfOfMemberId }) => {
+  const body = { bidAmount };
+  if (onBehalfOfMemberId) body.onBehalfOfMemberId = onBehalfOfMemberId;
+  const res = await api.post(`/chits/${chitId}/auction/${auctionId}/bid`, body);
+  return res.data.data;
+};
+
+export const closeAuction = async ({ chitId, auctionId, winnerId, wonAmount }) => {
+  const res = await api.post(`/chits/${chitId}/auction/${auctionId}/close`, { winnerId, wonAmount });
+  return res.data.data;
+};
+
+export const extendAuction = async ({ chitId, auctionId, additionalMinutes }) => {
+  const res = await api.patch(`/chits/${chitId}/auction/${auctionId}/extend`, { additionalMinutes });
+  return res.data.data;
+};
+
+export const voidAuction = async ({ chitId, auctionId }) => {
+  const res = await api.post(`/chits/${chitId}/auction/${auctionId}/void`);
   return res.data.data;
 };
 

@@ -6,7 +6,7 @@ import {
   getMyMemberProfile, getChitsForMember, getMemberTotalBalance,
   getMemberBalance, getPaymentHistory, getPayoutsForMember, getPayoutById,
   getMe, createCashRequest, getMyCashRequests, memberApproveCashRequest,
-  getMyPaymentBatches,
+  getMyPaymentBatches, listAuctions,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
@@ -17,7 +17,7 @@ import {
   Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
   IndianRupee, Phone, ArrowRight, Layers, LayoutDashboard,
   TrendingUp, Wallet, CalendarCheck, Zap, ArrowUpRight, ThumbsUp, ThumbsDown,
-  CreditCard, Filter, ArrowDownCircle, Building2,
+  CreditCard, Filter, ArrowDownCircle, Building2, Gavel,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -241,13 +241,31 @@ function ChitCard({ memberId, chit, compact = false }) {
 
 function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitchTab }) {
   const { hidden } = useHiddenAmounts();
+  const navigate = useNavigate();
   const outstanding = Number(totalOutstanding);
   const activeChits = chits.filter(c => c.status === 'ACTIVE');
+  const auctionChits = activeChits.filter(c => c.chitType === 'AUCTION' || c.winnerSelectionMode === 'AUCTION');
+
   const { data: requests = [] } = useQuery({
     queryKey: ['myCashRequests'],
     queryFn: getMyCashRequests,
     refetchInterval: 20_000,
     refetchOnWindowFocus: true,
+  });
+
+  // Fetch auctions for all active auction chits to detect live sessions
+  const auctionQueries = useQueries({
+    queries: auctionChits.map((c) => ({
+      queryKey: ['auctions', c.id],
+      queryFn: () => listAuctions(c.id),
+      refetchInterval: 15_000,
+    })),
+  });
+  const liveAuctions = auctionChits.flatMap((c, i) => {
+    const auctions = auctionQueries[i]?.data ?? [];
+    return auctions
+      .filter((a) => a.status === 'OPEN')
+      .map((a) => ({ ...a, chitName: c.name, chitId: c.id }));
   });
   const { data: myPayouts = [] } = useQuery({
     queryKey: ['memberPortalPayouts', memberId],
@@ -310,6 +328,33 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
           </div>
         </div>
       )}
+
+      {/* ── Live auction banners ──────────────────────────────────────── */}
+      {liveAuctions.map((auction) => (
+        <button
+          key={auction.id}
+          type="button"
+          onClick={() => navigate(`/chits/${auction.chitId}/auction/${auction.id}`)}
+          className="w-full text-left rounded-2xl px-5 py-4 flex items-center gap-4 border cursor-pointer transition-opacity hover:opacity-90"
+          style={{ background: 'linear-gradient(135deg, #7F1D1D 0%, #B91C1C 100%)', borderColor: '#DC2626' }}
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+            <Gavel size={18} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse inline-block" />
+              <p className="text-sm font-bold text-white">Live Auction — {auction.chitName}</p>
+            </div>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>
+              Bidding is open for Draw {auction.monthNumber}. Tap to place your bid now.
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0 text-red-700" style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}>
+            Bid Now
+          </span>
+        </button>
+      ))}
 
       {/* ── Action needed banner ──────────────────────────────────────── */}
       {needsAction.length > 0 && (

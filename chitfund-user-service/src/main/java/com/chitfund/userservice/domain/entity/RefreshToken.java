@@ -48,6 +48,10 @@ public class RefreshToken {
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    /** Tenant this token is scoped to; null for super-admin sessions. */
+    @Column(name = "tenant_id")
+    private String tenantId;
+
     public boolean isExpired() {
         return LocalDateTime.now().isAfter(expiresAt);
     }

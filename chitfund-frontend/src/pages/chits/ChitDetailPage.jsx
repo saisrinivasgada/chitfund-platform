@@ -14,7 +14,7 @@ import {
   getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   getMe, listStaff, getUserById, getWalletBalance,
-  getChitAuditLogs,
+  getChitAuditLogs, listAuctions,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -30,11 +30,12 @@ import { ConfirmDialog, DestructiveDialog } from '../../components/ui/ConfirmDia
 import RoleBadge from '../../components/ui/RoleBadge';
 import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 import OpenDrawModal from '../../components/draws/OpenDrawModal';
+import OpenAuctionModal from '../../components/draws/OpenAuctionModal';
 import {
   ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink, Shuffle,
+  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink, Shuffle, Gavel, Smartphone,
 } from 'lucide-react';
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -281,12 +282,143 @@ function EnrollMemberModal({ chitId, chit, onClose }) {
   );
 }
 
+function BulkEnrollModal({ chitId, chit, onClose }) {
+  const qc    = useQueryClient();
+  const toast = useToastContext();
+  const [search,   setSearch]   = useState('');
+  const [selected, setSelected] = useState(new Set());
+  const [progress, setProgress] = useState(null); // { done, total }
+
+  const { data: allMembers  = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
+  const { data: enrollments = [] } = useQuery({ queryKey: ['enrollments', chitId], queryFn: () => getEnrollments(chitId) });
+
+  const enrolledIds = new Set(enrollments.map((e) => String(e.memberId ?? e.id)));
+  const totalFilled = enrollments.length + (chit?.orgHeldSpotsCount ?? 0);
+  const remaining   = Math.max(0, (chit?.totalMembers ?? 0) - totalFilled);
+
+  const available = allMembers
+    .filter((m) => m.status === 'ACTIVE' && !enrolledIds.has(String(m.id)))
+    .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
+
+  const filtered = search.trim()
+    ? available.filter((m) =>
+        (m.fullName ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (m.phone ?? '').includes(search))
+    : available;
+
+  function toggle(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < remaining) next.add(id);
+      return next;
+    });
+  }
+
+  async function handleEnroll() {
+    const ids = [...selected];
+    setProgress({ done: 0, total: ids.length });
+    let failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      try { await enrollMember({ chitId, memberId: ids[i] }); } catch { failed++; }
+      setProgress({ done: i + 1, total: ids.length });
+    }
+    qc.invalidateQueries({ queryKey: ['enrollments', chitId] });
+    qc.invalidateQueries({ queryKey: ['chit', chitId] });
+    if (failed === 0) toast.success(`${ids.length} member${ids.length !== 1 ? 's' : ''} enrolled`);
+    else toast.warning(`${ids.length - failed} enrolled, ${failed} failed`);
+    onClose();
+  }
+
+  return (
+    <Modal title="Bulk Enroll Members" onClose={onClose} size="md">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between text-sm text-gray-500">
+          <span>{totalFilled} / {chit?.totalMembers ?? '?'} spots filled · {remaining} remaining</span>
+          {selected.size > 0 && (
+            <span className="font-semibold text-[#1E3A5F]">{selected.size} selected</span>
+          )}
+        </div>
+
+        <Input
+          placeholder="Search by name or phone…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div className="max-h-72 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              {available.length === 0 ? 'All active members are already enrolled.' : 'No members match your search.'}
+            </p>
+          ) : (
+            filtered.map((m) => {
+              const isSelected = selected.has(String(m.id));
+              const isDisabled = !isSelected && selected.size >= remaining;
+              return (
+                <label
+                  key={m.id}
+                  className={`flex items-center gap-3 px-4 py-3 transition-colors select-none
+                    ${isSelected ? 'bg-blue-50' : isDisabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    disabled={isDisabled}
+                    onChange={() => !isDisabled && toggle(String(m.id))}
+                    className="rounded border-gray-300 text-[#1E3A5F] flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{m.fullName}</p>
+                    <p className="text-xs text-gray-400">{m.phone}</p>
+                  </div>
+                  {!m.hasAppAccess && (
+                    <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0 flex items-center gap-1">
+                      <Smartphone size={10} /> No app
+                    </span>
+                  )}
+                </label>
+              );
+            })
+          )}
+        </div>
+
+        {progress && (
+          <div className="bg-gray-50 rounded-lg px-4 py-2">
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <span>Enrolling…</span><span>{progress.done}/{progress.total}</span>
+            </div>
+            <div className="h-1.5 bg-gray-200 rounded-full">
+              <div className="h-1.5 bg-[#1E3A5F] rounded-full transition-all"
+                style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <Button variant="secondary" onClick={onClose} className="flex-1" disabled={!!progress}>Cancel</Button>
+          <Button
+            onClick={handleEnroll}
+            disabled={selected.size === 0 || !!progress}
+            loading={!!progress}
+            className="flex-1"
+          >
+            <UserPlus size={14} />
+            {selected.size > 0 ? `Enroll ${selected.size} Member${selected.size !== 1 ? 's' : ''}` : 'Enroll Members'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function MembersTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
   const { user } = useAuth();
   const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
-  const [showEnroll, setShowEnroll] = useState(false);
+  const [showEnroll,     setShowEnroll]     = useState(false);
+  const [showBulkEnroll, setShowBulkEnroll] = useState(false);
   const [pendingRemove, setPendingRemove] = useState(null); // { memberId, displayName }
 
   const { data: enrollments = [], isLoading } = useQuery({
@@ -330,10 +462,15 @@ function MembersTab({ chitId, chit }) {
           {totalSpots2} spots filled · {(chit?.totalMembers ?? 0) - totalSpots2} remaining
           {orgHeldCount > 0 && <span className="text-gray-400"> ({orgHeldCount} org-held)</span>}
         </p>
-        {canEdit && !spotsAreFull && !isDraft && (
-          <Button onClick={() => setShowEnroll(true)} size="sm">
-            <UserPlus size={14} /> {isLottery ? 'Enroll Member' : 'Add Spot'}
-          </Button>
+        {canEdit && !isDraft && !spotsAreFull && (
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setShowBulkEnroll(true)} size="sm" variant="secondary">
+              <Users size={14} /> Bulk Enroll
+            </Button>
+            <Button onClick={() => setShowEnroll(true)} size="sm">
+              <UserPlus size={14} /> {isLottery ? 'Enroll' : 'Add Spot'}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -371,6 +508,12 @@ function MembersTab({ chitId, chit }) {
                         </div>
                         <MemberLink id={mid} name={member.fullName} />
                         <MemberInfoPopover member={member} />
+                        {!member.hasAppAccess && (
+                          <span title="No app account — member cannot sign in or bid"
+                            className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            <Smartphone size={10} /> No app
+                          </span>
+                        )}
                       </div>
                     )}
                   </Td>
@@ -399,6 +542,10 @@ function MembersTab({ chitId, chit }) {
 
       {showEnroll && (
         <EnrollMemberModal chitId={chitId} chit={chit} onClose={() => setShowEnroll(false)} />
+      )}
+
+      {showBulkEnroll && (
+        <BulkEnrollModal chitId={chitId} chit={chit} onClose={() => setShowBulkEnroll(false)} />
       )}
 
       {pendingRemove && (
@@ -1212,6 +1359,7 @@ function ReservationScheduleTab({ chitId, chit }) {
   const { user } = useAuth();
   const canEdit = user?.role !== 'MANAGER' || chit?.status === 'DRAFT';
   const isLottery = chit?.chitType === 'LOTTERY';
+  const isAuction = chit?.chitType === 'AUCTION' || chit?.winnerSelectionMode === 'AUCTION';
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
@@ -1417,6 +1565,57 @@ function ReservationScheduleTab({ chitId, chit }) {
           .map((s) => s.id)
       )
     : new Set();
+
+  if (isAuction) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">{active.length} draw slots · Scheduled pot amounts per draw</p>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {isLoading ? <PageSpinner /> : active.length === 0 ? (
+            <EmptyState icon={Shuffle} title="No pot amounts"
+              message="Pot amounts are configured when the chit is created." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr className="border-b border-gray-100">
+                    {['Draw', 'Month', 'Gross Pot (₹)', 'Status'].map((h) => (
+                      <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {active.map((slot, i) => (
+                    <tr key={slot.id} className="bg-white hover:bg-gray-50 transition-colors">
+                      <td className="px-5 py-3 w-20">
+                        <span className="w-7 h-7 rounded-full text-xs font-bold inline-flex items-center justify-center bg-gray-100 text-gray-600">
+                          {slot.monthNumber ?? i + 1}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
+                        {formatMonthLabel(slot.reservationMonth, slot.monthNumber)}
+                      </td>
+                      <td className="px-5 py-3 font-semibold text-gray-800">
+                        {slot.payoutAmount ? `₹${Number(slot.payoutAmount).toLocaleString('en-IN')}` : '—'}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                          ${slot.status === 'PROCESSED' ? 'bg-green-100 text-green-700'
+                            : slot.status === 'VOIDED' ? 'bg-red-100 text-red-600'
+                            : 'bg-gray-100 text-gray-600'}`}>
+                          {slot.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (isLottery) {
     return (
@@ -3156,6 +3355,9 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
 function DrawsTab({ chitId, chit }) {
   const qc = useQueryClient();
   const toast = useToastContext();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdminOrManager = user?.role === 'ADMIN' || user?.role === 'MANAGER';
   const [showOpenModal, setShowOpenModal] = useState(false);
   const [showSkipModal, setShowSkipModal] = useState(false);
   const [pendingClose, setPendingClose] = useState(null);
@@ -3163,11 +3365,20 @@ function DrawsTab({ chitId, chit }) {
   const [expandedCycle, setExpandedCycle] = useState(null);   // cycleId of expanded card
   const [collectTarget, setCollectTarget] = useState(null);   // { paymentRecord, member }
   const [viewTarget, setViewTarget] = useState(null);         // { paymentRecord, member } for history modal
+  const [openAuctionDraw, setOpenAuctionDraw] = useState(null);
+
+  const isAuctionChit = chit?.winnerSelectionMode === 'AUCTION' || chit?.chitType === 'AUCTION';
 
   const { data: draws = [], isLoading } = useQuery({
     queryKey: ['draws', chitId],
     queryFn: () => getDraws(chitId),
   });
+  const { data: auctions = [] } = useQuery({
+    queryKey: ['auctions', chitId],
+    queryFn: () => listAuctions(chitId),
+    enabled: isAuctionChit,
+  });
+  const auctionByMonth = Object.fromEntries(auctions.map((a) => [a.monthNumber, a]));
   const { data: enrollments = [] } = useQuery({
     queryKey: ['enrollments', chitId],
     queryFn: () => getEnrollments(chitId),
@@ -3414,18 +3625,43 @@ function DrawsTab({ chitId, chit }) {
                       <ChevronDown size={16} className={`text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {c.status === 'OPEN' && (
-                      <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                      {/* Open Auction — for AWAITING_AUCTION draws with no session yet */}
+                      {isAdminOrManager && isAuctionChit && c.status === 'AWAITING_AUCTION' && !auctionByMonth[c.monthNumber] && (
+                        <Button size="sm" variant="primary" onClick={() => setOpenAuctionDraw(c)}>
+                          <Gavel size={13} /> Open Auction
+                        </Button>
+                      )}
+                      {/* Auction room — when a session exists */}
+                      {isAuctionChit && auctionByMonth[c.monthNumber] && (
+                        <Button
+                          size="sm"
+                          variant={auctionByMonth[c.monthNumber].status === 'OPEN' ? 'primary' : 'secondary'}
+                          onClick={() => navigate(`/chits/${chitId}/auction/${auctionByMonth[c.monthNumber].id}`)}
+                        >
+                          <Gavel size={13} />
+                          {auctionByMonth[c.monthNumber].status === 'OPEN' ? 'Live Auction' : 'View Auction'}
+                        </Button>
+                      )}
+                      {c.status === 'OPEN' && (
+                        <>
+                          <Button variant="danger" size="sm"
+                            onClick={() => setPendingDelete({ cycleId: c.id, monthNumber: c.monthNumber })}>
+                            <Trash2 size={13} /> Delete
+                          </Button>
+                          <Button variant="secondary" size="sm" loading={closeMutation.isPending}
+                            onClick={() => setPendingClose({ cycleId: c.id, outstandingCount: c.outstandingCount ?? 0 })}>
+                            <CheckCircle size={13} /> Close
+                          </Button>
+                        </>
+                      )}
+                      {c.status === 'AWAITING_AUCTION' && isAdminOrManager && (
                         <Button variant="danger" size="sm"
                           onClick={() => setPendingDelete({ cycleId: c.id, monthNumber: c.monthNumber })}>
                           <Trash2 size={13} /> Delete
                         </Button>
-                        <Button variant="secondary" size="sm" loading={closeMutation.isPending}
-                          onClick={() => setPendingClose({ cycleId: c.id, outstandingCount: c.outstandingCount ?? 0 })}>
-                          <CheckCircle size={13} /> Close
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* Progress bar */}
@@ -3483,6 +3719,14 @@ function DrawsTab({ chitId, chit }) {
 
       {showOpenModal && <OpenDrawModal chitId={chitId} chit={chit} draws={draws} onClose={() => setShowOpenModal(false)} />}
       {showSkipModal && <SkipDrawModal chitId={chitId} chit={chit} enrollments={enrollments} draws={draws} onClose={() => setShowSkipModal(false)} />}
+      {openAuctionDraw && (
+        <OpenAuctionModal
+          chitId={chitId}
+          chit={chit}
+          draw={openAuctionDraw}
+          onClose={() => setOpenAuctionDraw(null)}
+        />
+      )}
 
       {collectTarget && (
         <CollectPaymentModal
@@ -5011,6 +5255,15 @@ export default function ChitDetailPage() {
     queryFn: () => getReservations(id),
     enabled: !!id,
   });
+  const isAuctionChitHeader = chit && (chit.winnerSelectionMode === 'AUCTION' || chit.chitType === 'AUCTION');
+  const { data: headerAuctions = [] } = useQuery({
+    queryKey: ['auctions', id],
+    queryFn: () => listAuctions(id),
+    enabled: !!id && isAuctionChitHeader,
+    refetchInterval: 15_000,
+  });
+  const liveAuction = headerAuctions.find((a) => a.status === 'OPEN');
+  const pendingAuctionHeader = !liveAuction && headerAuctions.find((a) => a.status === 'PENDING');
 
   if (isLoading) return <PageSpinner />;
   if (!chit) return (
@@ -5023,8 +5276,10 @@ export default function ChitDetailPage() {
   );
   const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
   const chitIsLottery = chit.chitType === 'LOTTERY';
-  const scheduleTabLabel = chitIsLottery ? 'Payouts' : 'Schedule';
-  const TABS = ['Overview', 'Members', ...(isReservation || chitIsLottery ? [scheduleTabLabel] : []), 'Draws', 'Winners', ...(isAdmin ? ['Audit'] : [])];
+  const chitIsAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
+  const scheduleTabLabel = chitIsLottery ? 'Payouts' : chitIsAuction ? 'Pot Amounts' : 'Schedule';
+  // Show schedule/payouts tab for all chit types — reservation/lottery/auction all have per-draw payout amounts
+  const TABS = ['Overview', 'Members', scheduleTabLabel, 'Draws', 'Winners', ...(isAdmin ? ['Audit'] : [])];
 
   // True participant count = enrolled members + members with a reservation but no enrollment
   const enrolledIds = new Set(topEnrollments.map((e) => String(e.memberId ?? e.id)));
@@ -5098,6 +5353,28 @@ export default function ChitDetailPage() {
                   ⏸ Paused {chit.totalPausedMonths > 0 ? `· ${chit.totalPausedMonths} months paused` : ''}
                 </span>
               )}
+              {/* Live auction badge */}
+              {liveAuction && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/chits/${id}/auction/${liveAuction.id}`)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 cursor-pointer hover:bg-red-200 transition-colors"
+                  style={{ boxShadow: '0 0 0 2px rgba(239,68,68,0.3)' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse inline-block" />
+                  Live Auction
+                </button>
+              )}
+              {pendingAuctionHeader && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/chits/${id}/auction/${pendingAuctionHeader.id}`)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 cursor-pointer hover:bg-amber-200 transition-colors"
+                >
+                  <Gavel size={11} />
+                  Auction Pending
+                </button>
+              )}
             </div>
             {chit.description && <p className="text-sm text-gray-500 mt-1">{chit.description}</p>}
           </div>
@@ -5156,7 +5433,7 @@ export default function ChitDetailPage() {
         <Tabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
         {activeTab === 'Overview'  && <OverviewTab chit={chit} />}
         {activeTab === 'Members'   && <MembersTab chitId={id} chit={chit} />}
-        {(activeTab === 'Schedule' || activeTab === 'Payouts') && <ReservationScheduleTab chitId={id} chit={chit} />}
+        {(activeTab === 'Schedule' || activeTab === 'Payouts' || activeTab === 'Pot Amounts') && <ReservationScheduleTab chitId={id} chit={chit} />}
         {activeTab === 'Draws'     && <DrawsTab chitId={id} chit={chit} />}
         {activeTab === 'Winners'   && <WinnersTab chitId={id} chit={chit} winnerSelectionMode={chit.winnerSelectionMode} />}
         {activeTab === 'Audit'     && isAdmin && <AuditTab chitId={id} />}

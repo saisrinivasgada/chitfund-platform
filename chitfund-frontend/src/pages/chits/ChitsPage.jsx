@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary, getMyTenantLimits } from '../../services/api';
+import { getChits, createChit, getMembers, getLatestDrawNumbers, getDeletedChits, getCancelledChits, listStaff, getChitOutstandingSummary, getMyTenantLimits, listAuctions } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -11,7 +11,7 @@ import FormField, { Input, Select, Textarea, DateInput } from '../../components/
 import { CardGridSkeleton } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check } from 'lucide-react';
+import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Radio, CheckCircle } from 'lucide-react';
 import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 
 const MODE_LABELS = {
@@ -89,6 +89,7 @@ function CreateChitModal({ onClose }) {
   const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
   const [step, setStep] = useState(1);          // 1=type 2=basic 3=contribution 4=schedule
   const [chitType, setChitType] = useState('');
+  const [auctionMode, setAuctionMode] = useState('ONLINE'); // ONLINE or OFFLINE; only used when chitType=AUCTION
 
   // Fetch plan limits to check allowed chit types
   const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
@@ -206,6 +207,7 @@ function CreateChitModal({ onClose }) {
       postPayoutContributionEnabled: contrib.enabled,
       defaultPostPayoutContribution: contrib.enabled && contrib.amount ? Number(contrib.amount) : null,
       winnerSelectionMode: chitType,
+      auctionMode: chitType === 'AUCTION' ? auctionMode : null,
       reservationSchedule,
     });
   }
@@ -292,6 +294,39 @@ function CreateChitModal({ onClose }) {
               );
             })}
           </div>
+          {/* Auction mode toggle — only shown when AUCTION type is selected */}
+          {chitType === 'AUCTION' && (
+            <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Auction Mode</p>
+              <p className="text-xs text-amber-700">How will members place their bids?</p>
+              <div className="flex gap-3 mt-2">
+                {[
+                  { value: 'ONLINE',  label: 'Online',  desc: 'Live bidding room in the app — real-time updates' },
+                  { value: 'OFFLINE', label: 'Offline', desc: 'In-person meeting — admin records winner manually' },
+                ].map(({ value, label, desc }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setAuctionMode(value)}
+                    className={`flex-1 text-left rounded-lg border px-3 py-2.5 transition-all cursor-pointer ${
+                      auctionMode === value
+                        ? 'border-amber-500 bg-white shadow-sm'
+                        : 'border-amber-200 bg-amber-50 hover:bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <div className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
+                        auctionMode === value ? 'border-amber-600 bg-amber-600' : 'border-amber-400'
+                      }`} />
+                      <span className="text-sm font-semibold text-gray-800">{label}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 ml-5">{desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
             <Button onClick={() => setStep(2)} disabled={!chitType} className="flex-1">
@@ -601,6 +636,7 @@ function CreateChitModal({ onClose }) {
 function ChitCard({ chit, onClick, isBehind }) {
   const totalAmount = chit.chitValue ?? chit.totalAmount ?? (chit.installmentAmount ?? 0) * (chit.totalMembers ?? 0);
   const isCompleted = chit.status === 'COMPLETED';
+  const isAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
 
   const { data: outstanding } = useQuery({
     queryKey: ['chit-outstanding', chit.id],
@@ -608,6 +644,16 @@ function ChitCard({ chit, onClick, isBehind }) {
     enabled: isCompleted,
     staleTime: 5 * 60_000,
   });
+
+  const { data: auctionSessions = [] } = useQuery({
+    queryKey: ['auctions', chit.id],
+    queryFn: () => listAuctions(chit.id),
+    enabled: isAuction && chit.status === 'ACTIVE',
+    refetchInterval: 20_000,
+    staleTime: 10_000,
+  });
+  const liveAuction = auctionSessions.find((a) => a.status === 'OPEN');
+  const pendingAuction = !liveAuction && auctionSessions.find((a) => a.status === 'PENDING');
 
   const hasOutstanding = isCompleted && outstanding && Number(outstanding.totalOutstanding) > 0;
 
@@ -627,7 +673,20 @@ function ChitCard({ chit, onClick, isBehind }) {
         {/* Badges row */}
         <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
           <Badge variant={statusBadge(chit.status)}>{chit.status ?? 'DRAFT'}</Badge>
-          {isBehind && (
+          {liveAuction && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-full"
+              style={{ boxShadow: '0 0 0 2px rgba(239,68,68,0.25)', animation: 'pulse 2s cubic-bezier(0.4,0,0.6,1) infinite' }}>
+              <Radio size={9} className="text-red-600" />
+              Live Auction
+            </span>
+          )}
+          {pendingAuction && !liveAuction && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+              <Gavel size={9} />
+              Auction Pending
+            </span>
+          )}
+          {isBehind && !liveAuction && (
             <span title="Draw not opened for current month"
               className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block" />
@@ -992,6 +1051,7 @@ export default function ChitsPage() {
   const { data: chits = [], isLoading } = useQuery({
     queryKey: ['chits'],
     queryFn: () => getChits(),
+    staleTime: 30_000,
   });
 
   const { data: limits } = useQuery({
@@ -1008,6 +1068,7 @@ export default function ChitsPage() {
     queryKey: ['chits', 'deleted'],
     queryFn: () => getDeletedChits({ size: 100 }),
     enabled: showMore && canSeeDeleted,
+    staleTime: 60_000,
   });
   const deletedChits = deletedData.content ?? [];
 
@@ -1015,6 +1076,7 @@ export default function ChitsPage() {
     queryKey: ['chits', 'cancelled'],
     queryFn: () => getCancelledChits({ size: 100 }),
     enabled: showMore && canSeeDeleted,
+    staleTime: 60_000,
   });
   const cancelledChits = cancelledData.content ?? [];
 
@@ -1220,6 +1282,24 @@ export default function ChitsPage() {
         <BoardView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} />
       ) : (
         <ListView chits={boardChits} onChitClick={(id) => navigate(`/chits/${id}`)} behindChitIds={behindChitIds} page={listPage} setPage={setListPage} />
+      )}
+
+      {/* Completed chits quick-access strip — visible when not already in More view */}
+      {!showMore && completedChits.length > 0 && (
+        <div className="flex items-center justify-between px-5 py-3 bg-green-50 border border-green-200 rounded-xl">
+          <div className="flex items-center gap-2">
+            <CheckCircle size={15} className="text-green-600 flex-shrink-0" />
+            <span className="text-sm font-medium text-green-800">
+              {completedChits.length} completed chit fund{completedChits.length !== 1 ? 's' : ''} archived
+            </span>
+          </div>
+          <button
+            onClick={() => { setShowMore(true); setMoreFilter('completed'); setMorePage(0); }}
+            className="flex items-center gap-1 text-sm font-semibold text-green-700 hover:text-green-900 transition-colors"
+          >
+            View all <ArrowRight size={14} />
+          </button>
+        </div>
       )}
 
       {showModal && <CreateChitModal onClose={() => setShowModal(false)} />}

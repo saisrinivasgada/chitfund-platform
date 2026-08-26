@@ -16,10 +16,12 @@ import { PageSpinner } from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
 import { ConfirmDialog, DestructiveDialog } from '../../components/ui/ConfirmDialog';
 import OpenDrawModal, { computeDefaultDueDate } from '../../components/draws/OpenDrawModal';
+import OpenAuctionModal from '../../components/draws/OpenAuctionModal';
+import { listAuctions } from '../../services/api';
 import {
   Shuffle, BookOpen, Trophy, CheckCircle, XCircle, Clock,
   Plus, AlertTriangle, ChevronDown, ChevronRight, Calendar,
-  ExternalLink,
+  ExternalLink, Gavel,
 } from 'lucide-react';
 
 function fmtDate(d) {
@@ -126,9 +128,17 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
   const [pendingClose,    setPendingClose]   = useState(null);
   const [pendingDelete,   setPendingDelete]  = useState(null);
   const [expanded,        setExpanded]       = useState(null);
+  const [openAuctionDraw, setOpenAuctionDraw] = useState(null); // draw object for which to open auction
 
   const { data: draws = [],      isLoading } = useQuery({ queryKey: ['draws', chitId],       queryFn: () => getDraws(chitId) });
   const { data: winners = [] }               = useQuery({ queryKey: ['winners', chitId],     queryFn: () => getWinners(chitId) });
+  const isAuctionChit = chit?.winnerSelectionMode === 'AUCTION' || chit?.chitType === 'AUCTION';
+  const { data: auctions = [] } = useQuery({
+    queryKey: ['auctions', chitId],
+    queryFn: () => listAuctions(chitId),
+    enabled: isAuctionChit,
+  });
+  const auctionByMonth = Object.fromEntries(auctions.map((a) => [a.monthNumber, a]));
   const { data: chitPayouts = [] }           = useQuery({ queryKey: ['chit-payouts', chitId], queryFn: () => getPayoutsByChit(chitId) });
   const { data: staffList = [] }             = useQuery({ queryKey: ['staff'],               queryFn: listStaff });
   const { data: allMembers = [] }            = useQuery({ queryKey: ['members'],              queryFn: getMembers });
@@ -290,23 +300,48 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
                       <ChevronDown size={15} className={`text-gray-400 flex-shrink-0 transition-transform ${isExp ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {isAdmin && d.status === 'OPEN' && (
-                      <div className="flex gap-2 flex-shrink-0">
+                    <div className="flex gap-2 flex-shrink-0 flex-wrap">
+                      {/* Open Auction button — shown for AWAITING_AUCTION draws with no session yet */}
+                      {isAdmin && isAuctionChit && d.status === 'AWAITING_AUCTION' && !auctionByMonth[d.monthNumber] && (
                         <Button
-                          variant="danger" size="sm"
-                          onClick={() => setPendingDelete({ drawId: d.id, monthNumber: d.monthNumber })}
+                          size="sm"
+                          variant="primary"
+                          onClick={() => setOpenAuctionDraw(d)}
                         >
-                          Delete
+                          <Gavel size={13} /> Open Auction
                         </Button>
+                      )}
+                      {/* Auction room button — shown when an auction session exists */}
+                      {isAuctionChit && auctionByMonth[d.monthNumber] && (
                         <Button
-                          variant="secondary" size="sm"
-                          loading={closeMutation.isPending}
-                          onClick={() => setPendingClose({ drawId: d.id, outstandingCount: d.outstandingCount ?? 0 })}
+                          size="sm"
+                          variant={auctionByMonth[d.monthNumber].status === 'OPEN' ? 'primary' : 'secondary'}
+                          onClick={() => navigate(`/chits/${chitId}/auction/${auctionByMonth[d.monthNumber].id}`)}
                         >
-                          <CheckCircle size={13} /> Close
+                          <Gavel size={13} />
+                          {auctionByMonth[d.monthNumber].status === 'OPEN' ? 'Live Auction' : 'View Auction'}
                         </Button>
-                      </div>
-                    )}
+                      )}
+                      {isAdmin && (d.status === 'OPEN' || d.status === 'AWAITING_AUCTION') && (
+                        <>
+                          <Button
+                            variant="danger" size="sm"
+                            onClick={() => setPendingDelete({ drawId: d.id, monthNumber: d.monthNumber })}
+                          >
+                            Delete
+                          </Button>
+                          {d.status === 'OPEN' && (
+                            <Button
+                              variant="secondary" size="sm"
+                              loading={closeMutation.isPending}
+                              onClick={() => setPendingClose({ drawId: d.id, outstandingCount: d.outstandingCount ?? 0 })}
+                            >
+                              <CheckCircle size={13} /> Close
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* Progress bar */}
@@ -369,6 +404,14 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
           chitId={chitId}
           draws={draws}
           onClose={() => setShowOpenModal(false)}
+        />
+      )}
+      {openAuctionDraw && (
+        <OpenAuctionModal
+          chitId={chitId}
+          chit={chit}
+          draw={openAuctionDraw}
+          onClose={() => setOpenAuctionDraw(null)}
         />
       )}
       {showSkipModal && (

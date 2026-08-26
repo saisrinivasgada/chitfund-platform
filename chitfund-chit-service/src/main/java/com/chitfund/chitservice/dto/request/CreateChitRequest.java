@@ -1,5 +1,6 @@
 package com.chitfund.chitservice.dto.request;
 
+import com.chitfund.chitservice.domain.enums.AuctionMode;
 import com.chitfund.chitservice.domain.enums.ChitType;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import jakarta.validation.constraints.*;
@@ -58,6 +59,9 @@ public class CreateChitRequest {
 
     // Optional winner selection mode (defaults to RESERVATION for RESERVATION type)
     private WinnerSelectionMode winnerSelectionMode;
+
+    // Required when winnerSelectionMode = AUCTION: ONLINE (live app bidding) or OFFLINE (in-person)
+    private AuctionMode auctionMode;
 
     // Optional reservation schedule supplied at creation time (can be added later)
     private List<ReservationSlotRequest> reservationSchedule;

@@ -84,6 +84,7 @@ public class ChitService {
                 .durationMonths(req.getNumberOfMonths())
                 .monthlyDueDate(req.getMonthlyDueDate())
                 .winnerSelectionMode(mode)
+                .auctionMode(req.getAuctionMode())
                 .startDate(req.getStartDate())
                 .endDate(endDate)
                 .postPayoutContributionEnabled(req.isPostPayoutContributionEnabled())
@@ -93,6 +94,11 @@ public class ChitService {
                 .build();
 
         chit = chitRepository.save(chit);
+
+        log.info("Chit created: id={} name='{}' type={} mode={} value={} installment={} members={} duration={}mo createdBy={}",
+                chit.getId(), chit.getName(), chit.getChitType(), mode,
+                chit.getChitValue(), chit.getInstallmentAmount(),
+                chit.getTotalMembers(), chit.getDurationMonths(), createdBy);
 
         if (req.getReservationSchedule() != null && !req.getReservationSchedule().isEmpty()) {
             // Admin supplied a (partial or full) schedule — save as-is
@@ -157,6 +163,17 @@ public class ChitService {
                 .build();
     }
 
+    // Hibernate may return UUID columns as String/byte[] depending on dialect config — convert safely.
+    private static UUID toUUID(Object val) {
+        if (val instanceof UUID u) return u;
+        if (val instanceof String s) return UUID.fromString(s);
+        if (val instanceof byte[] b) {
+            java.nio.ByteBuffer buf = java.nio.ByteBuffer.wrap(b);
+            return new UUID(buf.getLong(), buf.getLong());
+        }
+        return null;
+    }
+
     // Batch-enrich a list of chits with 2 GROUP BY queries instead of 2N per-row queries.
     private List<ChitResponse> enrichPage(List<Chit> chits) {
         if (chits.isEmpty()) return List.of();
@@ -164,12 +181,12 @@ public class ChitService {
 
         Map<UUID, Long> enrolledCounts = enrollmentRepository.countActiveByChitIds(ids).stream()
                 .collect(Collectors.toMap(
-                        m -> (UUID) m.get("chitId"),
+                        m -> toUUID(m.get("chitId")),
                         m -> ((Number) m.get("cnt")).longValue(),
                         (a, b) -> a));
         Map<UUID, Long> winnerCounts = winnerRepository.countByChitIds(ids).stream()
                 .collect(Collectors.toMap(
-                        m -> (UUID) m.get("chitId"),
+                        m -> toUUID(m.get("chitId")),
                         m -> ((Number) m.get("cnt")).longValue(),
                         (a, b) -> a));
 
@@ -190,6 +207,14 @@ public class ChitService {
 
         if (activatingFromDraft) {
             planLimitChecker.checkCanActivateChit();
+            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.AUCTION) {
+                long enrolled = enrollmentRepository.countByChitIdAndActiveTrue(chit.getId());
+                if (enrolled < chit.getTotalMembers()) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                            "Cannot activate — only " + enrolled + " of " + chit.getTotalMembers()
+                                    + " spots are filled. Enroll all members before activating an auction chit.");
+                }
+            }
         }
         boolean completing = request.getStatus() == ChitStatus.COMPLETED;
         boolean revertingToDraft = request.getStatus() == ChitStatus.DRAFT
@@ -211,7 +236,10 @@ public class ChitService {
         }
         ChitResponse response = enrich(chitRepository.save(chit));
         if (activatingFromDraft) {
-            syncEnrollmentsFromSchedule(chit);
+            // AUCTION chits manage their own enrollment (not via reservation schedule)
+            if (chit.getWinnerSelectionMode() != WinnerSelectionMode.AUCTION) {
+                syncEnrollmentsFromSchedule(chit);
+            }
             final Chit activatedChit = chit;
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() {

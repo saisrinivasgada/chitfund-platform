@@ -14,7 +14,7 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
 
     List<MonthlyWinner> findByChitIdOrderByMonthNumberAsc(UUID chitId);
 
-    Optional<MonthlyWinner> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
+    List<MonthlyWinner> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
     boolean existsByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 

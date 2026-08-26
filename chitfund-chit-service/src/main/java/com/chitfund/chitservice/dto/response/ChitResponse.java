@@ -1,5 +1,6 @@
 package com.chitfund.chitservice.dto.response;
 
+import com.chitfund.chitservice.domain.enums.AuctionMode;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ChitType;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
@@ -29,6 +30,7 @@ public class ChitResponse {
     private Integer monthlyDueDate;
 
     private WinnerSelectionMode winnerSelectionMode;
+    private AuctionMode auctionMode;
     private ChitStatus status;
 
     private boolean postPayoutContributionEnabled;

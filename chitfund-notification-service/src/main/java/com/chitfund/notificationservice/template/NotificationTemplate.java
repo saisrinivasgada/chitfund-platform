@@ -58,6 +58,30 @@ public enum NotificationTemplate {
     PROFILE_UPDATED(
         // Params: fieldChanged, newValue
         "Your profile has been updated by an admin. {fieldChanged} is now set to: {newValue}."
+    ),
+
+    AUCTION_OUTBID(
+        // Params: bidAmount, chitName, drawNumber
+        "You've been outbid in chit '{chitName}' Draw {drawNumber}! " +
+        "Someone placed a lower bid of Rs.{bidAmount}. Open the auction room to place a new bid."
+    ),
+
+    AUCTION_WINNING(
+        // Params: bidAmount, chitName, drawNumber
+        "You're leading in chit '{chitName}' Draw {drawNumber}! " +
+        "Your bid of Rs.{bidAmount} is currently the lowest. Stay alert."
+    ),
+
+    AUCTION_WON(
+        // Params: chitName, drawNumber, amount
+        "Congratulations! You won the auction for chit '{chitName}' Draw {drawNumber} at Rs.{amount}. " +
+        "Your payout will be processed shortly."
+    ),
+
+    AUCTION_LOST(
+        // Params: chitName, drawNumber
+        "Auction closed for chit '{chitName}' Draw {drawNumber}. " +
+        "Better luck next draw!"
     );
 
     private final String template;
@@ -83,6 +107,10 @@ public enum NotificationTemplate {
             case PAYOUT_DISBURSED -> PAYOUT_DISBURSED;
             case CASH_COLLECTED   -> CASH_COLLECTED;
             case PROFILE_UPDATED  -> PROFILE_UPDATED;
+            case AUCTION_OUTBID   -> AUCTION_OUTBID;
+            case AUCTION_WINNING  -> AUCTION_WINNING;
+            case AUCTION_WON      -> AUCTION_WON;
+            case AUCTION_LOST     -> AUCTION_LOST;
         };
     }
 }

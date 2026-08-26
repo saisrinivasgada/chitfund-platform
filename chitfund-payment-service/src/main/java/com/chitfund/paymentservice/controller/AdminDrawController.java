@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.paymentservice.dto.request.ApplyAuctionDividendRequest;
 import com.chitfund.paymentservice.dto.request.OpenMonthRequest;
 import com.chitfund.paymentservice.dto.request.SkipMonthRequest;
 import com.chitfund.paymentservice.dto.response.DrawSummaryResponse;
@@ -150,6 +151,49 @@ public class AdminDrawController {
     public ResponseEntity<ApiResponse<List<DrawSummaryResponse>>> getRecentDraws(
             @RequestParam(defaultValue = "60") int days) {
         return ResponseEntity.ok(ApiResponse.success(drawService.getRecentDraws(days)));
+    }
+
+    /**
+     * Internal endpoint — called by chit-service after an auction closes.
+     * Transitions the draw from AWAITING_AUCTION → OPEN and creates payment records
+     * with gross installment, dividend deduction, and net amount due per member.
+     */
+    @PostMapping("/internal/apply-auction-dividend")
+    @PreAuthorize("true")
+    public ResponseEntity<Void> applyAuctionDividend(
+            @Valid @RequestBody ApplyAuctionDividendRequest request,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        List<ChitMonthDrawService.MemberSpotEntry> memberSpots = request.getMemberSpots().stream()
+                .map(ms -> new ChitMonthDrawService.MemberSpotEntry(ms.getMemberId(), ms.getSpots()))
+                .collect(java.util.stream.Collectors.toList());
+        drawService.applyAuctionDividend(
+                request.getChitId(), request.getMonthNumber(),
+                request.getGrossInstallmentAmount(), request.getDividendPerSpot(),
+                memberSpots, tenantId);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Internal endpoint — called by chit-service when admin voids/re-opens a closed auction.
+     * Reverts the draw from OPEN → AWAITING_AUCTION and removes outstanding payment records.
+     */
+    @PostMapping("/internal/reverse-auction-dividend")
+    @PreAuthorize("true")
+    public ResponseEntity<Void> reverseAuctionDividend(
+            @RequestBody java.util.Map<String, Object> body,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        UUID chitId = UUID.fromString((String) body.get("chitId"));
+        Integer monthNumber = (Integer) body.get("monthNumber");
+        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId);
+        return ResponseEntity.ok().build();
     }
 
     /**

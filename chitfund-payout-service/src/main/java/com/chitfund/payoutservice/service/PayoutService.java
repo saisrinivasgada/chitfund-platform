@@ -401,7 +401,7 @@ public class PayoutService {
     }
 
     private Payout findOrThrowForWrite(UUID id) {
-        return payoutRepository.findByIdForUpdate(id)
+        return payoutRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYOUT_NOT_FOUND,
                         "Payout not found: " + id));
     }

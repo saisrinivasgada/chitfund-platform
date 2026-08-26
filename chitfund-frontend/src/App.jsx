@@ -42,6 +42,7 @@ import PaymentsPage, {
 import PayoutsPage from './pages/payouts/PayoutsPage';
 import PayoutDetailPage from './pages/payouts/PayoutDetailPage';
 import DrawsPage from './pages/draws/DrawsPage';
+import AuctionRoomPage from './pages/auction/AuctionRoomPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import MyAccountPage from './pages/admin/MyAccountPage';
 import AdminMemberViewPage from './pages/admin/AdminMemberViewPage';
@@ -125,6 +126,7 @@ export default function App() {
         <Route path="/payouts" element={<PayoutsPage />} />
         <Route path="/payouts/:payoutId" element={<PayoutDetailPage />} />
         <Route path="/draws" element={<DrawsPage />} />
+        <Route path="/chits/:chitId/auction/:auctionId" element={<AuctionRoomPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/my-account" element={<MyAccountPage />} />
         <Route path="/treasury" element={<TreasuryPage />} />

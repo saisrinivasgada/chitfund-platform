@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   getChits, getMembers, getPendingPayouts, getWalletBalance,
   getActiveCashRequests, getPendingRemittance, listStaff,
   getOrgReservations, getCashRequestSummary, getWinners, getAllPayouts,
-  getMyReferralInfo, getMyEffectiveLimits, getPendingSettlements,
+  getMyReferralInfo, getMyEffectiveLimits, getPendingSettlements, listAuctions,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
@@ -18,7 +18,7 @@ import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
   ArrowRight, Wallet, Truck, Clock, Calendar, Building2,
-  CheckCircle, XCircle, PackageCheck, AlertTriangle, Copy, Check, ShieldAlert,
+  CheckCircle, XCircle, PackageCheck, AlertTriangle, Copy, Check, ShieldAlert, Gavel,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
@@ -269,12 +269,14 @@ export default function DashboardPage() {
     queryKey: ['chits'],
     queryFn: () => getChits(),
     staleTime: 30_000,
+    retry: false,
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members'],
     queryFn: () => getMembers({ size: 50 }),
     staleTime: 60_000,
+    retry: false,
   });
 
   // Pending Disbursement = payouts in PENDING status
@@ -383,6 +385,27 @@ export default function DashboardPage() {
   }
 
   const activeChits = chits.filter((c) => c.status === 'ACTIVE');
+  const activeAuctionChits = activeChits.filter((c) => c.chitType === 'AUCTION' || c.winnerSelectionMode === 'AUCTION');
+
+  const auctionSessionQueries = useQueries({
+    queries: activeAuctionChits.map((c) => ({
+      queryKey: ['auctions', c.id],
+      queryFn: () => listAuctions(c.id),
+      enabled: isAdmin,
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+    })),
+  });
+  const liveAuctions = activeAuctionChits.flatMap((c, i) => {
+    const sessions = auctionSessionQueries[i]?.data ?? [];
+    return sessions.filter((a) => a.status === 'OPEN').map((a) => ({ ...a, chitName: c.name, chitId: c.id }));
+  });
+  const pendingAuctions = activeAuctionChits.flatMap((c, i) => {
+    const sessions = auctionSessionQueries[i]?.data ?? [];
+    const hasOpen = sessions.some((a) => a.status === 'OPEN');
+    if (hasOpen) return [];
+    return sessions.filter((a) => a.status === 'PENDING').map((a) => ({ ...a, chitName: c.name, chitId: c.id }));
+  });
 
   const { data: effectiveLimits } = useQuery({
     queryKey: ['my-effective-limits'],
@@ -509,6 +532,52 @@ export default function DashboardPage() {
           />
         </div>
       </div>
+
+      {/* ── Live Auctions ───────────────────────────────────────────────── */}
+      {isAdmin && (liveAuctions.length > 0 || pendingAuctions.length > 0) && (
+        <div>
+          <SectionHeader icon={Gavel} color="#DC2626" title="Auctions" />
+          <div className="space-y-2">
+            {liveAuctions.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => navigate(`/chits/${a.chitId}/auction/${a.id}`)}
+                className="w-full bg-red-50 rounded-xl border border-red-200 shadow-sm p-4 flex items-center gap-3 text-left hover:border-red-400 transition-all cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-red-100">
+                  <Gavel size={16} className="text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
+                    <p className="text-sm font-semibold text-gray-900">{a.chitName} — Draw {a.monthNumber}</p>
+                  </div>
+                  <p className="text-xs text-red-600 font-medium">Live — bidding in progress</p>
+                </div>
+                <ArrowRight size={14} className="text-red-500 flex-shrink-0" />
+              </button>
+            ))}
+            {pendingAuctions.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => navigate(`/chits/${a.chitId}/auction/${a.id}`)}
+                className="w-full bg-white rounded-xl border border-amber-200 shadow-sm p-4 flex items-center gap-3 text-left hover:border-amber-400 transition-all cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-amber-50">
+                  <Gavel size={16} className="text-amber-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{a.chitName} — Draw {a.monthNumber}</p>
+                  <p className="text-xs text-amber-600 font-medium">Auction pending — not yet started</p>
+                </div>
+                <ArrowRight size={14} className="text-amber-500 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Cash Collections (workflow order) ───────────────────────────── */}
       {isAdmin && (

@@ -41,6 +41,11 @@ const INVALIDATIONS: Record<string, string[][]> = {
   IN_APP_UPDATED: [
     ['m-unread'],
   ],
+  AUCTION_UPDATED: [
+    ['m-auctions'],
+    ['m-chits'],
+    ['member-chits'],
+  ],
 };
 
 export function useRealtimeUpdates(enabled = true) {

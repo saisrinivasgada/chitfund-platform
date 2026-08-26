@@ -16,6 +16,7 @@ import {
   updateReservationSlot, hardDeleteReservationSlot,
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
+  openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -141,7 +142,7 @@ const SLOT_COLOR: Record<string, string> = {
   UNALLOCATED: C.gray400, RESERVED: C.navy, VOIDED: C.red, PROCESSED: C.green,
 };
 
-type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule' | 'audit';
+type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule' | 'audit' | 'auction';
 
 export default function AdminChitsScreen() {
   const { isExpired } = useUIStore();
@@ -285,7 +286,7 @@ export default function AdminChitsScreen() {
   const { data: winners = [] } = useQuery({
     queryKey: ['a-winners', selected?.id],
     queryFn: () => getWinners(selected!.id),
-    enabled: !!selected?.id && (detailTab === 'winners' || detailTab === 'draws'),
+    enabled: !!selected?.id,
   });
   const { data: draws = [], refetch: refetchDraws } = useQuery({
     queryKey: ['a-draws', selected?.id],
@@ -316,6 +317,28 @@ export default function AdminChitsScreen() {
     enabled: !!selected?.id && detailTab === 'audit',
     staleTime: 30_000,
   });
+  const { data: auctionSessions = [], refetch: refetchAuctions } = useQuery({
+    queryKey: ['m-auctions', selected?.id],
+    queryFn: () => listAuctions(selected!.id),
+    enabled: !!selected?.id && detailTab === 'auction',
+    refetchInterval: 15_000,
+  });
+
+  // ── Auction UI state ───────────────────────────────────────────────────────
+  const [showOpenAuction, setShowOpenAuction] = useState(false);
+  const [auctionMonthNumber, setAuctionMonthNumber] = useState('');
+  const [auctionPayoutAmount, setAuctionPayoutAmount] = useState('');
+  const [auctionDuration, setAuctionDuration] = useState<'none' | '30' | '60' | '120'>('60');
+  const [auctionMinBidStep, setAuctionMinBidStep] = useState('');
+  const [showCloseAuction, setShowCloseAuction] = useState(false);
+  const [closeAuctionSession, setCloseAuctionSession] = useState<any>(null);
+  const [proxyMemberId, setProxyMemberId] = useState('');
+  const [proxyBidAmount, setProxyBidAmount] = useState('');
+  const [closeWinnerId, setCloseWinnerId] = useState('');
+  const [closeWonAmount, setCloseWonAmount] = useState('');
+  const [showExtend, setShowExtend] = useState(false);
+  const [extendSession, setExtendSession] = useState<any>(null);
+  const [extendMinutes, setExtendMinutes] = useState('30');
 
   // ── Mutations: list/create ─────────────────────────────────────────────────
   function buildMonthRows(startDateStr: string, count: number, defaultPayout: string) {
@@ -448,13 +471,47 @@ export default function AdminChitsScreen() {
       const uniqueMembers = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))] as string[];
       const dueDate = odDueDate.trim() || computeDueDate(selected?.startDate, drawNum, selected?.monthlyDueDate);
 
+      // Per-member installment: winners pay postPayoutContribution per won slot, rest pay baseInstallment
+      const postPayoutEnabled = selected?.postPayoutContributionEnabled ?? false;
+      const postPayoutAmt = postPayoutEnabled
+        ? Number(selected?.defaultPostPayoutContribution ?? baseInstallment)
+        : baseInstallment;
+
+      const winCountByMember: Record<string, number> = {};
+      if (selected?.chitType === 'LOTTERY') {
+        // Lottery: use MonthlyWinner records — PROCESSED slot only exists for primary winner,
+        // but winners data covers additional winners added via Winners tab too
+        (winners as any[]).forEach((w: any) => {
+          const mid = String(w.memberId);
+          winCountByMember[mid] = (winCountByMember[mid] ?? 0) + 1;
+        });
+      } else {
+        // Reservation / Auction: each PROCESSED slot = one win for that member
+        (reservations as any[])
+          .filter((r: any) => r.status === 'PROCESSED' && r.memberId)
+          .forEach((r: any) => {
+            const mid = String(r.memberId);
+            winCountByMember[mid] = (winCountByMember[mid] ?? 0) + 1;
+          });
+      }
+
+      const spotCountByMember: Record<string, number> = {};
+      (enrollments as any[]).forEach((e: any) => {
+        const mid = String(e.memberId ?? e.id);
+        spotCountByMember[mid] = (spotCountByMember[mid] ?? 0) + 1;
+      });
+
       await openDraw({
         chitId: selected.id,
         monthNumber: drawNum,
         dueDate,
         installmentAmount: baseInstallment,
         maxCycles: selected?.totalMembers ?? drawNum,
-        members: uniqueMembers.map((mid: string) => ({ memberId: mid, amountDue: baseInstallment })),
+        members: uniqueMembers.map((mid: string) => {
+          const wins = winCountByMember[mid] ?? 0;
+          const spots = spotCountByMember[mid] ?? 1;
+          return { memberId: mid, amountDue: wins * postPayoutAmt + (spots - wins) * baseInstallment };
+        }),
       });
 
       if (selected?.chitType === 'LOTTERY') {
@@ -713,6 +770,23 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update details'),
   });
 
+  const proxyBidMut = useMutation({
+    mutationFn: () => placeBid({
+      chitId: selected!.id,
+      auctionId: activeAuction?.id,
+      bidAmount: Number(proxyBidAmount),
+      onBehalfOfMemberId: proxyMemberId,
+    }),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['m-auctions', selected?.id] });
+      setProxyBidAmount('');
+      setProxyMemberId('');
+      const name = enrollments.find((e: any) => e.memberId === proxyMemberId);
+      toast.saved(`Bid placed for ${memberMap[proxyMemberId] ?? 'member'}`);
+    },
+    onError: (e: any) => Alert.alert('Bid Failed', e.response?.data?.message ?? 'Could not place bid'),
+  });
+
   // ── Derived ────────────────────────────────────────────────────────────────
   const memberMap: Record<string, string> = Object.fromEntries([
     ...(staff as any[]).map((s) => [String(s.id), `${s.fullName ?? s.username} (Admin)`]),
@@ -721,6 +795,9 @@ export default function AdminChitsScreen() {
   const enrolledIds = new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id));
   const unenrolled = (members as any[]).filter((m) => !enrolledIds.has(m.id));
   const isLotteryChit = selected?.chitType === 'LOTTERY';
+  const isAuctionChit = selected?.chitType === 'AUCTION';
+
+  const activeAuction = (auctionSessions as any[]).find((s: any) => s.status === 'OPEN');
 
   // Aggregate spots per member (for lottery members tab display)
   const memberSpotMap: Record<string, { name: string; spots: number }> = {};
@@ -782,8 +859,9 @@ export default function AdminChitsScreen() {
   const TABS: { key: DetailTab; label: string }[] = [
     { key: 'info', label: 'Info' },
     { key: 'members', label: `Members (${(enrollments as any[]).length})` },
+    ...(isAuctionChit ? [{ key: 'auction' as DetailTab, label: activeAuction ? '🔴 Auction' : 'Auction' }] : []),
     { key: 'draws', label: 'Draws' },
-    { key: 'schedule', label: isLotteryChit ? 'Payouts' : 'Schedule' },
+    { key: 'schedule', label: isLotteryChit ? 'Payouts' : isAuctionChit ? 'Pot Amounts' : 'Schedule' },
     { key: 'winners', label: 'Winners' },
     { key: 'audit', label: 'Audit' },
   ];
@@ -1573,7 +1651,44 @@ export default function AdminChitsScreen() {
               );
             })()}
 
-            {detailTab === 'schedule' && !isLotteryChit && (
+            {/* ── Auction Pot Amounts Tab (read-only schedule) ────────────────────── */}
+            {detailTab === 'schedule' && isAuctionChit && (() => {
+              const activeSlots = (slotsList as any[]).filter((s: any) => s.status !== 'VOIDED');
+              return (
+                <View>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
+                    Scheduled gross pot amount per draw — this is the maximum members can bid from.
+                  </Text>
+                  {activeSlots.length === 0 ? (
+                    <View style={{ alignItems: 'center', paddingVertical: 30 }}>
+                      <Text style={{ fontSize: 14, color: C.gray500 }}>No pot amounts configured</Text>
+                    </View>
+                  ) : activeSlots.map((slot: any, i: number) => (
+                    <View key={slot.id ?? i} style={{
+                      backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8,
+                      borderWidth: 1, borderColor: C.gray200, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    }}>
+                      <View>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw {slot.monthNumber ?? i + 1}</Text>
+                        {slot.reservationMonth && (
+                          <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                            {(() => {
+                              const [y, m] = slot.reservationMonth.split('-').map(Number);
+                              return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+                            })()}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
+                        {slot.payoutAmount ? `₹${Number(slot.payoutAmount).toLocaleString('en-IN')}` : '—'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
+
+            {detailTab === 'schedule' && !isLotteryChit && !isAuctionChit && (
               <>
                 {/* Action buttons */}
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
@@ -1875,6 +1990,465 @@ export default function AdminChitsScreen() {
               </>
               );
             })()}
+
+            {/* ── Auction Tab ─────────────────────────────────────────────── */}
+            {detailTab === 'auction' && isAuctionChit && (() => {
+              const openDraws = (draws as any[]).filter((d: any) => d.status === 'PENDING' || d.status === 'OPEN');
+              return (
+                <>
+                  {/* Active auction banner */}
+                  {activeAuction ? (
+                    <View style={{ backgroundColor: '#FFF7ED', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#FED7AA' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' }} />
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: '#C2410C' }}>
+                            LIVE — Draw {activeAuction.monthNumber}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 12, color: '#9A3412', fontWeight: '600' }}>
+                          {activeAuction.status}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 12, color: '#7C2D12', marginBottom: 4 }}>
+                        Pot: ₹{Number(activeAuction.scheduledPayoutAmount ?? 0).toLocaleString('en-IN')}
+                        {'  ·  '}
+                        {activeAuction.closesAt
+                          ? `Closes ${new Date(activeAuction.closesAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                          : 'No timer'}
+                      </Text>
+                      {/* Bids */}
+                      {(activeAuction.bids ?? []).length > 0 && (
+                        <View style={{ marginTop: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E', marginBottom: 6, letterSpacing: 0.5 }}>
+                            BIDS ({(activeAuction.bids ?? []).length})
+                          </Text>
+                          {[...(activeAuction.bids ?? [])]
+                            .sort((a: any, b: any) => b.bidAmount - a.bidAmount)
+                            .map((bid: any, i: number) => {
+                              const mName = memberMap[bid.memberId] ?? 'Unknown';
+                              const isTop = i === 0;
+                              return (
+                                <View key={bid.id ?? i} style={{
+                                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                                  paddingVertical: 6, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: '#FED7AA',
+                                }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    {isTop && <Text style={{ fontSize: 14 }}>🏆</Text>}
+                                    <Text style={{ fontSize: 13, color: '#7C2D12', fontWeight: isTop ? '700' : '500' }}>{mName}</Text>
+                                  </View>
+                                  <Text style={{ fontSize: 13, fontWeight: '700', color: isTop ? '#D97706' : '#7C2D12' }}>
+                                    ₹{Number(bid.bidAmount).toLocaleString('en-IN')}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                        </View>
+                      )}
+                      {(activeAuction.bids ?? []).length === 0 && (
+                        <Text style={{ fontSize: 12, color: '#9A3412', marginTop: 6 }}>No bids placed yet.</Text>
+                      )}
+                      {/* Action buttons */}
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => { setExtendSession(activeAuction); setExtendMinutes('30'); setShowExtend(true); }}
+                          style={{ flex: 1, backgroundColor: '#F59E0B', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ Extend Time</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => {
+                            const topBid = [...(activeAuction.bids ?? [])].sort((a: any, b: any) => b.bidAmount - a.bidAmount)[0];
+                            setCloseAuctionSession(activeAuction);
+                            setCloseWinnerId(topBid?.memberId ?? '');
+                            setCloseWonAmount(String(topBid?.bidAmount ?? ''));
+                            setShowCloseAuction(true);
+                          }}
+                          style={{ flex: 1, backgroundColor: C.navy, borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>Close Auction</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Proxy bid panel — place bid on behalf of a member */}
+                      <View style={{ marginTop: 14, backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#BFDBFE' }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#1D4ED8', marginBottom: 2 }}>Place Bid on Behalf of Member</Text>
+                        <Text style={{ fontSize: 11, color: '#3B82F6', marginBottom: 10 }}>
+                          For members who can't use the app. Recorded in their name and fully audited.
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                          <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8 }}>
+                            <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '600', marginBottom: 4 }}>MEMBER</Text>
+                            {(enrollments as any[]).filter((e: any) => e.active).map((e: any) => (
+                              <TouchableOpacity
+                                key={e.memberId}
+                                onPress={() => setProxyMemberId(e.memberId)}
+                                style={{
+                                  paddingVertical: 6, paddingHorizontal: 8, borderRadius: 6, marginBottom: 2,
+                                  backgroundColor: proxyMemberId === e.memberId ? '#DBEAFE' : 'transparent',
+                                }}
+                              >
+                                <Text style={{ fontSize: 13, color: proxyMemberId === e.memberId ? '#1D4ED8' : C.gray700, fontWeight: proxyMemberId === e.memberId ? '700' : '400' }}>
+                                  {memberMap[e.memberId] ?? e.memberId}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                          <TextInput
+                            style={{ flex: 1, backgroundColor: C.white, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: C.gray900 }}
+                            placeholder="Bid amount (₹)"
+                            placeholderTextColor={C.gray400}
+                            keyboardType="numeric"
+                            value={proxyBidAmount}
+                            onChangeText={setProxyBidAmount}
+                          />
+                          <TouchableOpacity
+                            disabled={!proxyMemberId || !proxyBidAmount || proxyBidMut.isPending}
+                            onPress={() => proxyBidMut.mutate()}
+                            style={{
+                              backgroundColor: (!proxyMemberId || !proxyBidAmount || proxyBidMut.isPending) ? C.gray300 : '#1D4ED8',
+                              borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16,
+                            }}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                              {proxyBidMut.isPending ? '…' : 'Bid'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: C.gray200 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray700, marginBottom: 4 }}>No active auction</Text>
+                      <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>
+                        Open an auction for a draw to let members bid for the monthly payout.
+                      </Text>
+                      {openDraws.length > 0 && (
+                        <Button label="Open Auction" onPress={() => {
+                          const next = openDraws.find((d: any) => d.status === 'PENDING') ?? openDraws[0];
+                          const monthNum = Number(next.monthNumber ?? 0);
+                          setAuctionMonthNumber(String(monthNum));
+                          const scheduleSlot = (reservations as any[]).find(
+                            (r: any) => r.monthNumber === monthNum && r.status !== 'VOIDED'
+                          );
+                          setAuctionPayoutAmount(String(
+                            scheduleSlot?.payoutAmount
+                              ? Number(scheduleSlot.payoutAmount)
+                              : (selected?.installmentAmount && selected?.totalMembers
+                                  ? Number(selected.installmentAmount) * Number(selected.totalMembers)
+                                  : '')
+                          ));
+                          setAuctionMinBidStep('');
+                          setAuctionDuration('60');
+                          setShowOpenAuction(true);
+                        }} />
+                      )}
+                    </View>
+                  )}
+
+                  {/* Past sessions */}
+                  {(auctionSessions as any[]).filter((s: any) => s.status !== 'OPEN').length > 0 && (
+                    <View>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>
+                        PAST AUCTIONS
+                      </Text>
+                      {(auctionSessions as any[])
+                        .filter((s: any) => s.status !== 'OPEN')
+                        .map((s: any, i: number) => {
+                          const topBid = [...(s.bids ?? [])].sort((a: any, b: any) => b.bidAmount - a.bidAmount)[0];
+                          const winner = s.winnerId ? (memberMap[s.winnerId] ?? 'Unknown') : (topBid ? memberMap[topBid.memberId] ?? 'Unknown' : 'No bids');
+                          const isClosed = s.status === 'CLOSED';
+                          const isOnline = selected?.auctionMode === 'ONLINE';
+                          return (
+                            <View key={s.id ?? i} style={{
+                              backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8,
+                              borderWidth: 1, borderColor: C.gray200,
+                            }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw {s.monthNumber}</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '600', color: isClosed ? C.green : C.gray400 }}>
+                                  {s.status}
+                                </Text>
+                              </View>
+                              <Text style={{ fontSize: 12, color: C.gray500 }}>
+                                Winner: {winner}{'  ·  '}
+                                ₹{Number(s.wonAmount ?? topBid?.bidAmount ?? 0).toLocaleString('en-IN')}
+                                {'  ·  '}{(s.bids ?? []).length} bid{(s.bids ?? []).length !== 1 ? 's' : ''}
+                              </Text>
+                              {isClosed && (
+                                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                                  {isOnline && (
+                                    <TouchableOpacity
+                                      onPress={() => { setExtendSession(s); setExtendMinutes('30'); setShowExtend(true); }}
+                                      style={{ flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.navy, alignItems: 'center' }}
+                                    >
+                                      <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>Extend & Reopen</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                  <TouchableOpacity
+                                    onPress={async () => {
+                                      try {
+                                        await voidAuction({ chitId: selected!.id, auctionId: s.id });
+                                        refetchAuctions();
+                                        qc.invalidateQueries({ queryKey: ['a-winners', selected?.id] });
+                                        toast.saved('Auction voided — open a fresh auction for this draw');
+                                      } catch (e: any) {
+                                        Alert.alert('Error', e.response?.data?.message ?? 'Failed to void auction');
+                                      }
+                                    }}
+                                    style={{ flex: 1, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: C.red, alignItems: 'center' }}
+                                  >
+                                    <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>Re-auction</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                    </View>
+                  )}
+
+                  {(auctionSessions as any[]).length === 0 && !activeAuction && (
+                    <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 30, marginBottom: 8 }}>⚖️</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray600 }}>No auctions yet</Text>
+                    </View>
+                  )}
+                </>
+              );
+            })()}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Open Auction Modal ──────────────────────────────────────────────────── */}
+      <Modal visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
+        onRequestClose={() => setShowOpenAuction(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>Open Auction</Text>
+            <TouchableOpacity onPress={() => setShowOpenAuction(false)}>
+              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+              Open a live auction so enrolled members can bid for the monthly payout.
+            </Text>
+            {/* Draw number */}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Draw / Month Number</Text>
+            <TextInput
+              value={auctionMonthNumber}
+              onChangeText={setAuctionMonthNumber}
+              keyboardType="number-pad"
+              placeholder="e.g. 2"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+            />
+            {/* Payout amount */}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Gross Pot Amount (₹)</Text>
+            <TextInput
+              value={auctionPayoutAmount}
+              onChangeText={setAuctionPayoutAmount}
+              keyboardType="number-pad"
+              placeholder="e.g. 100000"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+            />
+            {/* Duration */}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Auction Duration</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {([
+                { label: 'No timer', value: 'none' as const },
+                { label: '30 min', value: '30' as const },
+                { label: '1 hour', value: '60' as const },
+                { label: '2 hours', value: '120' as const },
+              ] as { label: string; value: typeof auctionDuration }[]).map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => setAuctionDuration(opt.value)}
+                  style={{
+                    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5,
+                    borderColor: auctionDuration === opt.value ? C.navy : C.gray300,
+                    backgroundColor: auctionDuration === opt.value ? C.navy : C.white,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: auctionDuration === opt.value ? C.white : C.gray600 }}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {/* Min bid step — ONLINE only */}
+            {selected?.auctionMode === 'ONLINE' && (
+              <>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>
+                  Minimum Bid Step (₹) — Optional
+                </Text>
+                <TextInput
+                  value={auctionMinBidStep}
+                  onChangeText={setAuctionMinBidStep}
+                  keyboardType="number-pad"
+                  placeholder="e.g. 500 (leave blank for any lower bid)"
+                  placeholderTextColor={C.gray400}
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 20 }}
+                />
+              </>
+            )}
+            <Button
+              label="Open Auction"
+              onPress={async () => {
+                if (!auctionMonthNumber || !auctionPayoutAmount) {
+                  Alert.alert('Missing fields', 'Please fill draw number and payout amount.');
+                  return;
+                }
+                try {
+                  const closesAt = auctionDuration !== 'none'
+                    ? new Date(Date.now() + Number(auctionDuration) * 60_000).toISOString().replace('Z', '')
+                    : null;
+                  await openAuction({
+                    chitId: selected!.id,
+                    monthNumber: Number(auctionMonthNumber),
+                    scheduledPayoutAmount: Number(auctionPayoutAmount),
+                    closesAt,
+                    minBidStep: auctionMinBidStep ? Number(auctionMinBidStep) : undefined,
+                  } as any);
+                  setShowOpenAuction(false);
+                  refetchAuctions();
+                  toast.created('Auction opened');
+                } catch (e: any) {
+                  Alert.alert('Error', e.response?.data?.message ?? 'Failed to open auction');
+                }
+              }}
+            />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Close Auction Modal ─────────────────────────────────────────────────── */}
+      <Modal visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
+        onRequestClose={() => setShowCloseAuction(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>Close Auction</Text>
+            <TouchableOpacity onPress={() => setShowCloseAuction(false)}>
+              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 16 }}>
+              Finalize the auction. The winner will be recorded and a payout can be created.
+            </Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Winner (Member ID)</Text>
+            <TextInput
+              value={closeWinnerId}
+              onChangeText={setCloseWinnerId}
+              placeholder="Winner member ID"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+            />
+            {/* Winner name hint */}
+            {closeWinnerId && memberMap[closeWinnerId] && (
+              <Text style={{ fontSize: 12, color: C.green, marginTop: -10, marginBottom: 12, marginLeft: 4 }}>
+                ✓ {memberMap[closeWinnerId]}
+              </Text>
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Won Amount (₹)</Text>
+            <TextInput
+              value={closeWonAmount}
+              onChangeText={setCloseWonAmount}
+              keyboardType="number-pad"
+              placeholder="e.g. 98000"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 20 }}
+            />
+            <Button
+              label="Confirm & Close"
+              onPress={async () => {
+                if (!closeWinnerId || !closeWonAmount || !closeAuctionSession) {
+                  Alert.alert('Missing fields', 'Please provide winner and won amount.');
+                  return;
+                }
+                try {
+                  await closeAuction({
+                    chitId: selected!.id,
+                    auctionId: closeAuctionSession.id,
+                    winnerId: closeWinnerId,
+                    wonAmount: Number(closeWonAmount),
+                  });
+                  setShowCloseAuction(false);
+                  refetchAuctions();
+                  qc.invalidateQueries({ queryKey: ['a-winners', selected?.id] });
+                  toast.saved('Auction closed — winner recorded');
+                } catch (e: any) {
+                  Alert.alert('Error', e.response?.data?.message ?? 'Failed to close auction');
+                }
+              }}
+            />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Extend Time Modal ───────────────────────────────────────────────────── */}
+      <Modal visible={showExtend} animationType="slide" presentationStyle="formSheet"
+        onRequestClose={() => setShowExtend(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+            <Text style={T.h2}>{extendSession?.status === 'CLOSED' ? 'Reopen & Extend' : 'Extend Auction Time'}</Text>
+            <TouchableOpacity onPress={() => setShowExtend(false)}>
+              <Text style={{ fontSize: 28, color: C.gray400 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            {extendSession?.status === 'CLOSED' && (
+              <View style={{ backgroundColor: '#FFF7ED', borderRadius: 10, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#FED7AA' }}>
+                <Text style={{ fontSize: 12, color: '#92400E' }}>
+                  This auction was closed. Extending will reopen it — winner assignment and payment records will be reversed.
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Additional Time (minutes)</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+              {['15', '30', '60'].map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setExtendMinutes(m)}
+                  style={{
+                    flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5,
+                    borderColor: extendMinutes === m ? C.navy : C.gray300,
+                    backgroundColor: extendMinutes === m ? C.navy : C.white,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: extendMinutes === m ? C.white : C.gray600 }}>
+                    +{m} min
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Button
+              label={extendSession?.status === 'CLOSED' ? 'Reopen & Add Time' : 'Extend Time'}
+              onPress={async () => {
+                if (!extendSession) return;
+                try {
+                  await extendAuction({
+                    chitId: selected!.id,
+                    auctionId: extendSession.id,
+                    additionalMinutes: Number(extendMinutes),
+                  });
+                  setShowExtend(false);
+                  refetchAuctions();
+                  qc.invalidateQueries({ queryKey: ['a-winners', selected?.id] });
+                  toast.saved(extendSession?.status === 'CLOSED'
+                    ? `Auction reopened with ${extendMinutes} more minutes`
+                    : `Auction extended by ${extendMinutes} minutes`);
+                } catch (e: any) {
+                  Alert.alert('Error', e.response?.data?.message ?? 'Failed to extend auction');
+                }
+              }}
+            />
           </ScrollView>
         </SafeAreaView>
       </Modal>

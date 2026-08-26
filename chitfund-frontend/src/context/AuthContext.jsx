@@ -113,12 +113,23 @@ export function AuthProvider({ children }) {
         }
       }
     }
+
+    // api.js fires this when a silent token refresh succeeds mid-request.
+    // Update the in-memory token and reset the idle timer so the session stays alive.
+    function handleTokenRefreshed(e) {
+      setToken(e.detail.token);
+      setAuthToken(e.detail.token);
+      resetIdleTimer();
+    }
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
 
     return () => {
       if (idleTimer.current) clearTimeout(idleTimer.current);
       ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, resetIdleTimer));
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
     };
   }, [token, resetIdleTimer, logout]);
 

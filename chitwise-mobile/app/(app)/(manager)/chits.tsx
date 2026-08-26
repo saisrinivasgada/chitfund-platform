@@ -11,6 +11,7 @@ import {
   getDrawPayments, getPayoutsByChit,
   recordPayment, createPayout, disbursePayout,
   getReservations, updateReservationSlot, markSlotProcessed,
+  listAuctions, closeAuction, placeBid,
 } from '../../../services/api';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen,
@@ -31,7 +32,7 @@ const DRAW_STATUS_COLOR: Record<string, string> = {
   PENDING: C.gray400, OPEN: C.green, CLOSED: C.navy, SKIPPED: C.amber,
 };
 
-type DetailTab = 'draws' | 'members' | 'winners' | 'schedule' | 'info';
+type DetailTab = 'draws' | 'members' | 'winners' | 'schedule' | 'info' | 'auction';
 
 function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
   drawId: string; drawStatus: string;
@@ -131,6 +132,9 @@ export default function ManagerChitsScreen() {
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseAmount, setDisburseAmount] = useState('');
 
+  const [proxyMemberId, setProxyMemberId] = useState('');
+  const [proxyBidAmount, setProxyBidAmount] = useState('');
+
   // ── Queries ──────────────────────────────────────────────────────────────────
   const { data: chits = [], isLoading, refetch } = useQuery({
     queryKey: ['m-chits'], queryFn: getChits,
@@ -142,7 +146,7 @@ export default function ManagerChitsScreen() {
   const { data: enrollments = [] } = useQuery({
     queryKey: ['m-enrollments', selected?.id],
     queryFn: () => getEnrollments(selected!.id),
-    enabled: !!selected?.id && (detailTab === 'members' || detailTab === 'draws' || showOpenDraw),
+    enabled: !!selected?.id && (detailTab === 'members' || detailTab === 'draws' || detailTab === 'auction' || showOpenDraw),
   });
   const enrolledIds = new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id));
 
@@ -175,7 +179,38 @@ export default function ManagerChitsScreen() {
     staleTime: 30_000,
   });
 
+  const { data: auctionSessions = [], refetch: refetchAuctions } = useQuery({
+    queryKey: ['mg-auctions', selected?.id],
+    queryFn: () => listAuctions(selected!.id),
+    enabled: !!selected?.id && detailTab === 'auction',
+    refetchInterval: detailTab === 'auction' ? 10_000 : false,
+  });
+  const activeAuction = (auctionSessions as any[]).find((s: any) => s.status === 'OPEN');
+  const isAuctionChit = selected?.chitType === 'AUCTION' || selected?.winnerSelectionMode === 'AUCTION';
+
   // ── Mutations ────────────────────────────────────────────────────────────────
+  const proxyBidMut = useMutation({
+    mutationFn: () => placeBid({
+      chitId: selected!.id,
+      auctionId: activeAuction?.id,
+      bidAmount: Number(proxyBidAmount),
+      onBehalfOfMemberId: proxyMemberId,
+    }),
+    onSuccess: () => {
+      refetchAuctions();
+      setProxyBidAmount('');
+      setProxyMemberId('');
+      toast.saved(`Bid placed for ${memberMap[proxyMemberId] ?? 'member'}`);
+    },
+    onError: (e: any) => Alert.alert('Bid Failed', e.response?.data?.message ?? 'Could not place bid'),
+  });
+
+  const closeAuctionMut = useMutation({
+    mutationFn: () => closeAuction({ chitId: selected!.id, auctionId: activeAuction?.id }),
+    onSuccess: () => { refetchAuctions(); toast.saved('Auction closed'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to close'),
+  });
+
   const openDrawMut = useMutation({
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
@@ -461,14 +496,20 @@ export default function ManagerChitsScreen() {
               style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
               contentContainerStyle={{ paddingHorizontal: 12 }}
             >
-              {((['draws', 'members', 'winners', ...(selected?.chitType === 'RESERVATION' || selected?.winnerSelectionMode === 'RESERVATION' ? ['schedule'] : []), 'info']) as DetailTab[]).map((t) => (
+              {(([
+                'draws', 'members', 'winners',
+                ...(selected?.chitType === 'RESERVATION' || selected?.winnerSelectionMode === 'RESERVATION' ? ['schedule'] : []),
+                ...(isAuctionChit ? ['auction'] : []),
+                'info',
+              ]) as DetailTab[]).map((t) => (
                 <TouchableOpacity key={t} onPress={() => setDetailTab(t)}
                   style={{
                     paddingHorizontal: 14, paddingVertical: 12, marginRight: 4,
                     borderBottomWidth: 2, borderBottomColor: detailTab === t ? C.navy : 'transparent',
                   }}>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: detailTab === t ? C.navy : C.gray400 }}>
-                    {t === 'draws' ? 'Draws' : t === 'members' ? 'Members' : t === 'winners' ? 'Winners' : t === 'schedule' ? 'Schedule' : 'Info'}
+                    {t === 'draws' ? 'Draws' : t === 'members' ? 'Members' : t === 'winners' ? 'Winners'
+                      : t === 'schedule' ? 'Schedule' : t === 'auction' ? (activeAuction ? '🔴 Auction' : 'Auction') : 'Info'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -756,6 +797,148 @@ export default function ManagerChitsScreen() {
                 </ScrollView>
               );
             })()}
+
+            {/* ── AUCTION TAB ─────────────────────────────────────────────── */}
+            {detailTab === 'auction' && isAuctionChit && (
+              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+                refreshControl={<RefreshControl refreshing={false} onRefresh={refetchAuctions} tintColor={C.navy} />}
+              >
+                {activeAuction ? (
+                  <View style={{ backgroundColor: '#FFF7ED', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#FED7AA' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' }} />
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#C2410C' }}>
+                        LIVE — Draw {activeAuction.monthNumber}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#7C2D12', marginBottom: 4 }}>
+                      Pot: ₹{Number(activeAuction.scheduledPayoutAmount ?? 0).toLocaleString('en-IN')}
+                      {'  ·  '}
+                      {activeAuction.closesAt
+                        ? `Closes ${new Date(activeAuction.closesAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                        : 'No timer'}
+                    </Text>
+                    {/* Bid leaderboard */}
+                    {(activeAuction.bids ?? []).length > 0 && (
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#92400E', marginBottom: 6, letterSpacing: 0.5 }}>
+                          BIDS ({(activeAuction.bids ?? []).length})
+                        </Text>
+                        {[...(activeAuction.bids ?? [])]
+                          .sort((a: any, b: any) => b.bidAmount - a.bidAmount)
+                          .map((bid: any, i: number) => (
+                            <View key={bid.id ?? i} style={{
+                              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                              paddingVertical: 6, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: '#FED7AA',
+                            }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                {i === 0 && <Text style={{ fontSize: 14 }}>🏆</Text>}
+                                <Text style={{ fontSize: 13, color: '#7C2D12', fontWeight: i === 0 ? '700' : '500' }}>
+                                  {memberMap[bid.memberId] ?? 'Unknown'}
+                                </Text>
+                              </View>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: i === 0 ? '#D97706' : '#7C2D12' }}>
+                                ₹{Number(bid.bidAmount).toLocaleString('en-IN')}
+                              </Text>
+                            </View>
+                          ))}
+                      </View>
+                    )}
+                    {(activeAuction.bids ?? []).length === 0 && (
+                      <Text style={{ fontSize: 12, color: '#9A3412', marginTop: 6 }}>No bids placed yet.</Text>
+                    )}
+                    {/* Close auction */}
+                    <TouchableOpacity
+                      onPress={() => closeAuctionMut.mutate()}
+                      disabled={closeAuctionMut.isPending || (activeAuction.bids ?? []).length === 0}
+                      style={{
+                        marginTop: 12, backgroundColor: (activeAuction.bids ?? []).length === 0 ? C.gray300 : C.navy,
+                        borderRadius: 8, paddingVertical: 10, alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                        {closeAuctionMut.isPending ? 'Closing…' : 'Close Auction'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Proxy bid panel */}
+                    <View style={{ marginTop: 14, backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#BFDBFE' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#1D4ED8', marginBottom: 2 }}>Place Bid on Behalf of Member</Text>
+                      <Text style={{ fontSize: 11, color: '#3B82F6', marginBottom: 10 }}>
+                        For members who can't use the app. Recorded in their name and fully audited.
+                      </Text>
+                      <View style={{ marginBottom: 8 }}>
+                        {(enrollments as any[]).filter((e: any) => e.active).map((e: any) => (
+                          <TouchableOpacity
+                            key={e.memberId}
+                            onPress={() => setProxyMemberId(e.memberId)}
+                            style={{
+                              paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 4,
+                              backgroundColor: proxyMemberId === e.memberId ? '#DBEAFE' : C.white,
+                              borderWidth: 1, borderColor: proxyMemberId === e.memberId ? '#93C5FD' : C.gray200,
+                            }}
+                          >
+                            <Text style={{ fontSize: 13, color: proxyMemberId === e.memberId ? '#1D4ED8' : C.gray700, fontWeight: proxyMemberId === e.memberId ? '700' : '400' }}>
+                              {memberMap[e.memberId] ?? e.memberId}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        <TextInput
+                          style={{ flex: 1, backgroundColor: C.white, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: C.gray900 }}
+                          placeholder="Bid amount (₹)"
+                          placeholderTextColor={C.gray400}
+                          keyboardType="numeric"
+                          value={proxyBidAmount}
+                          onChangeText={setProxyBidAmount}
+                        />
+                        <TouchableOpacity
+                          disabled={!proxyMemberId || !proxyBidAmount || proxyBidMut.isPending}
+                          onPress={() => proxyBidMut.mutate()}
+                          style={{
+                            backgroundColor: (!proxyMemberId || !proxyBidAmount || proxyBidMut.isPending) ? C.gray300 : '#1D4ED8',
+                            borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16,
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                            {proxyBidMut.isPending ? '…' : 'Bid'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray700, marginBottom: 4 }}>No active auction</Text>
+                    <Text style={{ fontSize: 12, color: C.gray400 }}>Wait for the admin to open an auction for the current draw.</Text>
+                  </View>
+                )}
+
+                {/* Past auction sessions */}
+                {(auctionSessions as any[]).filter((s: any) => s.status !== 'OPEN').length > 0 && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>PAST AUCTIONS</Text>
+                    {(auctionSessions as any[]).filter((s: any) => s.status !== 'OPEN').map((s: any, i: number) => {
+                      const topBid = [...(s.bids ?? [])].sort((a: any, b: any) => b.bidAmount - a.bidAmount)[0];
+                      return (
+                        <View key={s.id ?? i} style={{ backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw {s.monthNumber}</Text>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>{s.status}</Text>
+                          </View>
+                          <Text style={{ fontSize: 12, color: C.gray500 }}>
+                            Winner: {memberMap[topBid?.memberId ?? ''] ?? '—'}{'  ·  '}
+                            ₹{Number(s.wonAmount ?? topBid?.bidAmount ?? 0).toLocaleString('en-IN')}
+                            {'  ·  '}{(s.bids ?? []).length} bid{(s.bids ?? []).length !== 1 ? 's' : ''}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </ScrollView>
+            )}
 
             {/* ── INFO TAB ────────────────────────────────────────────────── */}
             {detailTab === 'info' && (

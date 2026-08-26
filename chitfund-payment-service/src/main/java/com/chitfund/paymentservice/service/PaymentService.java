@@ -133,16 +133,18 @@ public class PaymentService {
 
         if (adminSelfCollect) {
             List<PaymentAllocation> allocations = applyFifo(batch, workerId);
-            log.info("Admin {} collected ₹{} cash directly from member {} for chit {} — completed immediately",
-                    workerId, request.getAmount(), request.getMemberId(), request.getChitId());
+            log.info("Cash collected (admin-direct): batchId={} member={} chit={} amount={} allocations={} collectedBy={}",
+                    batch.getId(), request.getMemberId(), request.getChitId(),
+                    request.getAmount(), allocations.size(), workerId);
             creditWallet(batch, workerId, allocations);
             PaymentCompletedEvent completedEvent = buildCompletedEvent(batch, workerId);
             publishAfterCommit(() -> eventPublisher.publish(completedEvent));
             return toBatchResponse(batch, allocations);
         }
 
-        log.info("Collector {} collected ₹{} cash from member {} for chit {} — awaiting remittance",
-                effectiveCollector, request.getAmount(), request.getMemberId(), request.getChitId());
+        log.info("Cash collected (pending remittance): batchId={} member={} chit={} amount={} collectedBy={}",
+                batch.getId(), request.getMemberId(), request.getChitId(),
+                request.getAmount(), effectiveCollector);
 
         CashCollectedEvent collectedEvent = new CashCollectedEvent(
                 batch.getId().toString(),
@@ -202,9 +204,9 @@ public class PaymentService {
 
         List<PaymentAllocation> allocations = applyFifo(batch, adminId);
 
-        log.info("Admin {} recorded {} payment of ₹{} for member {} in chit {} — {} months updated",
-                adminId, request.getPaymentMode(), request.getAmount(),
-                request.getMemberId(), request.getChitId(), allocations.size());
+        log.info("Payment recorded: batchId={} member={} chit={} amount={} mode={} allocations={} recordedBy={}",
+                batch.getId(), request.getMemberId(), request.getChitId(),
+                request.getAmount(), request.getPaymentMode(), allocations.size(), adminId);
 
         creditWallet(batch, adminId, allocations);
         notificationService.notifyUser(batch.getMemberId(), NotificationType.PAYMENT_COMPLETED,
@@ -230,7 +232,7 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse remitCash(UUID batchId, UUID adminId) {
-        PaymentBatch batch = batchRepository.findByIdForUpdate(batchId)
+        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Payment batch not found: " + batchId));
 
@@ -246,8 +248,9 @@ public class PaymentService {
 
         List<PaymentAllocation> allocations = applyFifo(batch, adminId);
 
-        log.info("Admin {} remitted cash batch {} (₹{}) for member {} — {} months updated",
-                adminId, batchId, batch.getTotalAmount(), batch.getMemberId(), allocations.size());
+        log.info("Cash remitted: batchId={} member={} chit={} amount={} allocations={} remittedBy={}",
+                batchId, batch.getMemberId(), batch.getChitId(),
+                batch.getTotalAmount(), allocations.size(), adminId);
 
         creditWallet(batch, adminId, allocations);
         notificationService.notifyUser(batch.getMemberId(), NotificationType.PAYMENT_COMPLETED,
@@ -359,8 +362,9 @@ public class PaymentService {
             adminWalletService.addEntry(debit, adminId, tenantId());
         }
 
-        log.info("Admin {} voided batch {} (₹{}) for member {} — reason: {}",
-                adminId, batchId, batch.getTotalAmount(), batch.getMemberId(), request.getReason());
+        log.info("Payment voided: batchId={} member={} chit={} amount={} mode={} reason='{}' voidedBy={}",
+                batchId, batch.getMemberId(), batch.getChitId(),
+                batch.getTotalAmount(), batch.getPaymentMode(), request.getReason(), adminId);
 
         return toBatchResponse(batch, allocations);
     }

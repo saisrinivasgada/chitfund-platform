@@ -1,5 +1,6 @@
 package com.chitfund.chitservice.domain.entity;
 
+import com.chitfund.chitservice.domain.enums.AuctionMode;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ChitType;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
@@ -72,6 +73,11 @@ public class Chit {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private WinnerSelectionMode winnerSelectionMode;
+
+    // Only set when winnerSelectionMode = AUCTION
+    @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(10)")
+    private AuctionMode auctionMode;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")

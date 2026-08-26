@@ -17,7 +17,9 @@ public class PaymentRecordResponse {
     private UUID memberId;
     private int monthNumber;
     private LocalDate dueDate;
-    private BigDecimal amountDue;
+    private BigDecimal grossInstallmentAmount;   // null for non-auction draws
+    private BigDecimal dividendDeductedAmount;    // null for non-auction draws
+    private BigDecimal amountDue;                 // net (gross - dividend for auction; full installment otherwise)
     private BigDecimal amountPaid;
     private BigDecimal balance;
     private PaymentRecordStatus status;

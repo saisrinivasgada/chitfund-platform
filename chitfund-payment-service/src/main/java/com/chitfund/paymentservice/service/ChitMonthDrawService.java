@@ -59,19 +59,24 @@ public class ChitMonthDrawService {
                     "Draw " + request.getMonthNumber() + " is already open or skipped for this chit");
         }
 
+        boolean isAuctionDraw = request.getAuctionMode() != null;
+        DrawStatus initialStatus = isAuctionDraw ? DrawStatus.AWAITING_AUCTION : DrawStatus.OPEN;
+
         ChitMonthDraw cycle = ChitMonthDraw.builder()
                 .chitId(request.getChitId())
                 .monthNumber(request.getMonthNumber())
                 .dueDate(request.getDueDate())
                 .installmentAmount(request.getInstallmentAmount())
                 .totalMembers(request.getMembers().size())
-                .status(DrawStatus.OPEN)
+                .auctionMode(request.getAuctionMode())
+                .status(initialStatus)
                 .openedAt(LocalDateTime.now())
                 .openedBy(adminId)
                 .build();
         drawRepository.save(cycle);
 
-        List<PaymentRecord> records = request.getMembers().stream()
+        // Auction draws: payment records created after auction closes (via applyAuctionDividend)
+        List<PaymentRecord> records = isAuctionDraw ? List.of() : request.getMembers().stream()
                 .map(m -> PaymentRecord.builder()
                         .tenantId(com.chitfund.common.context.TenantContext.get())
                         .chitId(request.getChitId())
@@ -83,10 +88,12 @@ public class ChitMonthDrawService {
                         .status(PaymentRecordStatus.OUTSTANDING)
                         .build())
                 .toList();
-        paymentRecordRepository.saveAll(records);
+        if (!records.isEmpty()) {
+            paymentRecordRepository.saveAll(records);
+        }
 
-        log.info("Actor {} ({}) opened cycle {} for chit {} — {} payment records created",
-                adminId, actorRole, request.getMonthNumber(), request.getChitId(), records.size());
+        log.info("Actor {} ({}) opened cycle {} for chit {} — {} payment records created (auctionMode={})",
+                adminId, actorRole, request.getMonthNumber(), request.getChitId(), records.size(), request.getAuctionMode());
 
         auditClient.log("CHIT_DRAW",
                 request.getChitId() + "-" + request.getMonthNumber(),
@@ -134,6 +141,103 @@ public class ChitMonthDrawService {
         }
 
         return buildSummary(cycle, records);
+    }
+
+    /**
+     * Called by chit-service after an auction closes.
+     * Transitions the draw from AWAITING_AUCTION → OPEN and creates payment records
+     * for every member with gross installment, dividend deduction, and net amount due.
+     */
+    @Transactional
+    public void applyAuctionDividend(UUID chitId, Integer monthNumber,
+                                     BigDecimal grossInstallmentAmount,
+                                     BigDecimal dividendPerSpot,
+                                     List<MemberSpotEntry> memberSpots,
+                                     String tenantId) {
+        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+                .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
+                        chitId + "/" + monthNumber));
+
+        if (draw.getStatus() != DrawStatus.AWAITING_AUCTION) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Draw is not in AWAITING_AUCTION state. Current: " + draw.getStatus());
+        }
+
+        List<PaymentRecord> records = memberSpots.stream().map(ms -> {
+            BigDecimal dividend = dividendPerSpot.multiply(BigDecimal.valueOf(ms.spots()));
+            BigDecimal gross = grossInstallmentAmount.multiply(BigDecimal.valueOf(ms.spots()));
+            BigDecimal netDue = gross.subtract(dividend).max(BigDecimal.ZERO);
+            return PaymentRecord.builder()
+                    .tenantId(tenantId)
+                    .chitId(chitId)
+                    .memberId(ms.memberId())
+                    .monthNumber(monthNumber)
+                    .dueDate(draw.getDueDate())
+                    .grossInstallmentAmount(gross)
+                    .dividendDeductedAmount(dividend)
+                    .amountDue(netDue)
+                    .amountPaid(BigDecimal.ZERO)
+                    .status(PaymentRecordStatus.OUTSTANDING)
+                    .build();
+        }).toList();
+
+        paymentRecordRepository.saveAll(records);
+
+        draw.setStatus(DrawStatus.OPEN);
+        drawRepository.save(draw);
+
+        log.info("Auction dividend applied: drawId={} chit={} month={} members={} grossInstallment={} dividendPerSpot={}",
+                draw.getId(), chitId, monthNumber, records.size(), grossInstallmentAmount, dividendPerSpot);
+
+        if (log.isDebugEnabled()) {
+            records.forEach(r -> log.debug(
+                    "  payment record: memberId={} spots={} gross={} dividend={} netDue={}",
+                    r.getMemberId(),
+                    r.getGrossInstallmentAmount() == null ? 1
+                            : r.getGrossInstallmentAmount().divide(grossInstallmentAmount, 0, java.math.RoundingMode.DOWN).intValue(),
+                    r.getGrossInstallmentAmount(), r.getDividendDeductedAmount(), r.getAmountDue()));
+        }
+    }
+
+    public record MemberSpotEntry(UUID memberId, int spots) {}
+
+    /**
+     * Reverses the effects of applyAuctionDividend — resets draw back to AWAITING_AUCTION
+     * and deletes the payment records created when the auction closed.
+     * Fails if any member has already paid (admin must void those batches first).
+     */
+    @Transactional
+    public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
+        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+                .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
+                        chitId + "/" + monthNumber));
+
+        if (draw.getStatus() != DrawStatus.OPEN) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Draw is not in OPEN state. Cannot reverse auction dividend. Current: " + draw.getStatus());
+        }
+
+        List<com.chitfund.paymentservice.domain.PaymentRecord> records =
+                paymentRecordRepository.findByChitIdAndMonthNumber(chitId, monthNumber);
+
+        boolean hasPayments = records.stream()
+                .anyMatch(r -> r.getAmountPaid() != null
+                        && r.getAmountPaid().compareTo(java.math.BigDecimal.ZERO) > 0);
+        if (hasPayments) {
+            long count = records.stream()
+                    .filter(r -> r.getAmountPaid() != null
+                            && r.getAmountPaid().compareTo(java.math.BigDecimal.ZERO) > 0)
+                    .count();
+            throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
+                    count + " member(s) have already paid. Void their payment batches first, then re-auction.");
+        }
+
+        paymentRecordRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
+        draw.setStatus(DrawStatus.AWAITING_AUCTION);
+        drawRepository.save(draw);
+
+        log.info("Auction dividend reversed: drawId={} chit={} month={} records deleted={}",
+                draw.getId(), chitId, monthNumber, records.size());
     }
 
     @Transactional
@@ -315,7 +419,9 @@ public class ChitMonthDrawService {
 
     @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getDashboard() {
-        List<ChitMonthDraw> openCycles = drawRepository.findByStatusOrderByDueDateAsc(DrawStatus.OPEN);
+        // Include AWAITING_AUCTION draws so auction chit draws appear on the dashboard
+        List<ChitMonthDraw> openCycles = drawRepository.findByStatusInOrderByDueDateAsc(
+                List.of(DrawStatus.OPEN, DrawStatus.AWAITING_AUCTION));
         return openCycles.stream()
                 .map(this::buildSummaryWithLiveStats)
                 .toList();
@@ -510,6 +616,8 @@ public class ChitMonthDrawService {
                         .memberId(r.getMemberId())
                         .monthNumber(r.getMonthNumber())
                         .dueDate(r.getDueDate())
+                        .grossInstallmentAmount(r.getGrossInstallmentAmount())
+                        .dividendDeductedAmount(r.getDividendDeductedAmount())
                         .amountDue(r.getAmountDue())
                         .amountPaid(r.getAmountPaid())
                         .balance(r.getAmountDue().subtract(r.getAmountPaid()))

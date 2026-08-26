@@ -23,11 +23,11 @@ public class RateLimiterService {
             .expireAfterAccess(30, TimeUnit.MINUTES)
             .build();
 
-    // 10 login attempts per IP per 15 min
+    // 50 login attempts per IP per 15 min
     public boolean tryConsumeLogin(String ip) {
         return loginBuckets.get(ip, k ->
             Bucket.builder()
-                .addLimit(Bandwidth.classic(10, Refill.intervally(10, Duration.ofMinutes(15))))
+                .addLimit(Bandwidth.classic(50, Refill.intervally(50, Duration.ofMinutes(15))))
                 .build()
         ).tryConsume(1);
     }
