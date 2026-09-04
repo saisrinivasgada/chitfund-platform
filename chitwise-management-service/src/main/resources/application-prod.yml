@@ -1,0 +1,15 @@
+# Production profile overrides.
+# All secrets MUST be injected from the secret manager — no fallback defaults.
+# The application will refuse to start if any required secret is absent.
+hub:
+  jwt:
+    secret: ${MANAGEMENT_JWT_SECRET}
+    access-token-expiry-ms: ${MANAGEMENT_JWT_EXPIRY_MS:900000}  # default 15 min in prod
+
+app:
+  internal-key: ${INTERNAL_SERVICE_KEY}
+
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME}?useSSL=true&requireSSL=true&serverTimezone=UTC
+    password: ${DB_PASSWORD}

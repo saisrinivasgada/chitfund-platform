@@ -4,6 +4,7 @@ import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
+import com.chitfund.supportservice.dto.response.EmployeeMeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,14 +38,15 @@ public class HubAuthController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> me(Authentication auth) {
         Employee employee = employeeService.getById((String) auth.getPrincipal());
-        return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
-                "id", employee.getId(),
-                "email", employee.getEmail(),
-                "fullName", employee.getFullName(),
-                "username", employee.getUsername(),
-                "role", employee.getRole(),
-                "active", employee.isActive(),
-                "lastLoginAt", employee.getLastLoginAt() != null ? employee.getLastLoginAt().toString() : null
-        )));
+        EmployeeMeResponse meResponse = EmployeeMeResponse.builder()
+                .id(employee.getId())
+                .email(employee.getEmail())
+                .fullName(employee.getFullName())
+                .username(employee.getUsername())
+                .role(employee.getRole())
+                .active(employee.isActive())
+                .lastLoginAt(employee.getLastLoginAt())
+                .build();
+        return ResponseEntity.ok(Map.of("success", true, "data", meResponse));
     }
 }
