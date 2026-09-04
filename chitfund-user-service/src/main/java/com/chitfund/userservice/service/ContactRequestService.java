@@ -3,14 +3,19 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.domain.entity.ContactRequest;
+import com.chitfund.userservice.domain.entity.ContactRequestMessage;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.SubmitProspectContactRequest;
 import com.chitfund.userservice.dto.request.SubmitSupportTicketRequest;
+import com.chitfund.userservice.dto.response.ContactRequestMessageResponse;
 import com.chitfund.userservice.dto.response.ContactRequestResponse;
+import com.chitfund.userservice.repository.ContactRequestMessageRepository;
 import com.chitfund.userservice.repository.ContactRequestRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +31,11 @@ public class ContactRequestService {
             List.of("NEW", "OPEN", "ON_HOLD", "RESOLVED", "CLOSED");
     private static final List<String> VALID_MODES =
             List.of("EMAIL", "SMS", "BOTH");
+    private static final List<String> VALID_TYPES =
+            List.of("PROSPECT", "ORG_SUPPORT");
 
     private final ContactRequestRepository contactRequestRepository;
+    private final ContactRequestMessageRepository contactRequestMessageRepository;
     private final TenantRepository tenantRepository;
 
     @Transactional
@@ -76,8 +84,51 @@ public class ContactRequestService {
                 .toList();
     }
 
+    public Page<ContactRequestResponse> search(String type, String status,
+                                                LocalDateTime from, LocalDateTime to,
+                                                Pageable pageable) {
+        if (type != null && !VALID_TYPES.contains(type)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid type: " + type);
+        }
+        if (status != null && !VALID_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid status: " + status);
+        }
+        return contactRequestRepository.search(type, status, from, to, pageable)
+                .map(this::toResponse);
+    }
+
+    public ContactRequestResponse getOne(UUID id) {
+        return toResponse(contactRequestRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Contact request not found")));
+    }
+
     public long countNew() {
         return contactRequestRepository.countByStatus("NEW");
+    }
+
+    public List<ContactRequestMessageResponse> listMessages(UUID contactRequestId) {
+        contactRequestRepository.findById(contactRequestId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Contact request not found"));
+        return contactRequestMessageRepository.findByContactRequestIdOrderByCreatedAtAsc(contactRequestId)
+                .stream()
+                .map(this::toMessageResponse)
+                .toList();
+    }
+
+    @Transactional
+    public ContactRequestMessageResponse addMessage(UUID contactRequestId, String senderName, String content) {
+        contactRequestRepository.findById(contactRequestId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Contact request not found"));
+        if (content == null || content.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Message content is required");
+        }
+        ContactRequestMessage msg = ContactRequestMessage.builder()
+                .contactRequestId(contactRequestId)
+                .senderType("SUPER_ADMIN")
+                .senderName(senderName)
+                .content(content.trim())
+                .build();
+        return toMessageResponse(contactRequestMessageRepository.save(msg));
     }
 
     @Transactional
@@ -125,6 +176,17 @@ public class ContactRequestService {
                 .preferredContact(cr.getPreferredContact())
                 .holdUntil(cr.getHoldUntil())
                 .createdAt(cr.getCreatedAt())
+                .build();
+    }
+
+    private ContactRequestMessageResponse toMessageResponse(ContactRequestMessage m) {
+        return ContactRequestMessageResponse.builder()
+                .id(m.getId())
+                .contactRequestId(m.getContactRequestId())
+                .senderType(m.getSenderType())
+                .senderName(m.getSenderName())
+                .content(m.getContent())
+                .createdAt(m.getCreatedAt())
                 .build();
     }
 }

@@ -1569,6 +1569,31 @@ export const superAdminUpdateContactMode = async (id, preferredContact) => {
   return res.data.data;
 };
 
+export const superAdminSearchContactRequests = async ({ type, status, fromDate, toDate, page = 0, size = 20 } = {}) => {
+  const params = { page, size };
+  if (type) params.type = type;
+  if (status) params.status = status;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const res = await api.get('/super-admin/contact-requests/search', { params });
+  return res.data.data; // Spring Page: { content, totalElements, totalPages, number, size, ... }
+};
+
+export const superAdminGetContactRequest = async (id) => {
+  const res = await api.get(`/super-admin/contact-requests/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListContactMessages = async (id) => {
+  const res = await api.get(`/super-admin/contact-requests/${id}/messages`);
+  return res.data.data;
+};
+
+export const superAdminSendContactMessage = async (id, content) => {
+  const res = await api.post(`/super-admin/contact-requests/${id}/messages`, { content });
+  return res.data.data;
+};
+
 // ─── Support Tickets (org admin → ChitWise) ────────────────────────────────
 
 export const createSupportTicket = async ({ type, subject, description }) => {
