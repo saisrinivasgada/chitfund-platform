@@ -355,7 +355,7 @@ public class AuthService {
     }
 
     public AuthResponse refreshByToken(String tokenValue) {
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(tokenValue)
+        RefreshToken refreshToken = refreshTokenRepository.findByToken(sha256(tokenValue))
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOKEN_INVALID));
         if (refreshToken.isRevoked()) {
             refreshTokenRepository.revokeAllActiveByUser(refreshToken.getUser());
@@ -411,7 +411,7 @@ public class AuthService {
     }
 
     public void logout(String refreshTokenValue) {
-        refreshTokenRepository.findByToken(refreshTokenValue)
+        refreshTokenRepository.findByToken(sha256(refreshTokenValue))
                 .ifPresent(token -> {
                     token.setRevoked(true);
                     refreshTokenRepository.save(token);
@@ -748,7 +748,7 @@ public class AuthService {
 
     private void saveRefreshToken(User user, String tokenValue, String tenantId) {
         RefreshToken refreshToken = RefreshToken.builder()
-                .token(tokenValue)
+                .token(sha256(tokenValue))
                 .user(user)
                 .tenantId(tenantId)
                 .expiresAt(LocalDateTime.now().plusDays(refreshTokenExpiryDays))
