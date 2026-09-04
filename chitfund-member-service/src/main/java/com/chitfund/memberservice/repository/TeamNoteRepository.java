@@ -16,13 +16,17 @@ public interface TeamNoteRepository extends JpaRepository<TeamNote, UUID> {
     //   - OR shared notes from others (only if caller is ADMIN or MANAGER)
     @Query("""
         SELECT n FROM TeamNote n
-        WHERE n.authorId = :userId
-           OR (n.visibility = :shared AND :role IN ('ADMIN', 'MANAGER'))
+        WHERE n.tenantId = :tenantId
+          AND (n.authorId = :userId
+           OR (n.visibility = :shared AND :role IN ('ADMIN', 'MANAGER')))
         ORDER BY n.createdAt DESC
         """)
-    List<TeamNote> findVisibleTo(@Param("userId") UUID userId,
+    List<TeamNote> findVisibleTo(@Param("tenantId") String tenantId,
+                                 @Param("userId") UUID userId,
                                  @Param("role") String role,
                                  @Param("shared") NoteVisibility shared);
 
-    List<TeamNote> findByAuthorIdOrderByCreatedAtDesc(UUID authorId);
+    java.util.Optional<TeamNote> findByIdAndTenantId(UUID id, String tenantId);
+
+    List<TeamNote> findByAuthorIdAndTenantIdOrderByCreatedAtDesc(UUID authorId, String tenantId);
 }

@@ -1,5 +1,6 @@
 package com.chitfund.memberservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.memberservice.domain.TeamNote;
 import com.chitfund.memberservice.domain.enums.NoteVisibility;
 import com.chitfund.memberservice.dto.request.TeamNoteRequest;
@@ -21,8 +22,16 @@ public class TeamNoteService {
 
     private final TeamNoteRepository repo;
 
+    private String tenantId() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Tenant context is required");
+        }
+        return tenantId;
+    }
+
     public List<TeamNoteResponse> getVisible(UUID userId, String role) {
-        return repo.findVisibleTo(userId, role, NoteVisibility.SHARED)
+        return repo.findVisibleTo(tenantId(), userId, role, NoteVisibility.SHARED)
                 .stream()
                 .map(n -> toResponse(n, userId))
                 .collect(Collectors.toList());
@@ -32,6 +41,7 @@ public class TeamNoteService {
     public TeamNoteResponse create(UUID authorId, String authorName, String authorRole,
                                    TeamNoteRequest req) {
         TeamNote note = TeamNote.builder()
+                .tenantId(tenantId())
                 .authorId(authorId)
                 .authorName(authorName)
                 .authorRole(authorRole)
@@ -43,7 +53,7 @@ public class TeamNoteService {
 
     @Transactional
     public TeamNoteResponse update(UUID noteId, UUID callerId, TeamNoteRequest req) {
-        TeamNote note = repo.findById(noteId)
+        TeamNote note = repo.findByIdAndTenantId(noteId, tenantId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Note not found"));
         if (!note.getAuthorId().equals(callerId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only edit your own notes");
@@ -55,7 +65,7 @@ public class TeamNoteService {
 
     @Transactional
     public void delete(UUID noteId, UUID callerId) {
-        TeamNote note = repo.findById(noteId)
+        TeamNote note = repo.findByIdAndTenantId(noteId, tenantId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Note not found"));
         if (!note.getAuthorId().equals(callerId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only delete your own notes");

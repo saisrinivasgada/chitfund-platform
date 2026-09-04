@@ -20,6 +20,9 @@ public class TeamNote {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "tenant_id", nullable = false, updatable = false)
+    private String tenantId;
+
     @Column(name = "author_id", nullable = false)
     private UUID authorId;
 
