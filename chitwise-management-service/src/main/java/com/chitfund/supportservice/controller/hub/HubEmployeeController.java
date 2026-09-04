@@ -53,6 +53,13 @@ public class HubEmployeeController {
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 
+    @PostMapping("/{id}/resend-invite")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<?> resendInvite(@PathVariable String id) {
+        EmployeeResponse employee = employeeService.resendInvite(id);
+        return ResponseEntity.ok(Map.of("success", true, "data", employee));
+    }
+
     @PatchMapping("/{id}/reactivate")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> reactivate(@PathVariable String id) {

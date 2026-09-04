@@ -67,6 +67,7 @@ import SessionExpiredPage from './pages/SessionExpiredPage';
 import TenantGate from './components/layout/TenantGate';
 import HubLayout from './components/hub/HubLayout';
 import HubLoginPage from './pages/hub/HubLoginPage';
+import HubAcceptInvitePage from './pages/hub/HubAcceptInvitePage';
 import HubTicketsPage from './pages/hub/HubTicketsPage';
 import HubTicketDetailPage from './pages/hub/HubTicketDetailPage';
 import HubEmployeesPage from './pages/hub/HubEmployeesPage';
@@ -157,6 +158,7 @@ export default function App() {
 
       {/* Hub staff portal — separate auth, no org JWT */}
       <Route path="/hub-login" element={<HubLoginPage />} />
+      <Route path="/hub/accept-invite" element={<HubAcceptInvitePage />} />
       <Route element={<HubLayout />}>
         <Route index path="/hub" element={<Navigate to="/hub/tickets" replace />} />
         <Route path="/hub/tickets" element={<HubTicketsPage />} />

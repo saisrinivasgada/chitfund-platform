@@ -17,7 +17,14 @@ export default function HubLoginPage() {
       const data = await hubLogin({ username, password });
       setHubToken(data.token);
       localStorage.setItem('hub_token', data.token);
-      localStorage.setItem('hub_user', JSON.stringify({ id: data.id, username: data.username, role: data.role }));
+      localStorage.setItem('hub_user', JSON.stringify({
+        id: data.id,
+        employeeId: data.employeeId,
+        username: data.username,
+        fullName: data.fullName,
+        email: data.email,
+        role: data.role,
+      }));
       navigate('/hub', { replace: true });
     } catch (err) {
       const msg = err?.response?.data?.message;

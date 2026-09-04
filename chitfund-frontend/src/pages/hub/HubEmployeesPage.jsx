@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   hubListEmployees, hubInviteEmployee, hubChangeRole,
-  hubDeactivateEmployee, hubReactivateEmployee,
+  hubDeactivateEmployee, hubReactivateEmployee, hubResendEmployeeInvite,
 } from '../../services/api';
 import { Users, Plus, X, AlertCircle, UserCheck, UserX } from 'lucide-react';
 
@@ -129,6 +129,11 @@ export default function HubEmployeesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
   });
 
+  const resendMut = useMutation({
+    mutationFn: (id) => hubResendEmployeeInvite(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
+  });
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -208,7 +213,15 @@ export default function HubEmployeesPage() {
                     {isSuperAdmin && (
                       <td className="px-5 py-3.5">
                         {!isMe && (
-                          isActive ? (
+                          emp.invitePending ? (
+                            <button
+                              onClick={() => resendMut.mutate(emp.id)}
+                              disabled={resendMut.isPending}
+                              className="text-xs text-blue-600 hover:text-blue-800 transition-colors disabled:opacity-40"
+                            >
+                              Resend invite
+                            </button>
+                          ) : isActive ? (
                             <button
                               onClick={() => deactivateMut.mutate(emp.id)}
                               disabled={deactivateMut.isPending}

@@ -114,8 +114,8 @@ export const resendLoginOtp = async ({ otpToken }) => {
 const DEVICE_TOKEN_KEY = 'chitwise_device_token';
 
 export const getStoredDeviceToken = () => { try { return localStorage.getItem(DEVICE_TOKEN_KEY); } catch { return null; } };
-export const saveDeviceToken = (token) => { try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch {} };
-export const clearDeviceToken = () => { try { localStorage.removeItem(DEVICE_TOKEN_KEY); } catch {} };
+export const saveDeviceToken = (token) => { try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch { /* storage unavailable */ } };
+export const clearDeviceToken = () => { try { localStorage.removeItem(DEVICE_TOKEN_KEY); } catch { /* storage unavailable */ } };
 
 // Returns LoginResponse { requiresTenantSelection, loginToken?, tenants?, authResponse?, requiresOtp?, otpToken?, maskedPhone? }
 export const login = async ({ username, password }) => {
@@ -1675,6 +1675,11 @@ export const hubLogin = async ({ username, password }) => {
   return res.data.data;
 };
 
+export const hubAcceptInvite = async ({ token, username, password }) => {
+  const res = await hubApi.post('/hub/auth/accept-invite', { token, username, password });
+  return res.data.data;
+};
+
 export const hubGetMe = async () => {
   const res = await hubApi.get('/hub/auth/me');
   return res.data.data;
@@ -1781,6 +1786,11 @@ export const hubGetEmployee = async (id) => {
 export const hubInviteEmployee = async (body) => {
   const res = await hubApi.post('/hub/employees/invite', body);
   return res.data.data ?? res.data;
+};
+
+export const hubResendEmployeeInvite = async (id) => {
+  const res = await hubApi.post(`/hub/employees/${id}/resend-invite`);
+  return res.data.data;
 };
 
 export const hubChangeRole = async (id, role) => {

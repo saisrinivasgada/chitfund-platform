@@ -14,13 +14,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Base64;
 import java.util.UUID;
 
 @Service
@@ -31,6 +35,9 @@ public class EmployeeService {
     private final EmployeeRepository employeeRepository;
     private final HubJwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
+    private final EmployeeInvitationMailer invitationMailer;
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Transactional
     public EmployeeLoginResponse login(EmployeeLoginRequest request) {
@@ -56,7 +63,9 @@ public class EmployeeService {
 
         return EmployeeLoginResponse.builder()
                 .token(token)
+                .id(employee.getId())
                 .employeeId(formatCardId(employee))
+                .username(employee.getUsername())
                 .fullName(employee.getFullName())
                 .email(employee.getEmail())
                 .role(employee.getRole())
@@ -84,7 +93,7 @@ public class EmployeeService {
         // Generate a cryptographically secure one-time token.
         // Store only the SHA-256 hash; the raw token is returned once to the caller
         // who must deliver it via email and MUST NOT log it.
-        String rawToken = UUID.randomUUID().toString() + "-" + UUID.randomUUID();
+        String rawToken = newInvitationToken();
         String tokenHash = sha256Hex(rawToken);
 
         Employee employee = Employee.builder()
@@ -98,10 +107,23 @@ public class EmployeeService {
                 .build();
         employee = employeeRepository.save(employee);
 
-        // Do NOT log the raw token — send it only through the email channel.
         log.info("Employee invite created for email=[{}]", req.getEmail());
-        // TODO: inject EmailService and send rawToken in the invite link
-        // emailService.sendInviteEmail(req.getEmail(), rawToken);
+        sendInvitationAfterCommit(employee, rawToken);
+        return toResponse(employee);
+    }
+
+    @Transactional
+    public EmployeeResponse resendInvite(String employeeId) {
+        Employee employee = getById(employeeId);
+        if (employee.getInviteAcceptedAt() != null || employee.getPasswordHash() != null) {
+            throw new IllegalStateException("Employee has already accepted the invitation");
+        }
+
+        String rawToken = newInvitationToken();
+        employee.setInviteToken(sha256Hex(rawToken));
+        employee.setInviteExpiresAt(Instant.now().plusSeconds(7 * 24 * 3600));
+        employeeRepository.save(employee);
+        sendInvitationAfterCommit(employee, rawToken);
         return toResponse(employee);
     }
 
@@ -109,7 +131,7 @@ public class EmployeeService {
     public EmployeeLoginResponse acceptInvite(AcceptInviteRequest req) {
         // Hash the provided token and look up by hash, so the DB never stores raw tokens.
         String providedHash = sha256Hex(req.getToken());
-        Employee employee = employeeRepository.findByInviteToken(providedHash)
+        Employee employee = employeeRepository.findByInviteTokenForUpdate(providedHash)
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or expired invite token"));
 
         if (employee.getInviteExpiresAt() != null && Instant.now().isAfter(employee.getInviteExpiresAt())) {
@@ -135,7 +157,9 @@ public class EmployeeService {
         String token = jwtTokenProvider.generateToken(employee);
         return EmployeeLoginResponse.builder()
                 .token(token)
+                .id(employee.getId())
                 .employeeId(formatCardId(employee))
+                .username(employee.getUsername())
                 .fullName(employee.getFullName())
                 .email(employee.getEmail())
                 .role(employee.getRole())
@@ -170,6 +194,33 @@ public class EmployeeService {
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static String newInvitationToken() {
+        byte[] bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private void sendInvitationAfterCommit(Employee employee, String rawToken) {
+        Runnable send = () -> {
+            try {
+                invitationMailer.sendInvitation(employee.getEmail(), employee.getFullName(), rawToken);
+            } catch (RuntimeException ex) {
+                log.error("Employee invitation email failed for email=[{}]", employee.getEmail());
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    send.run();
+                }
+            });
+        } else {
+            send.run();
         }
     }
 
