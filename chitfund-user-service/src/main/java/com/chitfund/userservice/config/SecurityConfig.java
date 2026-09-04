@@ -21,6 +21,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpMethod;
 
 import java.util.Map;
 
@@ -69,7 +70,26 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers(HttpMethod.GET,
+                    "/api/auth/check-slug",
+                    "/api/auth/check-username").permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/auth/register-org",
+                    "/api/auth/register",
+                    "/api/auth/login",
+                    "/api/auth/resend-login-otp",
+                    "/api/auth/verify-login-otp",
+                    "/api/auth/select-tenant",
+                    "/api/auth/setup-account",
+                    "/api/auth/transfer-token",
+                    "/api/auth/refresh",
+                    "/api/auth/logout",
+                    "/api/auth/logout-all",
+                    "/api/auth/verify-reset-otp",
+                    "/api/auth/reset-password",
+                    "/api/auth/mobile-lookup",
+                    "/api/auth/login-mobile").permitAll()
+                .requestMatchers("/api/auth/forgot-password/**").permitAll()
                 .requestMatchers("/api/plans/**").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()

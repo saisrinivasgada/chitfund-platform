@@ -335,7 +335,7 @@ public class AuthController {
                 .httpOnly(true)
                 .secure(true)
                 .sameSite("Strict")
-                .path("/api/auth/refresh")
+                .path("/api/auth")
                 .maxAge(Duration.ofDays(30))
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
@@ -346,7 +346,7 @@ public class AuthController {
                 .httpOnly(true)
                 .secure(true)
                 .sameSite("Strict")
-                .path("/api/auth/refresh")
+                .path("/api/auth")
                 .maxAge(Duration.ZERO)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
