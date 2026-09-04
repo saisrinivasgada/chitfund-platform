@@ -58,6 +58,7 @@ public class NotificationEventConsumer {
             }
         } catch (Exception e) {
             log.error("Failed to process notification event: {}", e.getMessage(), e);
+            throw new IllegalStateException("Notification event processing failed", e);
         }
     }
 
@@ -104,6 +105,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("MONTH_OPENED processing failed", e);
         }
     }
 
@@ -146,6 +148,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("MONTH_SKIPPED processing failed", e);
         }
     }
 
@@ -186,6 +189,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_COLLECTED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("CASH_COLLECTED processing failed", e);
         }
     }
 
@@ -227,6 +231,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("PAYMENT_COMPLETED processing failed", e);
         }
     }
 
@@ -282,6 +287,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("PAYOUT_CREATED processing failed", e);
         }
     }
 
@@ -322,6 +328,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("PAYOUT_DISBURSED processing failed", e);
         }
     }
 
@@ -345,6 +352,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MEMBER_UPDATED event: {}", e.getMessage(), e);
+            throw new IllegalStateException("MEMBER_UPDATED processing failed", e);
         }
     }
 
@@ -369,6 +377,7 @@ public class NotificationEventConsumer {
             broadcaster.broadcast("IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_REQUEST_EVENT: {}", e.getMessage(), e);
+            throw new IllegalStateException("CASH_REQUEST_EVENT processing failed", e);
         }
     }
 

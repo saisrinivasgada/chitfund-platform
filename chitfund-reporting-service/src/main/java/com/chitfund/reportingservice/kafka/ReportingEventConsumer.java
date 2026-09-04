@@ -43,6 +43,7 @@ public class ReportingEventConsumer {
             }
         } catch (Exception e) {
             log.error("Failed to process reporting event: {}", e.getMessage(), e);
+            throw new IllegalStateException("Reporting event processing failed", e);
         }
     }
 
