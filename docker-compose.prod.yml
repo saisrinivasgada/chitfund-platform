@@ -228,6 +228,7 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitwise_management
+      SPRING_PROFILES_ACTIVE: prod
       MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
       MAIL_HOST: ${MAIL_HOST:smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:587}
@@ -239,7 +240,8 @@ services:
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       REDIS_URL: ${REDIS_URL:redis://redis:6379}
     ports:
-      - "8091:8091"
+      # Nginx runs on the host, so retain access only through loopback.
+      - "127.0.0.1:8091:8091"
     depends_on:
       - redis
     healthcheck:

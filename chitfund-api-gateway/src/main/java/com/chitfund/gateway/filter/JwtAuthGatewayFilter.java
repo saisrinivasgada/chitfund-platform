@@ -74,11 +74,20 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                 String tenantId = claims.get("tenantId", String.class);
                 String username = claims.get("username", String.class);
                 var reqBuilder = exchange.getRequest().mutate()
-                        .header("X-User-Id", claims.getSubject())
-                        .header("X-User-Role", claims.get("role", String.class))
-                        .header("X-Internal-Auth", internalServiceKey);
-                if (tenantId != null) reqBuilder.header("X-Tenant-Id", tenantId);
-                if (username != null) reqBuilder.header("X-User-Name", username);
+                        .headers(headers -> {
+                            // Never forward caller-supplied identity. Only claims from the
+                            // validated JWT may populate these trusted internal headers.
+                            headers.remove("X-User-Id");
+                            headers.remove("X-User-Role");
+                            headers.remove("X-Tenant-Id");
+                            headers.remove("X-User-Name");
+                            headers.remove("X-Internal-Auth");
+                            headers.set("X-User-Id", claims.getSubject());
+                            headers.set("X-User-Role", claims.get("role", String.class));
+                            headers.set("X-Internal-Auth", internalServiceKey);
+                            if (tenantId != null) headers.set("X-Tenant-Id", tenantId);
+                            if (username != null) headers.set("X-User-Name", username);
+                        });
                 ServerHttpRequest mutatedRequest = reqBuilder.build();
 
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
