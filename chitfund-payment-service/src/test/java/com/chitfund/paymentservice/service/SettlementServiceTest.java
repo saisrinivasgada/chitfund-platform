@@ -18,6 +18,7 @@ import com.chitfund.paymentservice.dto.response.SettlementPreviewResponse;
 import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
 import com.chitfund.paymentservice.repository.PaymentRecordRepository;
 import com.chitfund.paymentservice.repository.SettlementRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -53,6 +56,7 @@ import static org.mockito.Mockito.*;
  * fewer integration tests (slower but catch wiring issues), even fewer E2E tests.
  * SettlementService has pure business logic — unit tests are ideal here."
  */
+@MockitoSettings(strictness = Strictness.LENIENT)
 @ExtendWith(MockitoExtension.class)
 class SettlementServiceTest {
 
@@ -62,9 +66,19 @@ class SettlementServiceTest {
     @Mock private ChitServiceClient chitServiceClient;
     @Mock private PayoutServiceClient payoutServiceClient;
     @Mock private AdminWalletService adminWalletService;
+    @Mock private MemberCreditService memberCreditService;
+    @Mock private PlanExpiryChecker planExpiryChecker;
+    @Mock private com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
 
     @InjectMocks
     private SettlementService settlementService;
+
+    @BeforeEach
+    void setUp() {
+        // MemberCreditService.getBalance() is called by confirm() and preview().
+        // Default to zero balance so tests that don't care about credits stay unaffected.
+        when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
+    }
 
     // Shared test identifiers
     private final UUID MEMBER_ID = UUID.randomUUID();
@@ -84,7 +98,7 @@ class SettlementServiceTest {
         dto.setStatus("ACTIVE");
         dto.setChitValue(BigDecimal.valueOf((long) installmentAmt * durationMonths));
         dto.setInstallmentAmount(BigDecimal.valueOf(installmentAmt));
-        dto.setTotalMembers(durationMonths);
+        dto.setCapacity(durationMonths);
         dto.setDurationMonths(durationMonths);
         dto.setPostPayoutContributionEnabled(postPayoutEnabled);
         dto.setDefaultPostPayoutContribution(postPayoutDefault != null ? BigDecimal.valueOf(postPayoutDefault) : null);
@@ -230,8 +244,9 @@ class SettlementServiceTest {
         assertThat(result.getUnpaidDues()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.getFutureMonthsCount()).isEqualTo(4); // months 3,4,5,6
         assertThat(result.getFutureInstallments()).isEqualByComparingTo(BigDecimal.valueOf(40_000));
-        // -55,000 + 0 + 40,000 = -15,000
-        assertThat(result.getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(-15_000));
+        // CASE_B1 refunds exactly what was paid in (totalPaidIn = 20,000).
+        // Reserved slots are voided on settlement; future obligations are waived.
+        assertThat(result.getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(-20_000));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -581,18 +596,15 @@ class SettlementServiceTest {
                 .anyMatch(r -> r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
         assertThat(foundCleared).isTrue();
 
-        // Verify AdminWalletService was called (member owes → IN entry)
-        ArgumentCaptor<com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest> walletCaptor =
-                ArgumentCaptor.forClass(com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest.class);
-        verify(adminWalletService).addEntry(walletCaptor.capture(), eq(ADMIN_ID), any());
-        com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest walletReq = walletCaptor.getValue();
-        assertThat(walletReq.getEntryType()).isEqualTo(com.chitfund.paymentservice.domain.enums.WalletEntryType.IN);
-        assertThat(walletReq.getCategory()).isEqualTo("SETTLEMENT");
-        // netAmount = 10,000 unpaid + 2 × 10,000 future = 30,000
-        assertThat(walletReq.getAmount()).isEqualByComparingTo(BigDecimal.valueOf(30_000));
+        // Wallet entries are no longer created eagerly during confirm() —
+        // they are recorded lazily via SettlementTransactionService as payments arrive.
+        // Confirm that no eager wallet entry was issued.
+        verify(adminWalletService, never()).addEntry(any(), any(), any());
 
-        // Verify Settlement entity was saved
-        verify(settlementRepository).save(any(Settlement.class));
+        // Verify Settlement entity was saved with the correct net amount (30,000 owed).
+        ArgumentCaptor<Settlement> settlementCaptor = ArgumentCaptor.forClass(Settlement.class);
+        verify(settlementRepository).save(settlementCaptor.capture());
+        assertThat(settlementCaptor.getValue().getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(30_000));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

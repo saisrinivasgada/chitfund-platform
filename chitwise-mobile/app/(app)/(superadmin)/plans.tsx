@@ -38,6 +38,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
 
   const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
 
+  const queryClient = useQueryClient();
   const { data: capDefsQuery = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
   const capDefs = capDefsQuery as any[];
 
@@ -59,7 +60,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
     setAddingCap(true);
     try {
       const created = await superAdminAddCapability(label);
-      setCapDefs((prev: any[]) => [...prev, created]);
+      queryClient.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
       toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
