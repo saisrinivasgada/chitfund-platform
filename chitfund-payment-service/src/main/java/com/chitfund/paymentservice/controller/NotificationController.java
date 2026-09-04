@@ -91,7 +91,7 @@ public class NotificationController {
      * is already on the member's detail page — the phone is already on screen.
      */
     @PostMapping("/whatsapp/{userId}")
-    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendWhatsApp(
             @PathVariable UUID userId,
             @RequestBody Map<String, String> body) {

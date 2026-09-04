@@ -52,7 +52,7 @@ public class SettlementController {
      * toggles the mode on a CASE_C row (by re-submitting with updated chitIds/mode).
      */
     @PostMapping("/preview")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<SettlementPreviewResponse>> preview(
             @Valid @RequestBody SettlementPreviewRequest request) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.preview(request)));
@@ -63,7 +63,7 @@ public class SettlementController {
      * saves Settlement + SettlementChitItem records, and creates an AdminWalletEntry.
      */
     @PostMapping("/confirm")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SettlementResponse>> confirm(
             @Valid @RequestBody ConfirmSettlementRequest request,
             Authentication auth) {
@@ -76,7 +76,7 @@ public class SettlementController {
      * Returns past settlements for a member, newest first — paginated.
      */
     @GetMapping("/member/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getMemberSettlements(
             @PathVariable UUID memberId,
             @RequestParam(defaultValue = "0") int page,
@@ -89,7 +89,7 @@ public class SettlementController {
      * Returns a single settlement by ID.
      */
     @GetMapping("/{settlementId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<SettlementResponse>> getById(
             @PathVariable UUID settlementId) {
         return ResponseEntity.ok(ApiResponse.success(settlementService.getById(settlementId)));
@@ -106,7 +106,7 @@ public class SettlementController {
      * are financial operations that workers and members must not perform.
      */
     @PostMapping("/{settlementId}/transactions")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<SettlementTransactionResponse>> recordTransaction(
             @PathVariable UUID settlementId,
             @Valid @RequestBody RecordSettlementTransactionRequest request,
@@ -123,7 +123,7 @@ public class SettlementController {
      * Used to render the payment timeline on the settlement detail screen.
      */
     @GetMapping("/{settlementId}/transactions")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<SettlementTransactionResponse>>> getTransactions(
             @PathVariable UUID settlementId) {
         return ResponseEntity.ok(
@@ -135,7 +135,7 @@ public class SettlementController {
      * Used for the admin "All Settlement History" view.
      */
     @GetMapping("/all")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getAllSettlements(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -148,7 +148,7 @@ public class SettlementController {
      * Admin-only: this is a financially significant, irreversible (soft) action.
      */
     @PostMapping("/{settlementId}/void")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SettlementResponse>> voidSettlement(
             @PathVariable UUID settlementId,
             Authentication auth) {
@@ -162,7 +162,7 @@ public class SettlementController {
      * The JWT principal is the memberId in the member service.
      */
     @GetMapping("/my")
-    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getMySettlements(
             Authentication auth,
             @RequestParam(defaultValue = "0") int page,
@@ -176,7 +176,7 @@ public class SettlementController {
      * Member: fetch a single settlement by ID — only if it belongs to them.
      */
     @GetMapping("/{settlementId}/my")
-    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<SettlementResponse>> getMySettlementById(
             @PathVariable UUID settlementId,
             Authentication auth) {
@@ -195,7 +195,7 @@ public class SettlementController {
      * Excludes FULLY_COLLECTED, FULLY_DISBURSED, BALANCED.
      */
     @GetMapping("/pending-payments")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getPendingPayments(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

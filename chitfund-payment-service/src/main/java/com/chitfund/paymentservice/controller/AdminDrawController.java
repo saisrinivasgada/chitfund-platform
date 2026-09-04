@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/admin/draws")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+@PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
 public class AdminDrawController {
 
     private final ChitMonthDrawService drawService;
@@ -47,7 +47,7 @@ public class AdminDrawController {
      * Call this when the month starts and you're ready to collect installments.
      */
     @PostMapping("/open")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> openDraw(
             @Valid @RequestBody OpenMonthRequest request,
             Authentication auth) {
@@ -64,7 +64,7 @@ public class AdminDrawController {
      * - Publishes ChitMonthSkippedEvent → notifies members + workers + extends chit end date
      */
     @PostMapping("/skip")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> skipDraw(
             @Valid @RequestBody SkipMonthRequest request,
             Authentication auth) {
@@ -80,7 +80,7 @@ public class AdminDrawController {
      * Works even if some members are still OUTSTANDING (force-close).
      */
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<DrawSummaryResponse>> closeDraw(
             @PathVariable UUID id,
             Authentication auth) {
@@ -114,7 +114,7 @@ public class AdminDrawController {
      * Blocked if any member has already paid — admin must void those batches first.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<Void> deleteDraw(
             @PathVariable UUID id,
             Authentication auth) {

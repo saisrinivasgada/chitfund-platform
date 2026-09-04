@@ -48,7 +48,7 @@ public class PaymentController {
      * Otherwise creates AWAITING_REMITTANCE; admin calls /remit after receiving from the staff.
      */
     @PostMapping("/collect")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectCash(
             @Valid @RequestBody CollectCashRequest request,
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
@@ -65,7 +65,7 @@ public class PaymentController {
      * FIFO is applied immediately — payment_records updated in the same transaction.
      */
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> recordPayment(
             @Valid @RequestBody RecordPaymentRequest request,
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
@@ -80,7 +80,7 @@ public class PaymentController {
      * FIFO is applied here — this is when the member's payment is officially credited.
      */
     @PostMapping("/{batchId}/remit")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> remitCash(
             @PathVariable UUID batchId,
             Authentication auth) {
@@ -93,7 +93,7 @@ public class PaymentController {
      * All AWAITING_REMITTANCE batches — admin sees which workers still hold cash.
      */
     @GetMapping("/pending-remittance")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getPendingRemittances() {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getPendingRemittances()));
     }
@@ -103,7 +103,7 @@ public class PaymentController {
      * Covers admin-assigned direct collections (no CashPaymentRequest was created).
      */
     @GetMapping("/batches/mine")
-    @PreAuthorize("hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getMyPendingBatches(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(paymentService.getMyPendingBatches(userId)));
@@ -114,7 +114,7 @@ public class PaymentController {
      * Used in the member portal's Payments tab.
      */
     @GetMapping("/batches/member")
-    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getMyBatches(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         UUID profileId = memberServiceClient.getProfileIdByUserId(userId);
@@ -127,7 +127,7 @@ public class PaymentController {
      * Used in StaffDetailPage to show a worker or manager's full collection history.
      */
     @GetMapping("/batches/collector/{collectorId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getBatchesByCollector(
             @PathVariable UUID collectorId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getBatchesByCollector(collectorId)));
@@ -138,7 +138,7 @@ public class PaymentController {
      * "Today" = created, remitted, or voided since midnight local time.
      */
     @GetMapping("/batches/today")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getTodaysBatches() {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getTodaysBatches()));
     }
@@ -148,7 +148,7 @@ public class PaymentController {
      * Show this anywhere admin is collecting/recording a payment so they can see if credit applies.
      */
     @GetMapping("/credits/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<com.chitfund.paymentservice.dto.response.MemberCreditResponse>> getMemberCredit(
             @PathVariable UUID memberId, Authentication auth) {
         boolean isMember = auth.getAuthorities().stream()
@@ -164,7 +164,7 @@ public class PaymentController {
      * Response: { totalOutstanding: ₹6000, months: [{month:2, balance:₹1000}, {month:3, balance:₹5000}] }
      */
     @GetMapping("/balance")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberBalanceResponse>> getMemberBalance(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId,
@@ -182,7 +182,7 @@ public class PaymentController {
      * Used on the member detail page summary card.
      */
     @GetMapping("/balance/total")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<BigDecimal>> getMemberTotalBalance(
             @RequestParam UUID memberId, Authentication auth) {
         boolean isMember = auth.getAuthorities().stream()
@@ -198,7 +198,7 @@ public class PaymentController {
      * Used on the members list page — one call instead of N. Accepts comma-separated UUIDs.
      */
     @GetMapping("/balance/bulk")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<UUID, BigDecimal>>> getMemberTotalBalanceBulk(
             @RequestParam String memberIds) {
         List<UUID> ids = Arrays.stream(memberIds.split(","))
@@ -214,7 +214,7 @@ public class PaymentController {
      * Used on admin chit cards to show lingering dues after chit ends.
      */
     @GetMapping("/balance/chit-summary")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getChitOutstandingSummary(@RequestParam UUID chitId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getChitOutstandingSummary(chitId)));
     }
@@ -224,7 +224,7 @@ public class PaymentController {
      * Used in the member detail page to show a complete payment timeline.
      */
     @GetMapping("/history")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_STAFF') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PaymentRecordResponse>>> getPaymentHistory(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId) {
@@ -236,7 +236,7 @@ public class PaymentController {
      * Used in the Transactions tab of the PaymentHistoryModal.
      */
     @GetMapping("/batches")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getPaymentBatches(
             @RequestParam UUID memberId,
             @RequestParam UUID chitId) {
@@ -248,7 +248,7 @@ public class PaymentController {
      * Supports pagination via ?page=0&size=50 (defaults to page 0, size 50).
      */
     @GetMapping("/batches/all")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<?> getAllBatches(
             @RequestParam(required = false) UUID chitId,
             @RequestParam(required = false) UUID memberId,
@@ -277,7 +277,7 @@ public class PaymentController {
      * Used by the Transaction Detail page.
      */
     @GetMapping("/batches/{batchId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> getBatchById(
             @PathVariable UUID batchId, Authentication auth) {
         PaymentBatchResponse batch = paymentService.getBatchById(batchId);
@@ -298,7 +298,7 @@ public class PaymentController {
      * Admin must provide a reason (audit trail). Both COMPLETED and AWAITING_REMITTANCE can be voided.
      */
     @PostMapping("/{batchId}/void")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> voidPayment(
             @PathVariable UUID batchId,
             @Valid @RequestBody VoidPaymentRequest request,
@@ -312,7 +312,7 @@ public class PaymentController {
      * No batch, no treasury movement. Sets amountPaid = amountDue so draw card shows paid.
      */
     @PostMapping("/mark-payout-deducted")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Void> markPayoutDeducted(
             @Valid @RequestBody MarkPayoutDeductedRequest request) {
         paymentService.markPayoutDeducted(
@@ -326,14 +326,14 @@ public class PaymentController {
      * Called when a payout is cancelled or its draw is deleted.
      */
     @PostMapping("/revert-payout-deductions/{payoutId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Void> revertPayoutDeductions(@PathVariable UUID payoutId) {
         paymentService.revertPayoutDeductions(payoutId);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/records/{recordId}/promised-date")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentRecordResponse>> updatePromisedDate(
             @PathVariable UUID recordId,
             @RequestBody Map<String, String> body) {

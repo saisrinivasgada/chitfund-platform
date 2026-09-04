@@ -28,7 +28,7 @@ public class NotificationHistoryController {
      * This is the audit trail that proves notifications were sent.
      */
     @GetMapping("/{recipientId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<NotificationResponse>>> getHistory(
             @PathVariable UUID recipientId,
             @PageableDefault(size = 20) Pageable pageable) {

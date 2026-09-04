@@ -21,7 +21,7 @@ import java.time.Instant;
 @RestController
 @RequestMapping("/audit/super-admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ROLE_SUPER_ADMIN')")
+@PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
 public class SuperAdminAuditController {
 
     private final AuditService auditService;

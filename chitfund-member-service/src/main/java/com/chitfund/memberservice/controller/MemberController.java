@@ -31,7 +31,7 @@ public class MemberController {
     private final MemberService memberService;
 
     @GetMapping("/phone-taken")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<String, Boolean>>> isPhoneTaken(
             @RequestParam String phone,
             @RequestParam(required = false, defaultValue = "+91") String countryCode) {
@@ -44,7 +44,7 @@ public class MemberController {
      * Phone must be unique — it's the field workers use to identify members in the field.
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<MemberResponse>> createMember(
             @Valid @RequestBody CreateMemberRequest request,
             Authentication auth) {
@@ -58,7 +58,7 @@ public class MemberController {
      * Example: GET /members?search=ravi&status=ACTIVE&page=0&size=20
      */
     @GetMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<Page<MemberResponse>>> listMembers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) MemberStatus status,
@@ -71,7 +71,7 @@ public class MemberController {
      * Workers need this to verify membership before recording a payment.
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<MemberResponse>> getMember(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(memberService.getById(id)));
     }
@@ -81,7 +81,7 @@ public class MemberController {
      * Worker types the member's number, gets their profile + outstanding balance (from payment-service).
      */
     @GetMapping("/by-phone/{phone}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_STAFF')")
     public ResponseEntity<ApiResponse<MemberResponse>> getMemberByPhone(@PathVariable String phone) {
         return ResponseEntity.ok(ApiResponse.success(memberService.getByPhone(phone)));
     }
@@ -95,7 +95,7 @@ public class MemberController {
      * The userId→memberId lookup is a simple SELECT by indexed column, one call total.
      */
     @GetMapping("/me")
-    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberResponse>> getMyProfile(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(memberService.getByUserId(userId)));
@@ -106,7 +106,7 @@ public class MemberController {
      * Phone is NOT updatable here — it's unique and used as a field identifier.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> updateMember(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateMemberRequest request,
@@ -120,7 +120,7 @@ public class MemberController {
      * Deliberately excludes name, KYC, and bank — those are admin-controlled.
      */
     @PatchMapping("/me/profile")
-    @PreAuthorize("hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<MemberResponse>> updateMyProfile(
             @Valid @RequestBody UpdateMemberProfileRequest request,
             Authentication auth) {
@@ -134,7 +134,7 @@ public class MemberController {
      * Lets the member log in and see their own chits, payments, and payouts.
      */
     @PatchMapping("/{id}/link-user")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> linkUser(
             @PathVariable UUID id,
             @Valid @RequestBody LinkUserRequest request) {
@@ -146,7 +146,7 @@ public class MemberController {
      * Blacklisting requires a reason — appended to member notes for audit trail.
      */
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> updateStatus(
             @PathVariable UUID id,
             @Valid @RequestBody UpdateStatusRequest request) {
@@ -154,7 +154,7 @@ public class MemberController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> deleteMember(
             @PathVariable UUID id,
             Authentication auth) {
@@ -164,7 +164,7 @@ public class MemberController {
     }
 
     @GetMapping("/deleted")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<Page<MemberResponse>>> listDeletedMembers(
             @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {

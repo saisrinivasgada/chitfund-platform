@@ -34,7 +34,7 @@ public class PayoutController {
      * In the future this will be triggered automatically by a Kafka WinnerSelectedEvent.
      */
     @PostMapping
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PayoutResponse>> createPayout(
             @Valid @RequestBody CreatePayoutRequest request,
             Authentication auth) {
@@ -50,13 +50,13 @@ public class PayoutController {
      * This is the primary list admin checks daily — "who still needs to be paid?"
      */
     @GetMapping("/pending")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getPendingPayouts() {
         return ResponseEntity.ok(ApiResponse.success(payoutService.getPendingPayouts()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<PayoutResponse>> getPayout(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(payoutService.getById(id)));
     }
@@ -66,7 +66,7 @@ public class PayoutController {
      * Useful for: "Which months have been paid? Which are still pending?"
      */
     @GetMapping("/chit/{chitId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getPayoutsForChit(
             @PathVariable UUID chitId) {
         return ResponseEntity.ok(ApiResponse.success(payoutService.getPayoutsForChit(chitId)));
@@ -77,7 +77,7 @@ public class PayoutController {
      * Useful for: tax records, dispute resolution, member profile.
      */
     @GetMapping("/member/{memberId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MEMBER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getPayoutsForMember(
             @PathVariable UUID memberId, Authentication auth) {
         boolean isMember = auth.getAuthorities().stream()
@@ -94,7 +94,7 @@ public class PayoutController {
      * Non-CASH modes require a reference number (UTR / UPI ID / cheque no.) for audit.
      */
     @PostMapping("/{id}/disburse")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> disburse(
             @PathVariable UUID id,
             @Valid @RequestBody DisburseRequest request,
@@ -105,7 +105,7 @@ public class PayoutController {
 
     /** All payouts across all chits, with optional date range and chit filter — for reports. */
     @GetMapping("/all")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getAllPayouts(
             @RequestParam(required = false) UUID chitId,
             @RequestParam(required = false) LocalDate fromDate,
@@ -115,7 +115,7 @@ public class PayoutController {
 
     /** All payouts created or disbursed today — used in the daily activity feed. */
     @GetMapping("/today")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<PayoutResponse>>> getTodaysPayouts() {
         return ResponseEntity.ok(ApiResponse.success(payoutService.getTodaysPayouts()));
     }
@@ -126,7 +126,7 @@ public class PayoutController {
      * Treasury payment batches created during settlement must be voided separately via payment-service.
      */
     @PostMapping("/{id}/void")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> voidPayout(
             @PathVariable UUID id,
             @Valid @RequestBody CancelPayoutRequest request,
@@ -140,7 +140,7 @@ public class PayoutController {
      * Cannot cancel a payout that has already been disbursed.
      */
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasRole('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PayoutResponse>> cancel(
             @PathVariable UUID id,
             @Valid @RequestBody CancelPayoutRequest request,

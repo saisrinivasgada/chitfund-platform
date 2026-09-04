@@ -23,7 +23,7 @@ public class TeamNoteController {
     private final TeamNoteService teamNoteService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<List<TeamNoteResponse>>> getVisible(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
         String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
@@ -31,7 +31,7 @@ public class TeamNoteController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<TeamNoteResponse>> create(
             @Valid @RequestBody TeamNoteRequest req,
             Authentication auth) {
@@ -43,7 +43,7 @@ public class TeamNoteController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<TeamNoteResponse>> update(
             @PathVariable UUID id,
             @Valid @RequestBody TeamNoteRequest req,
@@ -53,7 +53,7 @@ public class TeamNoteController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ROLE_ADMIN', 'ROLE_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable UUID id,
             Authentication auth) {
