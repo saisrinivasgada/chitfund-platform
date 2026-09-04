@@ -341,10 +341,10 @@ export default function SuperAdminContactsPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold" style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}>
-            Contact Requests
+            Helpdesk
           </h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            Inquiries from prospects and support tickets from registered orgs
+            Support requests, inquiries from prospects and issues from registered orgs
           </p>
         </div>
         {newCount > 0 && (
