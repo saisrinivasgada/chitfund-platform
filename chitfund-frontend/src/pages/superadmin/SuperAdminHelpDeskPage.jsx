@@ -290,7 +290,7 @@ function ContactCard({ item, onStatusChange, onModeChange, isUpdating }) {
   );
 }
 
-export default function SuperAdminContactsPage() {
+export default function SuperAdminHelpDeskPage() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState('ALL');
 

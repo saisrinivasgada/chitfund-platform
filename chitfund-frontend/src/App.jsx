@@ -29,7 +29,7 @@ import SuperAdminPromotionsPage from './pages/superadmin/SuperAdminPromotionsPag
 import SuperAdminAlertsPage from './pages/superadmin/SuperAdminAlertsPage';
 import SuperAdminBillingPage from './pages/superadmin/SuperAdminBillingPage';
 import SuperAdminPaymentDetailPage from './pages/superadmin/SuperAdminPaymentDetailPage';
-import SuperAdminContactsPage from './pages/superadmin/SuperAdminContactsPage';
+import SuperAdminHelpDeskPage from './pages/superadmin/SuperAdminHelpDeskPage';
 import DashboardPage from './pages/DashboardPage';
 import MembersPage from './pages/members/MembersPage';
 import MemberDetailPage from './pages/members/MemberDetailPage';
@@ -101,7 +101,7 @@ export default function App() {
         <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
         <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
         <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
-        <Route path="/superadmin/contacts" element={<SuperAdminContactsPage />} />
+        <Route path="/superadmin/helpdesk" element={<SuperAdminHelpDeskPage />} />
         <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
         <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
       </Route>
