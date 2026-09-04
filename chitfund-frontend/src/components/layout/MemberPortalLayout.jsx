@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
-import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown } from 'lucide-react';
+import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread } from '../../services/api';
+import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, UsersRound } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
+import MessagesPanel from '../messaging/MessagesPanel';
+import GroupsPanel from '../messaging/GroupsPanel';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
@@ -131,6 +133,7 @@ function SwitchRoleModal({ phone, altRole, altLabel, onClose }) {
 function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [tenants, setTenants] = useState(null);
   const [loginToken, setLoginToken] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -171,6 +174,7 @@ function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
         tenantStatus: tenant.status ?? 'ACTIVE',
         planExpiresAt: tenant.planExpiresAt ?? null,
       });
+      qc.clear();
       onClose();
       navigate('/member', { replace: true });
     } catch (err) {
@@ -271,6 +275,8 @@ export default function MemberPortalLayout() {
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
+  const [showMessages, setShowMessages] = useState(false);
+  const [showGroups, setShowGroups] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: me } = useQuery({
@@ -283,6 +289,14 @@ export default function MemberPortalLayout() {
     queryKey: ['mobileLookup', me?.phone],
     queryFn: () => mobileLookup(me.phone),
     enabled: !!me?.phone,
+  });
+
+  const { data: memberMsgUnread } = useQuery({
+    queryKey: ['memberConvUnread'],
+    queryFn: getMemberConversationUnread,
+    enabled: isAuthenticated && user?.role === 'MEMBER',
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   if (isRestoring) return (
@@ -330,6 +344,27 @@ export default function MemberPortalLayout() {
               className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowMessages(true)}
+              title="Chat with your org admin"
+              className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
+            >
+              <MessageSquare size={16} />
+              {memberMsgUnread > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                  {memberMsgUnread > 9 ? '9+' : memberMsgUnread}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowGroups(true)}
+              title="Group chats"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors cursor-pointer"
+            >
+              <UsersRound size={16} />
             </button>
             <NotificationBell />
 
@@ -406,6 +441,8 @@ export default function MemberPortalLayout() {
           onClose={() => setShowSignOut(false)}
         />
       )}
+      {showMessages && <MessagesPanel onClose={() => setShowMessages(false)} />}
+      {showGroups && <GroupsPanel onClose={() => setShowGroups(false)} />}
     </div>
   );
 }

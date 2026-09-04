@@ -13,6 +13,7 @@ import LoginPage from './pages/LoginPage';
 import LandingPage from './pages/LandingPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsPage from './pages/TermsPage';
+import AboutPage from './pages/AboutPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import SelectCompanyPage from './pages/SelectCompanyPage';
 import SetupAccountPage from './pages/SetupAccountPage';
@@ -28,6 +29,7 @@ import SuperAdminPromotionsPage from './pages/superadmin/SuperAdminPromotionsPag
 import SuperAdminAlertsPage from './pages/superadmin/SuperAdminAlertsPage';
 import SuperAdminBillingPage from './pages/superadmin/SuperAdminBillingPage';
 import SuperAdminPaymentDetailPage from './pages/superadmin/SuperAdminPaymentDetailPage';
+import SuperAdminContactsPage from './pages/superadmin/SuperAdminContactsPage';
 import DashboardPage from './pages/DashboardPage';
 import MembersPage from './pages/members/MembersPage';
 import MemberDetailPage from './pages/members/MemberDetailPage';
@@ -46,7 +48,7 @@ import AuctionRoomPage from './pages/auction/AuctionRoomPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import MyAccountPage from './pages/admin/MyAccountPage';
 import AdminMemberViewPage from './pages/admin/AdminMemberViewPage';
-import TeamPage from './pages/admin/TeamPage';
+import MyOrgPage from './pages/admin/MyOrgPage';
 import RolesPage from './pages/admin/RolesPage';
 import StaffDetailPage from './pages/admin/StaffDetailPage';
 import TreasuryPage from './pages/admin/TreasuryPage';
@@ -58,10 +60,17 @@ import ManagerCashPickupPage from './pages/manager/ManagerCashPickupPage';
 import MemberPortalPage from './pages/member/MemberPortalPage';
 import MemberProfilePage from './pages/member/MemberProfilePage';
 import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
+import MemberInvitationsPage from './pages/member/MemberInvitationsPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
 import ErrorPage from './pages/ErrorPage';
 import SessionExpiredPage from './pages/SessionExpiredPage';
 import TenantGate from './components/layout/TenantGate';
+import HubLayout from './components/hub/HubLayout';
+import HubLoginPage from './pages/hub/HubLoginPage';
+import HubTicketsPage from './pages/hub/HubTicketsPage';
+import HubTicketDetailPage from './pages/hub/HubTicketDetailPage';
+import HubEmployeesPage from './pages/hub/HubEmployeesPage';
+import HubChatPage from './pages/hub/HubChatPage';
 
 function PaymentsDefaultRedirect() {
   const { user } = useAuth();
@@ -77,6 +86,7 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/about" element={<AboutPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterOrgPage />} />
       <Route path="/select-company" element={<SelectCompanyPage />} />
@@ -91,6 +101,7 @@ export default function App() {
         <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
         <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
         <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
+        <Route path="/superadmin/contacts" element={<SuperAdminContactsPage />} />
         <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
         <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
       </Route>
@@ -106,6 +117,7 @@ export default function App() {
         <Route path="/member/profile" element={<MemberProfilePage />} />
         <Route path="/member/chits/:chitId" element={<MemberChitDetailPage />} />
         <Route path="/member/transactions/:batchId" element={<TransactionDetailPage />} />
+        <Route path="/member/invitations" element={<MemberInvitationsPage />} />
       </Route>
 
       {/* Admin/Staff routes */}
@@ -131,7 +143,7 @@ export default function App() {
         <Route path="/my-account" element={<MyAccountPage />} />
         <Route path="/treasury" element={<TreasuryPage />} />
         <Route path="/settlement" element={<SettlementPage />} />
-        <Route path="/team" element={<TeamPage />} />
+        <Route path="/myorg" element={<MyOrgPage />} />
         <Route path="/billing" element={<BillingPage />} />
         <Route path="/roles" element={<RolesPage />} />
         <Route path="/staff/:id" element={<StaffDetailPage />} />
@@ -142,6 +154,16 @@ export default function App() {
       </Route>
 
       </Route> {/* end TenantGate */}
+
+      {/* Hub staff portal — separate auth, no org JWT */}
+      <Route path="/hub-login" element={<HubLoginPage />} />
+      <Route element={<HubLayout />}>
+        <Route index path="/hub" element={<Navigate to="/hub/tickets" replace />} />
+        <Route path="/hub/tickets" element={<HubTicketsPage />} />
+        <Route path="/hub/tickets/:id" element={<HubTicketDetailPage />} />
+        <Route path="/hub/employees" element={<HubEmployeesPage />} />
+        <Route path="/hub/chat" element={<HubChatPage />} />
+      </Route>
 
       <Route path="/session-expired" element={<SessionExpiredPage />} />
       <Route path="/error" element={<ErrorPage />} />

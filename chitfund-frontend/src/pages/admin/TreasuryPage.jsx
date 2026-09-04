@@ -179,7 +179,7 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
               Treasury — {isTransfer ? 'Transfer' : isIn ? 'Money In' : 'Money Out'}
             </h2>
             {isTransfer ? (
-              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">TRANSFER</span>
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#EEF2F8] text-[#1E3A5F]">TRANSFER</span>
             ) : (
               <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${isIn ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                 {tx.entryType}
@@ -197,14 +197,14 @@ function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
           <div className="flex items-center justify-between py-3 mb-1">
             <div>
               <p className="text-xs text-gray-400 uppercase tracking-wider">Amount</p>
-              <p className={`text-3xl font-bold mt-0.5 ${isTransfer ? 'text-purple-700' : isIn ? 'text-green-700' : 'text-red-600'}`}>
+              <p className={`text-3xl font-bold mt-0.5 ${isTransfer ? 'text-[#1E3A5F]' : isIn ? 'text-green-700' : 'text-red-600'}`}>
                 {isIn ? '+' : '−'}₹{Number(tx.amount).toLocaleString('en-IN')}
               </p>
             </div>
             <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${
               tx.accountType === 'CASH'
                 ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : 'bg-blue-50 text-blue-700 border-blue-200'
+                : 'bg-[#EEF2F8] text-[#1E3A5F] border-[#C7D5E8]'
             }`}>
               {tx.accountType}
             </span>
@@ -606,7 +606,7 @@ function AddTransactionModal({ onClose }) {
                         >
                           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                             c.status === 'ACTIVE'    ? 'bg-green-500' :
-                            c.status === 'COMPLETED' ? 'bg-blue-500'  :
+                            c.status === 'COMPLETED' ? 'bg-[#1E3A5F]'  :
                             c.status === 'PAUSED'    ? 'bg-amber-500' :
                                                        'bg-gray-400'
                           }`} />
@@ -737,13 +737,13 @@ function TransferModal({ onClose }) {
           {/* Visual flow indicator */}
           <div className="flex items-center justify-center gap-3 py-2">
             <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-              fromAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+              fromAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-[#EEF2F8] text-[#1E3A5F]'
             }`}>
               {fromAccount}
             </span>
             <ArrowLeftRight size={14} className="text-gray-400" />
             <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
-              toAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+              toAccount === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-[#EEF2F8] text-[#1E3A5F]'
             }`}>
               {toAccount}
             </span>
@@ -860,7 +860,7 @@ export default function TreasuryPage() {
   function EntryTypeBadge({ t }) {
     if (t.category === 'TRANSFER') {
       return (
-        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+        <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-[#EEF2F8] text-[#1E3A5F]">
           <ArrowLeftRight size={10} /> Transfer
         </span>
       );
@@ -999,7 +999,7 @@ export default function TreasuryPage() {
             {txWithRunning.map((t) => (
               <Tr
                 key={t.id}
-                className="cursor-pointer hover:bg-blue-50/40 transition-colors"
+                className="cursor-pointer hover:bg-[#EEF2F8]/40 transition-colors"
                 onClick={() => setSelectedTx(t)}
               >
                 <Td className="text-gray-500 text-xs whitespace-nowrap">
@@ -1007,7 +1007,7 @@ export default function TreasuryPage() {
                 </Td>
                 <Td>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    t.accountType === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                    t.accountType === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-[#EEF2F8] text-[#1E3A5F]'
                   }`}>
                     {t.accountType}
                   </span>
@@ -1015,7 +1015,7 @@ export default function TreasuryPage() {
                 <Td><EntryTypeBadge t={t} /></Td>
                 <Td className="text-gray-600 text-sm">
                   {t.category === 'TRANSFER' ? (
-                    <span className="text-purple-600 font-medium">Transfer</span>
+                    <span className="font-medium" style={{ color: '#1E3A5F' }}>Transfer</span>
                   ) : (t.category ?? '—')}
                 </Td>
                 <Td className="text-gray-700 text-sm max-w-xs">
@@ -1025,7 +1025,7 @@ export default function TreasuryPage() {
                 </Td>
                 <Td className={`font-semibold whitespace-nowrap ${
                   t.category === 'TRANSFER'
-                    ? 'text-purple-600'
+                    ? 'text-[#1E3A5F]'
                     : t.entryType === 'IN' ? 'text-green-700' : 'text-red-600'
                 }`}>
                   {hidden ? '••••••' : `${

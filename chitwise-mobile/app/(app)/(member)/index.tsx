@@ -1,16 +1,14 @@
 import React from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
-import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById } from '../../../services/api';
+import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact } from '../../../services/api';
 import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
-const SETT_PURPLE = '#7C3AED';
-const SETT_PURPLE_LIGHT = '#F5F3FF';
-const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#7C3AED', UNKNOWN: '#9CA3AF' };
+const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#2D5490', UNKNOWN: '#9CA3AF' };
 const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown' };
 
 export default function MemberHomeScreen() {
@@ -18,6 +16,13 @@ export default function MemberHomeScreen() {
   const router = useRouter();
   const [detailSettlement, setDetailSettlement] = React.useState<any>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [contactOpen, setContactOpen] = React.useState(false);
+
+  const { data: adminContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    staleTime: 10 * 60 * 1000,
+  });
 
   const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({
     queryKey: ['member-chits'],
@@ -47,6 +52,14 @@ export default function MemberHomeScreen() {
     queryFn: () => getMySettlements(0, 5),
   });
   const mySettlements: any[] = settlementsPage?.content ?? [];
+
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['member-invitations'],
+    queryFn: getMyInvitations,
+  });
+  const pendingInvitations = (invitations as any[]).filter(
+    (inv) => inv.myResponse?.responseStatus === 'PENDING' && inv.status === 'OPEN',
+  );
 
   const isLoading = chitsLoading || reqLoading;
 
@@ -145,6 +158,36 @@ export default function MemberHomeScreen() {
           </View>
         </View>
 
+        {/* Pending invitations banner */}
+        {pendingInvitations.length > 0 && (
+          <TouchableOpacity
+            onPress={() => router.push('/(app)/(member)/invitations')}
+            style={{
+              backgroundColor: '#EEF2F8', borderWidth: 1, borderColor: '#C7D5E8',
+              borderRadius: 12, padding: 16, marginBottom: 16,
+              flexDirection: 'row', alignItems: 'center',
+            }}
+          >
+            <View style={{
+              width: 40, height: 40, backgroundColor: C.navy, borderRadius: 20,
+              justifyContent: 'center', alignItems: 'center', marginRight: 12,
+            }}>
+              <Text style={{ color: C.white, fontWeight: '700', fontSize: 16 }}>
+                {pendingInvitations.length}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.navy, fontWeight: '600', fontSize: 15 }}>
+                {pendingInvitations.length} Pending Invitation{pendingInvitations.length > 1 ? 's' : ''}
+              </Text>
+              <Text style={{ color: C.gray500, fontSize: 13, marginTop: 2 }}>
+                Admin has shared a payout plan with you
+              </Text>
+            </View>
+            <Text style={{ color: C.navy, fontSize: 20, fontWeight: '300' }}>›</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Active cash requests */}
         {pendingReqs.length > 0 && (
           <View style={{ marginBottom: 20 }}>
@@ -176,7 +219,7 @@ export default function MemberHomeScreen() {
               const isCollect = net > 0;
               const statusColors: Record<string, string> = {
                 FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500,
-                PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red,
+                PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red,
               };
               const statusLabels: Record<string, string> = {
                 FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced',
@@ -186,7 +229,7 @@ export default function MemberHomeScreen() {
               const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
               return (
                 <TouchableOpacity key={s.id} onPress={() => openSettlementDetail(s)} activeOpacity={0.7}>
-                  <GlassCard style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
+                  <GlassCard style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.navy }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 2 }}>{fmtDate(s.settledAt ?? s.createdAt)}</Text>
@@ -237,14 +280,99 @@ export default function MemberHomeScreen() {
             ))
           )}
         </View>
+
+        {/* Message Admin */}
+        <TouchableOpacity
+          onPress={() => router.push('/(app)/(member)/messages')}
+          style={{
+            marginTop: 24, marginBottom: 8, flexDirection: 'row', alignItems: 'center',
+            justifyContent: 'center', gap: 8, paddingVertical: 14,
+            borderRadius: 14, borderWidth: 1, borderColor: C.navy + '30',
+            backgroundColor: '#F0F4FA',
+          }}
+        >
+          <Text style={{ fontSize: 18 }}>💬</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Message your Admin</Text>
+        </TouchableOpacity>
+
+        {/* Group Chats */}
+        <TouchableOpacity
+          onPress={() => router.push('/(app)/(member)/groups')}
+          style={{
+            marginBottom: 8, flexDirection: 'row', alignItems: 'center',
+            justifyContent: 'center', gap: 8, paddingVertical: 14,
+            borderRadius: 14, borderWidth: 1, borderColor: '#16a34a30',
+            backgroundColor: '#F0FDF4',
+          }}
+        >
+          <Text style={{ fontSize: 18 }}>👥</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#16a34a' }}>My Groups</Text>
+        </TouchableOpacity>
+
+        {/* Contact Support — only shown if admin has a support phone set */}
+        {adminContact?.supportPhoneNumber && (
+          <TouchableOpacity
+            onPress={() => setContactOpen(true)}
+            style={{
+              marginBottom: 8, flexDirection: 'row', alignItems: 'center',
+              justifyContent: 'center', gap: 8, paddingVertical: 14,
+              borderRadius: 14, borderWidth: 1, borderColor: C.navy + '30',
+              backgroundColor: '#F0F4FA',
+            }}
+          >
+            <Text style={{ fontSize: 18 }}>📞</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Contact Support</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
+
+      {/* Contact Support Modal */}
+      <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <View>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy }}>Contact Support</Text>
+                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Your chit fund admin is available to help</Text>
+              </View>
+              <TouchableOpacity onPress={() => setContactOpen(false)}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {adminContact?.supportPhoneNumber ? (
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`tel:${adminContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, backgroundColor: C.navy }}
+                >
+                  <Text style={{ fontSize: 22 }}>📞</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>Call Admin</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`sms:${adminContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}
+                >
+                  <Text style={{ fontSize: 22 }}>💬</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                <Text style={{ fontSize: 32, marginBottom: 12 }}>📵</Text>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700, textAlign: 'center' }}>No support number set</Text>
+                <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginTop: 6 }}>Your admin hasn't set a support number yet. Please contact them directly.</Text>
+              </View>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       {/* Settlement Detail Modal */}
       <Modal visible={!!detailSettlement} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailSettlement(null)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           {detailLoading ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <ActivityIndicator color={SETT_PURPLE} size="large" />
+              <ActivityIndicator color={C.navy} size="large" />
             </View>
           ) : detailSettlement ? (() => {
             const s = detailSettlement;
@@ -253,7 +381,7 @@ export default function MemberHomeScreen() {
             const isCollect = net > 0;
             const statusColors: Record<string, string> = {
               FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500,
-              PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red,
+              PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red,
             };
             const statusLabels: Record<string, string> = {
               FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced',
@@ -273,7 +401,7 @@ export default function MemberHomeScreen() {
                 </View>
 
                 {/* Summary card */}
-                <View style={{ backgroundColor: SETT_PURPLE_LIGHT, borderRadius: 14, padding: 16, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: SETT_PURPLE }}>
+                <View style={{ backgroundColor: C.navy50, borderRadius: 14, padding: 16, marginBottom: 16, borderLeftWidth: 4, borderLeftColor: C.navy }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 2 }}>{fmtDateTime(s.settledAt ?? s.createdAt)}</Text>
@@ -285,9 +413,9 @@ export default function MemberHomeScreen() {
                       <Text style={{ fontSize: 12, fontWeight: '700', color: sColor }}>{sLabel}</Text>
                     </View>
                   </View>
-                  {s.notes ? <Text style={{ fontSize: 12, color: SETT_PURPLE, fontStyle: 'italic' }}>"{s.notes}"</Text> : null}
+                  {s.notes ? <Text style={{ fontSize: 12, color: C.navy, fontStyle: 'italic' }}>"{s.notes}"</Text> : null}
                   {Number(s.adjustmentAmount ?? 0) !== 0 && (
-                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#DDD6FE', paddingTop: 8 }}>
+                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: C.navy50, paddingTop: 8 }}>
                       <Text style={{ fontSize: 12, color: C.gray600 }}>
                         Adjustment: {Number(s.adjustmentAmount) > 0 ? '+' : ''}₹{Number(s.adjustmentAmount).toLocaleString('en-IN')}
                         {s.adjustmentReason ? ` — ${s.adjustmentReason}` : ''}
@@ -295,9 +423,9 @@ export default function MemberHomeScreen() {
                     </View>
                   )}
                   {Number(s.creditApplied ?? 0) > 0 && (
-                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#DDD6FE', paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 12, color: SETT_PURPLE, fontWeight: '600' }}>Credit balance applied</Text>
-                      <Text style={{ fontSize: 12, color: SETT_PURPLE, fontWeight: '700' }}>−₹{Number(s.creditApplied).toLocaleString('en-IN')}</Text>
+                    <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: C.navy50, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600' }}>Credit balance applied</Text>
+                      <Text style={{ fontSize: 12, color: C.navy, fontWeight: '700' }}>−₹{Number(s.creditApplied).toLocaleString('en-IN')}</Text>
                     </View>
                   )}
                 </View>

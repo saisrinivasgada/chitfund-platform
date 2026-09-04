@@ -15,7 +15,11 @@ const DATE_FILTERS = [
 
 const MODE_FILTERS = ['ALL', 'CASH', 'UPI', 'BANK_TRANSFER'] as const;
 
-const MODE_EMOJI: Record<string, string> = { CASH: '💵', UPI: '📱', BANK_TRANSFER: '🏦' };
+const MODE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  CASH:          { bg: C.green,      text: '#fff',    label: 'Cash' },
+  UPI:           { bg: C.gold,       text: '#fff',    label: 'UPI' },
+  BANK_TRANSFER: { bg: C.navy,       text: '#fff',    label: 'Bank' },
+};
 
 function isToday(d: Date | null) {
   if (!d) return false;
@@ -110,7 +114,7 @@ export default function MemberPaymentsScreen() {
                   style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: modeFilter === m ? C.navy : C.gray100 }}
                 >
                   <Text style={{ fontSize: 11, fontWeight: '600', color: modeFilter === m ? '#fff' : C.gray600 ?? C.gray500 }}>
-                    {m === 'ALL' ? 'All' : (MODE_EMOJI[m] ?? '') + ' ' + (m === 'BANK_TRANSFER' ? 'Bank' : m)}
+                    {m === 'ALL' ? 'All' : (MODE_BADGE[m]?.label ?? m)}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -126,14 +130,22 @@ export default function MemberPaymentsScreen() {
         renderItem={({ item: b }) => {
           const isVoided = b.status === 'VOIDED';
           return (
-            <Card style={{ marginBottom: 10, opacity: isVoided ? 0.55 : 1 }}>
+            <Card style={{ marginBottom: 10, opacity: isVoided ? 0.55 : 1, borderLeftWidth: 4, borderLeftColor: isVoided ? C.gray300 : C.navy }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <Text style={{ fontSize: 16 }}>{MODE_EMOJI[b.paymentMode] ?? '💰'}</Text>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: isVoided ? C.gray400 : C.gray900 }}>
-                      {b.paymentMode ?? 'Payment'}
-                    </Text>
+                    {(() => {
+                      const badge = MODE_BADGE[b.paymentMode];
+                      return badge ? (
+                        <View style={{ backgroundColor: badge.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: badge.text }}>{badge.label}</Text>
+                        </View>
+                      ) : (
+                        <View style={{ backgroundColor: C.gray200, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray700 }}>{b.paymentMode ?? 'Payment'}</Text>
+                        </View>
+                      );
+                    })()}
                     {isVoided && (
                       <View style={{ backgroundColor: C.red + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
                         <Text style={{ fontSize: 10, fontWeight: '700', color: C.red }}>VOIDED</Text>

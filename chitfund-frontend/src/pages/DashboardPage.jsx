@@ -221,11 +221,11 @@ function ReferralCard({ referralCode, creditBalance }) {
   }
   const credit = Number(creditBalance ?? 0);
   return (
-    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200 p-5">
+    <div className="bg-gradient-to-r from-[#EEF2F8] to-[#F0F4FA] rounded-xl border border-[#CBD5E1] p-5">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-            <Users size={18} className="text-purple-600" />
+          <div className="w-10 h-10 rounded-xl bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
+            <Users size={18} style={{ color: '#1E3A5F' }} />
           </div>
           <div>
             <p className="text-sm font-semibold text-gray-900">Refer other organizations</p>
@@ -233,10 +233,10 @@ function ReferralCard({ referralCode, creditBalance }) {
           </div>
         </div>
         <div className="flex items-center gap-2 sm:flex-shrink-0">
-          <span className="font-mono text-sm font-bold text-purple-800 bg-purple-100 px-3 py-1.5 rounded-lg">
+          <span className="font-mono text-sm font-bold text-[#1E3A5F] bg-[#EEF2F8] px-3 py-1.5 rounded-lg">
             {referralCode}
           </span>
-          <button onClick={copyCode} className="p-2 rounded-lg text-purple-500 hover:bg-purple-100 transition-colors" title="Copy code">
+          <button onClick={copyCode} className="p-2 rounded-lg text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors" title="Copy code">
             {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
           </button>
         </div>
@@ -516,7 +516,7 @@ export default function DashboardPage() {
             icon={Banknote}
             label="Pending Payout"
             value={pendingPayoutCount}
-            color="#7C3AED"
+            color="#D97706"
             sub="winner selected, no payout"
             hidden={false}
             onClick={() => navigate('/payouts?tab=Pending+Payouts')}
@@ -584,7 +584,7 @@ export default function DashboardPage() {
         <div>
           <SectionHeader
             icon={Truck}
-            color="#7C3AED"
+            color="#1E3A5F"
             title="Cash Collections"
             linkLabel="View all"
             onLink={() => navigate('/payments/cash-requests')}
@@ -601,7 +601,7 @@ export default function DashboardPage() {
               icon={UserPlus}
               label="Assigned"
               count={cashSummary?.assigned ?? 0}
-              color="#2563EB"
+              color="#2D5490"
               onClick={() => navToCashFilter('ASSIGNED')}
             />
             <CashFilterCard
@@ -615,7 +615,7 @@ export default function DashboardPage() {
               icon={AlertTriangle}
               label="Partial"
               count={cashSummary?.partiallyCollected ?? 0}
-              color="#7C3AED"
+              color="#D97706"
               onClick={() => navToCashFilter('PARTIALLY_COLLECTED')}
             />
             <RemittanceCard
@@ -797,8 +797,8 @@ export default function DashboardPage() {
                       <p className="text-sm font-medium text-gray-900">{c.name}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {hidden
-                          ? `${HIDDEN_PLACEHOLDER} / month · ${c.totalMembers} members`
-                          : `₹${c.installmentAmount?.toLocaleString()} / month · ${c.totalMembers} members`}
+                          ? `${HIDDEN_PLACEHOLDER} / month · ${c.capacity} members`
+                          : `₹${c.installmentAmount?.toLocaleString()} / month · ${c.capacity} members`}
                       </p>
                     </div>
                     <Badge variant={statusBadge(c.status)}>{c.status}</Badge>

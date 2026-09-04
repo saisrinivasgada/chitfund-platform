@@ -63,9 +63,9 @@ public class ReservationController {
         var chit = chitService.findById(chitId);
 
         long activeSlots = reservationRepository.countByChitIdAndStatusNot(chitId, ReservationStatus.VOIDED);
-        if (activeSlots >= chit.getTotalMembers()) {
+        if (activeSlots >= chit.getCapacity()) {
             throw new BusinessException(ErrorCode.CHIT_AT_CAPACITY,
-                    "This chit already has " + activeSlots + " active schedule slots — the maximum for a " + chit.getTotalMembers() + "-member chit. Void an existing slot first to free up a spot.");
+                    "This chit already has " + activeSlots + " active schedule slots — the maximum for a " + chit.getCapacity() + "-member chit. Void an existing slot first to free up a spot.");
         }
 
         // Use the caller-supplied ordinal (filling a voided slot at its original position),

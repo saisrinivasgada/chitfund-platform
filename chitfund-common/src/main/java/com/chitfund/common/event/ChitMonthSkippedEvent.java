@@ -16,7 +16,7 @@ public record ChitMonthSkippedEvent(
         Integer monthNumber,
         LocalDate dueDate,
         BigDecimal installmentAmount,
-        Integer totalMembers,
+        Integer capacity,
         List<String> memberIds,
         String skipReason,
         String skippedBy,

@@ -61,7 +61,9 @@ public class PaymentEventPublisher {
         CompletableFuture.runAsync(() -> {
             try {
                 String payload = objectMapper.writeValueAsString(event);
-                sqsTemplate.send(queue, new SqsEventEnvelope(eventType, payload));
+                // Serialize envelope to JSON — sending the record object directly produces toString() output
+                String envelope = objectMapper.writeValueAsString(new SqsEventEnvelope(eventType, payload));
+                sqsTemplate.send(queue, envelope);
                 log.debug("Published {} to queue {}", eventType, queue);
             } catch (Exception e) {
                 log.warn("Failed to publish {} to queue {}: {}", eventType, queue, e.getMessage());

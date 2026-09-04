@@ -134,7 +134,7 @@ export default function PhoneOtpVerifier({
             type="button"
             onClick={handleSend}
             disabled={sendMut.isPending || !phone}
-            className="h-10 px-3 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors whitespace-nowrap"
+            className="h-10 px-3 text-sm font-medium text-white bg-[#1E3A5F] rounded-lg hover:bg-[#2E5090] disabled:opacity-60 transition-colors whitespace-nowrap"
           >
             {sendMut.isPending ? 'Sending…' : 'Send OTP'}
           </button>
@@ -156,8 +156,8 @@ export default function PhoneOtpVerifier({
 
       {/* OTP verification box */}
       {otpStep === 'pending' && (
-        <div className="border border-indigo-300 rounded-xl bg-indigo-50/50 p-4 space-y-3">
-          <div className="flex items-center gap-2 text-indigo-700 text-sm font-medium">
+        <div className="border border-[#C7D5E8] rounded-xl bg-[#EEF2F8]/50 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-[#1E3A5F] text-sm font-medium">
             <MessageSquare size={14} />
             <span>Enter the 6-digit code sent to {countryCode} {phone}</span>
           </div>
@@ -170,13 +170,13 @@ export default function PhoneOtpVerifier({
               value={otpCode}
               onChange={(e) => { setOtpCode(e.target.value.replace(/\D/g, '')); setOtpError(''); }}
               placeholder="000000"
-              className="w-36 h-10 px-3 text-center text-xl font-mono tracking-widest border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+              className="w-36 h-10 px-3 text-center text-xl font-mono tracking-widest border border-[#C7D5E8] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C7D5E8] bg-white"
             />
             <button
               type="button"
               onClick={handleVerify}
               disabled={otpCode.length !== 6 || verifyMut.isPending}
-              className="h-10 px-4 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+              className="h-10 px-4 text-sm font-medium text-white bg-[#1E3A5F] rounded-lg hover:bg-[#2E5090] disabled:opacity-60 transition-colors"
             >
               {verifyMut.isPending ? 'Verifying…' : 'Verify'}
             </button>
@@ -192,7 +192,7 @@ export default function PhoneOtpVerifier({
                 type="button"
                 onClick={handleSend}
                 disabled={sendMut.isPending}
-                className="text-indigo-600 hover:underline disabled:opacity-60"
+                className="text-[#1E3A5F] hover:underline disabled:opacity-60"
               >
                 {sendMut.isPending ? 'Sending…' : 'Resend OTP'}
               </button>

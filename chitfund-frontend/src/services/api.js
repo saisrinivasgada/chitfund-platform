@@ -6,6 +6,7 @@ const api = axios.create({ baseURL: '/api' });
 let _authToken = null;
 export const setAuthToken = (token) => { _authToken = token; };
 export const clearAuthToken = () => { _authToken = null; };
+export const getAuthToken = () => _authToken;
 
 // Attach auth token on every request except auth endpoints (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
@@ -155,7 +156,7 @@ export const setupAccount = async ({ token, newPassword, fullName, termsAccepted
 // Generate a short-lived pre-scope token for cross-subdomain org switching.
 // Needs explicit Authorization header because the interceptor skips /auth/ endpoints.
 export const generateTransferToken = async () => {
-  const token = sessionStorage.getItem('token') ?? localStorage.getItem('token');
+  const token = sessionStorage.getItem('token') ?? localStorage.getItem('token') ?? _authToken;
   const res = await api.post('/auth/transfer-token', null, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -176,6 +177,18 @@ export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
 };
 export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
   await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
+};
+
+// Admin email-OTP password reset (3-step)
+export const adminForgotPassword = async (email) => {
+  await api.post('/auth/forgot-password', { email });
+};
+export const adminVerifyResetOtp = async (email, otp) => {
+  const res = await api.post('/auth/verify-reset-otp', { email, otp });
+  return res.data.data; // { resetToken }
+};
+export const adminResetPassword = async (resetToken, newPassword) => {
+  await api.post('/auth/reset-password', { resetToken, newPassword });
 };
 
 // Legacy (kept for backward compat)
@@ -284,8 +297,8 @@ export const requestRenewal = async () => {
   return res.data;
 };
 
-export const superAdminUpdateTenant = async (tenantId, { name, slug }) => {
-  const res = await api.put(`/super-admin/tenants/${tenantId}`, { name, slug });
+export const superAdminUpdateTenant = async (tenantId, { name, slug, businessRegNumber, supportPhoneNumber }) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}`, { name, slug, businessRegNumber, supportPhoneNumber });
   return res.data.data;
 };
 
@@ -1111,14 +1124,10 @@ export const getUnreadCount = async () => {
 
 // Full chronological audit trail for a chit (draws, payments, payouts, reservations)
 export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
-  try {
-    const res = await api.get(`/audit/logs/chit/${chitId}`, {
-      params: { page, size, sort: 'createdAt,desc' },
-    });
-    return res.data.data?.content ?? res.data.data ?? [];
-  } catch {
-    return [];
-  }
+  const res = await api.get(`/audit/logs/chit/${chitId}`, {
+    params: { page, size, sort: 'createdAt,desc' },
+  });
+  return res.data.data?.content ?? res.data.data ?? [];
 };
 
 // Member profile change history from audit log
@@ -1464,6 +1473,399 @@ export const extendAuction = async ({ chitId, auctionId, additionalMinutes }) =>
 export const voidAuction = async ({ chitId, auctionId }) => {
   const res = await api.post(`/chits/${chitId}/auction/${auctionId}/void`);
   return res.data.data;
+};
+
+// ─── Chit Invitations (admin) ──────────────────────────────────────────────
+export const sendChitInvitation = async (chitId, body) => {
+  const res = await api.post(`/chits/${chitId}/invitations`, body);
+  return res.data?.data;
+};
+export const getChitInvitations = async (chitId) => {
+  const res = await api.get(`/chits/${chitId}/invitations`);
+  return res.data?.data ?? [];
+};
+export const getChitInvitationDetail = async (chitId, invId) => {
+  const res = await api.get(`/chits/${chitId}/invitations/${invId}`);
+  return res.data?.data;
+};
+export const closeChitInvitation = async (chitId, invId) => {
+  const res = await api.patch(`/chits/${chitId}/invitations/${invId}/close`);
+  return res.data?.data;
+};
+export const overrideInvitationResponse = async (chitId, invId, rid, body) => {
+  const res = await api.patch(`/chits/${chitId}/invitations/${invId}/responses/${rid}`, body);
+  return res.data?.data;
+};
+export const approveInvitationResponse = async (chitId, invId, rid) => {
+  const res = await api.post(`/chits/${chitId}/invitations/${invId}/responses/${rid}/approve`);
+  return res.data?.data;
+};
+export const rejectInvitationResponse = async (chitId, invId, rid, body) => {
+  const res = await api.post(`/chits/${chitId}/invitations/${invId}/responses/${rid}/reject`, body);
+  return res.data?.data;
+};
+
+// ─── Chit Invitations (member) ─────────────────────────────────────────────
+export const getMyInvitations = async () => {
+  const res = await api.get('/invitations/my');
+  return res.data?.data ?? [];
+};
+export const respondToInvitation = async (invId, body) => {
+  const res = await api.post(`/invitations/${invId}/respond`, body);
+  return res.data?.data;
+};
+
+// ─── Contact / Support ────────────────────────────────────────────────────
+
+export const submitProspectContact = async ({ name, email, phone, message, preferredContact }) => {
+  await api.post('/public/contact', { name, email, phone, message, preferredContact });
+};
+
+export const submitSupportTicket = async ({ subject, message, preferredContact }) => {
+  await api.post('/support/ticket', { subject, message, preferredContact });
+};
+
+export const getOrgSettings = async () => {
+  const res = await api.get('/users/me/org-settings');
+  return res.data.data;
+};
+
+export const getAdminSupportContact = async () => {
+  const res = await api.get('/users/tenant/support-contact');
+  return res.data?.data ?? null;
+};
+
+export const updateOrgDetails = async ({ orgName, businessRegNumber }) => {
+  await api.patch('/users/me/org-details', { orgName, businessRegNumber });
+};
+
+export const sendSupportNumberOtp = async (phone, countryCode = '+91') => {
+  await api.post('/users/me/support-number/send-otp', { phone, countryCode });
+};
+
+export const verifySupportNumber = async (phone, code, countryCode = '+91') => {
+  await api.post('/users/me/support-number/verify', { phone, code, countryCode });
+};
+
+export const superAdminListContactRequests = async () => {
+  const res = await api.get('/super-admin/contact-requests');
+  return res.data.data;
+};
+
+export const superAdminCountNewContacts = async () => {
+  const res = await api.get('/super-admin/contact-requests/count-new');
+  return res.data.data?.count ?? 0;
+};
+
+export const superAdminUpdateContactStatus = async (id, status, holdUntil) => {
+  const body = { status };
+  if (holdUntil) body.holdUntil = holdUntil;
+  const res = await api.patch(`/super-admin/contact-requests/${id}/status`, body);
+  return res.data.data;
+};
+
+export const superAdminUpdateContactMode = async (id, preferredContact) => {
+  const res = await api.patch(`/super-admin/contact-requests/${id}/contact-mode`, { preferredContact });
+  return res.data.data;
+};
+
+// ─── Support Tickets (org admin → ChitWise) ────────────────────────────────
+
+export const createSupportTicket = async ({ type, subject, description }) => {
+  const res = await api.post('/tickets', { type, subject, description });
+  return res.data.data;
+};
+
+export const listMyTickets = async ({ page = 0, size = 20 } = {}) => {
+  const res = await api.get('/tickets', { params: { page, size } });
+  return res.data.data;
+};
+
+export const getSupportTicket = async (ticketId) => {
+  const res = await api.get(`/tickets/${ticketId}`);
+  return res.data.data;
+};
+
+export const getTicketMessages = async (ticketId, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await api.get(`/tickets/${ticketId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendTicketMessage = async (ticketId, content) => {
+  const res = await api.post(`/tickets/${ticketId}/messages`, { content });
+  return res.data.data;
+};
+
+export const deleteTicketMessage = async (ticketId, messageId) => {
+  await api.put(`/tickets/${ticketId}/messages/${messageId}/delete`);
+};
+
+export const markTicketRead = async (ticketId) => {
+  await api.put(`/tickets/${ticketId}/read`);
+};
+
+// ─── Intra-org Conversations (Admin/Manager ↔ Member DMs) ────────────────────
+
+export const listConversations = async ({ page = 0, size = 30 } = {}) => {
+  const res = await api.get('/conversations', { params: { page, size } });
+  return res.data.data;
+};
+
+export const startConversation = async ({ memberId, memberName }) => {
+  const res = await api.post('/conversations', { memberId, memberName });
+  return res.data.data;
+};
+
+export const getMyConversation = async () => {
+  const res = await api.get('/conversations/mine');
+  return res.data.data;
+};
+
+export const getConversationUnread = async () => {
+  const res = await api.get('/conversations/unread');
+  return res.data.data?.unread ?? 0;
+};
+
+export const getMemberConversationUnread = async () => {
+  const res = await api.get('/conversations/mine/unread');
+  return res.data.data?.unread ?? 0;
+};
+
+export const getChatMessages = async (conversationId, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await api.get(`/conversations/${conversationId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendChatMessage = async (conversationId, content, clientMessageId) => {
+  const res = await api.post(`/conversations/${conversationId}/messages`, {
+    content,
+    clientMessageId,
+  });
+  return res.data.data;
+};
+
+export const deleteChatMessage = async (conversationId, messageId) => {
+  await api.put(`/conversations/${conversationId}/messages/${messageId}/delete`);
+};
+
+export const markConversationRead = async (conversationId) => {
+  await api.post(`/conversations/${conversationId}/read`);
+};
+
+// ─── Hub auth (SUPER_ADMIN via hub.thechitwise.com) ───────────────────────
+
+// Hub uses a separate axios instance — points to /api/hub/** without org JWT
+const hubApi = axios.create({ baseURL: '/api' });
+let _hubToken = null;
+export const setHubToken = (t) => { _hubToken = t; };
+export const clearHubToken = () => { _hubToken = null; };
+export const getHubToken = () => _hubToken;
+
+hubApi.interceptors.request.use((config) => {
+  if (_hubToken) config.headers.Authorization = `Bearer ${_hubToken}`;
+  return config;
+});
+
+export const hubLogin = async ({ username, password }) => {
+  const res = await hubApi.post('/hub/auth/login', { username, password });
+  return res.data.data;
+};
+
+export const hubGetMe = async () => {
+  const res = await hubApi.get('/hub/auth/me');
+  return res.data.data;
+};
+
+export const hubListTickets = async ({ page = 0, size = 20, status } = {}) => {
+  const params = { page, size };
+  if (status) params.status = status;
+  const res = await hubApi.get('/hub/tickets', { params });
+  return res.data.data;
+};
+
+export const hubGetTicket = async (ticketId) => {
+  const res = await hubApi.get(`/hub/tickets/${ticketId}`);
+  return res.data.data;
+};
+
+export const hubGetTicketMessages = async (ticketId, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await hubApi.get(`/hub/tickets/${ticketId}/messages`, { params });
+  return res.data.data;
+};
+
+export const hubSendTicketMessage = async (ticketId, content) => {
+  const res = await hubApi.post(`/hub/tickets/${ticketId}/messages`, { content });
+  return res.data.data;
+};
+
+export const hubDeleteTicketMessage = async (ticketId, messageId) => {
+  const res = await hubApi.put(`/hub/tickets/${ticketId}/messages/${messageId}/delete`);
+  return res.data;
+};
+
+// ─── Group Chat (Phase 3) ──────────────────────────────────────────────────────
+
+export const createGroup = async (body) => {
+  const res = await api.post('/groups', body);
+  return res.data.data;
+};
+
+export const listGroups = async ({ page = 0, size = 20 } = {}) => {
+  const res = await api.get('/groups', { params: { page, size } });
+  return res.data.data;
+};
+
+export const getGroup = async (groupId) => {
+  const res = await api.get(`/groups/${groupId}`);
+  return res.data.data;
+};
+
+export const addGroupMember = async (groupId, body) => {
+  const res = await api.post(`/groups/${groupId}/members`, body);
+  return res.data.data;
+};
+
+export const removeGroupMember = async (groupId, userId) => {
+  const res = await api.delete(`/groups/${groupId}/members/${userId}`);
+  return res.data;
+};
+
+export const getGroupMembers = async (groupId) => {
+  const res = await api.get(`/groups/${groupId}/members`);
+  return res.data.data;
+};
+
+export const getGroupMessages = async (groupId, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await api.get(`/groups/${groupId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendGroupMessage = async (groupId, content, clientMessageId) => {
+  const res = await api.post(`/groups/${groupId}/messages`, { content, clientMessageId });
+  return res.data.data;
+};
+
+export const deleteGroupMessage = async (groupId, messageId) => {
+  const res = await api.put(`/groups/${groupId}/messages/${messageId}/delete`);
+  return res.data;
+};
+
+export const hubUpdateTicketStatus = async (ticketId, status, note) => {
+  const res = await hubApi.put(`/hub/tickets/${ticketId}/status`, { status, note });
+  return res.data.data;
+};
+
+export const hubMarkTicketRead = async (ticketId) => {
+  await hubApi.put(`/hub/tickets/${ticketId}/read`);
+};
+
+// ─── Hub employee management ───────────────────────────────────────────────
+export const hubListEmployees = async () => {
+  const res = await hubApi.get('/hub/employees');
+  return res.data.data ?? res.data;
+};
+
+export const hubGetEmployee = async (id) => {
+  const res = await hubApi.get(`/hub/employees/${id}`);
+  return res.data.data ?? res.data;
+};
+
+export const hubInviteEmployee = async (body) => {
+  const res = await hubApi.post('/hub/employees/invite', body);
+  return res.data.data ?? res.data;
+};
+
+export const hubChangeRole = async (id, role) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/role`, { role });
+  return res.data.data ?? res.data;
+};
+
+export const hubDeactivateEmployee = async (id) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/deactivate`);
+  return res.data.data ?? res.data;
+};
+
+export const hubReactivateEmployee = async (id) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/reactivate`);
+  return res.data.data ?? res.data;
+};
+
+export const hubAssignTicket = async (ticketId, assigneeId) => {
+  const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId });
+  return res.data.data ?? res.data;
+};
+
+// ─── Hub internal DMs ──────────────────────────────────────────────────────
+export const hubStartDm = async (otherEmployeeId) => {
+  const res = await hubApi.post('/hub/chat/dms', { otherEmployeeId });
+  return res.data.data ?? res.data;
+};
+
+export const hubListDms = async () => {
+  const res = await hubApi.get('/hub/chat/dms');
+  return res.data.data ?? res.data;
+};
+
+export const hubGetDmMessages = async (id, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await hubApi.get(`/hub/chat/dms/${id}/messages`, { params });
+  return res.data.data ?? res.data;
+};
+
+export const hubSendDm = async (id, content, clientMessageId) => {
+  const res = await hubApi.post(`/hub/chat/dms/${id}/messages`, { content, clientMessageId });
+  return res.data.data ?? res.data;
+};
+
+export const hubDeleteDmMessage = async (id, msgId) => {
+  const res = await hubApi.put(`/hub/chat/dms/${id}/messages/${msgId}/delete`);
+  return res.data.data ?? res.data;
+};
+
+export const hubMarkDmRead = async (id) => {
+  await hubApi.put(`/hub/chat/dms/${id}/read`);
+};
+
+// ─── Hub internal group chats ──────────────────────────────────────────────
+export const hubCreateChatGroup = async (body) => {
+  const res = await hubApi.post('/hub/chat/groups', body);
+  return res.data.data ?? res.data;
+};
+
+export const hubListChatGroups = async () => {
+  const res = await hubApi.get('/hub/chat/groups');
+  return res.data.data ?? res.data;
+};
+
+export const hubGetGroupMessages = async (id, { cursor, limit = 50 } = {}) => {
+  const params = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await hubApi.get(`/hub/chat/groups/${id}/messages`, { params });
+  return res.data.data ?? res.data;
+};
+
+export const hubSendGroupMessage = async (id, content, clientMessageId) => {
+  const res = await hubApi.post(`/hub/chat/groups/${id}/messages`, { content, clientMessageId });
+  return res.data.data ?? res.data;
+};
+
+export const hubDeleteGroupMessage = async (id, msgId) => {
+  const res = await hubApi.put(`/hub/chat/groups/${id}/messages/${msgId}/delete`);
+  return res.data.data ?? res.data;
+};
+
+export const hubAddChatGroupMember = async (groupId, employeeId) => {
+  const res = await hubApi.post(`/hub/chat/groups/${groupId}/members/${employeeId}`);
+  return res.data.data ?? res.data;
 };
 
 export default api;

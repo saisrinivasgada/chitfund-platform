@@ -23,6 +23,10 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     List<ChitMonthDraw> findByStatusInOrderByDueDateAsc(List<DrawStatus> statuses);
 
+    Optional<ChitMonthDraw> findByIdAndTenantId(UUID id, String tenantId);
+
+    List<ChitMonthDraw> findByTenantIdAndStatusInOrderByDueDateAsc(String tenantId, List<DrawStatus> statuses);
+
     List<ChitMonthDraw> findByChitIdAndStatus(UUID chitId, DrawStatus status);
 
     List<ChitMonthDraw> findByChitIdOrderByMonthNumberAsc(UUID chitId);
@@ -30,18 +34,21 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
     @Query("SELECT c.chitId, MAX(c.monthNumber) FROM ChitMonthDraw c WHERE c.chitId IN :chitIds GROUP BY c.chitId")
     List<Object[]> findMaxMonthNumberByChitIds(@Param("chitIds") List<UUID> chitIds);
 
-    // Today's draws: opened, closed, or created today
-    @Query("SELECT d FROM ChitMonthDraw d WHERE " +
-           "(d.openedAt >= :start AND d.openedAt < :end) OR " +
+    // Today's draws: opened, closed, or created today — scoped to tenant
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.tenantId = :tenantId AND " +
+           "((d.openedAt >= :start AND d.openedAt < :end) OR " +
            "(d.closedAt >= :start AND d.closedAt < :end) OR " +
-           "(d.skippedAt >= :start AND d.skippedAt < :end) " +
+           "(d.skippedAt >= :start AND d.skippedAt < :end)) " +
            "ORDER BY COALESCE(d.openedAt, d.closedAt, d.skippedAt) DESC")
-    List<ChitMonthDraw> findTodaysDraws(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    List<ChitMonthDraw> findTodaysDrawsByTenant(@Param("tenantId") String tenantId,
+                                                @Param("start") LocalDateTime start,
+                                                @Param("end") LocalDateTime end);
 
-    // Recent draws (last N days) for activity feed
-    @Query("SELECT d FROM ChitMonthDraw d WHERE " +
+    // Recent draws (last N days) for activity feed — scoped to tenant
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.tenantId = :tenantId AND " +
            "(d.openedAt >= :since OR d.closedAt >= :since OR d.skippedAt >= :since) " +
            "ORDER BY COALESCE(d.openedAt, d.skippedAt, d.closedAt) DESC")
-    List<ChitMonthDraw> findRecentDraws(@Param("since") LocalDateTime since,
-                                        org.springframework.data.domain.Pageable pageable);
+    List<ChitMonthDraw> findRecentDrawsByTenant(@Param("tenantId") String tenantId,
+                                                @Param("since") LocalDateTime since,
+                                                org.springframework.data.domain.Pageable pageable);
 }

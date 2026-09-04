@@ -18,7 +18,7 @@ public class DrawSummaryResponse {
     private int monthNumber;
     private LocalDate dueDate;
     private BigDecimal installmentAmount;
-    private int totalMembers;
+    private int capacity;
     private DrawStatus status;
 
     // Payment progress breakdown

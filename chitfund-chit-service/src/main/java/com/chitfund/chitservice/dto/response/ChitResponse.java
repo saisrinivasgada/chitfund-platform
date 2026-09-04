@@ -25,7 +25,7 @@ public class ChitResponse {
     private BigDecimal installmentAmount;
     private BigDecimal totalAmount;       // = chitValue (backward compat)
 
-    private Integer totalMembers;
+    private Integer capacity;
     private Integer durationMonths;
     private Integer monthlyDueDate;
 

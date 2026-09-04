@@ -16,8 +16,8 @@ import java.util.UUID;
 public interface CashPaymentRequestRepository extends JpaRepository<CashPaymentRequest, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT r FROM CashPaymentRequest r WHERE r.id = :id")
-    Optional<CashPaymentRequest> findByIdForUpdate(@Param("id") UUID id);
+    @Query("SELECT r FROM CashPaymentRequest r WHERE r.id = :id AND r.tenantId = :tenantId")
+    Optional<CashPaymentRequest> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
     // ── Tenant-scoped queries (use for all public/admin endpoints) ───────────────
     List<CashPaymentRequest> findByTenantIdAndStatusOrderByRequestedAtAsc(String tenantId, CashRequestStatus status);

@@ -24,10 +24,10 @@ import {
 
 // ─── Case badge styling ────────────────────────────────────────────────────
 const CASE_COLORS = {
-  CASE_A:  { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'A' },
+  CASE_A:  { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'A' },
   CASE_B1: { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'B' },
   CASE_B2: { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'B' },
-  CASE_C:  { bg: 'bg-purple-100', text: 'text-purple-700', label: 'C' },
+  CASE_C:  { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'C' },
 };
 
 function CaseBadge({ settlementCase }) {
@@ -43,7 +43,7 @@ function CaseBadge({ settlementCase }) {
 function PayoutStatusPill({ status }) {
   const cfg = {
     DISBURSED:           { bg: 'bg-green-100',  text: 'text-green-700'  },
-    PARTIALLY_DISBURSED: { bg: 'bg-purple-100', text: 'text-purple-700' },
+    PARTIALLY_DISBURSED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]' },
     PENDING:             { bg: 'bg-amber-100',  text: 'text-amber-700'  },
     CANCELLED:           { bg: 'bg-gray-100',   text: 'text-gray-500'   },
     VOIDED:              { bg: 'bg-gray-100',   text: 'text-gray-500'   },
@@ -151,11 +151,11 @@ function TooltipInfo({ text }) {
 // ─── Status pill for payment records ──────────────────────────────────────
 const RECORD_STATUS = {
   SETTLED:          { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Settled' },
-  PAYOUT_DEDUCTED:  { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Deducted' },
+  PAYOUT_DEDUCTED:  { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]',   label: 'Deducted' },
   WAIVED:           { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Waived' },
   OUTSTANDING:      { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Outstanding' },
   PARTIALLY_PAID:   { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Partial' },
-  SETTLEMENT_CLEARED: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Cleared' },
+  SETTLEMENT_CLEARED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Cleared' },
 };
 
 function RecordStatusPill({ status }) {
@@ -211,12 +211,12 @@ function DrawsPanel({ records, hidden, colSpan, payoutMonthNumber, netPayoutAmou
                   const isWaived = r.status === 'WAIVED';
                   return (
                     <Fragment key={r.monthNumber}>
-                      <tr className={`transition-colors ${isPayoutDraw ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                      <tr className={`transition-colors ${isPayoutDraw ? 'bg-[#EEF2F8]/40' : 'hover:bg-slate-50'}`}>
                         <td className="px-3 py-2 font-medium text-gray-700">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span>Draw {r.monthNumber}</span>
                             {isPayoutDraw && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#EEF2F8] text-[#1E3A5F]">
                                 🏆 Payout {hidden ? '••••••' : fmt(netPayoutAmount)}
                               </span>
                             )}
@@ -241,10 +241,10 @@ function DrawsPanel({ records, hidden, colSpan, payoutMonthNumber, netPayoutAmou
                         </td>
                       </tr>
                       {isPayoutDraw && (
-                        <tr className="bg-blue-50 border-t border-blue-100">
+                        <tr className="bg-[#EEF2F8] border-t border-[#C7D5E8]">
                           <td colSpan={6} className="px-3 py-1.5">
-                            <div className="flex items-center gap-3 text-[11px] text-blue-700">
-                              <span className="font-semibold text-blue-800">Payout draw</span>
+                            <div className="flex items-center gap-3 text-[11px] text-[#1E3A5F]">
+                              <span className="font-semibold text-[#1E3A5F]">Payout draw</span>
                               <span>Net payout: <span className="font-medium">{hidden ? '••••••' : fmt(netPayoutAmount)}</span></span>
                               <span>Disbursed: <span className="font-medium">{hidden ? '••••••' : fmt(disbursedAmount)}</span></span>
                               <PayoutStatusPill status={payoutStatus} />
@@ -350,13 +350,13 @@ function generatePrintHTML({ items, member, totalOwed, totalRefunded, grandTotal
 const CASE_DEFS = [
   {
     label: 'A',
-    badgeBg: 'bg-blue-600',
-    headerBg: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    accentText: 'text-blue-700',
+    badgeBg: 'bg-[#1E3A5F]',
+    headerBg: 'bg-[#EEF2F8]',
+    borderColor: 'border-[#C7D5E8]',
+    accentText: 'text-[#1E3A5F]',
     title: 'Payout Fully Disbursed',
     icon: '✓',
-    iconBg: 'bg-blue-100 text-blue-700',
+    iconBg: 'bg-[#EEF2F8] text-[#1E3A5F]',
     when: 'Member already received a full payout for at least one slot. They still owe remaining installments for those slots.',
     formula: 'Member owes = Unpaid past dues + Future installments (per processed slot)',
     steps: [
@@ -428,13 +428,13 @@ const CASE_DEFS = [
   },
   {
     label: 'C',
-    badgeBg: 'bg-purple-600',
-    headerBg: 'bg-purple-50',
-    borderColor: 'border-purple-200',
-    accentText: 'text-purple-700',
+    badgeBg: 'bg-[#1E3A5F]',
+    headerBg: 'bg-[#EEF2F8]',
+    borderColor: 'border-[#C7D5E8]',
+    accentText: 'text-[#1E3A5F]',
     title: 'Partial Payout — Admin Chooses Mode',
     icon: '◑',
-    iconBg: 'bg-purple-100 text-purple-700',
+    iconBg: 'bg-[#EEF2F8] text-[#1E3A5F]',
     when: 'Member won but only part of the payout was disbursed. Admin picks how to handle the remainder.',
     formula: null,
     steps: null,
@@ -922,7 +922,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
               </div>
             </div>
             {allHistTotalElements > 0 && (
-              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-[#EEF2F8] text-[#1E3A5F] border border-[#C7D5E8]">
                 {allHistTotalElements} total
               </span>
             )}
@@ -975,8 +975,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                   const isVoided = s.paymentStatus === 'VOIDED';
                   const statusCfg = {
                     PENDING:             { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Pending' },
-                    PARTIALLY_COLLECTED: { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Partial' },
-                    PARTIALLY_DISBURSED: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Partial' },
+                    PARTIALLY_COLLECTED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
+                    PARTIALLY_DISBURSED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
                     FULLY_COLLECTED:     { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Collected' },
                     FULLY_DISBURSED:     { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Disbursed' },
                     BALANCED:            { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Balanced' },
@@ -1088,8 +1088,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                   const memberName = allMembers.find((m) => m.id === s.memberId)?.fullName ?? `…${String(s.memberId).slice(-6)}`;
                   const statusCfg = {
                     PENDING: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Not started' },
-                    PARTIALLY_COLLECTED: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Partial' },
-                    PARTIALLY_DISBURSED: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Partial' },
+                    PARTIALLY_COLLECTED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
+                    PARTIALLY_DISBURSED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
                   }[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: s.paymentStatus };
 
                   return (
@@ -1258,7 +1258,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                       return (
                         <Fragment key={item.chitId}>
                           <tr
-                            className={`border-b border-gray-100 transition-colors ${included ? 'bg-white' : 'bg-gray-50 opacity-60'} ${hasRecords ? 'cursor-pointer hover:bg-blue-50/30' : ''}`}
+                            className={`border-b border-gray-100 transition-colors ${included ? 'bg-white' : 'bg-gray-50 opacity-60'} ${hasRecords ? 'cursor-pointer hover:bg-[#EEF2F8]/30' : ''}`}
                             onClick={hasRecords ? () => toggleExpand(item.chitId) : undefined}
                           >
                             {/* Include toggle — stop propagation so clicking checkbox doesn't expand */}
@@ -1340,8 +1340,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                                   onClick={() => toggleMode(item.chitId)}
                                   className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
                                     item.displayMode === 'FAIR'
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                                      : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                                      ? 'bg-[#EEF2F8] text-[#1E3A5F] border-[#C7D5E8] hover:bg-[#EEF2F8]'
+                                      : 'bg-[#EEF2F8]/60 text-[#1E3A5F] border-[#C7D5E8] hover:bg-[#EEF2F8]'
                                   }`}
                                 >
                                   {item.displayMode === 'FAIR' ? 'Fair' : 'Admin Win'}
@@ -1541,7 +1541,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                   <History size={16} style={{ color: '#1E3A5F' }} />
                   <span className="font-semibold text-gray-700">Past Settlements</span>
                   {!historyLoading && history.length > 0 && (
-                    <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                    <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#EEF2F8] text-[#1E3A5F]">
                       {history.length}
                     </span>
                   )}
@@ -1567,8 +1567,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                           const isPending = s.paymentStatus === 'PENDING' || s.paymentStatus === 'PARTIALLY_COLLECTED' || s.paymentStatus === 'PARTIALLY_DISBURSED';
                           const psCfg = {
                             PENDING: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Unpaid' },
-                            PARTIALLY_COLLECTED: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Partial' },
-                            PARTIALLY_DISBURSED: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Partial' },
+                            PARTIALLY_COLLECTED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
+                            PARTIALLY_DISBURSED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
                             FULLY_COLLECTED: { bg: 'bg-green-100', text: 'text-green-700', label: 'Done' },
                             FULLY_DISBURSED: { bg: 'bg-green-100', text: 'text-green-700', label: 'Done' },
                             BALANCED: { bg: 'bg-gray-100', text: 'text-gray-500', label: 'Balanced' },
@@ -1678,12 +1678,12 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-                <div className={`px-6 py-5 border-b border-gray-100 rounded-t-2xl ${isCollect ? 'bg-green-50' : 'bg-blue-50'}`}>
+                <div className={`px-6 py-5 border-b border-gray-100 rounded-t-2xl ${isCollect ? 'bg-green-50' : 'bg-[#EEF2F8]'}`}>
                   <div className="flex items-center gap-2">
                     <span className="text-xl">✓</span>
                     <h2 className="text-lg font-bold text-gray-900">Payment Recorded</h2>
                   </div>
-                  <p className={`text-sm mt-1 font-semibold ${isCollect ? 'text-green-700' : 'text-blue-700'}`}>
+                  <p className={`text-sm mt-1 font-semibold ${isCollect ? 'text-green-700' : 'text-[#1E3A5F]'}`}>
                     ₹{Number(recordedTxn.amount).toLocaleString('en-IN')} {isCollect ? 'collected from' : 'disbursed to'} {paymentMemberName}
                   </p>
                 </div>
@@ -2053,8 +2053,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                                       OUTSTANDING:        { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Outstanding' },
                                       PARTIALLY_PAID:     { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Partial' },
                                       WAIVED:             { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Waived' },
-                                      PAYOUT_DEDUCTED:    { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Deducted' },
-                                      SETTLEMENT_CLEARED: { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Cleared' },
+                                      PAYOUT_DEDUCTED:    { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Deducted' },
+                                      SETTLEMENT_CLEARED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Cleared' },
                                     }[draw.status] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: draw.status };
                                     const paid = Number(draw.amountPaid ?? 0);
                                     const due  = Number(draw.amountDue  ?? 0);
@@ -2062,7 +2062,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                                     const isWaived = draw.status === 'WAIVED';
                                     const isPayoutDraw = item.payoutMonthNumber != null && draw.monthNumber === item.payoutMonthNumber && item.payoutStatus && item.payoutStatus !== 'NONE';
                                     return (
-                                      <div key={draw.id} className={`flex items-center gap-3 px-3 py-2 ${isPayoutDraw ? 'bg-blue-50' : ''}`}>
+                                      <div key={draw.id} className={`flex items-center gap-3 px-3 py-2 ${isPayoutDraw ? 'bg-[#EEF2F8]' : ''}`}>
                                         <div className="w-6 h-6 rounded-full bg-[#1E3A5F] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
                                           {draw.monthNumber}
                                         </div>
@@ -2071,7 +2071,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                                             <span className="text-xs text-gray-600">Draw {draw.monthNumber}</span>
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${drawStatusCfg.bg} ${drawStatusCfg.text}`}>{drawStatusCfg.label}</span>
                                             {isPayoutDraw && (
-                                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-700">
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-[#EEF2F8] text-[#1E3A5F]">
                                                 🏆 Payout {hidden ? '••••' : `₹${Number(item.netPayoutAmount ?? 0).toLocaleString('en-IN')}`}
                                               </span>
                                             )}
@@ -2129,7 +2129,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                           key={txn.id}
                           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${isHighlighted ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-300' : 'border-gray-200 bg-white'}`}
                         >
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${txnIsCollect ? 'bg-green-500' : 'bg-blue-500'}`} />
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${txnIsCollect ? 'bg-green-500' : 'bg-[#1E3A5F]'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-sm font-semibold text-gray-800">

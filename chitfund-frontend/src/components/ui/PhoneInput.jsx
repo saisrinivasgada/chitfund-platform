@@ -116,7 +116,7 @@ export default function PhoneInput({
                       type="button"
                       onClick={() => selectCountry(c)}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors cursor-pointer ${
-                        c.code === countryCode ? 'bg-blue-50 text-[#1E3A5F]' : 'text-gray-700'
+                        c.code === countryCode ? 'bg-[#EEF2F8] text-[#1E3A5F]' : 'text-gray-700'
                       }`}
                     >
                       <span className="text-base">{c.flag}</span>

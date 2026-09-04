@@ -443,12 +443,12 @@ function ActiveTasksTab({ memberMap, chitMap }) {
             <div
               key={task.id}
               onClick={() => setViewTimeline(task)}
-              className="bg-purple-50 rounded-2xl border border-purple-200 p-5 flex items-center justify-between gap-4 flex-wrap cursor-pointer hover:border-purple-400 hover:shadow-sm transition-all"
+              className="bg-amber-50 rounded-2xl border border-amber-200 p-5 flex items-center justify-between gap-4 flex-wrap cursor-pointer hover:border-amber-400 hover:shadow-sm transition-all"
             >
               <div className="flex items-start gap-4 flex-1 min-w-0">
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                  style={{ backgroundColor: '#7C3AED' }}
+                  style={{ backgroundColor: '#1E3A5F' }}
                 >
                   {(memberMap[task.memberId] ?? '?')[0].toUpperCase()}
                 </div>
@@ -459,7 +459,7 @@ function ActiveTasksTab({ memberMap, chitMap }) {
                   <p className="text-sm text-gray-500 mt-0.5 truncate">
                     {chitMap[task.chitId] ?? task.chitId?.slice(0, 8) + '…'}
                   </p>
-                  <p className="text-xs text-purple-700 mt-1 font-medium">
+                  <p className="text-xs text-amber-700 mt-1 font-medium">
                     Collected ₹{fmt(task.collectedAmount)} of ₹{fmt(task.requestedAmount)} — admin will follow up on remaining
                   </p>
                 </div>
@@ -471,7 +471,7 @@ function ActiveTasksTab({ memberMap, chitMap }) {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">of ₹{fmt(task.requestedAmount)} total</p>
               </div>
-              <span className="bg-purple-100 text-purple-700 text-xs font-semibold px-3 py-1.5 rounded-full flex-shrink-0">
+              <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-full flex-shrink-0">
                 Partial — Admin Follow-up
               </span>
             </div>

@@ -8,11 +8,11 @@ import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
 const PAYOUT_STATUS_COLOR: Record<string, string> = {
   PENDING:              C.amber,
-  PARTIALLY_DISBURSED:  '#2563EB',
+  PARTIALLY_DISBURSED:  C.navyLight,
   DISBURSED:            C.green,
   CANCELLED:            C.red,
   VOIDED:               C.gray400,
-  DISBURSEMENT_SETTLED: '#7C3AED',
+  DISBURSEMENT_SETTLED: C.navy,
 };
 
 const PAYOUT_STATUS_LABEL: Record<string, string> = {
@@ -88,6 +88,38 @@ export default function MemberPayoutsScreen() {
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 14 }}>
               {sorted.length} payout{sorted.length !== 1 ? 's' : ''} total
             </Text>
+            {/* Hero summary card */}
+            {sorted.length > 0 && (() => {
+              const activePayouts = sorted.filter((p) => p.status !== 'CANCELLED' && p.status !== 'VOIDED');
+              const totalWon = activePayouts.reduce((s, p) => s + Number(p.netPayoutAmount ?? p.winningAmount ?? 0), 0);
+              const totalDisbursed = sorted.reduce((s, p) => s + Number(p.disbursedAmount ?? 0), 0);
+              return (
+                <View style={{ backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 14 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1.2, marginBottom: 4 }}>TOTAL WON</Text>
+                  <Text style={{ fontSize: 30, fontWeight: '800', color: '#D4A017', marginBottom: 12 }}>
+                    ₹{totalWon.toLocaleString('en-IN')}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 20 }}>
+                    <View>
+                      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 2 }}>Draws Won</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>{activePayouts.length}</Text>
+                    </View>
+                    {totalDisbursed > 0 && (
+                      <View>
+                        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 2 }}>Disbursed</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '700', color: C.green }}>₹{totalDisbursed.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                    {totalWon > totalDisbursed && (
+                      <View>
+                        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 2 }}>Pending</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '700', color: C.amber }}>₹{(totalWon - totalDisbursed).toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })()}
             {/* Filter chips */}
             {visibleChips.length > 1 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>

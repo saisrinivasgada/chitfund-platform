@@ -135,7 +135,7 @@ function OrgSlotRow({ slot }) {
     : '—';
 
   return (
-    <div className={`flex items-center gap-4 p-4 rounded-xl border ${isRealized ? 'bg-gray-50 border-gray-100' : 'border-[#1E3A5F]/20 bg-blue-50/30'}`}>
+    <div className={`flex items-center gap-4 p-4 rounded-xl border ${isRealized ? 'bg-gray-50 border-gray-100' : 'border-[#1E3A5F]/20 bg-[#EEF2F8]/30'}`}>
       <div
         className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
         style={{ backgroundColor: isRealized ? '#6B7280' : '#1E3A5F' }}

@@ -80,7 +80,7 @@ public class ChitService {
                 .chitValue(req.getChitValue())
                 .installmentAmount(installment)
                 .totalAmount(req.getChitValue())
-                .totalMembers(req.getNumberOfMembers())
+                .capacity(req.getNumberOfMembers())
                 .durationMonths(req.getNumberOfMonths())
                 .monthlyDueDate(req.getMonthlyDueDate())
                 .winnerSelectionMode(mode)
@@ -98,7 +98,7 @@ public class ChitService {
         log.info("Chit created: id={} name='{}' type={} mode={} value={} installment={} members={} duration={}mo createdBy={}",
                 chit.getId(), chit.getName(), chit.getChitType(), mode,
                 chit.getChitValue(), chit.getInstallmentAmount(),
-                chit.getTotalMembers(), chit.getDurationMonths(), createdBy);
+                chit.getCapacity(), chit.getDurationMonths(), createdBy);
 
         if (req.getReservationSchedule() != null && !req.getReservationSchedule().isEmpty()) {
             // Admin supplied a (partial or full) schedule — save as-is
@@ -115,12 +115,7 @@ public class ChitService {
     }
 
     public ChitResponse getChit(UUID id) {
-        Chit chit = findById(id);
-        String tid = TenantContext.get();
-        if (tid != null && !tid.equals(chit.getTenantId())) {
-            throw new com.chitfund.common.exception.ResourceNotFoundException("Chit", id);
-        }
-        return enrich(chit);
+        return enrich(findByIdScoped(id));
     }
 
     public PagedResponse<ChitResponse> listChits(ChitStatus status, Pageable pageable) {
@@ -201,18 +196,19 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateStatus(UUID id, UpdateChitStatusRequest request) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         boolean activatingFromDraft = request.getStatus() == ChitStatus.ACTIVE
                 && chit.getStatus() == ChitStatus.DRAFT;
 
         if (activatingFromDraft) {
             planLimitChecker.checkCanActivateChit();
-            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.AUCTION) {
+            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.AUCTION
+                    || chit.getWinnerSelectionMode() == WinnerSelectionMode.LOTTERY) {
                 long enrolled = enrollmentRepository.countByChitIdAndActiveTrue(chit.getId());
-                if (enrolled < chit.getTotalMembers()) {
+                if (enrolled < chit.getCapacity()) {
                     throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                            "Cannot activate — only " + enrolled + " of " + chit.getTotalMembers()
-                                    + " spots are filled. Enroll all members before activating an auction chit.");
+                            "Cannot activate — only " + enrolled + " of " + chit.getCapacity()
+                                    + " spots are filled. Enroll all members before activating.");
                 }
             }
         }
@@ -236,8 +232,8 @@ public class ChitService {
         }
         ChitResponse response = enrich(chitRepository.save(chit));
         if (activatingFromDraft) {
-            // AUCTION chits manage their own enrollment (not via reservation schedule)
-            if (chit.getWinnerSelectionMode() != WinnerSelectionMode.AUCTION) {
+            // RESERVATION: derive enrollment from the schedule; LOTTERY/AUCTION: admin enrolled members directly
+            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
                 syncEnrollmentsFromSchedule(chit);
             }
             final Chit activatedChit = chit;
@@ -313,6 +309,10 @@ public class ChitService {
 
     @Transactional
     public void syncEnrollmentForMember(Chit chit, UUID memberId) {
+        // LOTTERY and AUCTION enrollments are managed manually — slot table is not used
+        if (chit.getWinnerSelectionMode() != WinnerSelectionMode.RESERVATION) {
+            return;
+        }
         boolean hasActiveSlot = reservationRepository.existsByChitIdAndMemberIdAndStatusNot(
                 chit.getId(), memberId, ReservationStatus.VOIDED);
         List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndMemberIdAndActiveTrue(chit.getId(), memberId);
@@ -332,7 +332,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateName(UUID id, UpdateChitNameRequest request) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         chit.setName(request.getName().trim());
         if (request.getDescription() != null) {
             chit.setDescription(request.getDescription().trim().isEmpty() ? null : request.getDescription().trim());
@@ -344,7 +344,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse updateDetails(UUID id, UpdateChitDetailsRequest req, UUID updatedBy) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         ChitStatus status = chit.getStatus();
         if (status == ChitStatus.COMPLETED || status == ChitStatus.CANCELLED || status == ChitStatus.DELETED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -364,9 +364,9 @@ public class ChitService {
         }
         if (req.getInstallmentAmount() != null) {
             chit.setInstallmentAmount(req.getInstallmentAmount());
-        } else if (req.getChitValue() != null && chit.getTotalMembers() != null && chit.getTotalMembers() > 0) {
+        } else if (req.getChitValue() != null && chit.getCapacity() != null && chit.getCapacity() > 0) {
             chit.setInstallmentAmount(chit.getChitValue()
-                    .divide(BigDecimal.valueOf(chit.getTotalMembers()), 2, RoundingMode.HALF_UP));
+                    .divide(BigDecimal.valueOf(chit.getCapacity()), 2, RoundingMode.HALF_UP));
         }
         if (req.getMonthlyDueDate() != null) chit.setMonthlyDueDate(req.getMonthlyDueDate());
         if (req.getPostPayoutContributionEnabled() != null)
@@ -375,7 +375,7 @@ public class ChitService {
             chit.setDefaultPostPayoutContribution(req.getDefaultPostPayoutContribution());
 
         if (isDraft) {
-            if (req.getNumberOfMembers() != null) chit.setTotalMembers(req.getNumberOfMembers());
+            if (req.getNumberOfMembers() != null) chit.setCapacity(req.getNumberOfMembers());
             if (req.getNumberOfMonths() != null) chit.setDurationMonths(req.getNumberOfMonths());
             if (req.getOrgHeldSpotsCount() != null) chit.setOrgHeldSpotsCount(req.getOrgHeldSpotsCount());
             if (req.getStartDate() != null) {
@@ -390,7 +390,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse pauseChit(UUID id, UUID adminId) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         chit.transitionTo(ChitStatus.PAUSED);
         chit.setPausedAt(LocalDateTime.now());
         chit.setPausedBy(adminId);
@@ -400,7 +400,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse resumeChit(UUID id, UUID adminId) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         if (chit.getStatus() != ChitStatus.PAUSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Chit is not paused — cannot resume");
@@ -422,7 +422,7 @@ public class ChitService {
 
     @Transactional
     public ChitResponse softDeleteChit(UUID id, UUID adminId) {
-        Chit chit = findById(id);
+        Chit chit = findByIdScoped(id);
         chit.transitionTo(ChitStatus.DELETED);
         chit.setDeletedAt(LocalDateTime.now());
         chit.setDeletedBy(adminId);
@@ -473,8 +473,15 @@ public class ChitService {
         reservationRepository.saveAll(slots);
     }
 
+    // Used by internal cross-service calls (no tenant context available)
     public Chit findById(UUID id) {
         return chitRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+    }
+
+    // Used by all admin-facing operations — enforces tenant ownership
+    public Chit findByIdScoped(UUID id) {
+        return chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
     }
 

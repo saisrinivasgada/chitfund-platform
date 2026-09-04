@@ -6,6 +6,7 @@ import com.chitfund.userservice.domain.entity.PhoneOtp;
 import com.chitfund.userservice.repository.PhoneOtpRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,14 +24,19 @@ public class OtpService {
 
     private static final int OTP_TTL_MINUTES = 30;
     private static final int MAX_ATTEMPTS = 3;
-    private static final int MAX_PER_PHONE_PER_DAY = 6; // resets at midnight each day
+
+    @Value("${app.otp.max-per-phone-per-day:6}")
+    private int maxPerPhonePerDay;
+
+    @Value("${app.sms.enabled:false}")
+    private boolean smsEnabled;
 
     @Transactional
     public void sendOtp(String phone, String countryCode, String purpose, String userId) {
         LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
         long todayCount = otpRepo.countByPhoneAndPurposeAndCreatedAtAfter(phone, purpose, startOfDay);
 
-        if (todayCount >= MAX_PER_PHONE_PER_DAY) {
+        if (smsEnabled && todayCount >= maxPerPhonePerDay) {
             throw new BusinessException(ErrorCode.OTP_RESEND_LIMIT,
                     "Too many OTP requests today. Please try again tomorrow or contact help@thechitwise.com.");
         }

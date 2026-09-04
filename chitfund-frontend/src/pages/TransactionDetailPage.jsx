@@ -455,7 +455,7 @@ export default function TransactionDetailPage() {
               memberAsAdmin ? (
                 <span className="flex items-center gap-2 flex-wrap">
                   <span>{memberName}</span>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-700">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#EEF2F8] border border-[#C7D5E8] text-xs font-semibold text-[#1E3A5F]">
                     <ShieldCheck size={10} /> Admin
                   </span>
                 </span>
@@ -495,7 +495,7 @@ export default function TransactionDetailPage() {
             <InfoRow icon={Hash} label="Status" value={chitStatus}
               valueClass={
                 chitStatus === 'ACTIVE'    ? 'text-green-600' :
-                chitStatus === 'COMPLETED' ? 'text-blue-600'  :
+                chitStatus === 'COMPLETED' ? 'text-[#1E3A5F]'  :
                 chitStatus === 'PAUSED'    ? 'text-amber-600' : ''
               } />
           )}
@@ -509,12 +509,12 @@ export default function TransactionDetailPage() {
             <InfoRow icon={CalendarDays} label="Duration"
               value={`${chit.durationMonths} months`} />
           )}
-          {chit?.totalMembers != null && (() => {
+          {chit?.capacity != null && (() => {
             const orgCount = chit.orgHeldSpotsCount ?? 0;
             const enrolled = chit.enrolledCount ?? '—';
             const enrolledLabel = orgCount > 0
-              ? `${enrolled} (${orgCount} org) enrolled / ${chit.totalMembers} total`
-              : `${enrolled} enrolled / ${chit.totalMembers} total`;
+              ? `${enrolled} (${orgCount} org) enrolled / ${chit.capacity} total`
+              : `${enrolled} enrolled / ${chit.capacity} total`;
             return <InfoRow icon={Users} label="Members" value={enrolledLabel} />;
           })()}
           {chit?.startDate && (
@@ -570,8 +570,8 @@ export default function TransactionDetailPage() {
               return (
                 <div key={idx} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                      <Calendar size={13} className="text-blue-500" />
+                    <div className="w-8 h-8 rounded-lg bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
+                      <Calendar size={13} style={{ color: '#1E3A5F' }} />
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-800">Draw #{alloc.monthNumber}</p>
@@ -598,7 +598,7 @@ export default function TransactionDetailPage() {
                 value={
                   <span className="flex items-center gap-2 flex-wrap">
                     <span>{admin?.fullName ?? admin?.username ?? resolveName(batch.recordedBy)}</span>
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-semibold text-indigo-700">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#EEF2F8] border border-[#C7D5E8] text-xs font-semibold text-[#1E3A5F]">
                       <ShieldCheck size={10} /> Admin
                     </span>
                   </span>

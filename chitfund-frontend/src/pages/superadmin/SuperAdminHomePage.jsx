@@ -164,7 +164,7 @@ export default function SuperAdminHomePage() {
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Platform Usage</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <StatCard icon={BarChart3} label="Active Chit Groups" value={data?.totalChits} color="#7C3AED" sub="Across all active orgs" />
-              <StatCard icon={Users} label="Total Members" value={data?.totalMembers} color="#0891B2" sub="Across all active orgs" />
+              <StatCard icon={Users} label="Total Members" value={data?.capacity} color="#0891B2" sub="Across all active orgs" />
               <StatCard icon={TrendingUp} label="Upgrade Requests" value={data?.alerts.upgrades} color="#EA580C" sub="Pending review" />
             </div>
           </div>

@@ -83,7 +83,7 @@ public class SettlementTransactionService {
         }
 
         // ── 2. Load settlement with pessimistic write lock ────────────────────
-        Settlement settlement = settlementRepository.findByIdWithLock(settlementId)
+        Settlement settlement = settlementRepository.findByIdWithLock(settlementId, TenantContext.get())
                 .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
 
         // ── 3. Status gate — reject if already fully settled ─────────────────

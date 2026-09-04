@@ -27,6 +27,8 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
 
     boolean existsByChitIdAndMemberIdAndStatusNot(UUID chitId, UUID memberId, ReservationStatus status);
 
+    long countByChitIdAndStatus(UUID chitId, ReservationStatus status);
+
     long countByChitIdAndStatusNot(UUID chitId, ReservationStatus status);
 
     long countByChitIdAndOrgHeldTrueAndStatusNot(UUID chitId, ReservationStatus status);

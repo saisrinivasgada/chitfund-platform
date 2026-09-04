@@ -27,7 +27,7 @@ public class OpenMonthRequest {
     @DecimalMin("0.01")
     private BigDecimal installmentAmount;
 
-    // chit.totalMembers — caps how many real (non-SKIPPED) cycles can be opened
+    // chit.capacity — caps how many real (non-SKIPPED) cycles can be opened
     @NotNull
     @Min(1)
     private Integer maxCycles;

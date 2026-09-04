@@ -48,11 +48,11 @@ public class ReportingEventConsumer {
 
     private void onMonthOpened(ChitMonthOpenedEvent event) {
         BigDecimal totalOutstanding = event.installmentAmount()
-                .multiply(BigDecimal.valueOf(event.totalMembers()));
+                .multiply(BigDecimal.valueOf(event.capacity()));
         ingestService.ingestCollectionSnapshot(new CollectionSnapshotEvent(
                 event.chitId(), event.chitName(), event.monthNumber(), event.dueDate(),
-                event.installmentAmount(), event.totalMembers(),
-                0, 0, event.totalMembers(), 0,
+                event.installmentAmount(), event.capacity(),
+                0, 0, event.capacity(), 0,
                 BigDecimal.ZERO, totalOutstanding,
                 "OPEN", null, event.tenantId()
         ));
@@ -61,8 +61,8 @@ public class ReportingEventConsumer {
     private void onMonthSkipped(ChitMonthSkippedEvent event) {
         ingestService.ingestCollectionSnapshot(new CollectionSnapshotEvent(
                 event.chitId(), event.chitName(), event.monthNumber(), event.dueDate(),
-                event.installmentAmount(), event.totalMembers(),
-                0, 0, 0, event.totalMembers(),
+                event.installmentAmount(), event.capacity(),
+                0, 0, 0, event.capacity(),
                 BigDecimal.ZERO, BigDecimal.ZERO,
                 "SKIPPED", event.skipReason(), event.tenantId()
         ));

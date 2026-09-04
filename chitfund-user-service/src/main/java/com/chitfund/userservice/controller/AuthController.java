@@ -7,6 +7,7 @@ import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.*;
 import com.chitfund.userservice.dto.response.*;
+import com.chitfund.userservice.service.AdminPasswordResetService;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +31,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final RateLimiterService rateLimiter;
+    private final AdminPasswordResetService adminPasswordResetService;
 
     // ── Public: org self-registration ────────────────────────────────────────
 
@@ -256,6 +258,45 @@ public class AuthController {
         }
         authService.resetPasswordViaOtp(req);
         return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. Please sign in with your new password."));
+    }
+
+    // ── Admin email-OTP password reset (3-step) ─────────────────────────────
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<Void>> adminForgotPassword(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
+        // Always respond with 200 — don't leak whether the email exists
+        try {
+            adminPasswordResetService.sendOtp(body.get("email"));
+        } catch (Exception ignored) {}
+        return ResponseEntity.ok(ApiResponse.success(null,
+                "If this email is registered to an admin account, an OTP has been sent."));
+    }
+
+    @PostMapping("/verify-reset-otp")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminVerifyResetOtp(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
+        String resetToken = adminPasswordResetService.verifyOtp(body.get("email"), body.get("otp"));
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("resetToken", resetToken)));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> adminResetPassword(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
+        adminPasswordResetService.resetPassword(body.get("resetToken"), body.get("newPassword"));
+        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. You can now sign in."));
     }
 
     // ── Mobile login (2-step) ────────────────────────────────────────────────

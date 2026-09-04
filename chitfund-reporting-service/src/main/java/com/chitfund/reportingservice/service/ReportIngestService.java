@@ -44,7 +44,7 @@ public class ReportIngestService {
         snapshot.setMonthNumber(event.monthNumber());
         snapshot.setDueDate(event.dueDate());
         snapshot.setInstallmentAmount(event.installmentAmount());
-        snapshot.setTotalMembers(event.totalMembers());
+        snapshot.setCapacity(event.capacity());
         snapshot.setSettledCount(event.settledCount());
         snapshot.setPartiallyPaidCount(event.partiallyPaidCount());
         snapshot.setOutstandingCount(event.outstandingCount());

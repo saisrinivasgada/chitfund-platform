@@ -438,6 +438,23 @@ public class TenantService {
             }
             t.setSlug(newSlug);
         }
+        if (req.getBusinessRegNumber() != null) {
+            t.setBusinessRegNumber(req.getBusinessRegNumber().isBlank() ? null : req.getBusinessRegNumber().trim());
+        }
+        if (req.getSupportPhoneNumber() != null) {
+            t.setSupportPhoneNumber(req.getSupportPhoneNumber().isBlank() ? null : req.getSupportPhoneNumber().trim());
+        }
+        tenantRepository.save(t);
+        return toResponse(t);
+    }
+
+    public TenantResponse updateAdminOrgDetails(String tenantId, String orgName, String businessRegNumber) {
+        Tenant t = tenantRepository.findById(UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Tenant not found"));
+        if (orgName != null && !orgName.isBlank()) t.setName(orgName.trim());
+        if (businessRegNumber != null) {
+            t.setBusinessRegNumber(businessRegNumber.isBlank() ? null : businessRegNumber.trim());
+        }
         tenantRepository.save(t);
         return toResponse(t);
     }
@@ -848,6 +865,8 @@ public class TenantService {
                 .promoDiscountUntil(t.getPromoDiscountUntil())
                 .cancellationRequestedAt(t.getCancellationRequestedAt())
                 .cancellationRequestedBy(t.getCancellationRequestedBy())
+                .supportPhoneNumber(t.getSupportPhoneNumber())
+                .businessRegNumber(t.getBusinessRegNumber())
                 .build();
     }
 
@@ -857,6 +876,42 @@ public class TenantService {
         java.util.Random rng = new java.util.Random();
         for (int i = 0; i < 10; i++) sb.append(chars.charAt(rng.nextInt(chars.length())));
         return sb.toString();
+    }
+
+    // ── Org settings (admin self-service) ────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> getOrgSettings(String tenantId) {
+        return tenantRepository.findById(UUID.fromString(tenantId))
+                .map(t -> {
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("name", t.getName());
+                    m.put("slug", t.getSlug());
+                    m.put("businessRegNumber", t.getBusinessRegNumber());
+                    m.put("supportPhoneNumber", t.getSupportPhoneNumber());
+                    return m;
+                })
+                .orElse(null);
+    }
+
+    // ── Support phone number ──────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public java.util.Map<String, String> getSupportContact(String tenantId) {
+        return tenantRepository.findById(UUID.fromString(tenantId))
+                .map(Tenant::getSupportPhoneNumber)
+                .filter(p -> p != null && !p.isBlank())
+                .map(p -> java.util.Map.of("supportPhoneNumber", p))
+                .orElse(null);
+    }
+
+    public void saveSupportPhoneNumber(String tenantId, String phone, String countryCode) {
+        Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String cc = (countryCode != null && !countryCode.isBlank()) ? countryCode : "+91";
+        String digits = phone.replaceAll("[^0-9]", "");
+        tenant.setSupportPhoneNumber(cc + digits);
+        tenantRepository.save(tenant);
     }
 
     private String generateUsername(String email, String slug) {

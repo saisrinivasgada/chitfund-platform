@@ -1,10 +1,12 @@
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { C, T } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
 import { useAuthStore } from '../../../store/authStore';
+import { getConversationUnread } from '../../../services/api';
 
 interface NavItem {
   emoji: string;
@@ -20,7 +22,29 @@ export default function MoreScreen() {
   const { activityBadge } = useUIStore();
   const { user } = useAuthStore();
 
+  const { data: msgUnread = 0 } = useQuery({
+    queryKey: ['m-convUnread'],
+    queryFn: getConversationUnread,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
   const items: NavItem[] = [
+    {
+      emoji: '💬',
+      label: 'Member Messages',
+      description: 'Chat directly with your members',
+      route: '/(app)/(admin)/messages',
+      badge: (msgUnread as number) > 0 ? (msgUnread as number) : undefined,
+      accent: C.navy,
+    },
+    {
+      emoji: '👥',
+      label: 'Group Chats',
+      description: 'Broadcast to multiple members',
+      route: '/(app)/(admin)/groups',
+      accent: '#16a34a',
+    },
     {
       emoji: '◈',
       label: 'Activity Log',
@@ -34,7 +58,7 @@ export default function MoreScreen() {
       label: 'Reports',
       description: 'Member & payment reports',
       route: '/(app)/(admin)/reports',
-      accent: '#7C3AED',
+      accent: C.navy,
     },
     {
       emoji: '✦',
@@ -55,7 +79,7 @@ export default function MoreScreen() {
       label: 'Roles & Permissions',
       description: 'What each role can do',
       route: '/(app)/(admin)/roles',
-      accent: '#2563EB',
+      accent: C.navyLight,
     },
   ];
 

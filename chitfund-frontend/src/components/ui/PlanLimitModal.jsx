@@ -5,8 +5,8 @@ import Button from './Button';
 import { requestPlanUpgrade } from '../../services/api';
 
 const PLAN_UPGRADES = {
-  BASIC:      { next: 'Growth',     nextCode: 'GROWTH',     color: '#2563EB', limits: '2 chits · 30 members · 1 Manager + 1 Staff account' },
-  GROWTH:     { next: 'Enterprise', nextCode: 'ENTERPRISE', color: '#7C3AED', limits: '3 chits · 50 members · 3 staff accounts · Analytics' },
+  BASIC:      { next: 'Growth',     nextCode: 'GROWTH',     color: '#1E3A5F', limits: '2 chits · 30 members · 1 Manager + 1 Staff account' },
+  GROWTH:     { next: 'Enterprise', nextCode: 'ENTERPRISE', color: '#1E3A5F', limits: '3 chits · 50 members · 3 staff accounts · Analytics' },
   ENTERPRISE: { next: 'Custom',     nextCode: 'CUSTOM',     color: '#059669', limits: 'Unlimited chits & members · dedicated support' },
   CUSTOM:     { next: null,         nextCode: null,          color: '#059669', limits: null },
 };

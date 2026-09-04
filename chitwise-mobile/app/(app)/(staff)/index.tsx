@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput,
   TouchableOpacity, Animated, Easing, Pressable, Modal, ScrollView,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +10,7 @@ import { useAuthStore } from '../../../store/authStore';
 import {
   getMyAssignedRequests, markPickedUp, cancelByStaff,
   getMembers, getChits, getMyPendingBatches, updateCashRequest, listStaff,
-  partiallyCollectCashRequest,
+  partiallyCollectCashRequest, getAdminSupportContact,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -161,7 +162,7 @@ function RequestTimeline({ task }: { task: any }) {
     task.requestedAt  && { label: 'Request Created',      time: task.requestedAt,  color: C.navy,   note: `₹${Number(task.requestedAmount).toLocaleString('en-IN')}` },
     task.assignedAt   && { label: 'Assigned to You',      time: task.assignedAt,   color: C.navy,   note: task.adminNotes ?? '' },
     task.notes        && { label: 'Member Note',          time: null,              color: C.gray400, note: task.notes },
-    task.scheduledFor && { label: 'Scheduled For',        time: task.scheduledFor, color: '#7C3AED', note: '' },
+    task.scheduledFor && { label: 'Scheduled For',        time: task.scheduledFor, color: C.navy,    note: '' },
     task.pickedUpAt   && { label: 'You Marked Picked Up', time: task.pickedUpAt,   color: C.green,  note: '' },
     task.collectedAt  && { label: 'Admin Confirmed',      time: task.collectedAt,  color: C.green,  note: '' },
     task.cancelledAt  && { label: 'Cancelled',            time: task.cancelledAt,  color: C.red,    note: task.cancelReason ?? '' },
@@ -341,37 +342,37 @@ function TaskDetailModal({
                 onPress={() => setReschedOpen(v => !v)}
                 style={{
                   flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  backgroundColor: reschedOpen ? '#F5F3FF' : C.gray50,
+                  backgroundColor: reschedOpen ? '#EEF2F8' : C.gray50,
                   borderRadius: 12, borderBottomLeftRadius: reschedOpen ? 0 : 12, borderBottomRightRadius: reschedOpen ? 0 : 12,
                   padding: 14, marginBottom: reschedOpen ? 0 : 10,
-                  borderWidth: 1.5, borderColor: reschedOpen ? '#7C3AED' : C.gray200,
+                  borderWidth: 1.5, borderColor: reschedOpen ? C.navy : C.gray200,
                 }}
               >
                 <View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: reschedOpen ? '#7C3AED' : C.gray900 }}>Reschedule Visit</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Reschedule Visit</Text>
                   {task.scheduledFor && (
                     <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Currently: {fmtDate(task.scheduledFor)}</Text>
                   )}
                 </View>
-                <Text style={{ fontSize: 13, color: reschedOpen ? '#7C3AED' : C.navy, fontWeight: '700' }}>
+                <Text style={{ fontSize: 13, color: C.navy, fontWeight: '700' }}>
                   {reschedOpen ? '▲ Close' : 'Schedule →'}
                 </Text>
               </TouchableOpacity>
 
               {reschedOpen && (
                 <View style={{
-                  backgroundColor: '#F5F3FF', padding: 14, marginBottom: 10,
-                  borderWidth: 1.5, borderTopWidth: 0, borderColor: '#7C3AED',
+                  backgroundColor: '#EEF2F8', padding: 14, marginBottom: 10,
+                  borderWidth: 1.5, borderTopWidth: 0, borderColor: C.navy,
                   borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
                 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#7C3AED', marginBottom: 8 }}>SCHEDULE DATE (YYYY-MM-DD)</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>SCHEDULE DATE (YYYY-MM-DD)</Text>
                   <TextInput
                     value={reschedDate}
                     onChangeText={setReschedDate}
                     placeholder="2026-07-15"
                     placeholderTextColor={C.gray400}
                     style={{
-                      borderWidth: 1.5, borderColor: '#7C3AED', borderRadius: 8,
+                      borderWidth: 1.5, borderColor: C.navy, borderRadius: 8,
                       padding: 10, fontSize: 16, color: C.gray900,
                       backgroundColor: C.white, marginBottom: 10,
                     }}
@@ -558,6 +559,14 @@ export default function StaffTasksScreen() {
     onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
   });
 
+  const [contactOpen, setContactOpen] = useState(false);
+
+  const { data: adminContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    staleTime: 10 * 60 * 1000,
+  });
+
   if (isLoading) return <LoadingScreen />;
 
   const assigned           = (tasks as any[]).filter((t) => t.status === 'ASSIGNED');
@@ -680,11 +689,11 @@ export default function StaffTasksScreen() {
             {/* Partially collected — admin will follow up on remaining */}
             {partiallyCollected.length > 0 && (
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#7C3AED', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                   Partial Pickup — Admin Follow-up ({partiallyCollected.length})
                 </Text>
                 {partiallyCollected.map((t: any) => (
-                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
@@ -695,11 +704,11 @@ export default function StaffTasksScreen() {
                         )}
                       </View>
                       <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                        <Amount value={t.collectedAmount ?? t.requestedAmount} size="sm" color="#7C3AED" />
+                        <Amount value={t.collectedAmount ?? t.requestedAmount} size="sm" color={C.amber} />
                         <Text style={{ fontSize: 10, color: C.gray400 }}>of ₹{Number(t.requestedAmount).toLocaleString('en-IN')}</Text>
                       </View>
                     </View>
-                    <Text style={{ fontSize: 11, color: '#7C3AED', marginTop: 6 }}>
+                    <Text style={{ fontSize: 11, color: C.amber, marginTop: 6 }}>
                       Partially collected — admin will follow up on remaining
                     </Text>
                   </Card>
@@ -739,15 +748,30 @@ export default function StaffTasksScreen() {
         }
         ListEmptyComponent={null}
         ListFooterComponent={
-          hasMore ? (
-            <TouchableOpacity
-              onPress={() => setPage(p => p + 1)}
-              style={{ marginTop: 8, paddingVertical: 12, alignItems: 'center', backgroundColor: C.gray100, borderRadius: 10 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>
-                Load More ({assigned.length - pagedAssigned.length} remaining)
-              </Text>
-            </TouchableOpacity>
-          ) : null
+          <View style={{ marginTop: 8 }}>
+            {hasMore && (
+              <TouchableOpacity
+                onPress={() => setPage(p => p + 1)}
+                style={{ paddingVertical: 12, alignItems: 'center', backgroundColor: C.gray100, borderRadius: 10, marginBottom: 10 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>
+                  Load More ({assigned.length - pagedAssigned.length} remaining)
+                </Text>
+              </TouchableOpacity>
+            )}
+            {adminContact?.supportPhoneNumber && (
+              <TouchableOpacity
+                onPress={() => setContactOpen(true)}
+                style={{
+                  marginTop: 4, marginBottom: 16, paddingVertical: 14, alignItems: 'center',
+                  backgroundColor: C.gray50, borderRadius: 12,
+                  borderWidth: 1.5, borderColor: C.gray200,
+                  flexDirection: 'row', justifyContent: 'center', gap: 8,
+                }}>
+                <Text style={{ fontSize: 15 }}>📞</Text>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray700 }}>Contact Support</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         }
         renderItem={({ item: t }) => (
           <TouchableOpacity activeOpacity={0.75} onPress={() => setSelectedTask(t)}>
@@ -790,6 +814,45 @@ export default function StaffTasksScreen() {
           partialCollectPending={partialMut.isPending}
         />
       )}
+
+      {/* Contact Support Modal */}
+      <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <View>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy }}>Contact Support</Text>
+                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Your chit fund admin is available to help</Text>
+              </View>
+              <TouchableOpacity onPress={() => setContactOpen(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
+                <Text style={{ fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {adminContact?.supportPhoneNumber ? (
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`tel:${adminContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, backgroundColor: C.navy }}>
+                  <Text style={{ fontSize: 22 }}>📞</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>Call Admin</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`sms:${adminContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}>
+                  <Text style={{ fontSize: 22 }}>💬</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                <Text style={{ fontSize: 32, marginBottom: 12 }}>📵</Text>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700, textAlign: 'center' }}>No support number set</Text>
+                <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginTop: 6 }}>Your admin hasn't set a support number yet. Please contact them directly.</Text>
+              </View>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

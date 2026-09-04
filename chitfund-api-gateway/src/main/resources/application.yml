@@ -11,7 +11,7 @@ spring:
           '[/**]':
             allowedOrigins:
               - "https://app.thechitwise.com"
-              - "https://admin.thechitwise.com"
+              - "https://hub.thechitwise.com"
               - "http://localhost:3000"
               - "http://localhost:5173"
             allowedMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -42,6 +42,43 @@ spring:
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/public/**
+
+        # ── Support Service ───────────────────────────────────────────────────
+        # Org admin ticket endpoints — gateway validates ORG JWT, forwards headers
+        - id: management-service-org-tickets
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/tickets/**
+          filters:
+            - JwtAuthGatewayFilter
+
+        # Hub employee endpoints — NO gateway JWT filter; management-service validates HUB JWT
+        - id: management-service-hub
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/hub/**
+
+        # Intra-org conversation endpoints — gateway validates org JWT, forwards headers
+        - id: management-service-conversations
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/conversations/**
+          filters:
+            - JwtAuthGatewayFilter
+
+        # Group chat endpoints — gateway validates org JWT, forwards headers
+        - id: management-service-groups
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/groups/**
+          filters:
+            - JwtAuthGatewayFilter
+
+        # Support WebSocket — no JWT filter at gateway; service validates on STOMP CONNECT
+        - id: management-service-websocket
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/ws/support/**
 
         - id: user-service-protected
           uri: ${USER_SERVICE_URL:http://localhost:8081}
@@ -172,6 +209,10 @@ management:
 
 jwt:
   secret: ${JWT_SECRET}
+
+internal:
+  service:
+    key: ${INTERNAL_SERVICE_KEY}
 
 logging:
   level:

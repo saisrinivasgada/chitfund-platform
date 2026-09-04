@@ -364,18 +364,22 @@ public class SettlementService {
         // Example: member has 2 slots (1 RESERVED + 1 PROCESSED) and paid ₹60k total →
         //   fund owes back ₹30k for the reserved slot; member still owes future installments for the processed one.
         // For all-RESERVED (no processed slots): fund owes back everything (totalPaidIn).
-        // For no-slot (B2): also refund everything.
+        // For no-slot (B2) with no payout: also refund everything.
+        // For no-slot with a payout (auction winner): do NOT refund contributions — they already received the payout.
+        boolean hasActivePayout = payout != null
+                && !"CANCELLED".equals(payout.getStatus())
+                && !"VOIDED".equals(payout.getStatus());
         BigDecimal fundOwesForReserved;
         if (reservedSlotCount > 0 && totalActiveSlots > 0) {
             // Proportional share of totalPaidIn for the reserved slots
             fundOwesForReserved = totalPaidIn
                     .multiply(BigDecimal.valueOf(reservedSlotCount))
                     .divide(BigDecimal.valueOf(totalActiveSlots), 2, RoundingMode.HALF_UP);
-        } else if (reservedSlotCount == 0 && processedSlotCount == 0) {
-            // B2: no slots at all — refund everything the member paid
+        } else if (reservedSlotCount == 0 && processedSlotCount == 0 && !hasActivePayout) {
+            // B2: no slots, no payout — refund everything the member paid
             fundOwesForReserved = totalPaidIn;
         } else {
-            // Only processed slots (pure CASE_A) — no reserved credit to apply
+            // Processed slots only (CASE_A reservation/lottery) OR auction winner (payout exists but no slots)
             fundOwesForReserved = BigDecimal.ZERO;
         }
 

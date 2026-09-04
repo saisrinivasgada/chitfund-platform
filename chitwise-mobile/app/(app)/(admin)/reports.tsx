@@ -25,7 +25,7 @@ const PRESETS = [
 
 const PMT_STATUS_COLOR: Record<string, string> = {
   SETTLED: C.green, PAYOUT_DEDUCTED: C.green, SETTLEMENT_CLEARED: C.green,
-  PARTIALLY_PAID: C.amber, OUTSTANDING: C.red, WAIVED: '#2563EB',
+  PARTIALLY_PAID: C.amber, OUTSTANDING: C.red, WAIVED: C.gray400,
 };
 const PY_STATUS_COLOR: Record<string, string> = {
   DISBURSED: C.green, PENDING: C.amber, CANCELLED: C.red, VOIDED: C.gray400,
@@ -87,7 +87,7 @@ function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onC
   });
 
   const STATUS_COLOR: Record<string, string> = {
-    DISBURSED: C.green, PARTIALLY_DISBURSED: '#2563EB',
+    DISBURSED: C.green, PARTIALLY_DISBURSED: C.navyLight,
     PENDING: C.amber, CANCELLED: C.red, VOIDED: C.gray400,
   };
 
@@ -803,7 +803,7 @@ function ChitReport() {
                 style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray50, backgroundColor: c.id === chitId ? C.navy50 : C.white }}
               >
                 <Text style={{ fontSize: 15, color: C.gray900, fontWeight: '500' }}>{c.name}</Text>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>{c.status} · {c.totalMembers} members</Text>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>{c.status} · {c.capacity} members</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -830,7 +830,7 @@ function ChitReport() {
               { label: 'Expected',    value: fmt(totalExpected),    color: C.navy },
               { label: 'Collected',   value: fmt(totalCollected),   color: C.green },
               { label: 'Outstanding', value: fmt(totalOutstanding), color: C.red },
-              { label: 'Disbursed',   value: fmt(totalDisbursed),   color: '#7C3AED' },
+              { label: 'Disbursed',   value: fmt(totalDisbursed),   color: C.navy },
             ].map(s => (
               <Card key={s.label} style={{ width: '47%', padding: 12 }}>
                 <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 4 }}>{s.label}</Text>
@@ -966,9 +966,9 @@ function TreasuryReport() {
       {/* Balance cards */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         {[
-          { label: 'Total Balance', value: fmt(totalBalance), color: '#7C3AED' },
+          { label: 'Total Balance', value: fmt(totalBalance), color: C.navy },
           { label: 'Cash',          value: fmt(cashBalance),  color: C.navy },
-          { label: 'Bank',          value: fmt(bankBalance),  color: '#0891B2' },
+          { label: 'Bank',          value: fmt(bankBalance),  color: C.navy },
           { label: `Inflows (${PRESETS[presetIdx].label})`, value: fmt(inflows), color: C.green },
         ].map(s => (
           <Card key={s.label} style={{ width: '47%', padding: 12 }}>

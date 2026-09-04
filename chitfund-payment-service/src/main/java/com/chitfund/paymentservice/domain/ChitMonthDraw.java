@@ -21,6 +21,9 @@ public class ChitMonthDraw {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "tenant_id", length = 50)
+    private String tenantId;
+
     @Column(nullable = false)
     private UUID chitId;
 
@@ -33,8 +36,8 @@ public class ChitMonthDraw {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal installmentAmount;
 
-    @Column(nullable = false)
-    private int totalMembers;
+    @Column(name = "total_members", nullable = false)
+    private int capacity;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")

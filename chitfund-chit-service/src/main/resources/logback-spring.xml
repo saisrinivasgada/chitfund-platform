@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+  <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="chitfund-service"/>
+
+  <!-- ── Dev profile: human-readable coloured console ─────────────────────── -->
+  <springProfile name="dev,local,default">
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+        <pattern>%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([${appName}]){cyan} %clr([%X{requestId:-no-req}]){yellow} %clr([t:%X{tenantId:-—}]){blue} %clr([u:%X{userId:-—}]){magenta} %clr(%-40.40logger{39}){cyan} : %m%n%wEx</pattern>
+      </encoder>
+    </appender>
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+    <logger name="com.chitfund" level="DEBUG"/>
+    <logger name="org.springframework.security" level="WARN"/>
+    <logger name="org.flywaydb" level="INFO"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+  </springProfile>
+
+  <!-- ── Prod profile: structured JSON for CloudWatch / ELK ───────────────── -->
+  <springProfile name="prod,staging">
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+        <providers>
+          <timestamp/>
+          <logLevel/>
+          <loggerName>
+            <shortenedLoggerNameLength>36</shortenedLoggerNameLength>
+          </loggerName>
+          <message/>
+          <mdc/>
+          <stackTrace>
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+              <maxDepthPerCause>8</maxDepthPerCause>
+              <shortenedClassNameLength>36</shortenedClassNameLength>
+              <exclude>sun\.reflect\..*</exclude>
+              <exclude>java\.lang\.reflect\..*</exclude>
+              <rootCauseFirst>true</rootCauseFirst>
+            </throwableConverter>
+          </stackTrace>
+          <arguments/>
+        </providers>
+        <customFields>{"service":"${appName}"}</customFields>
+      </encoder>
+    </appender>
+    <root level="INFO">
+      <appender-ref ref="JSON_CONSOLE"/>
+    </root>
+    <logger name="com.chitfund" level="INFO"/>
+    <logger name="org.springframework.security" level="WARN"/>
+    <logger name="org.flywaydb" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+  </springProfile>
+
+</configuration>

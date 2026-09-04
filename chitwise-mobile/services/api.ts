@@ -621,6 +621,97 @@ export const unregisterPushToken = async (token: string) => {
   }
 };
 
+// ─── Support Tickets (org admin → ChitWise) ──────────────────────────────────
+export const createSupportTicket = async (body: {
+  type: string;
+  subject: string;
+  description?: string;
+}): Promise<any> => {
+  const res = await api.post('/tickets', body);
+  return res.data.data;
+};
+
+export const listMyTickets = async ({ page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get('/tickets', { params: { page, size } });
+  return res.data.data;
+};
+
+export const getSupportTicket = async (ticketId: string): Promise<any> => {
+  const res = await api.get(`/tickets/${ticketId}`);
+  return res.data.data;
+};
+
+export const getTicketMessages = async (
+  ticketId: string,
+  { cursor, limit = 50 }: { cursor?: string; limit?: number } = {}
+): Promise<any> => {
+  const params: any = { limit };
+  if (cursor) params.before = cursor;
+  const res = await api.get(`/tickets/${ticketId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendTicketMessage = async (ticketId: string, content: string): Promise<any> => {
+  const res = await api.post(`/tickets/${ticketId}/messages`, { content });
+  return res.data.data;
+};
+
+export const deleteTicketMessage = async (ticketId: string, messageId: string): Promise<void> => {
+  await api.put(`/tickets/${ticketId}/messages/${messageId}/delete`);
+};
+
+export const markTicketRead = async (ticketId: string): Promise<void> => {
+  await api.put(`/tickets/${ticketId}/read`);
+};
+
+// ─── Admin Support Contact (for members/staff/managers to contact admin) ──────
+export const getAdminSupportContact = async (): Promise<{ supportPhoneNumber: string } | null> => {
+  const res = await api.get('/users/tenant/support-contact');
+  return res.data?.data ?? null;
+};
+
+export const sendSupportNumberOtp = async (phone: string, countryCode = '+91'): Promise<void> => {
+  await api.post('/users/me/support-number/send-otp', { phone, countryCode });
+};
+
+export const verifySupportNumber = async (phone: string, code: string, countryCode = '+91'): Promise<void> => {
+  await api.post('/users/me/support-number/verify', { phone, code, countryCode });
+};
+
+// ─── Chit Invitations ─────────────────────────────────────────────────────────
+export const getMyInvitations = async (): Promise<any[]> => {
+  try { return unwrapList(await api.get('/invitations/my')); } catch { return []; }
+};
+
+export const respondToInvitation = async (invId: string, body: {
+  interested: boolean;
+  reason?: string;
+  spotsRequested?: number;
+  requestedDrawNumbers?: number[];
+}): Promise<any> => unwrapObj(await api.post(`/invitations/${invId}/respond`, body));
+
+export const getChitInvitations = async (chitId: string): Promise<any[]> =>
+  unwrapList(await api.get(`/chits/${chitId}/invitations`));
+
+export const createInvitation = async (chitId: string, body: {
+  message?: string;
+  recipientMemberIds: string[];
+}): Promise<any> => unwrapObj(await api.post(`/chits/${chitId}/invitations`, body));
+
+export const closeInvitation = async (chitId: string, invId: string): Promise<any> =>
+  unwrapObj(await api.patch(`/chits/${chitId}/invitations/${invId}/close`));
+
+export const getInvitationResponses = async (chitId: string, invId: string): Promise<any[]> =>
+  unwrapList(await api.get(`/chits/${chitId}/invitations/${invId}/responses`));
+
+export const overrideInvitationResponse = async (chitId: string, invId: string, responseId: string, body: {
+  approvedSpots?: number;
+  approvedDrawNumbers?: number[];
+}): Promise<any> => unwrapObj(await api.patch(`/chits/${chitId}/invitations/${invId}/responses/${responseId}`, body));
+
+export const approveInvitationResponse = async (chitId: string, invId: string, responseId: string): Promise<any> =>
+  unwrapObj(await api.post(`/chits/${chitId}/invitations/${invId}/responses/${responseId}/approve`));
+
 // ── Auction ───────────────────────────────────────────────────────────────────
 export const openAuction = async (params: {
   chitId: string;
@@ -680,5 +771,101 @@ export const extendAuction = async (params: {
 
 export const voidAuction = async (params: { chitId: string; auctionId: string }) =>
   unwrapObj(await api.post(`/chits/${params.chitId}/auction/${params.auctionId}/void`));
+
+// ─── Intra-org Conversations (Admin/Manager ↔ Member DMs) ────────────────────
+
+export const listConversations = async ({ page = 0, size = 30 } = {}): Promise<any> => {
+  const res = await api.get('/conversations', { params: { page, size } });
+  return res.data.data;
+};
+
+export const startConversation = async (body: { memberId: string; memberName: string }): Promise<any> => {
+  const res = await api.post('/conversations', body);
+  return res.data.data;
+};
+
+export const getMyConversation = async (): Promise<any> => {
+  const res = await api.get('/conversations/mine');
+  return res.data.data;
+};
+
+export const getConversationUnread = async (): Promise<number> => {
+  const res = await api.get('/conversations/unread');
+  return res.data.data?.unread ?? 0;
+};
+
+export const getMemberConversationUnread = async (): Promise<number> => {
+  const res = await api.get('/conversations/mine/unread');
+  return res.data.data?.unread ?? 0;
+};
+
+export const getChatMessages = async (
+  conversationId: string,
+  { cursor, limit = 50 }: { cursor?: string; limit?: number } = {}
+): Promise<any> => {
+  const params: any = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await api.get(`/conversations/${conversationId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendChatMessage = async (
+  conversationId: string,
+  content: string,
+  clientMessageId?: string
+): Promise<any> => {
+  const res = await api.post(`/conversations/${conversationId}/messages`, { content, clientMessageId });
+  return res.data.data;
+};
+
+export const deleteChatMessage = async (conversationId: string, messageId: string): Promise<void> => {
+  await api.put(`/conversations/${conversationId}/messages/${messageId}/delete`);
+};
+
+export const markConversationRead = async (conversationId: string): Promise<void> => {
+  await api.post(`/conversations/${conversationId}/read`);
+};
+
+// ─── Group Chat (Phase 3) ──────────────────────────────────────────────────────
+
+export const createGroup = async (body: { name: string; description?: string; memberIds?: string[] }): Promise<any> => {
+  const res = await api.post('/groups', body);
+  return res.data.data;
+};
+
+export const listGroups = async ({ page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get('/groups', { params: { page, size } });
+  return res.data.data;
+};
+
+export const getGroupMembers = async (groupId: string): Promise<any[]> => {
+  const res = await api.get(`/groups/${groupId}/members`);
+  return res.data.data ?? [];
+};
+
+export const addGroupMember = async (groupId: string, body: { userId: string; userName: string; role?: string }): Promise<any> => {
+  const res = await api.post(`/groups/${groupId}/members`, body);
+  return res.data.data;
+};
+
+export const removeGroupMember = async (groupId: string, userId: string): Promise<void> => {
+  await api.delete(`/groups/${groupId}/members/${userId}`);
+};
+
+export const getGroupMessages = async (groupId: string, { cursor, limit = 50 }: { cursor?: string; limit?: number } = {}): Promise<any> => {
+  const params: any = { limit };
+  if (cursor) params.cursor = cursor;
+  const res = await api.get(`/groups/${groupId}/messages`, { params });
+  return res.data.data;
+};
+
+export const sendGroupMessage = async (groupId: string, content: string, clientMessageId: string): Promise<any> => {
+  const res = await api.post(`/groups/${groupId}/messages`, { content, clientMessageId });
+  return res.data.data;
+};
+
+export const deleteGroupMessage = async (groupId: string, messageId: string): Promise<void> => {
+  await api.put(`/groups/${groupId}/messages/${messageId}/delete`);
+};
 
 export default api;

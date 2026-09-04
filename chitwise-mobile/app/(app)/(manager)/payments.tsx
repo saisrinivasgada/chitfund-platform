@@ -20,7 +20,7 @@ function sevenDaysAgoStr() {
 }
 
 const REQ_STATUS_COLOR: Record<string, string> = {
-  PENDING: C.amber, ASSIGNED: C.navy, PICKED_UP: '#7C3AED', COLLECTED: C.green,
+  PENDING: C.amber, ASSIGNED: C.navy, PICKED_UP: C.navy, COLLECTED: C.green,
   CANCELLED: C.gray400, VOIDED: C.red, PARTIALLY_COLLECTED: C.amber,
 };
 
@@ -279,7 +279,7 @@ export default function ManagerPaymentsScreen() {
               <EmptyState title="All clear" message="No payouts pending." />
             ) : (
               (pendingPayouts as any[]).map((p: any) => (
-                <Card key={p.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+                <Card key={p.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.gold }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                     <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
                       {memberMap[p.memberId ?? p.winnerId] ?? '—'}
@@ -289,7 +289,7 @@ export default function ManagerPaymentsScreen() {
                   <Text style={{ fontSize: 12, color: C.navy, marginBottom: 4 }}>
                     {chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? '—'}
                   </Text>
-                  <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color="#7C3AED" />
+                  <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color={C.gold} />
                 </Card>
               ))
             )}

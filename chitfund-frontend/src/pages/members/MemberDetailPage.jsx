@@ -8,7 +8,7 @@ import {
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests, lockUser, unlockUser,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
   getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
-  adminUpdateUserPhone,
+  adminUpdateUserPhone, startConversation,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -365,7 +365,7 @@ function EditMemberPanel({ member, onClose }) {
       <div className="relative z-10 flex flex-col bg-white w-full max-w-lg max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0"
-             style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)' }}>
+             style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5490 100%)' }}>
           <div>
             <h2 className="text-base font-bold text-white">Edit Member</h2>
             <p className="text-xs text-blue-200 mt-0.5">{member.fullName}</p>
@@ -704,7 +704,7 @@ const CHIT_STATUS_STYLE = {
   ACTIVE:    { text: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0', label: 'Active' },
   COMPLETED: { text: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB', label: 'Completed' },
   PAUSED:    { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: 'Paused' },
-  PENDING:   { text: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE', label: 'Pending' },
+  PENDING:   { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: 'Pending' },
   DRAFT:     { text: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', label: 'Draft' },
 };
 
@@ -740,7 +740,7 @@ function EnrolledChitsSection({ memberId }) {
               key={chit.id}
               type="button"
               onClick={() => navigate(`/chits/${chit.id}`)}
-              className="w-full flex items-center gap-4 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 transition-colors cursor-pointer text-left group"
+              className="w-full flex items-center gap-4 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 hover:bg-[#EEF2F8] hover:border-[#C7D5E8] transition-colors cursor-pointer text-left group"
             >
               {/* Status dot + name */}
               <div className="flex-1 min-w-0">
@@ -759,8 +759,8 @@ function EnrolledChitsSection({ memberId }) {
                   {chit.durationMonths && (
                     <span>{chit.durationMonths} months</span>
                   )}
-                  {chit.totalMembers && (
-                    <span>{chit.totalMembers} members</span>
+                  {chit.capacity && (
+                    <span>{chit.capacity} members</span>
                   )}
                   {chit.startDate && (
                     <span>Started {new Date(chit.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -796,7 +796,7 @@ const CHIT_STATUS_COLOR = {
   ACTIVE:    { text: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0' },
   COMPLETED: { text: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB' },
   PAUSED:    { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
-  PENDING:   { text: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
+  PENDING:   { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
 };
 
 function BalancesSection({ memberId }) {
@@ -897,8 +897,8 @@ function ChitBalanceRow({ chit, memberId, expanded, onToggle }) {
                     PARTIALLY_PAID:     { text: '#D97706', bg: '#FFFBEB' },
                     OUTSTANDING:        { text: '#DC2626', bg: '#FFF5F5' },
                     WAIVED:             { text: '#9CA3AF', bg: '#F9FAFB' },
-                    PAYOUT_DEDUCTED:    { text: '#7C3AED', bg: '#F5F3FF' },
-                    SETTLEMENT_CLEARED: { text: '#0F766E', bg: '#F0FDFA' },
+                    PAYOUT_DEDUCTED:    { text: '#1E3A5F', bg: '#EEF2F8' },
+                    SETTLEMENT_CLEARED: { text: '#16A34A', bg: '#F0FDF4' },
                   };
                   const cycleStatusLabel = {
                     SETTLED:            'Settled',
@@ -1011,7 +1011,7 @@ function ProfileHistorySection({ memberId, flat = false }) {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-gray-900">{actionLabel}</span>
                 {log.actorRole && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-[#EFF6FF] text-blue-700 font-medium">{log.actorRole}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-[#EEF2F8] text-[#1E3A5F] font-medium">{log.actorRole}</span>
                 )}
               </div>
               {(log.previousValue || log.newValue) && (
@@ -1101,7 +1101,7 @@ function PaymentHistorySection({ memberId }) {
     PARTIALLY_PAID:     'text-amber-700 bg-amber-50',
     OUTSTANDING:        'text-red-700 bg-red-50',
     WAIVED:             'text-gray-400 bg-gray-50',
-    PAYOUT_DEDUCTED:    'text-purple-700 bg-purple-50',
+    PAYOUT_DEDUCTED:    'text-[#1E3A5F] bg-[#EEF2F8]',
     SETTLEMENT_CLEARED: 'text-teal-700 bg-teal-50',
   };
 
@@ -1109,7 +1109,7 @@ function PaymentHistorySection({ memberId }) {
     ACTIVE:    '#16A34A',
     COMPLETED: '#6B7280',
     PAUSED:    '#D97706',
-    PENDING:   '#2563EB',
+    PENDING:   '#D97706',
   };
 
   return (
@@ -1302,8 +1302,8 @@ function SettlementHistorySection({ memberId }) {
   const [collapsed, setCollapsed] = useState(!hasActive);
   const statusCfg = {
     PENDING:              { bg: 'bg-amber-100', text: 'text-amber-700',  label: 'Pending' },
-    PARTIALLY_COLLECTED:  { bg: 'bg-blue-100',  text: 'text-blue-700',   label: 'Partial (Collect)' },
-    PARTIALLY_DISBURSED:  { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Partial (Pay)' },
+    PARTIALLY_COLLECTED:  { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]',  label: 'Partial (Collect)' },
+    PARTIALLY_DISBURSED:  { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]',  label: 'Partial (Pay)' },
     FULLY_COLLECTED:      { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Collected' },
     FULLY_DISBURSED:      { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Disbursed' },
     BALANCED:             { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Balanced' },
@@ -1331,7 +1331,7 @@ function SettlementHistorySection({ memberId }) {
         <div className="flex items-center gap-2">
           <HandCoins size={18} className="text-[#1E3A5F]" />
           <h3 className="font-semibold text-gray-900">Settlement History</h3>
-          <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+          <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#EEF2F8] text-[#1E3A5F]">
             {settlements.length}
           </span>
           {hasActive && (
@@ -1386,7 +1386,7 @@ function SettlementHistorySection({ memberId }) {
                       </span>
                     )}
                     {Number(s.creditApplied ?? 0) > 0 && (
-                      <span className="font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                      <span className="font-medium px-1.5 py-0.5 rounded bg-[#EEF2F8] text-[#1E3A5F]">
                         Credit ₹{hidden ? '••••' : Number(s.creditApplied).toLocaleString('en-IN')} applied
                       </span>
                     )}
@@ -1415,7 +1415,7 @@ function SettlementHistorySection({ memberId }) {
                         setPayRef('');
                         setPayNotes('');
                       }}
-                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 transition-colors"
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#C7D5E8] text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors"
                     >
                       {isOpen ? 'Cancel' : 'Record Payment'}
                     </button>
@@ -1444,8 +1444,8 @@ function SettlementHistorySection({ memberId }) {
                       OUTSTANDING:        { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Outstanding' },
                       PARTIALLY_PAID:     { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Partial' },
                       WAIVED:             { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Waived' },
-                      PAYOUT_DEDUCTED:    { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Deducted' },
-                      SETTLEMENT_CLEARED: { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Settlement Cleared' },
+                      PAYOUT_DEDUCTED:    { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Deducted' },
+                      SETTLEMENT_CLEARED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Settlement Cleared' },
                     };
                     return (
                       <div key={item.chitId} className="border-b border-gray-100 last:border-0">
@@ -1508,9 +1508,9 @@ function SettlementHistorySection({ memberId }) {
 
               {/* Credit applied summary */}
               {isExpanded && Number(s.creditApplied ?? 0) > 0 && (
-                <div className="mx-6 mb-3 px-4 py-2.5 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-between text-xs">
-                  <span className="text-purple-700 font-medium">Credit balance applied at settlement</span>
-                  <span className="font-bold text-purple-800">
+                <div className="mx-6 mb-3 px-4 py-2.5 rounded-xl bg-[#EEF2F8] border border-[#C7D5E8] flex items-center justify-between text-xs">
+                  <span className="text-[#1E3A5F] font-medium">Credit balance applied at settlement</span>
+                  <span className="font-bold text-[#1E3A5F]">
                     −{hidden ? '••••••' : `₹${Number(s.creditApplied).toLocaleString('en-IN')}`}
                   </span>
                 </div>
@@ -1518,8 +1518,8 @@ function SettlementHistorySection({ memberId }) {
 
               {/* Inline payment form */}
               {isOpen && (
-                <div className="mx-6 mb-4 p-4 rounded-xl bg-blue-50 border border-blue-200">
-                  <p className="text-xs font-semibold text-blue-800 mb-3">
+                <div className="mx-6 mb-4 p-4 rounded-xl bg-[#EEF2F8] border border-[#C7D5E8]">
+                  <p className="text-xs font-semibold text-[#1E3A5F] mb-3">
                     Record {isCollect ? 'collection from' : 'disbursement to'} member
                     {remaining > 0 && !hidden && ` — ₹${remaining.toLocaleString('en-IN')} remaining`}
                   </p>
@@ -1790,7 +1790,7 @@ export default function MemberDetailPage() {
                   <div key={r.id} className="flex items-center gap-2 text-xs text-amber-700">
                     <span className={`px-2 py-0.5 rounded-full font-semibold ${
                       r.status === 'PICKED_UP' ? 'bg-green-100 text-green-700' :
-                      r.status === 'ASSIGNED'  ? 'bg-blue-100 text-blue-700' :
+                      r.status === 'ASSIGNED'  ? 'bg-[#EEF2F8] text-[#1E3A5F]' :
                       'bg-amber-100 text-amber-700'
                     }`}>{stLabel}</span>
                     {r.requestedAmount != null && (
@@ -1904,6 +1904,19 @@ export default function MemberDetailPage() {
         {/* Action buttons */}
         {!isDeleted && (
           <div className="flex items-center gap-2 flex-shrink-0">
+            {member?.userId && (
+              <Button
+                variant="secondary"
+                onClick={() => startConversation({ memberId: member.userId, memberName: member.fullName })
+                  .then(() => {
+                    // Open the messages panel — dispatch a custom event the sidebar picks up
+                    window.dispatchEvent(new CustomEvent('open-messages-panel'));
+                  })
+                  .catch(() => {})}
+              >
+                <MessageCircle size={15} /> Message
+              </Button>
+            )}
             <Button onClick={() => setShowEdit(true)}>
               <Edit2 size={15} /> Edit Member
             </Button>
@@ -1980,7 +1993,7 @@ export default function MemberDetailPage() {
                   <button
                     type="button"
                     onClick={() => { setShowReferralEdit(v => !v); setRefSearch(''); setRefId(''); }}
-                    className="text-xs font-semibold text-[#1E3A5F] underline cursor-pointer hover:text-blue-700 ml-1"
+                    className="text-xs font-semibold text-[#1E3A5F] underline cursor-pointer hover:text-[#2E5090] ml-1"
                   >
                     {showReferralEdit ? 'Cancel' : (member.referredById ? 'Change' : 'Add')}
                   </button>
@@ -1988,9 +2001,9 @@ export default function MemberDetailPage() {
               </div>
 
               {showReferralEdit && (
-                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
+                <div className="mt-2 p-3 bg-[#EEF2F8] rounded-lg border border-[#C7D5E8] space-y-2">
                   {refId ? (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-blue-200">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-[#C7D5E8]">
                       <span className="text-sm font-medium text-[#1E3A5F] flex-1">{refSearch}</span>
                       <button type="button" onClick={() => { setRefId(''); setRefSearch(''); }}
                         className="text-gray-400 hover:text-gray-600 cursor-pointer text-lg leading-none">×</button>
@@ -2017,7 +2030,7 @@ export default function MemberDetailPage() {
                             .slice(0, 6)
                             .map((m) => (
                               <button key={m.id} type="button"
-                                className="w-full text-left px-3 py-2.5 hover:bg-blue-50 cursor-pointer"
+                                className="w-full text-left px-3 py-2.5 hover:bg-[#EEF2F8] cursor-pointer"
                                 onClick={() => { setRefId(m.id); setRefSearch(m.fullName); }}>
                                 <span className="text-sm font-medium text-gray-800">{m.fullName}</span>
                                 {m.phone && <span className="text-xs text-gray-400 ml-2">{m.phone}</span>}

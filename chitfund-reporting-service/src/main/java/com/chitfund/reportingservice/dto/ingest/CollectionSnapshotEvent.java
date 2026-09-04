@@ -20,7 +20,7 @@ public record CollectionSnapshotEvent(
         @NotNull Integer monthNumber,
         @NotNull LocalDate dueDate,
         @NotNull BigDecimal installmentAmount,
-        @NotNull Integer totalMembers,
+        @NotNull Integer capacity,
         @NotNull Integer settledCount,
         @NotNull Integer partiallyPaidCount,
         @NotNull Integer outstandingCount,

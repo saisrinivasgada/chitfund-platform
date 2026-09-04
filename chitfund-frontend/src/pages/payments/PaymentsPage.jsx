@@ -70,20 +70,20 @@ function TabBar({ tabs }) {
 // ─── Cash Requests Tab ─────────────────────────────────────────────────────
 const REQ_STATUS_STYLE = {
   PENDING:              'bg-amber-100 text-amber-700',
-  SCHEDULED:            'bg-sky-100 text-sky-700',
-  ASSIGNED:             'bg-blue-100 text-blue-700',
+  SCHEDULED:            'bg-[#EEF2F8] text-[#1E3A5F]',
+  ASSIGNED:             'bg-[#EEF2F8] text-[#1E3A5F]',
   PICKED_UP:            'bg-green-100 text-green-700',
-  PARTIALLY_COLLECTED:  'bg-purple-100 text-purple-700',
+  PARTIALLY_COLLECTED:  'bg-amber-100 text-amber-700',
   COLLECTED:            'bg-[#EEF2F8] text-[#1E3A5F]',
   CANCELLED:            'bg-gray-100 text-gray-500',
 };
 
 const STATUS_FILTERS = [
   { key: 'PENDING',             label: 'Pending',           icon: Clock,          color: '#D97706' },
-  { key: 'SCHEDULED',           label: 'Scheduled',         icon: CalendarClock,  color: '#0284C7' },
-  { key: 'ASSIGNED',            label: 'Assigned',          icon: UserCheck,      color: '#2563EB' },
+  { key: 'SCHEDULED',           label: 'Scheduled',         icon: CalendarClock,  color: '#1E3A5F' },
+  { key: 'ASSIGNED',            label: 'Assigned',          icon: UserCheck,      color: '#2D5490' },
   { key: 'PICKED_UP',           label: 'Picked Up',         icon: PackageCheck,   color: '#16A34A' },
-  { key: 'PARTIALLY_COLLECTED', label: 'Partial',           icon: AlertCircle,    color: '#7C3AED' },
+  { key: 'PARTIALLY_COLLECTED', label: 'Partial',           icon: AlertCircle,    color: '#D97706' },
   { key: 'CANCELLED',           label: 'Cancelled',         icon: XCircle,        color: '#6B7280' },
 ];
 
@@ -99,13 +99,13 @@ const AUDIT_ACTION_META = {
   CREATED:              { icon: Clock,         color: '#1E3A5F', bg: '#EEF2F8', label: 'Request Created' },
   ASSIGNED:             { icon: UserCheck,     color: '#D97706', bg: '#FEF3C7', label: 'Staff Assigned' },
   PICKED_UP:            { icon: PackageCheck,  color: '#16A34A', bg: '#F0FDF4', label: 'Picked Up by Staff' },
-  PARTIALLY_COLLECTED:  { icon: AlertCircle,   color: '#7C3AED', bg: '#F5F3FF', label: 'Partial Collection Recorded' },
+  PARTIALLY_COLLECTED:  { icon: AlertCircle,   color: '#D97706', bg: '#FFFBEB', label: 'Partial Collection Recorded' },
   MEMBER_APPROVED:      { icon: CheckCircle,   color: '#16A34A', bg: '#F0FDF4', label: 'Member Approved Partial' },
   MEMBER_REJECTED:      { icon: XCircle,       color: '#DC2626', bg: '#FEF2F2', label: 'Member Rejected Partial' },
   PICKUP_VOIDED:        { icon: RotateCcw,     color: '#DC2626', bg: '#FEF2F2', label: 'Pickup Voided by Admin' },
   COLLECTED:            { icon: Banknote,      color: '#1E3A5F', bg: '#EEF2F8', label: 'Admin Confirmed Collection' },
   CANCELLED:            { icon: XCircle,       color: '#6B7280', bg: '#F3F4F6', label: 'Cancelled' },
-  RESCHEDULED:          { icon: Clock,         color: '#7C3AED', bg: '#F5F3FF', label: 'Rescheduled' },
+  RESCHEDULED:          { icon: Clock,         color: '#1E3A5F', bg: '#EEF2F8', label: 'Rescheduled' },
   UPDATED:              { icon: Pencil,        color: '#6B7280', bg: '#F3F4F6', label: 'Updated by Admin' },
 };
 
@@ -377,7 +377,7 @@ function SetupCashPickupModal({ onClose }) {
           />
           {outstanding > 0 && (
             <button type="button" onClick={() => setAmount(String(outstanding))}
-              className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+              className="mt-1 text-xs font-semibold hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
               Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
             </button>
           )}
@@ -609,11 +609,11 @@ function PartialFollowUpModal({ request, memberMap, onClose }) {
   return (
     <Modal title="Create Follow-Up Pickup?" onClose={onClose} size="sm">
       <div className="space-y-4">
-        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
-          <p className="text-sm font-semibold text-purple-800">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-sm font-semibold text-amber-800">
             Partial collection remitted — {hidden ? '••••••' : `₹${remaining > 0 ? remaining.toLocaleString('en-IN') : 0}`} remaining
           </p>
-          <p className="text-xs text-purple-600 mt-0.5">
+          <p className="text-xs text-amber-600 mt-0.5">
             Member: {memberMap[request.memberId] ?? '—'}<br />
             Original request: {hidden ? '••••••' : `₹${Number(request.requestedAmount).toLocaleString('en-IN')}`} · Collected: {hidden ? '••••••' : `₹${Number(request.collectedAmount ?? 0).toLocaleString('en-IN')}`}
           </p>
@@ -835,7 +835,7 @@ export function CashRequestsTab() {
             ? `${requests.length} ${STATUS_LABEL[activeFilter]?.toLowerCase() ?? activeFilter.toLowerCase()} request${requests.length !== 1 ? 's' : ''}`
             : requests.length > 0 ? `${requests.length} active request${requests.length !== 1 ? 's' : ''}` : 'No active cash requests'}
           {activeFilter && (
-            <button onClick={() => setFilter(activeFilter)} className="ml-2 text-xs text-blue-600 hover:underline cursor-pointer">
+            <button onClick={() => setFilter(activeFilter)} className="ml-2 text-xs hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
               Clear filter
             </button>
           )}
@@ -873,7 +873,7 @@ export function CashRequestsTab() {
                 <div>
                   <span className="font-semibold text-gray-900">₹{Number(r.requestedAmount).toLocaleString('en-IN')}</span>
                   {r.collectedAmount != null && r.status === 'PARTIALLY_COLLECTED' && (
-                    <p className="text-xs text-purple-600 mt-0.5">
+                    <p className="text-xs text-amber-600 mt-0.5">
                       Collected: ₹{Number(r.collectedAmount).toLocaleString('en-IN')}
                       {r.memberApproved === true && <span className="ml-1 text-green-600 font-semibold">✓ Approved</span>}
                       {r.memberApproved === false && <span className="ml-1 text-red-600 font-semibold">✗ Rejected</span>}
@@ -1060,7 +1060,7 @@ export function CashRequestsTab() {
 
 // ─── Chit status dot ──────────────────────────────────────────────────────
 function ChitStatusDot({ status }) {
-  const color = status === 'ACTIVE' ? 'bg-green-500' : status === 'COMPLETED' ? 'bg-blue-500'
+  const color = status === 'ACTIVE' ? 'bg-green-500' : status === 'COMPLETED' ? 'bg-[#1E3A5F]'
     : status === 'PAUSED' ? 'bg-amber-500' : 'bg-gray-400';
   return <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${color}`} />;
 }
@@ -1313,12 +1313,12 @@ export function RecordPaymentTab() {
             />
             {outstanding > 0 && (
               <button type="button" onClick={() => setAmount(String(outstanding))}
-                className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+                className="mt-1 text-xs font-semibold hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
                 Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
               </button>
             )}
             {isOverpay && (
-              <div className="mt-1.5 flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2" style={{ color: '#1E3A5F', background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
                 <span className="flex-shrink-0">ℹ</span>
                 <span>
                   Effective payment (₹{amtNum.toLocaleString('en-IN')}{creditBalance > 0 ? ` + ₹${creditBalance.toLocaleString('en-IN')} credit` : ''} = ₹{effectiveAmount.toLocaleString('en-IN')}) exceeds this chit's outstanding ₹{outstanding.toLocaleString('en-IN')}.
@@ -1539,9 +1539,9 @@ export function PendingRemittanceTab() {
             const isPartial = r.status === 'PARTIALLY_COLLECTED';
             const displayAmt = isPartial ? (r.collectedAmount ?? r.requestedAmount) : r.requestedAmount;
             return (
-              <div key={r.id} className={`flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-3 border ${isPartial ? 'border-purple-200' : 'border-green-100'}`}>
+              <div key={r.id} className={`flex items-center justify-between gap-3 bg-white rounded-xl px-4 py-3 border ${isPartial ? 'border-amber-200' : 'border-green-100'}`}>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${isPartial ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${isPartial ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                     {(memberMap[r.memberId] ?? '?')[0].toUpperCase()}
                   </div>
                   <div className="min-w-0">
@@ -1550,7 +1550,7 @@ export function PendingRemittanceTab() {
                         {memberMap[r.memberId] ?? '—'}
                       </p>
                       {isPartial && (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium flex-shrink-0">Partial</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium flex-shrink-0">Partial</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-500 truncate">
@@ -1623,7 +1623,7 @@ export function PendingRemittanceTab() {
         ]}>
           {sortedBatches.map((b) => (
             <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'Remittance' } })}
-              className="cursor-pointer hover:bg-blue-50/30 transition-colors">
+              className="cursor-pointer hover:bg-[#EEF2F8]/40 transition-colors">
               <Td>
                 <span className="text-sm font-medium text-gray-800">
                   {staffMap[b.collectedBy] ?? b.collectedBy?.slice(0, 8) ?? '—'}
@@ -1865,7 +1865,7 @@ export function HistoryTab() {
           <>
           <Table columns={['Member', 'Chit', 'Draw(s)', 'Amount', 'Mode', 'Recorded By', 'Date & Time', 'Status']}>
             {batches.map((b, idx) => (
-              <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'History' } })} className="cursor-pointer hover:bg-blue-50/30 transition-colors">
+              <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'History' } })} className="cursor-pointer hover:bg-[#EEF2F8]/40 transition-colors">
                 <Td className="font-medium text-gray-900">
                   {memberMap[b.memberId] ?? b.memberId?.slice(0, 8) ?? '—'}
                 </Td>
@@ -1881,8 +1881,8 @@ export function HistoryTab() {
                 <Td>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                     b.paymentMode === 'CASH' ? 'bg-amber-100 text-amber-700'
-                    : b.paymentMode === 'BANK_TRANSFER' ? 'bg-blue-100 text-blue-700'
-                    : b.paymentMode === 'UPI' ? 'bg-purple-100 text-purple-700'
+                    : b.paymentMode === 'BANK_TRANSFER' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
+                    : b.paymentMode === 'UPI' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
                     : 'bg-gray-100 text-gray-600'
                   }`}>
                     {b.paymentMode ?? '—'}

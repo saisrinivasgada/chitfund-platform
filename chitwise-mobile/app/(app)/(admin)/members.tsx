@@ -8,7 +8,7 @@ import {
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
-  adminUpdateUserPhone,
+  adminUpdateUserPhone, startConversation,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -561,9 +561,26 @@ export default function AdminMembersScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            <TouchableOpacity onPress={() => setShowDetail(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
-              <Text style={{ fontSize: 16 }}>✕</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {selected?.userId && (
+                <TouchableOpacity
+                  onPress={() => {
+                    startConversation({ memberId: selected.userId, memberName: selected.fullName })
+                      .then(() => {
+                        setShowDetail(false);
+                        setTimeout(() => router.push('/(app)/(admin)/messages'), 300);
+                      })
+                      .catch(() => {});
+                  }}
+                  style={{ padding: 8, backgroundColor: '#EFF4FA', borderRadius: 8 }}
+                >
+                  <Text style={{ fontSize: 16 }}>💬</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setShowDetail(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
+                <Text style={{ fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
             {selected && (
@@ -1096,8 +1113,8 @@ export default function AdminMembersScreen() {
                       </View>
                     </View>
                     {pendingMemberRequests.map((r: any) => {
-                      const stColor = r.status === 'PICKED_UP' ? '#16A34A' : r.status === 'ASSIGNED' ? '#2563EB' : C.amber;
-                      const stBg    = r.status === 'PICKED_UP' ? '#F0FDF4' : r.status === 'ASSIGNED' ? '#EFF6FF' : '#FFFBEB';
+                      const stColor = r.status === 'PICKED_UP' ? '#16A34A' : r.status === 'ASSIGNED' ? C.navyLight : C.amber;
+                      const stBg    = r.status === 'PICKED_UP' ? '#F0FDF4' : r.status === 'ASSIGNED' ? C.navy50   : '#FFFBEB';
                       const stLabel = r.status === 'PICKED_UP' ? 'Picked Up — pending admin confirm' :
                                       r.status === 'ASSIGNED'  ? 'Assigned to staff' : 'Awaiting assignment';
                       return (

@@ -43,7 +43,7 @@ public class MonthlyCollectionSnapshot {
     private BigDecimal installmentAmount;
 
     @Column(name = "total_members", nullable = false)
-    private Integer totalMembers;
+    private Integer capacity;
 
     @Column(name = "settled_count", nullable = false)
     private Integer settledCount;

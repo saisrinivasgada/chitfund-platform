@@ -32,6 +32,8 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       AUDIT_SERVICE_URL: http://audit-service:8088
       REPORTING_SERVICE_URL: http://reporting-service:8087
+      MANAGEMENT_SERVICE_URL: http://management-service:8091
+      RATE_LIMIT_ENABLED: "true"
     depends_on:
       user-service:
         condition: service_healthy
@@ -199,6 +201,49 @@ services:
       USER_SERVICE_URL: http://user-service:8081
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Redis (cache for management-service) ─────────────────────────────────────
+  # In prod, replace with AWS ElastiCache URL via REDIS_URL env var and remove this block.
+  redis:
+    image: redis:7-alpine
+    container_name: chitwise-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - chitfund-net
+
+  # ── Management Service ───────────────────────────────────────────────────────
+  management-service:
+    image: ghcr.io/saisrinivasgada/management-service:latest
+    container_name: chitwise-management-service
+    environment:
+      <<: [*common-env, *db-env]
+      DB_NAME: chitwise_management
+      MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
+      MAIL_HOST: ${MAIL_HOST:smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:587}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      FRONTEND_URL: https://thechitwise.com
+      HUB_URL: https://hub.thechitwise.com
+      NOTIFICATION_SERVICE_URL: http://notification-service:8086
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
+      REDIS_URL: ${REDIS_URL:redis://redis:6379}
+    ports:
+      - "8091:8091"
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 5

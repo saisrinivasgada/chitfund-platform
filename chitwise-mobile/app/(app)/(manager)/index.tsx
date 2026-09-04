@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, Linking } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
 import {
   getTodaysDraws, getTodaysPaymentBatches, getTodaysPayouts,
   getPendingRemittance, getPendingPayouts, getWalletBalance,
-  getMembers, getChits, getActiveCashRequests,
+  getMembers, getChits, getActiveCashRequests, getAdminSupportContact,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
@@ -14,6 +14,13 @@ import EditProfileModal from '../../../components/EditProfileModal';
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
   const [showProfile, setShowProfile] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+
+  const { data: supportContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    staleTime: 10 * 60 * 1000,
+  });
 
   const { data: todayDraws = [],    isLoading: l1, refetch: r1 } = useQuery({ queryKey: ['today-draws'],    queryFn: getTodaysDraws });
   const { data: todayBatches = [],  isLoading: l2, refetch: r2 } = useQuery({ queryKey: ['today-batches'],  queryFn: getTodaysPaymentBatches });
@@ -102,7 +109,7 @@ export default function ManagerDashboardScreen() {
             <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Pending Remittance</Text>
           </Card>
           <Card style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? '#7C3AED' : C.gray400 }}>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? C.gold : C.gray400 }}>
               {(pendingPayouts as any[]).length}
             </Text>
             <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Pending Payouts</Text>
@@ -192,7 +199,7 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Winners Awaiting Payout (${(pendingPayouts as any[]).length})`} />
             {(pendingPayouts as any[]).slice(0, 5).map((p: any) => (
-              <Card key={p.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#7C3AED' }}>
+              <Card key={p.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.gold }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
@@ -202,7 +209,7 @@ export default function ManagerDashboardScreen() {
                       {chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? '—'}
                     </Text>
                   </View>
-                  <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color="#7C3AED" />
+                  <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color={C.gold} />
                 </View>
               </Card>
             ))}
@@ -213,9 +220,65 @@ export default function ManagerDashboardScreen() {
             )}
           </View>
         )}
+
+        {/* Contact Support — only shown if admin has a support phone set */}
+        {supportContact?.supportPhoneNumber && (
+          <TouchableOpacity
+            onPress={() => setContactOpen(true)}
+            style={{
+              marginTop: 24, marginBottom: 8, flexDirection: 'row', alignItems: 'center',
+              justifyContent: 'center', gap: 8, paddingVertical: 14,
+              borderRadius: 14, borderWidth: 1, borderColor: C.navy + '30',
+              backgroundColor: '#F0F4FA',
+            }}
+          >
+            <Text style={{ fontSize: 18 }}>📞</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Contact Support</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <EditProfileModal visible={showProfile} onClose={() => setShowProfile(false)} />
+
+      <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <View>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy }}>Contact Support</Text>
+                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Your chit fund admin is available to help</Text>
+              </View>
+              <TouchableOpacity onPress={() => setContactOpen(false)}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {supportContact?.supportPhoneNumber ? (
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`tel:${supportContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, backgroundColor: C.navy }}
+                >
+                  <Text style={{ fontSize: 22 }}>📞</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>Call Admin</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(`sms:${supportContact.supportPhoneNumber}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}
+                >
+                  <Text style={{ fontSize: 22 }}>💬</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                <Text style={{ fontSize: 32, marginBottom: 12 }}>📵</Text>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700, textAlign: 'center' }}>No support number set</Text>
+                <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginTop: 6 }}>Your admin hasn't set a support number yet. Please contact them directly.</Text>
+              </View>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

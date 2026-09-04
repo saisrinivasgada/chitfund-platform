@@ -34,7 +34,7 @@ public class ReportQueryService {
 
     @Transactional(readOnly = true)
     public ChitCollectionReport getMonthSnapshot(String chitId, Integer monthNumber) {
-        return snapshotRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+        return snapshotRepository.findByTenantIdAndChitIdAndMonthNumber(TenantContext.get(), chitId, monthNumber)
                 .map(ChitCollectionReport::from)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.RESOURCE_NOT_FOUND,

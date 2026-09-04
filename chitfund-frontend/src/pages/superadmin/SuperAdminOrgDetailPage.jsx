@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Users, BookOpen, Settings, ChevronDown,
   CheckCircle, XCircle, Clock, Edit2, X, UserPlus,
@@ -707,6 +707,8 @@ function SetCustomLimitsModal({ tenantId, existing, onClose, onSuccess }) {
 function RenameModal({ tenant, onClose, onSuccess }) {
   const [name, setName] = useState(tenant.name ?? '');
   const [slug, setSlug] = useState(tenant.slug ?? '');
+  const [businessRegNumber, setBusinessRegNumber] = useState(tenant.businessRegNumber ?? '');
+  const [supportPhoneNumber, setSupportPhoneNumber] = useState(tenant.supportPhoneNumber ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -715,7 +717,7 @@ function RenameModal({ tenant, onClose, onSuccess }) {
     setError('');
     setLoading(true);
     try {
-      await superAdminUpdateTenant(tenant.id, { name, slug });
+      await superAdminUpdateTenant(tenant.id, { name, slug, businessRegNumber, supportPhoneNumber });
       onSuccess('Org updated successfully');
       onClose();
     } catch (err) {
@@ -756,6 +758,25 @@ function RenameModal({ tenant, onClose, onSuccess }) {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Registration Number</label>
+            <input
+              value={businessRegNumber}
+              onChange={(e) => setBusinessRegNumber(e.target.value)}
+              placeholder="e.g. LLPIN AA-1234"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Support Phone Number</label>
+            <input
+              value={supportPhoneNumber}
+              onChange={(e) => setSupportPhoneNumber(e.target.value)}
+              placeholder="e.g. 9876543210"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">Members and staff see this to contact the admin. No OTP needed for super admin.</p>
+          </div>
           {error && (
             <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">
               <AlertCircle size={14} />
@@ -775,11 +796,13 @@ function RenameModal({ tenant, onClose, onSuccess }) {
 export default function SuperAdminOrgDetailPage() {
   const { tenantId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [tenant, setTenant]   = useState(null);
   const [users, setUsers]     = useState([]);
   const [chits, setChits]     = useState([]);
-  const [tab, setTab]         = useState('users');
+  const rawTab = searchParams.get('tab');
+  const [tab, setTab]         = useState(['users', 'chits'].includes(rawTab) ? rawTab : 'users');
   const [loading, setLoading] = useState(true);
   const [toast, setToast]     = useState('');
   const [showAddUser, setShowAddUser]         = useState(false);
@@ -1129,6 +1152,15 @@ export default function SuperAdminOrgDetailPage() {
                 {tenant.contactEmail && (
                   <p className="text-xs text-gray-400 mt-1">{tenant.contactEmail}</p>
                 )}
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  {tenant.businessRegNumber && (
+                    <span className="text-xs text-gray-500 font-mono">Reg: {tenant.businessRegNumber}</span>
+                  )}
+                  {tenant.supportPhoneNumber && (
+                    <span className="text-xs text-gray-500">📞 {tenant.supportPhoneNumber}</span>
+                  )}
+                  <span className="text-xs font-mono text-gray-300">{tenant.id}</span>
+                </div>
               </div>
             </div>
 
@@ -1594,7 +1626,7 @@ export default function SuperAdminOrgDetailPage() {
             <button
               key={id}
               type="button"
-              onClick={() => setTab(id)}
+              onClick={() => { setTab(id); setSearchParams({ tab: id }, { replace: true }); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors ${
                 tab === id ? 'bg-[#1E3A5F] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
               }`}
@@ -1810,7 +1842,7 @@ export default function SuperAdminOrgDetailPage() {
                           ₹{Number(c.chitValue ?? 0).toLocaleString('en-IN')}
                         </td>
                         <td className="px-4 py-3.5 text-gray-700">
-                          {c.enrolledCount ?? 0} / {c.totalMembers}
+                          {c.enrolledCount ?? 0} / {c.capacity}
                         </td>
                         <td className="px-4 py-3.5 text-gray-600">{c.durationMonths} months</td>
                         <td className="px-4 py-3.5 text-xs text-gray-400">

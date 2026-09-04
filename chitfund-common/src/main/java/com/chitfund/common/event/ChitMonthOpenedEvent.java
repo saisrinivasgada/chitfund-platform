@@ -21,7 +21,7 @@ public record ChitMonthOpenedEvent(
         Integer monthNumber,
         LocalDate dueDate,
         BigDecimal installmentAmount,
-        Integer totalMembers,
+        Integer capacity,
         List<String> memberIds,
         String openedBy,
         String actorRole,

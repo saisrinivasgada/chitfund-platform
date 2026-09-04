@@ -7,6 +7,8 @@ import {
   getMemberBalance, getPaymentHistory, getPayoutsForMember, getPayoutById,
   getMe, createCashRequest, getMyCashRequests, memberApproveCashRequest,
   getMyPaymentBatches, listAuctions,
+  getMyInvitations, respondToInvitation,
+  getAdminSupportContact,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
@@ -17,18 +19,19 @@ import {
   Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
   IndianRupee, Phone, ArrowRight, Layers, LayoutDashboard,
   TrendingUp, Wallet, CalendarCheck, Zap, ArrowUpRight, ThumbsUp, ThumbsDown,
-  CreditCard, Filter, ArrowDownCircle, Building2, Gavel,
+  CreditCard, Filter, ArrowDownCircle, Building2, Gavel, Bell,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'overview',  label: 'Home',     icon: LayoutDashboard, color: '#1E3A5F', bg: '#EEF2F8' },
-  { id: 'chits',    label: 'Chits',    icon: Layers,           color: '#7C3AED', bg: '#F5F3FF' },
-  { id: 'payouts',  label: 'Payouts',  icon: Trophy,           color: '#D4A017', bg: '#FEF9C3' },
-  { id: 'payments', label: 'Payments', icon: CreditCard,       color: '#16A34A', bg: '#F0FDF4' },
-  { id: 'requests', label: 'Pickups',  icon: Banknote,         color: '#EA580C', bg: '#FFF7ED' },
+  { id: 'overview',     label: 'Home',        icon: LayoutDashboard, color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'chits',        label: 'Chits',       icon: Layers,          color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'invitations',  label: 'Invites',     icon: Bell,            color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'payouts',      label: 'Payouts',     icon: Trophy,          color: '#D4A017', bg: '#FEF9C3' },
+  { id: 'payments',     label: 'Payments',    icon: CreditCard,      color: '#16A34A', bg: '#F0FDF4' },
+  { id: 'requests',     label: 'Pickups',     icon: Banknote,        color: '#1E3A5F', bg: '#EEF2F8' },
 ];
 
 // ─── Status maps ──────────────────────────────────────────────────────────────
@@ -37,13 +40,13 @@ const CHIT_STATUS = {
   ACTIVE:    { label: 'Active',    dot: '#16A34A', badge: 'bg-green-100 text-green-700',  cardBg: '#F0FDF4', borderColor: '#86EFAC' },
   COMPLETED: { label: 'Completed', dot: '#6B7280', badge: 'bg-gray-100 text-gray-600',   cardBg: '#F9FAFB', borderColor: '#D1D5DB' },
   PAUSED:    { label: 'Paused',    dot: '#D97706', badge: 'bg-amber-100 text-amber-700', cardBg: '#FFFBEB', borderColor: '#FDE68A' },
-  PENDING:   { label: 'Pending',   dot: '#2563EB', badge: 'bg-blue-100 text-blue-700',   cardBg: '#EFF6FF', borderColor: '#BFDBFE' },
+  PENDING:   { label: 'Pending',   dot: '#D97706', badge: 'bg-amber-100 text-amber-700', cardBg: '#FFFBEB', borderColor: '#FDE68A' },
   DRAFT:     { label: 'Draft',     dot: '#9CA3AF', badge: 'bg-gray-100 text-gray-500',   cardBg: '#F9FAFB', borderColor: '#E5E7EB' },
 };
 
 const PAYOUT_STATUS = {
   PENDING:             { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
-  PARTIALLY_DISBURSED: { label: 'Partial',   cls: 'bg-blue-100 text-blue-700' },
+  PARTIALLY_DISBURSED: { label: 'Partial',   cls: 'bg-[#EEF2F8] text-[#1E3A5F]' },
   DISBURSED:           { label: 'Disbursed', cls: 'bg-green-100 text-green-700' },
   CANCELLED:           { label: 'Cancelled', cls: 'bg-gray-100 text-gray-500' },
   VOIDED:              { label: 'Voided',    cls: 'bg-red-100 text-red-600' },
@@ -51,10 +54,10 @@ const PAYOUT_STATUS = {
 
 const REQUEST_STATUS = {
   PENDING:              { label: 'Awaiting Staff',    cls: 'bg-amber-100 text-amber-700',   icon: Clock },
-  SCHEDULED:            { label: 'Pickup Scheduled',  cls: 'bg-sky-100 text-sky-700',       icon: CalendarCheck },
-  ASSIGNED:             { label: 'Staff Assigned',    cls: 'bg-blue-100 text-blue-700',     icon: UserCheck },
+  SCHEDULED:            { label: 'Pickup Scheduled',  cls: 'bg-[#EEF2F8] text-[#1E3A5F]',   icon: CalendarCheck },
+  ASSIGNED:             { label: 'Staff Assigned',    cls: 'bg-[#EEF2F8] text-[#1E3A5F]',  icon: UserCheck },
   PICKED_UP:            { label: 'Picked Up',         cls: 'bg-green-100 text-green-700',   icon: PackageCheck },
-  PARTIALLY_COLLECTED:  { label: 'Approval Needed',   cls: 'bg-purple-100 text-purple-700', icon: AlertTriangle },
+  PARTIALLY_COLLECTED:  { label: 'Approval Needed',   cls: 'bg-amber-100 text-amber-700',  icon: AlertTriangle },
   COLLECTED:            { label: 'Handed to Admin',   cls: 'bg-gray-100 text-gray-600',     icon: Banknote },
   CANCELLED:            { label: 'Cancelled',         cls: 'bg-red-100 text-red-500',       icon: AlertTriangle },
 };
@@ -362,20 +365,20 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
           type="button"
           onClick={() => onSwitchTab('requests')}
           className="w-full text-left rounded-2xl px-5 py-4 flex items-center gap-4 border cursor-pointer transition-opacity hover:opacity-90"
-          style={{ backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }}
+          style={{ backgroundColor: '#EEF2F8', borderColor: '#CBD5E1' }}
         >
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#FFEDD5' }}>
-            <AlertTriangle size={18} style={{ color: '#EA580C' }} />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#DBEAFE' }}>
+            <AlertTriangle size={18} style={{ color: '#1E3A5F' }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-bold" style={{ color: '#9A3412' }}>Action Required</p>
-            <p className="text-xs mt-0.5" style={{ color: '#C2410C' }}>
+            <p className="text-sm font-bold" style={{ color: '#1E3A5F' }}>Action Required</p>
+            <p className="text-xs mt-0.5" style={{ color: '#374151' }}>
               {needsAction.length} pickup{needsAction.length > 1 ? 's' : ''} need your approval
             </p>
           </div>
           <span
             className="text-xs font-semibold px-4 py-2 rounded-xl flex-shrink-0"
-            style={{ backgroundColor: '#EA580C', color: '#fff' }}
+            style={{ backgroundColor: '#1E3A5F', color: '#fff' }}
           >
             Review
           </span>
@@ -388,7 +391,7 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
           type="button"
           onClick={() => onSwitchTab('requests')}
           className="w-full text-left rounded-2xl px-5 py-4 flex items-center gap-4 border cursor-pointer transition-opacity hover:opacity-90"
-          style={{ background: 'linear-gradient(135deg, #0C4A6E 0%, #0284C7 100%)', borderColor: '#0284C7' }}
+          style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5A8E 100%)', borderColor: '#2D5A8E' }}
         >
           <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
             <Banknote size={18} className="text-white" />
@@ -399,7 +402,7 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
               {todayPickups.length} pickup{todayPickups.length > 1 ? 's' : ''} scheduled for today — staff will visit you
             </p>
           </div>
-          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0 text-[#0284C7]" style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}>
+          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0 text-[#D4A017]" style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}>
             View
           </span>
         </button>
@@ -411,24 +414,27 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
           type="button"
           onClick={() => onSwitchTab('requests')}
           className="w-full text-left rounded-2xl px-5 py-4 flex items-center gap-4 border cursor-pointer transition-opacity hover:opacity-90"
-          style={{ backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }}
+          style={{ backgroundColor: '#F0F4FA', borderColor: '#CBD5E1' }}
         >
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#E0F2FE' }}>
-            <CalendarCheck size={18} style={{ color: '#0284C7' }} />
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#EEF2F8' }}>
+            <CalendarCheck size={18} style={{ color: '#1E3A5F' }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-bold" style={{ color: '#0C4A6E' }}>
+            <p className="text-sm font-bold" style={{ color: '#1E3A5F' }}>
               Pickup{scheduledPickups.length > 1 ? 's' : ''} Scheduled
             </p>
-            <p className="text-xs mt-0.5" style={{ color: '#0369A1' }}>
+            <p className="text-xs mt-0.5" style={{ color: '#374151' }}>
               {scheduledPickups.length} upcoming pickup{scheduledPickups.length > 1 ? 's' : ''} — staff to be assigned soon
             </p>
           </div>
-          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0" style={{ backgroundColor: '#0284C7', color: '#fff' }}>
+          <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0" style={{ backgroundColor: '#1E3A5F', color: '#fff' }}>
             View
           </span>
         </button>
       )}
+
+      {/* ── Pending invitations card ──────────────────────────────────── */}
+      <PendingInvitationsCard onSwitchTab={onSwitchTab} />
 
       {/* ── Quick actions ─────────────────────────────────────────────── */}
       <section>
@@ -456,18 +462,18 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
             {
               label: 'My Chits',
               icon: Layers,
-              iconColor: '#6D28D9',
-              iconBg: '#EDE9FE',
-              border: '#DDD6FE',
+              iconColor: '#1E3A5F',
+              iconBg: '#EEF2F8',
+              border: '#CBD5E1',
               description: 'See all chit funds you are enrolled in, active or completed.',
               onClick: () => onSwitchTab('chits'),
             },
             {
               label: 'Cash Pickups',
               icon: Zap,
-              iconColor: '#EA580C',
-              iconBg: '#FFF7ED',
-              border: '#FED7AA',
+              iconColor: '#1E3A5F',
+              iconBg: '#EEF2F8',
+              border: '#CBD5E1',
               description: 'Track your cash pickup requests and see who is assigned to collect.',
               onClick: () => onSwitchTab('requests'),
             },
@@ -532,23 +538,23 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
                   className="flex items-center gap-4 rounded-2xl border px-5 py-4 shadow-sm"
                   style={
                     isToday
-                      ? { background: 'linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%)', borderColor: '#7DD3FC' }
+                      ? { background: 'linear-gradient(135deg, #EEF2F8 0%, #DBEAFE 100%)', borderColor: '#93C5FD' }
                       : isScheduled
-                      ? { backgroundColor: '#F8FAFF', borderColor: '#C7D2FE' }
+                      ? { backgroundColor: '#F0F4FA', borderColor: '#CBD5E1' }
                       : { backgroundColor: '#fff', borderColor: '#F3F4F6' }
                   }
                 >
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: isToday ? '#BAE6FD' : isScheduled ? '#EEF2FF' : '#FEF3C7' }}
+                    style={{ backgroundColor: isToday ? '#DBEAFE' : isScheduled ? '#EEF2F8' : '#FEF3C7' }}
                   >
-                    <Icon size={16} style={{ color: isToday ? '#0284C7' : isScheduled ? '#4F46E5' : '#D97706' }} />
+                    <Icon size={16} style={{ color: isToday ? '#1E3A5F' : isScheduled ? '#1E3A5F' : '#D97706' }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-base font-bold text-gray-900">
                       {hidden ? '••••••' : `₹${Number(r.collectedAmount ?? r.requestedAmount).toLocaleString('en-IN')}`}
                     </p>
                     {r.scheduledFor && (
-                      <p className="text-xs mt-0.5" style={{ color: isToday ? '#0284C7' : '#6366F1' }}>
+                      <p className="text-xs mt-0.5" style={{ color: '#1E3A5F' }}>
                         {isToday ? 'Today' : new Date(r.scheduledFor + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         {isToday && r.scheduledFor && ` · ${new Date(r.scheduledFor + 'Z').toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}`}
                       </p>
@@ -828,7 +834,7 @@ function PayoutsTab({ memberId, chits }) {
       {/* Total Disbursed header card */}
       <div
         className="rounded-3xl overflow-hidden shadow-md"
-        style={{ background: 'linear-gradient(90deg, #1E3A5F 0%, #2563EB 100%)' }}
+        style={{ background: 'linear-gradient(90deg, #1E3A5F 0%, #2D5490 100%)' }}
       >
         <div style={{ position: 'relative', padding: '20px 20px 18px' }} className="flex items-center justify-between">
           <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(255,255,255,0.07)' }} />
@@ -1048,11 +1054,11 @@ const PAYMENT_STATUS_STYLE = {
 
 const PAYMENT_MODE_META = {
   CASH: { icon: Banknote,   color: '#16A34A', bg: '#F0FDF4', label: 'Cash' },
-  UPI:  { icon: CreditCard, color: '#7C3AED', bg: '#F5F3FF', label: 'UPI' },
-  BANK: { icon: CreditCard, color: '#2563EB', bg: '#EFF6FF', label: 'Bank' },
-  NEFT: { icon: CreditCard, color: '#2563EB', bg: '#EFF6FF', label: 'NEFT' },
-  RTGS: { icon: CreditCard, color: '#2563EB', bg: '#EFF6FF', label: 'RTGS' },
-  IMPS: { icon: CreditCard, color: '#2563EB', bg: '#EFF6FF', label: 'IMPS' },
+  UPI:  { icon: CreditCard, color: '#1E3A5F', bg: '#EEF2F8', label: 'UPI' },
+  BANK: { icon: CreditCard, color: '#1E3A5F', bg: '#EEF2F8', label: 'Bank' },
+  NEFT: { icon: CreditCard, color: '#1E3A5F', bg: '#EEF2F8', label: 'NEFT' },
+  RTGS: { icon: CreditCard, color: '#1E3A5F', bg: '#EEF2F8', label: 'RTGS' },
+  IMPS: { icon: CreditCard, color: '#1E3A5F', bg: '#EEF2F8', label: 'IMPS' },
 };
 
 const DATE_FILTERS = [
@@ -1099,7 +1105,7 @@ function PaymentsTab() {
       {/* ── Summary card ──────────────────────────────────────────────── */}
       <div
         className="rounded-3xl overflow-hidden shadow-md"
-        style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)' }}
+        style={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5490 100%)' }}
       >
         <div style={{ position: 'relative', padding: '20px 20px 18px' }} className="flex items-center justify-between">
           <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(255,255,255,0.07)' }} />
@@ -1188,7 +1194,7 @@ function PaymentsTab() {
                 key={b.id}
                 type="button"
                 onClick={() => navigate(`/member/transactions/${b.id}`)}
-                className="w-full text-left bg-white rounded-2xl border border-gray-100 hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer active:scale-[0.99]"
+                className="w-full text-left bg-white rounded-2xl border border-gray-100 hover:border-[#C7D5E8] hover:shadow-sm transition-all cursor-pointer active:scale-[0.99]"
               >
                 <div className="flex items-center gap-3 px-4 py-4 mx-1 my-1">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: modeMeta.bg }}>
@@ -1286,8 +1292,8 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
       {scheduledToday.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
-            <div className="w-2 h-2 rounded-full bg-sky-500" />
-            <p className="text-xs font-bold uppercase tracking-wider text-sky-600">Pickup Today · {scheduledToday.length}</p>
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#1E3A5F' }} />
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#1E3A5F' }}>Pickup Today · {scheduledToday.length}</p>
           </div>
           <div className="space-y-3">
             {scheduledToday.map(r => {
@@ -1296,25 +1302,25 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
               return (
                 <button key={r.id} type="button" onClick={() => setTrail(r)}
                   className="w-full text-left rounded-2xl border overflow-hidden cursor-pointer transition-all hover:shadow-md"
-                  style={{ background: 'linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%)', borderColor: '#7DD3FC' }}
+                  style={{ background: 'linear-gradient(135deg, #EEF2F8 0%, #DBEAFE 100%)', borderColor: '#93C5FD' }}
                 >
-                  <div className="h-1 w-full" style={{ backgroundColor: '#0284C7' }} />
+                  <div className="h-1 w-full" style={{ backgroundColor: '#1E3A5F' }} />
                   <div className="flex items-center justify-between gap-4 px-5 py-4">
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#BAE6FD' }}>
-                        <Icon size={16} style={{ color: '#0284C7' }} />
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#DBEAFE' }}>
+                        <Icon size={16} style={{ color: '#1E3A5F' }} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-bold" style={{ color: '#0C4A6E' }}>{hidden ? '••••••' : `₹${Number(r.requestedAmount).toLocaleString('en-IN')}`}</p>
-                        <p className="text-xs mt-0.5" style={{ color: '#0369A1' }}>
+                        <p className="text-sm font-bold" style={{ color: '#1E3A5F' }}>{hidden ? '••••••' : `₹${Number(r.requestedAmount).toLocaleString('en-IN')}`}</p>
+                        <p className="text-xs mt-0.5" style={{ color: '#374151' }}>
                           Staff visits you today
                           {r.scheduledFor && ` · ${new Date(r.scheduledFor + 'Z').toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}`}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-sky-100 text-sky-700">{meta.label}</span>
-                      <ChevronRight size={14} style={{ color: '#7DD3FC' }} />
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#EEF2F8] text-[#1E3A5F]">{meta.label}</span>
+                      <ChevronRight size={14} style={{ color: '#93C5FD' }} />
                     </div>
                   </div>
                 </button>
@@ -1328,23 +1334,23 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
       {scheduledUpcoming.length > 0 && (
         <section>
           <div className="flex items-center gap-2 mb-3 px-1">
-            <div className="w-2 h-2 rounded-full bg-indigo-400" />
-            <p className="text-xs font-bold uppercase tracking-wider text-indigo-500">Scheduled Pickup · {scheduledUpcoming.length}</p>
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#2D5A8E' }} />
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#2D5A8E' }}>Scheduled Pickup · {scheduledUpcoming.length}</p>
           </div>
           <div className="space-y-3">
             {scheduledUpcoming.map(r => (
               <button key={r.id} type="button" onClick={() => setTrail(r)}
                 className="w-full text-left bg-white rounded-2xl border hover:shadow-sm transition-all cursor-pointer overflow-hidden"
-                style={{ borderColor: '#C7D2FE' }}
+                style={{ borderColor: '#CBD5E1' }}
               >
                 <div className="flex items-center justify-between gap-4 px-5 py-4">
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#EEF2FF' }}>
-                      <CalendarCheck size={16} style={{ color: '#4F46E5' }} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#EEF2F8' }}>
+                      <CalendarCheck size={16} style={{ color: '#2D5A8E' }} />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900">{hidden ? '••••••' : `₹${Number(r.requestedAmount).toLocaleString('en-IN')}`}</p>
-                      <p className="text-xs text-indigo-500 mt-0.5">
+                      <p className="text-xs mt-0.5" style={{ color: '#2D5A8E' }}>
                         {r.scheduledFor
                           ? `Scheduled · ${new Date(r.scheduledFor + 'Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
                           : 'Scheduled — date to be confirmed'}
@@ -1352,7 +1358,7 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-sky-100 text-sky-700">Scheduled</span>
+                    <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[#EEF2F8] text-[#1E3A5F]">Scheduled</span>
                     <ChevronRight size={14} className="text-gray-300" />
                   </div>
                 </div>
@@ -1535,6 +1541,349 @@ function RequestsTab({ memberId, chits, onNewRequest }) {
   );
 }
 
+// ─── Pending Invitations Card (used in OverviewTab) ──────────────────────────
+
+function PendingInvitationsCard({ onSwitchTab }) {
+  const { data: invitations = [] } = useQuery({
+    queryKey: ['member-invitations'],
+    queryFn: getMyInvitations,
+    staleTime: 30_000,
+  });
+  const pendingCount = invitations.filter(
+    inv => inv.status === 'OPEN' && inv.myResponse?.responseStatus === 'PENDING'
+  ).length;
+  if (pendingCount === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onSwitchTab('invitations')}
+      className="w-full text-left rounded-2xl px-5 py-4 flex items-center gap-4 border cursor-pointer transition-opacity hover:opacity-90"
+      style={{ backgroundColor: '#EEF2F8', borderColor: '#C7D5E8' }}
+    >
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#1E3A5F' }}>
+        <Bell size={18} className="text-white" />
+      </div>
+      <div className="flex-1">
+        <p className="text-sm font-bold" style={{ color: '#1E3A5F' }}>
+          {pendingCount} Pending Invitation{pendingCount > 1 ? 's' : ''}
+        </p>
+        <p className="text-xs mt-0.5" style={{ color: '#374151' }}>
+          Tap to view payout plan and select your preferred slots
+        </p>
+      </div>
+      <span className="text-xs font-semibold px-3 py-1.5 rounded-xl flex-shrink-0" style={{ backgroundColor: '#1E3A5F', color: '#fff' }}>
+        View
+      </span>
+    </button>
+  );
+}
+
+// ─── Member Invitations Tab ───────────────────────────────────────────────────
+
+function MemberInvitationsTab({ memberId }) {
+  const qc = useQueryClient();
+  const { data: invitations = [], isLoading, refetch } = useQuery({
+    queryKey: ['member-invitations'],
+    queryFn: getMyInvitations,
+  });
+
+  if (isLoading) return <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>;
+
+  if (invitations.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: '#C7D5E8' }}>
+        <Bell size={28} className="mx-auto mb-3" style={{ color: '#C7D5E8' }} />
+        <p className="text-gray-500 font-medium text-sm">No invitations yet</p>
+        <p className="text-xs text-gray-400 mt-1">When your chit fund admin sends you a payout plan, it will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {invitations.map(inv => (
+        <InvitationCard key={inv.id} inv={inv} onResponded={() => qc.invalidateQueries({ queryKey: ['member-invitations'] })} />
+      ))}
+    </div>
+  );
+}
+
+function InvitationCard({ inv, onResponded }) {
+  const isOpen = inv.status === 'OPEN';
+  const chit = inv.chit ?? {};
+  const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
+  const myResponse = inv.myResponse ?? {};
+  const isApproved = myResponse.approved;
+  const responded = myResponse.responseStatus && myResponse.responseStatus !== 'PENDING';
+
+  const [editing, setEditing] = useState(!responded);
+  const [interested, setInterested] = useState(
+    myResponse.responseStatus === 'INTERESTED' ? true : myResponse.responseStatus === 'NOT_INTERESTED' ? false : null
+  );
+  const [spotsRequested, setSpotsRequested] = useState(myResponse.spotsRequested ?? 1);
+  const [customSpots, setCustomSpots] = useState(false);
+  const [reason, setReason] = useState(myResponse.reason ?? '');
+  const [selectedDraws, setSelectedDraws] = useState(new Set(myResponse.requestedDrawNumbers ?? []));
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const availableSlots = inv.availableSlots ?? [];
+
+  function toggleDraw(num) {
+    setSelectedDraws(prev => {
+      const n = new Set(prev);
+      n.has(num) ? n.delete(num) : n.add(num);
+      return n;
+    });
+  }
+
+  async function submit() {
+    setSubmitting(true);
+    try {
+      await respondToInvitation(inv.id, {
+        interested,
+        reason: interested === false ? (reason || undefined) : undefined,
+        spotsRequested: (!isReservation && interested) ? spotsRequested : undefined,
+        requestedDrawNumbers: (isReservation && interested) ? [...selectedDraws] : undefined,
+      });
+      setSubmitted(true);
+      setEditing(false);
+      onResponded();
+    } catch (err) {
+      alert(err.response?.data?.message ?? 'Failed to submit response');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const canSubmit = isReservation
+    ? (interested === true ? selectedDraws.size > 0 : interested === false)
+    : interested !== null;
+
+  return (
+    <div className="rounded-2xl border bg-white overflow-hidden" style={{ borderColor: '#C7D5E8' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: '#E8EEF5', background: '#EEF2F8' }}>
+        <div>
+          <p className="font-semibold text-sm" style={{ color: '#1E3A5F' }}>{chit.name ?? 'Chit Fund'}</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Sent {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' }) : ''}
+          </p>
+        </div>
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isOpen ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+          {isOpen ? 'Open' : 'Closed'}
+        </span>
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+        {/* Chit details grid */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+          {[
+            ['Monthly Installment', chit.installmentAmount ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}` : '—'],
+            ['No. of Members', chit.capacity ?? '—'],
+            ['Duration', chit.durationMonths ? `${chit.durationMonths} months` : '—'],
+            ['Due Date', chit.monthlyDueDate ? `${chit.monthlyDueDate}th of every month` : '—'],
+            ['Post-Payout Contribution', chit.defaultPostPayoutContribution ? `₹${Number(chit.defaultPostPayoutContribution).toLocaleString('en-IN')}` : '—'],
+            ['Anticipated Start', chit.startDate ?? '—'],
+          ].map(([label, val]) => (
+            <div key={label}>
+              <span className="text-gray-400">{label}: </span>
+              <span className="font-medium text-gray-700">{val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Admin message */}
+        {inv.message && (
+          <div className="rounded-lg px-4 py-3 text-sm text-gray-700" style={{ background: '#EEF2F8', borderLeft: '3px solid #1E3A5F' }}>
+            {inv.message}
+          </div>
+        )}
+
+        {/* Rejected notice */}
+        {!isApproved && myResponse.responseStatus === 'REJECTED' && (
+          <div className="rounded-xl px-4 py-3 text-sm font-medium text-red-700 bg-red-50 border border-red-200">
+            <p className="font-semibold">Response Not Approved</p>
+            {myResponse.adminRejectionReason && (
+              <p className="text-xs mt-1 text-red-600">Reason: {myResponse.adminRejectionReason}</p>
+            )}
+          </div>
+        )}
+
+        {/* Already approved — read only */}
+        {isApproved && (
+          <div className="rounded-xl px-4 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-200">
+            ✓ Confirmed — {isReservation
+              ? `Draw${(myResponse.approvedDrawNumbers?.length ?? 0) !== 1 ? 's' : ''} ${(myResponse.approvedDrawNumbers ?? myResponse.requestedDrawNumbers ?? []).join(', ')}`
+              : `${myResponse.approvedSpots ?? myResponse.spotsRequested ?? '—'} spot${(myResponse.approvedSpots ?? myResponse.spotsRequested) !== 1 ? 's' : ''} enrolled`
+            }
+          </div>
+        )}
+
+        {/* Response form */}
+        {!isApproved && myResponse.responseStatus !== 'REJECTED' && editing && isOpen && (
+          <>
+            {/* Disclaimer for reservation */}
+            {isReservation && (
+              <div className="flex items-start gap-2 rounded-lg px-3 py-2.5 text-xs" style={{ background: '#FFFBEB', borderLeft: '3px solid #D97706', color: '#92400E' }}>
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                <span>Months shown are estimated based on anticipated start date. If the chit starts earlier or later, these months will shift accordingly.</span>
+              </div>
+            )}
+
+            {/* Interested toggle */}
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Are you interested?</p>
+              <div className="flex gap-2">
+                {[true, false].map(val => (
+                  <button key={String(val)} type="button"
+                    onClick={() => setInterested(val)}
+                    className="flex-1 py-2 rounded-xl text-sm font-semibold border cursor-pointer transition-all"
+                    style={interested === val
+                      ? { background: val ? '#1E3A5F' : '#DC2626', color: '#fff', borderColor: val ? '#1E3A5F' : '#DC2626' }
+                      : { background: '#fff', color: '#6B7280', borderColor: '#D1D5DB' }}>
+                    {val ? 'Yes' : 'No'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {interested === false && (
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1.5">Reason (optional)</label>
+                <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+                  placeholder="E.g. Already enrolled elsewhere…"
+                  className="w-full text-sm border rounded-xl px-3 py-2 focus:outline-none"
+                  style={{ borderColor: '#C7D5E8' }} />
+              </div>
+            )}
+
+            {interested === true && !isReservation && (
+              <div>
+                {/* Current enrollment info */}
+                {myResponse.currentSpots != null && myResponse.currentSpots > 0 && (
+                  <p className="text-xs text-gray-500 mb-2">You currently have {myResponse.currentSpots} spot{myResponse.currentSpots !== 1 ? 's' : ''} in this chit.</p>
+                )}
+                <p className="text-xs font-semibold text-gray-600 mb-2">How many additional spots do you want?</p>
+                <div className="flex gap-2 flex-wrap">
+                  {[1, 2, 3].map(n => (
+                    <button key={n} type="button"
+                      onClick={() => { setSpotsRequested(n); setCustomSpots(false); }}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold border cursor-pointer transition-all"
+                      style={spotsRequested === n && !customSpots
+                        ? { background: '#1E3A5F', color: '#fff', borderColor: '#1E3A5F' }
+                        : { background: '#fff', color: '#6B7280', borderColor: '#D1D5DB' }}>
+                      {n}
+                    </button>
+                  ))}
+                  <button type="button"
+                    onClick={() => setCustomSpots(true)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold border cursor-pointer transition-all"
+                    style={customSpots ? { background: '#1E3A5F', color: '#fff', borderColor: '#1E3A5F' } : { background: '#fff', color: '#6B7280', borderColor: '#D1D5DB' }}>
+                    Custom
+                  </button>
+                  {customSpots && (
+                    <input type="number" min={1} value={spotsRequested} onChange={e => setSpotsRequested(Number(e.target.value))}
+                      className="w-20 text-sm border rounded-xl px-3 py-2 focus:outline-none"
+                      style={{ borderColor: '#C7D5E8' }} />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {interested === true && isReservation && (
+              <div>
+                {/* Currently owned slots from myResponse */}
+                {myResponse.currentDrawNumbers?.length > 0 && (
+                  <p className="text-xs text-gray-500 mb-2">You already have: Draw {myResponse.currentDrawNumbers.join(', ')}</p>
+                )}
+                <p className="text-xs font-semibold text-gray-600 mb-3">Select your preferred draw slots:</p>
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                  {availableSlots.map(slot => {
+                    const status = slot.slotStatus ?? 'AVAILABLE';
+                    const isSelected = selectedDraws.has(slot.monthNumber);
+                    const estMonth = slot.reservationMonth
+                      ? new Date(slot.reservationMonth).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+                      : '—';
+
+                    let bg, border, color, cursor, label;
+                    if (status === 'RESERVED_BY_ME') {
+                      bg = '#FEF9C3'; border = '#D4A017'; color = '#92400E'; cursor = 'default'; label = 'Yours';
+                    } else if (status === 'RESERVED_BY_OTHER') {
+                      bg = '#F3F4F6'; border = '#D1D5DB'; color = '#9CA3AF'; cursor = 'default'; label = 'Reserved';
+                    } else if (isSelected) {
+                      bg = '#1E3A5F'; border = '#1E3A5F'; color = '#fff'; cursor = 'pointer'; label = 'Selected';
+                    } else {
+                      bg = '#fff'; border = '#16A34A'; color = '#16A34A'; cursor = 'pointer'; label = 'Available';
+                    }
+
+                    return (
+                      <button
+                        key={slot.monthNumber}
+                        type="button"
+                        disabled={status !== 'AVAILABLE'}
+                        onClick={() => status === 'AVAILABLE' && toggleDraw(slot.monthNumber)}
+                        className="rounded-xl flex flex-col items-center justify-center py-2.5 px-1 border-2 transition-all"
+                        style={{ background: bg, borderColor: border, color, cursor, minHeight: 72 }}
+                      >
+                        <span className="text-xs font-bold leading-none">Draw {slot.monthNumber}</span>
+                        <span className={`text-[10px] mt-1 leading-none ${status === 'RESERVED_BY_OTHER' ? 'line-through' : ''}`}>{estMonth}*</span>
+                        <span className="text-[9px] mt-1 opacity-70 leading-none">{label}</span>
+                      </button>
+                    );
+                  })}
+                  {availableSlots.length === 0 && (
+                    <p className="col-span-4 text-xs text-gray-400 text-center py-4">No slot data available</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <button type="button" onClick={submit} disabled={!canSubmit || submitting}
+              className="w-full py-3 rounded-xl text-sm font-bold cursor-pointer text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+              style={{ background: '#1E3A5F' }}>
+              {submitting ? 'Submitting…' : isReservation && interested
+                ? `Submit (${selectedDraws.size} slot${selectedDraws.size !== 1 ? 's' : ''} selected)`
+                : 'Submit'}
+            </button>
+          </>
+        )}
+
+        {/* Already responded — show summary + edit button */}
+        {!isApproved && responded && !editing && myResponse.responseStatus !== 'REJECTED' && (
+          <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: '#EEF2F8' }}>
+            <div>
+              <p className="text-xs font-semibold" style={{ color: '#1E3A5F' }}>
+                Your response: {myResponse.responseStatus === 'INTERESTED' ? '✓ Interested' : '✗ Not Interested'}
+              </p>
+              {myResponse.responseStatus === 'INTERESTED' && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {isReservation
+                    ? `Slots requested: ${(myResponse.requestedDrawNumbers ?? []).join(', ') || '—'}`
+                    : `${myResponse.spotsRequested ?? '—'} spot${myResponse.spotsRequested !== 1 ? 's' : ''} requested`}
+                </p>
+              )}
+              {myResponse.reason && <p className="text-xs text-gray-400 mt-0.5">{myResponse.reason}</p>}
+            </div>
+            {isOpen && (
+              <button type="button" onClick={() => setEditing(true)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border cursor-pointer hover:bg-white transition-colors"
+                style={{ borderColor: '#C7D5E8', color: '#1E3A5F' }}>
+                Edit
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Closed + not yet responded */}
+        {!isOpen && !responded && !isApproved && (
+          <p className="text-xs text-gray-400 text-center py-2">This invitation is closed — response period has ended.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Cash pickup modal ────────────────────────────────────────────────────────
 
 function CashPickupModal({ memberId, chits, onClose }) {
@@ -1614,7 +1963,7 @@ function CashPickupModal({ memberId, chits, onClose }) {
           />
           {outstanding > 0 && (
             <button type="button" onClick={() => setAmount(String(outstanding))}
-              className="mt-1 text-xs font-semibold text-blue-600 hover:underline cursor-pointer">
+              className="mt-1 text-xs font-semibold hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
               Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
             </button>
           )}
@@ -1642,6 +1991,13 @@ export default function MemberPortalPage() {
   const initialTab = TABS.find(t => t.id === searchParams.get('tab'))?.id ?? 'overview';
   const [tab, setTab] = useState(initialTab);
   const [showCashRequest, setShowCashRequest] = useState(false);
+  const [showAdminContact, setShowAdminContact] = useState(false);
+
+  const { data: adminContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    staleTime: 600_000,
+  });
 
   const switchTab = useCallback((id) => {
     setTab(id);
@@ -1755,6 +2111,17 @@ export default function MemberPortalPage() {
             <p className="text-xs text-gray-400 mt-1">{completedCount === 0 ? 'none yet' : 'finished'}</p>
           </div>
         </div>
+
+        {/* Contact Support — only if admin has set a support phone */}
+        {adminContact?.supportPhoneNumber && (
+          <button
+            type="button"
+            onClick={() => setShowAdminContact(true)}
+            className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-xl border border-[#1E3A5F]/20 bg-[#EEF2F8]/60 hover:bg-[#EEF2F8] transition-colors cursor-pointer text-sm font-semibold text-[#1E3A5F]"
+          >
+            📞 Contact Support
+          </button>
+        )}
       </div>
 
       {/* ── Tab navigation ─────────────────────────────────────────────────── */}
@@ -1806,6 +2173,7 @@ export default function MemberPortalPage() {
         />
       )}
       {tab === 'chits' && <ChitsTab memberId={member.id} chits={myChits} chitsLoading={chitsLoading} />}
+      {tab === 'invitations' && <MemberInvitationsTab memberId={member.id} />}
       {tab === 'payouts' && <PayoutsTab memberId={member.id} chits={myChits} />}
       {tab === 'payments' && <PaymentsTab />}
       {tab === 'requests' && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)} />}
@@ -1819,6 +2187,28 @@ export default function MemberPortalPage() {
           <p className="text-sm text-gray-600">You have no outstanding dues at the moment. Cash pickups are only needed when you have a pending balance.</p>
           <div className="flex justify-end mt-4">
             <Button variant="secondary" onClick={() => setShowCashRequest(false)}>Close</Button>
+          </div>
+        </Modal>
+      )}
+
+      {showAdminContact && adminContact?.supportPhoneNumber && (
+        <Modal title="Contact Support" onClose={() => setShowAdminContact(false)} size="sm">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">Your chit fund admin is available to help.</p>
+            <a
+              href={`tel:${adminContact.supportPhoneNumber}`}
+              className="flex items-center justify-center gap-3 py-4 rounded-xl text-white font-semibold text-sm"
+              style={{ backgroundColor: '#1E3A5F' }}
+            >
+              📞 Call Admin
+            </a>
+            <a
+              href={`sms:${adminContact.supportPhoneNumber}`}
+              className="flex items-center justify-center gap-3 py-4 rounded-xl font-semibold text-sm border-2"
+              style={{ borderColor: '#1E3A5F', color: '#1E3A5F' }}
+            >
+              💬 Message Admin
+            </a>
           </div>
         </Modal>
       )}

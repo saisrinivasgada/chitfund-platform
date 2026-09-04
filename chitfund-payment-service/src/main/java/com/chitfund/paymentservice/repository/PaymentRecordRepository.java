@@ -15,6 +15,8 @@ import java.util.UUID;
 
 public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UUID> {
 
+    Optional<PaymentRecord> findByIdAndTenantId(UUID id, String tenantId);
+
     // FIFO query — oldest month first, only OUTSTANDING or PARTIALLY_PAID
     List<PaymentRecord> findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
             UUID memberId, UUID chitId, List<PaymentRecordStatus> statuses);

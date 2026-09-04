@@ -131,7 +131,7 @@ export default function StaffHomePage() {
           icon={HandCoins}
           label="Amount in Hand"
           value={amountInHand > 0 ? `₹${fmt(amountInHand)}` : '—'}
-          color="#7C3AED"
+          color="#1E3A5F"
           sub={inHandRequests.length > 0 ? `${inHandRequests.length} pickup${inHandRequests.length !== 1 ? 's' : ''} collected` : 'Nothing collected yet'}
         />
         <StatCard
@@ -199,7 +199,7 @@ export default function StaffHomePage() {
                       {fmt(isPartial ? (task.collectedAmount ?? task.requestedAmount) : task.requestedAmount)}
                     </span>
                     {isPartial && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
                         Partial
                       </span>
                     )}

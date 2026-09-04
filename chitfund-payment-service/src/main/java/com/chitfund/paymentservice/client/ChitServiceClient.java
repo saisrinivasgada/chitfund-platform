@@ -68,7 +68,7 @@ public class ChitServiceClient {
         private String status;
         private BigDecimal chitValue;
         private BigDecimal installmentAmount;
-        private Integer totalMembers;
+        private Integer capacity;
         private Integer durationMonths;
         private boolean postPayoutContributionEnabled;
         private BigDecimal defaultPostPayoutContribution;
@@ -219,7 +219,7 @@ public class ChitServiceClient {
         dto.setStatus(raw.get("status") != null ? raw.get("status").toString() : null);
         dto.setChitValue(parseBigDecimal(raw.get("chitValue")));
         dto.setInstallmentAmount(parseBigDecimal(raw.get("installmentAmount")));
-        dto.setTotalMembers(parseInteger(raw.get("totalMembers")));
+        dto.setCapacity(parseInteger(raw.get("capacity")));
         dto.setDurationMonths(parseInteger(raw.get("durationMonths")));
         dto.setPostPayoutContributionEnabled(Boolean.TRUE.equals(raw.get("postPayoutContributionEnabled")));
         dto.setDefaultPostPayoutContribution(parseBigDecimal(raw.get("defaultPostPayoutContribution")));

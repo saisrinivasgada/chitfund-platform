@@ -4,11 +4,14 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMe, mobileLookup, loginByMobile, getTeamNotes, createTeamNote, updateTeamNote, deleteTeamNote } from '../../services/api';
+import { getMe, mobileLookup, loginByMobile, getTeamNotes, createTeamNote, updateTeamNote, deleteTeamNote, getAdminSupportContact, getConversationUnread } from '../../services/api';
 import NotificationBell from '../notifications/NotificationBell';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
+import ContactChitWiseModal from './ContactChitWiseModal';
+import MessagesPanel from '../messaging/MessagesPanel';
+import GroupsPanel from '../messaging/GroupsPanel';
 import {
   LayoutDashboard,
   Users,
@@ -33,6 +36,10 @@ import {
   Eye,
   EyeOff,
   Receipt,
+  HeadphonesIcon,
+  Building2,
+  MessageSquare,
+  UsersRound,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -48,7 +55,7 @@ const ALL_NAV = [
   { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], requiresAnalytics: true },
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
   { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'] },
-  { to: '/team',       icon: Briefcase,       label: 'Team',        roles: ['ADMIN', 'MANAGER'] },
+  { to: '/myorg',      icon: Building2,       label: 'My Organization', roles: ['ADMIN', 'MANAGER'] },
   { to: '/billing',    icon: Receipt,         label: 'Billing & Plan', roles: ['ADMIN'] },
 ];
 
@@ -198,7 +205,7 @@ function QuickNotes({ role }) {
                 <StickyNote size={12} className="text-amber-600 flex-shrink-0" />
                 <span className="text-xs font-bold text-amber-900">Notes</span>
                 {!isOwn && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold flex-shrink-0">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EEF2F8] text-[#1E3A5F] font-semibold flex-shrink-0">
                     From {currentNote?.authorName ?? currentNote?.authorRole ?? 'Team'}
                   </span>
                 )}
@@ -514,6 +521,33 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   const initials = (user?.name ?? user?.username ?? 'U').slice(0, 2).toUpperCase();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
+  const [showMessages, setShowMessages] = useState(false);
+  const [showGroups, setShowGroups] = useState(false);
+  const [showAdminContact, setShowAdminContact] = useState(false);
+
+  const isStaffOrManager = role === 'STAFF' || role === 'MANAGER';
+
+  useEffect(() => {
+    const handler = () => setShowMessages(true);
+    window.addEventListener('open-messages-panel', handler);
+    return () => window.removeEventListener('open-messages-panel', handler);
+  }, []);
+
+  const { data: msgUnread } = useQuery({
+    queryKey: ['convUnread'],
+    queryFn: getConversationUnread,
+    enabled: role === 'ADMIN' || role === 'MANAGER',
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const { data: adminContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    enabled: isStaffOrManager,
+    staleTime: 600_000,
+  });
 
   // Detect dual account for STAFF / MANAGER only
   const isStaff = role === 'STAFF' || role === 'MANAGER' || role === 'AGENT';
@@ -741,6 +775,49 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
             {(role === 'ADMIN' || role === 'MANAGER') && (
               <QuickNotes role={role} />
             )}
+            {(role === 'ADMIN' || role === 'MANAGER') && (
+              <button
+                onClick={() => setShowMessages(true)}
+                title="Member Messages"
+                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer relative"
+              >
+                <MessageSquare size={16} />
+                <span className="text-[10px] font-medium">Messages</span>
+                {msgUnread > 0 && (
+                  <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                    {msgUnread > 9 ? '9+' : msgUnread}
+                  </span>
+                )}
+              </button>
+            )}
+            <button
+              onClick={() => setShowGroups(true)}
+              title="Group Chats"
+              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-green-50 hover:border-green-200 hover:text-green-600 transition-colors cursor-pointer"
+            >
+              <UsersRound size={16} />
+              <span className="text-[10px] font-medium">Groups</span>
+            </button>
+            {role === 'ADMIN' && (
+              <button
+                onClick={() => setShowSupport(true)}
+                title="Contact ChitWise"
+                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                <HeadphonesIcon size={16} />
+                <span className="text-[10px] font-medium">Support</span>
+              </button>
+            )}
+            {isStaffOrManager && adminContact?.supportPhoneNumber && (
+              <button
+                onClick={() => setShowAdminContact(true)}
+                title="Contact ChitWise"
+                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                <HeadphonesIcon size={16} />
+                <span className="text-[10px] font-medium">Support</span>
+              </button>
+            )}
             <button
               onClick={() => setShowSignOut(true)}
               title="Sign out"
@@ -766,6 +843,48 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
           onConfirm={logout}
           onClose={() => setShowSignOut(false)}
         />,
+        document.body
+      )}
+      {showSupport && createPortal(
+        <ContactChitWiseModal onClose={() => setShowSupport(false)} currentUserId={user?.id} />,
+        document.body
+      )}
+      {showMessages && <MessagesPanel onClose={() => setShowMessages(false)} />}
+      {showGroups && <GroupsPanel onClose={() => setShowGroups(false)} />}
+      {showAdminContact && adminContact?.supportPhoneNumber && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowAdminContact(false)}>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowAdminContact(false)}
+              className="absolute top-4 right-4 flex items-center justify-center w-7 h-7 rounded-full bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white cursor-pointer"
+            >✕</button>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#EEF2F8' }}>
+                <HeadphonesIcon size={18} style={{ color: '#1E3A5F' }} />
+              </div>
+              <div>
+                <p className="text-base font-bold text-gray-900">Contact ChitWise</p>
+                <p className="text-xs text-gray-500 mt-0.5">Your chit fund admin is available to help</p>
+              </div>
+            </div>
+            <div className="mt-5 space-y-3">
+              <a
+                href={`tel:${adminContact.supportPhoneNumber}`}
+                className="flex items-center justify-center gap-3 py-4 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#1E3A5F' }}
+              >
+                📞 Call Admin
+              </a>
+              <a
+                href={`sms:${adminContact.supportPhoneNumber}`}
+                className="flex items-center justify-center gap-3 py-4 rounded-xl font-semibold text-sm cursor-pointer transition-colors border-2 hover:bg-gray-50"
+                style={{ borderColor: '#1E3A5F', color: '#1E3A5F' }}
+              >
+                💬 Message Admin
+              </a>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
     </aside>

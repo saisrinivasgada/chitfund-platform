@@ -75,7 +75,7 @@ function SlotPickerDropdown({ slots, value, onChange, disabled, placeholder = 'S
               type="button"
               onClick={() => { onChange(s.id); setOpen(false); }}
               className={`w-full text-left px-3 py-2.5 text-sm flex items-center justify-between gap-3 hover:bg-gray-50 ${
-                s.id === value ? 'bg-blue-50 text-[#1E3A5F] font-medium' : 'text-gray-800'
+                s.id === value ? 'bg-[#EEF2F8] text-[#1E3A5F] font-medium' : 'text-gray-800'
               }`}
             >
               <span className="font-medium">Slot #{s.monthNumber}</span>
@@ -149,7 +149,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
       .map(([mid]) => mid);
   })() : [];
 
-  const baseInstallment   = Number(chit.installmentAmount ?? (chit.chitValue / chit.totalMembers) ?? 0);
+  const baseInstallment   = Number(chit.installmentAmount ?? (chit.chitValue / chit.capacity) ?? 0);
   const defaultPostPayout = Number(chit.defaultPostPayoutContribution ?? baseInstallment);
 
   const enrolledMemberIds = [...new Set(enrollments.map((e) => e.memberId ?? e.id))];
@@ -388,7 +388,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
           monthNumber: nextCycleNum,
           dueDate,
           installmentAmount: baseInstallment,
-          maxCycles: chit?.totalMembers ?? nextCycleNum,
+          maxCycles: chit?.capacity ?? nextCycleNum,
           members: preview.members.map((m) => ({ memberId: m.memberId, amountDue: m.amountDue })),
         });
 
@@ -421,7 +421,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
         monthNumber: nextCycleNum,
         dueDate,
         installmentAmount: baseInstallment,
-        maxCycles: chit?.totalMembers ?? nextCycleNum,
+        maxCycles: chit?.capacity ?? nextCycleNum,
         auctionMode: isAuctionDraw ? (chit?.auctionMode ?? 'OFFLINE') : undefined,
         members: preview.members.filter((m) => !m.isOrg).map((m) => ({ memberId: m.memberId, amountDue: m.amountDue })),
       });
@@ -592,14 +592,14 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
               <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Progress</p>
               <div className="flex items-end gap-1.5">
                 <span className="text-2xl font-black text-white">{completedDraws}</span>
-                <span className="text-sm text-white/40 mb-0.5">/ {chit?.totalMembers ?? '?'}</span>
+                <span className="text-sm text-white/40 mb-0.5">/ {chit?.capacity ?? '?'}</span>
               </div>
               <p className="text-[11px] text-white/40 mt-0.5">draws done</p>
               <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
-                    width: chit?.totalMembers ? `${Math.min(100, (completedDraws / chit.totalMembers) * 100)}%` : '0%',
+                    width: chit?.capacity ? `${Math.min(100, (completedDraws / chit.capacity) * 100)}%` : '0%',
                     background: 'linear-gradient(90deg, #D4A017, #F59E0B)',
                   }}
                 />
@@ -814,7 +814,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                                     </span>
                                   )}
                                   {preview?.isLottery && m.isLotteryEligible && !m.isWinner && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">
+                                    <span className="inline-flex items-center gap-1 text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">
                                       <Shuffle size={8} /> Eligible
                                     </span>
                                   )}
@@ -917,8 +917,8 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
                 </div>
 
                 {preview?.isLottery && (
-                  <div className="flex items-center gap-2 text-xs text-gray-600 bg-purple-50 rounded-xl px-4 py-2.5">
-                    <Shuffle size={12} className="text-purple-500 flex-shrink-0" />
+                  <div className="flex items-center gap-2 text-xs text-gray-600 bg-[#EEF2F8] rounded-xl px-4 py-2.5">
+                    <Shuffle size={12} style={{ color: '#1E3A5F' }} className="flex-shrink-0" />
                     {preview.lotteryMode === 'RANDOM'
                       ? 'Winner will be drawn randomly when the draw is confirmed.'
                       : `${memberMap[pickedWinnerId]?.fullName ?? 'Selected member'} will be recorded as this draw's winner.`

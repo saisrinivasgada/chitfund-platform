@@ -25,8 +25,8 @@ import { toast } from '../../../components/Toast';
 // Statuses that count as "cleared" (no payment needed)
 const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED']);
 const PAY_STATUS_COLOR: Record<string, string> = {
-  SETTLED: C.green, SETTLEMENT_CLEARED: '#0D9488', WAIVED: C.gray400,
-  PAYOUT_DEDUCTED: '#7C3AED', PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
+  SETTLED: C.green, SETTLEMENT_CLEARED: C.green, WAIVED: C.gray400,
+  PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
 };
 const PAY_STATUS_LABEL: Record<string, string> = {
   SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
@@ -467,7 +467,7 @@ export default function AdminChitsScreen() {
   const openDrawMut = useMutation({
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
-      const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.totalMembers ?? 1)));
+      const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.capacity ?? 1)));
       const uniqueMembers = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))] as string[];
       const dueDate = odDueDate.trim() || computeDueDate(selected?.startDate, drawNum, selected?.monthlyDueDate);
 
@@ -506,7 +506,7 @@ export default function AdminChitsScreen() {
         monthNumber: drawNum,
         dueDate,
         installmentAmount: baseInstallment,
-        maxCycles: selected?.totalMembers ?? drawNum,
+        maxCycles: selected?.capacity ?? drawNum,
         members: uniqueMembers.map((mid: string) => {
           const wins = winCountByMember[mid] ?? 0;
           const spots = spotCountByMember[mid] ?? 1;
@@ -578,7 +578,7 @@ export default function AdminChitsScreen() {
   const skipDrawMut = useMutation({
     mutationFn: async () => {
       const monthNum = Number(sdDrawNum);
-      const baseInstallment = Number(selected.installmentAmount ?? (Number(selected.chitValue ?? 0) / Number(selected.totalMembers ?? 1)));
+      const baseInstallment = Number(selected.installmentAmount ?? (Number(selected.chitValue ?? 0) / Number(selected.capacity ?? 1)));
       const uniqueMemberIds = [...new Set((enrollments as any[]).map((e: any) => e.memberId ?? e.id))];
       const dueDate = computeDueDate(selected.startDate, monthNum, selected.monthlyDueDate);
       await skipDraw({
@@ -848,7 +848,7 @@ export default function AdminChitsScreen() {
   )
     .sort((a, b) => {
       if (sortBy === 'amount') return Number(b.installmentAmount ?? 0) - Number(a.installmentAmount ?? 0);
-      if (sortBy === 'members') return Number(b.enrolledCount ?? b.totalMembers ?? 0) - Number(a.enrolledCount ?? a.totalMembers ?? 0);
+      if (sortBy === 'members') return Number(b.enrolledCount ?? b.capacity ?? 0) - Number(a.enrolledCount ?? a.capacity ?? 0);
       return (a.name ?? '').localeCompare(b.name ?? '');
     });
 
@@ -861,7 +861,7 @@ export default function AdminChitsScreen() {
     { key: 'members', label: `Members (${(enrollments as any[]).length})` },
     ...(isAuctionChit ? [{ key: 'auction' as DetailTab, label: activeAuction ? '🔴 Auction' : 'Auction' }] : []),
     { key: 'draws', label: 'Draws' },
-    { key: 'schedule', label: isLotteryChit ? 'Payouts' : isAuctionChit ? 'Pot Amounts' : 'Schedule' },
+    { key: 'schedule', label: (isLotteryChit || isAuctionChit) ? 'Payout Plan' : 'Schedule' },
     { key: 'winners', label: 'Winners' },
     { key: 'audit', label: 'Audit' },
   ];
@@ -944,8 +944,8 @@ export default function AdminChitsScreen() {
               {(() => {
                 const type = c.chitType ?? c.winnerSelectionMode;
                 if (!type) return null;
-                const typeColor = type === 'RESERVATION' ? '#2563EB' : type === 'LOTTERY' ? '#7C3AED' : type === 'AUCTION' ? '#D97706' : C.gray400;
-                const typeBg   = type === 'RESERVATION' ? '#EFF6FF' : type === 'LOTTERY' ? '#F5F3FF' : type === 'AUCTION' ? '#FFFBEB' : C.gray100;
+                const typeColor = type === 'RESERVATION' ? C.navy : type === 'LOTTERY' ? C.gold : type === 'AUCTION' ? '#D97706' : C.gray400;
+                const typeBg   = type === 'RESERVATION' ? C.navy50 : type === 'LOTTERY' ? '#FEF9E7' : type === 'AUCTION' ? '#FFFBEB' : C.gray100;
                 return (
                   <View style={{ alignSelf: 'flex-start', backgroundColor: typeBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: typeColor }}>{type}</Text>
@@ -959,7 +959,7 @@ export default function AdminChitsScreen() {
                 </View>
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Members</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{c.enrolledCount ?? c.totalMembers ?? '—'}</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{c.enrolledCount ?? c.capacity ?? '—'}</Text>
                 </View>
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Draw</Text>
@@ -1008,7 +1008,7 @@ export default function AdminChitsScreen() {
                           setEditInstallment(String(selected?.installmentAmount ?? ''));
                           setEditMonthlyDueDate(String(selected?.monthlyDueDate ?? ''));
                           setEditOrgSpots(String(selected?.orgHeldSpotsCount ?? '0'));
-                          setEditMembers(String(selected?.totalMembers ?? ''));
+                          setEditMembers(String(selected?.capacity ?? ''));
                           setEditMonths(String(selected?.durationMonths ?? ''));
                           setEditStartDate(selected?.startDate ?? '');
                           setEditPostPayoutEnabled(selected?.postPayoutContributionEnabled ?? false);
@@ -1030,7 +1030,7 @@ export default function AdminChitsScreen() {
                                   setEditInstallment(String(selected?.installmentAmount ?? ''));
                                   setEditMonthlyDueDate(String(selected?.monthlyDueDate ?? ''));
                                   setEditOrgSpots(String(selected?.orgHeldSpotsCount ?? '0'));
-                                  setEditMembers(String(selected?.totalMembers ?? ''));
+                                  setEditMembers(String(selected?.capacity ?? ''));
                                   setEditMonths(String(selected?.durationMonths ?? ''));
                                   setEditStartDate(selected?.startDate ?? '');
                                   setEditPostPayoutEnabled(selected?.postPayoutContributionEnabled ?? false);
@@ -1086,7 +1086,7 @@ export default function AdminChitsScreen() {
                       : null,
                     { label: 'Duration', value: `${selected.durationMonths ?? '—'} months` },
                     { label: 'Draw Progress', value: `${selected.winnersAssigned ?? selected.currentDraw ?? 0} / ${selected.durationMonths ?? selected.totalDraws ?? '—'}` },
-                    { label: 'Members', value: String(selected.totalMembers ?? '—') },
+                    { label: 'Members', value: String(selected.capacity ?? '—') },
                     { label: 'Start Date', value: fmtDate(selected.startDate) },
                     selected.endDate ? { label: 'End Date', value: fmtDate(selected.endDate) } : null,
                     selected.monthlyDueDate ? { label: 'Due Day', value: `${selected.monthlyDueDate}th of month` } : null,
@@ -1129,7 +1129,7 @@ export default function AdminChitsScreen() {
                 : (enrollments as any[]).map((e: any) => ({ mid: String(e.memberId ?? e.id), name: memberMap[e.memberId ?? e.id] ?? 'Unknown', spots: 1, enrollmentId: e.id }));
               return (
               <>
-                {!isDraft && (
+                {(!isDraft || isLotteryChit || isAuctionChit) && (
                   <View style={{ marginBottom: 12 }}>
                     <Button label="+ Enroll Member" variant="primary" size="sm" disabled={isExpired} onPress={() => setShowEnroll(true)} />
                   </View>
@@ -1138,8 +1138,8 @@ export default function AdminChitsScreen() {
                   isDraft ? (
                     <EmptyState
                       title="No members yet"
-                      message={isLotteryChit
-                        ? 'Enroll members once this chit is activated. Each spot = one lottery entry.'
+                      message={(isLotteryChit || isAuctionChit)
+                        ? 'Enroll members before activating — each spot = one draw entry.'
                         : 'Once this chit is activated, members from the scheduled slots will appear here.'}
                     />
                   ) : (
@@ -1160,8 +1160,8 @@ export default function AdminChitsScreen() {
                             <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{name}</Text>
                             {isLotteryChit && (
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                                <View style={{ backgroundColor: spots > 1 ? '#EDE9FE' : C.gray100, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
-                                  <Text style={{ fontSize: 10, fontWeight: '700', color: spots > 1 ? '#7C3AED' : C.gray500 }}>
+                                <View style={{ backgroundColor: spots > 1 ? C.navy50 : C.gray100, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: spots > 1 ? C.navy : C.gray500 }}>
                                     {spots} {spots === 1 ? 'spot' : 'spots'}
                                   </Text>
                                 </View>
@@ -1177,12 +1177,14 @@ export default function AdminChitsScreen() {
                             )}
                           </View>
                         </View>
-                        <TouchableOpacity onPress={() => Alert.alert('Remove Spot', `Remove one spot for ${name}?`, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Remove', style: 'destructive', onPress: () => removeMut.mutate({ chitId: selected.id, memberId: mid }) },
-                        ])}>
-                          <Text style={{ fontSize: 12, color: C.red, fontWeight: '600' }}>Remove</Text>
-                        </TouchableOpacity>
+                        {isDraft && (
+                          <TouchableOpacity onPress={() => Alert.alert('Remove Spot', `Remove one spot for ${name}?`, [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Remove', style: 'destructive', onPress: () => removeMut.mutate({ chitId: selected.id, memberId: mid }) },
+                          ])}>
+                            <Text style={{ fontSize: 12, color: C.red, fontWeight: '600' }}>Remove</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </Card>
                   ))
@@ -1214,7 +1216,7 @@ export default function AdminChitsScreen() {
                     const PAYOUT_STATUS_COLOR: Record<string, { text: string; bg: string }> = {
                       PENDING:              { text: C.amber,   bg: '#FFFBEB' },
                       DISBURSED:            { text: C.green,   bg: '#F0FDF4' },
-                      PARTIALLY_DISBURSED:  { text: '#7C3AED', bg: '#F5F3FF' },
+                      PARTIALLY_DISBURSED:  { text: C.navyLight, bg: C.navy50 },
                       CANCELLED:            { text: C.gray400, bg: C.gray50  },
                       VOIDED:               { text: C.gray400, bg: C.gray50  },
                     };
@@ -2136,8 +2138,8 @@ export default function AdminChitsScreen() {
                           setAuctionPayoutAmount(String(
                             scheduleSlot?.payoutAmount
                               ? Number(scheduleSlot.payoutAmount)
-                              : (selected?.installmentAmount && selected?.totalMembers
-                                  ? Number(selected.installmentAmount) * Number(selected.totalMembers)
+                              : (selected?.installmentAmount && selected?.capacity
+                                  ? Number(selected.installmentAmount) * Number(selected.capacity)
                                   : '')
                           ));
                           setAuctionMinBidStep('');
@@ -2704,8 +2706,8 @@ export default function AdminChitsScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                           <Text style={{ fontSize: 15, fontWeight: '700', color: selected ? C.navy : C.gray900 }}>{label}</Text>
                           {!onPlan && (
-                            <View style={{ backgroundColor: '#EDE9FE', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#7C3AED' }}>Not on your plan</Text>
+                            <View style={{ backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: C.navy }}>Not on your plan</Text>
                             </View>
                           )}
                         </View>
@@ -2889,7 +2891,7 @@ export default function AdminChitsScreen() {
                 <Text style={{ fontSize: 14, color: C.gray500, marginBottom: 4 }}>
                   Set payout amounts for each draw. Winners are decided by lottery when draws are opened — not assigned in advance.
                 </Text>
-                <Text style={{ fontSize: 12, color: '#7C3AED', fontWeight: '600', marginBottom: 16 }}>
+                <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginBottom: 16 }}>
                   🎲 Lottery: payout amounts only — no member assignment here
                 </Text>
                 {cSchedule.length > 0 && (
@@ -2903,7 +2905,7 @@ export default function AdminChitsScreen() {
                       <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.gray50, borderRadius: 8, padding: 8, marginBottom: 6 }}>
                         <Text style={{ flex: 0.5, fontSize: 12, fontWeight: '700', color: C.gray400 }}>{i + 1}</Text>
                         <View style={{ flex: 1.5 }}>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#7C3AED', backgroundColor: '#F5F3FF', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy, backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>{row.label}</Text>
                         </View>
                         <TextInput
                           value={row.payoutAmount}
@@ -3075,7 +3077,7 @@ export default function AdminChitsScreen() {
                       </Text>
                       {m.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{m.phone}</Text>}
                       {isLotteryChit && currentSpots > 0 && (
-                        <Text style={{ fontSize: 11, color: '#7C3AED', marginTop: 2, fontWeight: '600' }}>
+                        <Text style={{ fontSize: 11, color: C.navy, marginTop: 2, fontWeight: '600' }}>
                           Currently {currentSpots} spot{currentSpots > 1 ? 's' : ''}
                         </Text>
                       )}
@@ -3224,11 +3226,11 @@ export default function AdminChitsScreen() {
                     {(['RANDOM', 'PICK'] as const).map((mode) => (
                       <TouchableOpacity key={mode} onPress={() => { setLotteryDrawMode(mode); setLotteryPickedWinnerId(''); }}
                         style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 2,
-                          borderColor: lotteryDrawMode === mode ? '#7C3AED' : C.gray200,
-                          backgroundColor: lotteryDrawMode === mode ? '#F5F3FF' : C.white,
+                          borderColor: lotteryDrawMode === mode ? C.navy : C.gray200,
+                          backgroundColor: lotteryDrawMode === mode ? C.navy50 : C.white,
                           alignItems: 'center' }}>
                         <Text style={{ fontSize: 20, marginBottom: 4 }}>{mode === 'RANDOM' ? '🎲' : '👆'}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? '#7C3AED' : C.gray700 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? C.navy : C.gray700 }}>
                           {mode === 'RANDOM' ? 'Random Draw' : 'Pick Winner'}
                         </Text>
                         <Text style={{ fontSize: 10, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
@@ -3257,16 +3259,16 @@ export default function AdminChitsScreen() {
                               const spots = lotterySpotCounts[mid] ?? 1;
                               return (
                                 <TouchableOpacity key={mid} onPress={() => setLotteryPickedWinnerId(mid)}
-                                  style={{ padding: 12, backgroundColor: isSelected ? '#F5F3FF' : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  style={{ padding: 12, backgroundColor: isSelected ? C.navy50 : C.white, borderBottomWidth: 1, borderBottomColor: C.gray100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                                   <View>
-                                    <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? '#7C3AED' : C.gray900 }}>
+                                    <Text style={{ fontSize: 14, fontWeight: isSelected ? '700' : '400', color: isSelected ? C.navy : C.gray900 }}>
                                       {name} {isSelected ? '✓' : ''}
                                     </Text>
                                     <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
                                       {spots} spot{spots > 1 ? 's' : ''} · {wins} win{wins !== 1 ? 's' : ''}
                                     </Text>
                                   </View>
-                                  {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: '#7C3AED' }}>✓</Text>}
+                                  {isSelected && <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>✓</Text>}
                                 </TouchableOpacity>
                               );
                             })}
@@ -3277,8 +3279,8 @@ export default function AdminChitsScreen() {
                   )}
 
                   {lotteryDrawMode === 'RANDOM' && (
-                    <View style={{ backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, marginBottom: 20 }}>
-                      <Text style={{ fontSize: 13, color: '#6D28D9', fontWeight: '600' }}>
+                    <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 20 }}>
+                      <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>
                         🎲 Winner will be drawn at random from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
                       </Text>
                     </View>
@@ -3867,7 +3869,7 @@ export default function AdminChitsScreen() {
 
               {pdPayout && (() => {
                 const ps = pdPayout.status;
-                const statusColor = ps === 'DISBURSED' ? C.green : ps === 'PARTIALLY_DISBURSED' ? '#7C3AED' : ps === 'PENDING' ? C.amber : C.gray400;
+                const statusColor = ps === 'DISBURSED' ? C.green : ps === 'PARTIALLY_DISBURSED' ? C.navyLight : ps === 'PENDING' ? C.amber : C.gray400;
                 const statusLabel = ps === 'PARTIALLY_DISBURSED' ? 'Partial' : ps;
                 return (
                   <>

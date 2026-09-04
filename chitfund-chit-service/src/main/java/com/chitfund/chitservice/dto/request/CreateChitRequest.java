@@ -47,7 +47,7 @@ public class CreateChitRequest {
 
     private LocalDate startDate;
 
-    // Org-held spot count within totalMembers
+    // Org-held spot count within capacity
     @Min(0)
     private Integer orgHeldSpotsCount = 0;
 

@@ -8,7 +8,11 @@ import java.util.Optional;
 
 public interface MonthlyCollectionSnapshotRepository extends JpaRepository<MonthlyCollectionSnapshot, String> {
 
+    // Used by Kafka ingest consumer (no tenant context available)
     Optional<MonthlyCollectionSnapshot> findByChitIdAndMonthNumber(String chitId, Integer monthNumber);
+
+    // Used by admin query endpoints (tenant-scoped)
+    Optional<MonthlyCollectionSnapshot> findByTenantIdAndChitIdAndMonthNumber(String tenantId, String chitId, Integer monthNumber);
 
     List<MonthlyCollectionSnapshot> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, String chitId);
 }

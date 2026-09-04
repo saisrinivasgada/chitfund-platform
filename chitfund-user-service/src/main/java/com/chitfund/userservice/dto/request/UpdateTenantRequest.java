@@ -12,4 +12,8 @@ public class UpdateTenantRequest {
 
     @Pattern(regexp = "^[a-z0-9-]{2,30}$", message = "Slug must be 2-30 lowercase letters, digits, or hyphens")
     private String slug;
+
+    private String businessRegNumber;
+
+    private String supportPhoneNumber;
 }

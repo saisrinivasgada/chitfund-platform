@@ -286,11 +286,11 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             {/* PARTIALLY_COLLECTED → partial amount info + approval warning */}
             {r.status === 'PARTIALLY_COLLECTED' && (
               <>
-                <View style={{ backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#C4B5FD' }}>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 2 }}>
+                <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.navy50 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy, marginBottom: 2 }}>
                     Partial — ₹{Number(r.collectedAmount ?? 0).toLocaleString('en-IN')} of ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
                   </Text>
-                  <Text style={{ fontSize: 12, color: '#6D28D9' }}>
+                  <Text style={{ fontSize: 12, color: C.navy }}>
                     Remaining: ₹{(Number(r.requestedAmount) - Number(r.collectedAmount ?? 0)).toLocaleString('en-IN')} needs follow-up
                   </Text>
                 </View>
@@ -1209,7 +1209,7 @@ function RecordPaymentTab() {
 // PAYOUTS TAB  (create + disburse + cancel + void + full list)
 // ─────────────────────────────────────────────────────────────────────────────
 const PAYOUT_STATUS_COLOR: Record<string, string> = {
-  PENDING: C.amber, PARTIALLY_DISBURSED: '#2563EB', DISBURSED: C.green,
+  PENDING: C.amber, PARTIALLY_DISBURSED: C.navyLight, DISBURSED: C.green,
   CANCELLED: C.gray400, VOIDED: C.red,
 };
 
@@ -2331,12 +2331,12 @@ function TreasuryTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 // SETTLEMENT TAB
 // ─────────────────────────────────────────────────────────────────────────────
-const SETT_PURPLE = '#7C3AED';
-const SETT_PURPLE_LIGHT = '#F5F3FF';
-const SETT_PURPLE_BORDER = '#DDD6FE';
+const SETT_PURPLE = C.navy;
+const SETT_PURPLE_LIGHT = C.navy50;
+const SETT_PURPLE_BORDER = C.navy50;
 
 const CASE_COLOR: Record<string, string> = {
-  CASE_A: C.amber, CASE_B1: C.navy, CASE_B2: '#7C3AED', UNKNOWN: C.gray400,
+  CASE_A: C.amber, CASE_B1: C.navy, CASE_B2: C.navyLight, UNKNOWN: C.gray400,
 };
 const CASE_LABEL: Record<string, string> = {
   CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown',
@@ -2483,7 +2483,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             const isCollect = net > 0;
             const memberName = (members as any[]).find((m: any) => m.id === s.memberId)?.fullName ?? `…${String(s.memberId).slice(-6)}`;
             const statusLabel = { PENDING: 'Unpaid', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial' }[s.paymentStatus as string] ?? s.paymentStatus;
-            const statusColor = { PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED' }[s.paymentStatus as string] ?? C.gray400;
+            const statusColor = { PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight }[s.paymentStatus as string] ?? C.gray400;
             return (
               <Card key={s.id} style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: C.amber }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -2543,7 +2543,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
       {/* Banner */}
       <View style={{ backgroundColor: SETT_PURPLE_LIGHT, borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
         <Text style={{ fontSize: 13, color: SETT_PURPLE, fontWeight: '700' }}>Member Settlement</Text>
-        <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
+        <Text style={{ fontSize: 12, color: C.navy, marginTop: 4 }}>
           Discontinue a member and close all chit obligations. Irreversible — creates a full audit trail.
         </Text>
       </View>
@@ -2602,7 +2602,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
               {(history as any[]).map((s: any, i: number) => {
                 const net = Number(s.netAmount ?? s.totalAmount ?? 0);
                 const absNet = Math.abs(net);
-                const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red };
+                const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red };
                 const statusLabels: Record<string, string> = { FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced', PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided' };
                 const sColor = statusColors[s.paymentStatus] ?? C.gray400;
                 const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
@@ -2751,14 +2751,14 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
           <Card style={{ marginBottom: 16, backgroundColor: SETT_PURPLE_LIGHT, borderWidth: 1.5, borderColor: SETT_PURPLE_BORDER }}>
             <Text style={{ fontSize: 13, fontWeight: '700', color: SETT_PURPLE, marginBottom: 8 }}>Summary</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={{ fontSize: 13, color: '#6D28D9' }}>Base net</Text>
+              <Text style={{ fontSize: 13, color: C.navy }}>Base net</Text>
               <Text style={{ fontSize: 13, fontWeight: '700', color: baseNet < 0 ? C.green : C.red }}>
                 {baseNet < 0 ? '–' : '+'}₹{Math.abs(baseNet).toLocaleString('en-IN')}
               </Text>
             </View>
             {adjNum !== 0 && (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, color: '#6D28D9' }}>Adjustment</Text>
+                <Text style={{ fontSize: 13, color: C.navy }}>Adjustment</Text>
                 <Text style={{ fontSize: 13, fontWeight: '700', color: adjNum > 0 ? C.red : C.green }}>
                   {adjNum > 0 ? '+' : '–'}₹{Math.abs(adjNum).toLocaleString('en-IN')}
                 </Text>
@@ -2833,7 +2833,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             <Text style={{ fontSize: 28, fontWeight: '800', color: SETT_PURPLE }}>
               ₹{Math.abs(Number(confirmedSettlement.netAmount ?? 0)).toLocaleString('en-IN')}
             </Text>
-            <Text style={{ fontSize: 12, color: '#6D28D9', marginTop: 4 }}>
+            <Text style={{ fontSize: 12, color: C.navy, marginTop: 4 }}>
               {Number(confirmedSettlement.netAmount ?? 0) < 0 ? 'Fund pays member' : 'Member pays fund'}
             </Text>
           </Card>
@@ -2895,7 +2895,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             const net = Number(s.netAmount ?? 0);
             const absNet = Math.abs(net);
             const isCollect = net > 0;
-            const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: '#2563EB', PARTIALLY_DISBURSED: '#7C3AED', VOIDED: C.red };
+            const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red };
             const statusLabels: Record<string, string> = { FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced', PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided' };
             const sColor = statusColors[s.paymentStatus] ?? C.gray400;
             const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
@@ -2923,7 +2923,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                       <Text style={{ fontSize: 12, fontWeight: '700', color: sColor }}>{sLabel}</Text>
                     </View>
                   </View>
-                  {s.notes && <Text style={{ fontSize: 12, color: '#6D28D9', fontStyle: 'italic' }}>"{s.notes}"</Text>}
+                  {s.notes && <Text style={{ fontSize: 12, color: C.navy, fontStyle: 'italic' }}>"{s.notes}"</Text>}
                 </View>
 
                 {/* Chit items */}
@@ -3372,9 +3372,9 @@ function HistoryTab() {
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                   {/* Mode chip */}
                   <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor:
-                    b.paymentMode === 'CREDIT' ? '#ECFDF5' : b.paymentMode === 'CASH' ? '#FEF3C7' : b.paymentMode === 'UPI' ? '#F3E8FF' : b.paymentMode === 'BANK_TRANSFER' ? '#DBEAFE' : C.gray100 }}>
+                    b.paymentMode === 'CREDIT' ? '#ECFDF5' : b.paymentMode === 'CASH' ? '#FEF3C7' : b.paymentMode === 'UPI' ? '#FEF9E7' : b.paymentMode === 'BANK_TRANSFER' ? C.navy50 : C.gray100 }}>
                     <Text style={{ fontSize: 11, fontWeight: '600', color:
-                      b.paymentMode === 'CREDIT' ? '#059669' : b.paymentMode === 'CASH' ? C.amber : b.paymentMode === 'UPI' ? '#7C3AED' : b.paymentMode === 'BANK_TRANSFER' ? '#2563EB' : C.gray600 }}>
+                      b.paymentMode === 'CREDIT' ? '#059669' : b.paymentMode === 'CASH' ? C.amber : b.paymentMode === 'UPI' ? C.gold : b.paymentMode === 'BANK_TRANSFER' ? C.navy : C.gray600 }}>
                       {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
                     </Text>
                   </View>

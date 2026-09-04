@@ -52,7 +52,7 @@ public class Chit {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal chitValue;
 
-    // What each member pays per month = chitValue / totalMembers
+    // What each member pays per month = chitValue / capacity
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal installmentAmount;
 
@@ -60,8 +60,8 @@ public class Chit {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal totalAmount;
 
-    @Column(nullable = false)
-    private Integer totalMembers;
+    @Column(name = "total_members", nullable = false)
+    private Integer capacity;
 
     @Column(nullable = false)
     private Integer durationMonths;

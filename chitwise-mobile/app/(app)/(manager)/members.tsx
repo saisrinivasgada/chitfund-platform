@@ -128,7 +128,7 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{chit.name}</Text>
                       <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
-                        ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} · {chit.totalMembers} members
+                        ₹{Number(chit.chitValue ?? 0).toLocaleString('en-IN')} · {chit.capacity} members
                       </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>

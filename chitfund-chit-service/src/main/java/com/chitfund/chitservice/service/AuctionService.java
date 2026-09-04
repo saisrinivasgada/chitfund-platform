@@ -49,10 +49,11 @@ public class AuctionService {
     private final PaymentServiceClient paymentServiceClient;
     private final SimpMessagingTemplate messagingTemplate;
     private final NotificationClient notificationClient;
+    private final com.chitfund.chitservice.client.AuditClient auditClient;
 
     @Transactional
     public AuctionSessionResponse openAuction(UUID chitId, OpenAuctionRequest request, UUID openedBy) {
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
         validateAuctionChit(chit);
 
         if (auctionSessionRepository.existsByChitIdAndMonthNumberAndStatus(
@@ -99,6 +100,15 @@ public class AuctionService {
                 saved.getId(), chitId, request.getMonthNumber(),
                 request.getScheduledPayoutAmount(), request.getMinBidStep(),
                 chit.getAuctionMode(), request.getClosesAt(), openedBy);
+
+        auditClient.log("AUCTION_SESSION", saved.getId().toString(), chitId.toString(),
+                "AUCTION_OPENED", openedBy != null ? openedBy.toString() : null, null,
+                null,
+                Map.of("monthNumber", saved.getMonthNumber(),
+                        "scheduledPayoutAmount", saved.getScheduledPayoutAmount().toPlainString(),
+                        "chitId", chitId.toString()),
+                TenantContext.get());
+
         int totalSpots = (int) enrollmentRepository.countByChitIdAndActiveTrue(chitId);
         return toResponse(saved, List.of(), totalSpots);
     }
@@ -193,14 +203,14 @@ public class AuctionService {
     }
 
     public AuctionSessionResponse getAuction(UUID chitId, UUID auctionId) {
-        AuctionSession session = auctionSessionRepository.findById(auctionId)
-                .filter(s -> s.getChitId().equals(chitId))
+        AuctionSession session = auctionSessionRepository
+                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction not found"));
         return buildResponse(session);
     }
 
     public List<AuctionSessionResponse> listAuctions(UUID chitId) {
-        chitService.findById(chitId);
+        chitService.findByIdScoped(chitId);
         return auctionSessionRepository.findByChitIdOrderByMonthNumberAsc(chitId).stream()
                 .map(this::buildResponse)
                 .collect(Collectors.toList());
@@ -210,7 +220,7 @@ public class AuctionService {
     public AuctionSessionResponse closeAuction(UUID chitId, UUID auctionId,
                                                CloseAuctionRequest request, UUID closedBy) {
         AuctionSession session = getOpenSession(auctionId, chitId);
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         UUID winnerId;
         BigDecimal wonAmount;
@@ -298,6 +308,15 @@ public class AuctionService {
                 winnerId, session.getScheduledPayoutAmount(), wonAmount, discount,
                 commissionAmount, distributableDiscount, totalSpots, dividendPerSpot, closedBy);
 
+        auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
+                "AUCTION_CLOSED", closedBy != null ? closedBy.toString() : null, null,
+                null,
+                Map.of("monthNumber", session.getMonthNumber(),
+                        "winnerId", winnerId.toString(),
+                        "wonAmount", wonAmount.toPlainString(),
+                        "discountAmount", discount.toPlainString()),
+                tenantId);
+
         AuctionSessionResponse response = buildResponse(session);
         messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response);
 
@@ -332,8 +351,8 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse extendAuction(UUID chitId, UUID auctionId, int additionalMinutes, UUID adminId) {
-        AuctionSession session = auctionSessionRepository.findById(auctionId)
-                .filter(s -> s.getChitId().equals(chitId))
+        AuctionSession session = auctionSessionRepository
+                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
 
         if (session.getAuctionMode() != AuctionMode.ONLINE) {
@@ -359,8 +378,8 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse voidAuction(UUID chitId, UUID auctionId, UUID adminId) {
-        AuctionSession session = auctionSessionRepository.findById(auctionId)
-                .filter(s -> s.getChitId().equals(chitId))
+        AuctionSession session = auctionSessionRepository
+                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
 
         if (session.getStatus() == AuctionStatus.VOIDED) {
@@ -375,6 +394,13 @@ public class AuctionService {
         auctionSessionRepository.save(session);
 
         log.info("Auction voided: id={} chit={} month={} by={}", auctionId, chitId, session.getMonthNumber(), adminId);
+
+        auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
+                "AUCTION_VOIDED", adminId != null ? adminId.toString() : null, null,
+                Map.of("monthNumber", session.getMonthNumber(), "status", "VOIDED"),
+                null,
+                TenantContext.get());
+
         return buildResponse(session);
     }
 
@@ -399,8 +425,8 @@ public class AuctionService {
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private AuctionSession getOpenSession(UUID auctionId, UUID chitId) {
-        AuctionSession session = auctionSessionRepository.findById(auctionId)
-                .filter(s -> s.getChitId().equals(chitId))
+        AuctionSession session = auctionSessionRepository
+                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
         if (session.getStatus() != AuctionStatus.OPEN) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Auction is not open");

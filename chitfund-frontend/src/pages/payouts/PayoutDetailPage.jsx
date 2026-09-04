@@ -22,7 +22,7 @@ function fmtDateTime(dt) {
 
 const STATUS_CONFIG = {
   PENDING:             { label: 'Pending',             icon: Clock,        bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200' },
-  PARTIALLY_DISBURSED: { label: 'Partially Disbursed', icon: AlertCircle,  bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200' },
+  PARTIALLY_DISBURSED: { label: 'Partially Disbursed', icon: AlertCircle,  bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]',  border: 'border-[#C7D5E8]' },
   DISBURSED:           { label: 'Disbursed',           icon: CheckCircle,  bg: 'bg-green-50',  text: 'text-green-700',  border: 'border-green-200' },
   CANCELLED:           { label: 'Cancelled',           icon: XCircle,      bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200' },
   VOIDED:              { label: 'Voided',              icon: XCircle,      bg: 'bg-gray-50',   text: 'text-gray-700',   border: 'border-gray-200' },

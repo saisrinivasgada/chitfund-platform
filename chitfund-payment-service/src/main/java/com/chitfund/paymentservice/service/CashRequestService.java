@@ -730,7 +730,7 @@ public class CashRequestService {
 
     /** Use inside @Transactional write methods — acquires a row-level lock to prevent concurrent state transitions. */
     private CashPaymentRequest findOrThrowForWrite(UUID id) {
-        return requestRepository.findByIdForUpdate(id)
+        return requestRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
     }
 

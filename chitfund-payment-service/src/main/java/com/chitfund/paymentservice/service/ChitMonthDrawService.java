@@ -63,11 +63,12 @@ public class ChitMonthDrawService {
         DrawStatus initialStatus = isAuctionDraw ? DrawStatus.AWAITING_AUCTION : DrawStatus.OPEN;
 
         ChitMonthDraw cycle = ChitMonthDraw.builder()
+                .tenantId(com.chitfund.common.context.TenantContext.get())
                 .chitId(request.getChitId())
                 .monthNumber(request.getMonthNumber())
                 .dueDate(request.getDueDate())
                 .installmentAmount(request.getInstallmentAmount())
-                .totalMembers(request.getMembers().size())
+                .capacity(request.getMembers().size())
                 .auctionMode(request.getAuctionMode())
                 .status(initialStatus)
                 .openedAt(LocalDateTime.now())
@@ -253,7 +254,7 @@ public class ChitMonthDrawService {
                 .monthNumber(request.getMonthNumber())
                 .dueDate(request.getDueDate())
                 .installmentAmount(request.getInstallmentAmount())
-                .totalMembers(request.getMemberIds().size())
+                .capacity(request.getMemberIds().size())
                 .status(DrawStatus.SKIPPED)
                 .skipReason(request.getSkipReason())
                 .skippedAt(LocalDateTime.now())
@@ -308,7 +309,7 @@ public class ChitMonthDrawService {
 
     @Transactional
     public DrawSummaryResponse closeDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findById(cycleId)
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -420,7 +421,8 @@ public class ChitMonthDrawService {
     @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getDashboard() {
         // Include AWAITING_AUCTION draws so auction chit draws appear on the dashboard
-        List<ChitMonthDraw> openCycles = drawRepository.findByStatusInOrderByDueDateAsc(
+        List<ChitMonthDraw> openCycles = drawRepository.findByTenantIdAndStatusInOrderByDueDateAsc(
+                com.chitfund.common.context.TenantContext.get(),
                 List.of(DrawStatus.OPEN, DrawStatus.AWAITING_AUCTION));
         return openCycles.stream()
                 .map(this::buildSummaryWithLiveStats)
@@ -437,7 +439,8 @@ public class ChitMonthDrawService {
     @Transactional(readOnly = true)
     public List<DrawSummaryResponse> getRecentDraws(int days) {
         LocalDateTime since = LocalDateTime.now().minusDays(days);
-        return drawRepository.findRecentDraws(since,
+        return drawRepository.findRecentDrawsByTenant(
+                com.chitfund.common.context.TenantContext.get(), since,
                 org.springframework.data.domain.PageRequest.of(0, 200)).stream()
                 .map(this::buildSummaryWithLiveStats)
                 .toList();
@@ -447,7 +450,8 @@ public class ChitMonthDrawService {
     public List<DrawSummaryResponse> getTodaysDraws() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end   = start.plusDays(1);
-        return drawRepository.findTodaysDraws(start, end).stream()
+        return drawRepository.findTodaysDrawsByTenant(
+                com.chitfund.common.context.TenantContext.get(), start, end).stream()
                 .map(this::buildSummaryWithLiveStats)
                 .toList();
     }
@@ -479,7 +483,7 @@ public class ChitMonthDrawService {
                 .monthNumber(cycle.getMonthNumber())
                 .dueDate(cycle.getDueDate())
                 .installmentAmount(cycle.getInstallmentAmount())
-                .totalMembers(cycle.getTotalMembers())
+                .capacity(cycle.getCapacity())
                 .status(cycle.getStatus())
                 .settledCount((int) settled)
                 .partiallyPaidCount((int) partial)
@@ -507,7 +511,7 @@ public class ChitMonthDrawService {
                 .monthNumber(cycle.getMonthNumber())
                 .dueDate(cycle.getDueDate())
                 .installmentAmount(cycle.getInstallmentAmount())
-                .totalMembers(memberCount)
+                .capacity(memberCount)
                 .status(cycle.getStatus())
                 .settledCount(0)
                 .partiallyPaidCount(0)
@@ -536,7 +540,7 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void deleteDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findById(cycleId)
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -604,7 +608,7 @@ public class ChitMonthDrawService {
 
     @Transactional(readOnly = true)
     public List<PaymentRecordResponse> getCyclePayments(UUID cycleId) {
-        ChitMonthDraw cycle = drawRepository.findById(cycleId)
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("Cycle", cycleId));
         LocalDate today = LocalDate.now();
         return paymentRecordRepository

@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPublicPlans } from '../services/api';
+import { getPublicPlans, submitProspectContact } from '../services/api';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import {
   BookOpen, ArrowRight, ChevronDown, Shield, Zap, Users, BarChart2,
@@ -881,6 +881,168 @@ const DRAW_ROWS = [
   { name: 'Anitha Devi',   draw: 8, amount: '₹5,000', status: 'Cash',      color: '#7C3AED', bg: '#F5F3FF' },
 ];
 
+// ─── Contact Section ─────────────────────────────────────────────────────────
+function ContactSection() {
+  const nameId = useId();
+  const emailId = useId();
+  const phoneId = useId();
+  const messageId = useId();
+
+  const [form, setForm] = useState({ name: '', email: '', phone: '', message: '', preferredContact: 'EMAIL' });
+  const [status, setStatus] = useState('idle'); // idle | sending | done | error
+  const [errorMsg, setErrorMsg] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setStatus('sending');
+    setErrorMsg('');
+    try {
+      await submitProspectContact(form);
+      setStatus('done');
+    } catch (err) {
+      setErrorMsg(err?.response?.data?.message ?? 'Something went wrong. Please email us directly.');
+      setStatus('error');
+    }
+  }
+
+  function Field({ id, label, value, onChange, type = 'text', placeholder, required, hint }) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={id} className="text-sm font-medium text-gray-700">
+          {label}{required && <span className="text-red-400 ml-0.5">*</span>}
+        </label>
+        <input
+          id={id}
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          required={required}
+          className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white transition-all"
+        />
+        {hint && <p className="text-xs text-gray-400">{hint}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <section className="py-16 sm:py-24 px-4 sm:px-8 border-t border-gray-100" style={{ backgroundColor: '#F8FAFD' }}>
+      <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+        {/* Left: copy */}
+        <Reveal>
+          <div>
+            <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-5"
+              style={{ backgroundColor: '#EEF2F8', color: P }}>
+              <Headphones size={12} /> Get in touch
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold mb-4 leading-tight" style={{ color: P, fontFamily: 'Merriweather, serif' }}>
+              Questions before signing up?
+            </h2>
+            <p className="text-gray-500 text-base leading-relaxed mb-8">
+              Tell us about your chit fund — size, how you're currently managing it, and what you're looking for. We'll reach out within 24 hours.
+            </p>
+            <div className="space-y-4">
+              {[
+                { icon: MessageCircle, label: 'Email us',  value: 'help@thechitwise.com', href: 'mailto:help@thechitwise.com' },
+              ].map(({ icon: Icon, label, value, href }) => (
+                <a key={value} href={href}
+                  className="flex items-center gap-3 text-sm text-gray-600 hover:text-[#1E3A5F] transition-colors group">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform"
+                    style={{ backgroundColor: '#EEF2F8' }}>
+                    <Icon size={15} style={{ color: P }} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">{label}</p>
+                    <p className="font-medium">{value}</p>
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Right: form */}
+        <Reveal delay={0.1}>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+            {status === 'done' ? (
+              <div className="flex flex-col items-center gap-4 py-8 text-center">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ backgroundColor: '#D1FAE5' }}>
+                  <Check size={24} className="text-green-600" />
+                </div>
+                <p className="text-lg font-bold text-gray-900">Message received!</p>
+                <p className="text-sm text-gray-400">We'll get back to you within 24 hours at <strong>{form.email}</strong>.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <Field id={nameId} label="Your Name" value={form.name}
+                  onChange={(v) => setForm((f) => ({ ...f, name: v }))}
+                  placeholder="Ravi Kumar" required />
+                <Field id={emailId} label="Email" type="email" value={form.email}
+                  onChange={(v) => setForm((f) => ({ ...f, email: v }))}
+                  placeholder="ravi@example.com" required />
+                <Field id={phoneId} label="Phone" type="tel" value={form.phone}
+                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  placeholder="+91 98765 43210"
+                  hint="Optional — required if you prefer SMS/WhatsApp response" />
+                {/* Preferred contact mode */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-gray-700">Preferred response via</label>
+                  <div className="flex gap-2">
+                    {['EMAIL', 'SMS', 'BOTH'].map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, preferredContact: mode }))}
+                        className="flex-1 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer"
+                        style={
+                          form.preferredContact === mode
+                            ? { backgroundColor: '#1E3A5F', color: '#fff', borderColor: '#1E3A5F' }
+                            : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }
+                        }
+                      >
+                        {mode === 'EMAIL' ? 'Email' : mode === 'SMS' ? 'SMS / WhatsApp' : 'Both'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={messageId} className="text-sm font-medium text-gray-700">
+                    Message<span className="text-red-400 ml-0.5">*</span>
+                  </label>
+                  <textarea
+                    id={messageId}
+                    value={form.message}
+                    onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+                    placeholder="Tell us about your chit fund — number of groups, members, how you currently manage it..."
+                    required
+                    maxLength={2000}
+                    rows={4}
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F] bg-white resize-none transition-all"
+                  />
+                  <p className="text-xs text-gray-400 text-right">{form.message.length}/2000</p>
+                </div>
+                {status === 'error' && (
+                  <p className="text-xs text-red-500">{errorMsg}</p>
+                )}
+                <motion.button
+                  type="submit"
+                  disabled={status === 'sending'}
+                  className="w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity disabled:opacity-70 cursor-pointer"
+                  style={{ backgroundColor: P }}
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {status === 'sending' ? 'Sending…' : 'Send Message'}
+                </motion.button>
+              </form>
+            )}
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 export default function LandingPage() {
   const navigate = useNavigate();
   const [scrollY, setScrollY] = useState(0);
@@ -1741,6 +1903,9 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Contact / Get in touch ── */}
+      <ContactSection />
+
       {/* ── Final CTA ── */}
       <section className="relative py-24 sm:py-40 px-4 sm:px-8 text-center overflow-hidden" style={{ backgroundColor: P }}>
         <div className="absolute inset-0 pointer-events-none"
@@ -1785,6 +1950,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-6">
             <button onClick={() => navigate('/login')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Sign in</button>
             <button onClick={() => navigate('/register')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Register</button>
+            <button onClick={() => navigate('/about')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">How It Works</button>
             <button onClick={() => navigate('/privacy')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Privacy Policy</button>
             <button onClick={() => navigate('/terms')} className="text-sm text-gray-400 hover:text-gray-600 cursor-pointer">Terms</button>
           </div>

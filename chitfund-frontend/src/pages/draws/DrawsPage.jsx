@@ -54,7 +54,7 @@ function SkipDrawModal({ chit, chitId, draws, onClose }) {
       monthNumber: form.monthNumber,
       dueDate: form.dueDate,
       installmentAmount: Number(chit?.installmentAmount ?? 0),
-      maxCycles: chit?.totalMembers ?? nextNum,
+      maxCycles: chit?.capacity ?? nextNum,
       skipReason: form.skipReason,
       members: [...new Set(enrollments.map((e) => e.memberId ?? e.id))].map((id) => ({
         memberId: id, amountDue: Number(chit?.installmentAmount ?? 0),
@@ -174,7 +174,7 @@ function DrawsPanel({ chit, chitId, isAdmin }) {
   });
 
   const today = new Date();
-  const totalSlots  = chit?.totalMembers ?? 0;
+  const totalSlots  = chit?.capacity ?? 0;
   const realDraws   = draws.filter((d) => d.status !== 'SKIPPED').length;
   const skipped     = draws.filter((d) => d.status === 'SKIPPED').length;
   const allUsed     = totalSlots > 0 && realDraws >= totalSlots;
@@ -526,7 +526,7 @@ export default function DrawsPage() {
                     {isSelected && <ChevronRight size={14} className="text-[#1E3A5F] flex-shrink-0" />}
                   </div>
                   <p className="text-xs text-gray-400 ml-10">
-                    ₹{(c.installmentAmount ?? 0).toLocaleString('en-IN')} · {c.totalMembers} members
+                    ₹{(c.installmentAmount ?? 0).toLocaleString('en-IN')} · {c.capacity} members
                   </p>
                 </button>
               );

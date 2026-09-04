@@ -239,6 +239,58 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userService.updatePhone(user.getId(), req.getPhone(), cc)));
     }
 
+    // ── Admin support phone number (OTP-verified) ────────────────────────────
+
+    @PostMapping("/me/support-number/send-otp")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> sendSupportNumberOtp(
+            @Valid @RequestBody SendPhoneOtpRequest req, HttpServletRequest httpRequest) {
+        if (!rateLimiterService.tryConsumeForgot(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
+        }
+        otpService.sendOtp(req.getPhone(), req.getCountryCode(), "SUPPORT_NUMBER", null);
+        return ResponseEntity.ok(ApiResponse.success(null, "OTP sent to " + req.getPhone()));
+    }
+
+    @PostMapping("/me/support-number/verify")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> verifySupportNumber(
+            @RequestBody Map<String, String> body) {
+        String phone = body.get("phone");
+        String code = body.get("code");
+        String countryCode = body.getOrDefault("countryCode", "+91");
+        otpService.verifyOtp(phone, "SUPPORT_NUMBER", code);
+        tenantService.saveSupportPhoneNumber(TenantContext.get(), phone, countryCode);
+        return ResponseEntity.ok(ApiResponse.success(null, "Support number saved"));
+    }
+
+    @GetMapping("/tenant/support-contact")
+    public ResponseEntity<ApiResponse<Map<String, String>>> getSupportContact() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.success(tenantService.getSupportContact(tenantId)));
+    }
+
+    // ── Admin org details (name + reg number, self-service) ──────────────────
+
+    @GetMapping("/me/org-settings")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOrgSettings() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        return ResponseEntity.ok(ApiResponse.success(tenantService.getOrgSettings(tenantId)));
+    }
+
+    @PatchMapping("/me/org-details")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> updateOrgDetails(
+            @RequestBody Map<String, String> body) {
+        String orgName = body.get("orgName");
+        String businessRegNumber = body.get("businessRegNumber");
+        tenantService.updateAdminOrgDetails(TenantContext.get(), orgName, businessRegNumber);
+        return ResponseEntity.ok(ApiResponse.success(null, "Organization details updated"));
+    }
+
     // ── Member login / setup-link management ─────────────────────────────────
 
     /**

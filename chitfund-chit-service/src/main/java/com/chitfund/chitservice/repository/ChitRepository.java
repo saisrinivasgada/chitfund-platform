@@ -15,6 +15,9 @@ import java.util.UUID;
 
 public interface ChitRepository extends JpaRepository<Chit, UUID> {
 
+    // ── Tenant-scoped single-entity lookup ────────────────────────────────────
+    java.util.Optional<Chit> findByIdAndTenantIdAndDeletedAtIsNull(UUID id, String tenantId);
+
     // ── Tenant-scoped list queries ─────────────────────────────────────────────
     Page<Chit> findByTenantIdAndDeletedAtIsNull(String tenantId, Pageable pageable);
     Page<Chit> findByTenantIdAndStatusAndDeletedAtIsNull(String tenantId, ChitStatus status, Pageable pageable);

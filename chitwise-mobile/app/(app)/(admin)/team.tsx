@@ -20,13 +20,13 @@ type Role = typeof ROLES[number];
 
 const ROLE_STYLE: Record<Role, { bg: string; text: string; accent: string }> = {
   ADMIN:   { bg: C.navy50,  text: C.navy,     accent: C.navy },
-  MANAGER: { bg: '#F5F3FF', text: '#7C3AED',  accent: '#7C3AED' },
+  MANAGER: { bg: C.navy50,  text: C.navy,     accent: C.navy },
   STAFF:   { bg: '#FEF3C7', text: C.amber,    accent: C.amber },
 };
 
 const REQUEST_STATUS: Record<string, { label: string; color: string; bg: string }> = {
   PENDING:   { label: 'Pending',    color: '#D97706', bg: '#FEF3C7' },
-  ASSIGNED:  { label: 'Assigned',   color: '#2563EB', bg: '#EFF6FF' },
+  ASSIGNED:  { label: 'Assigned',   color: C.navyLight, bg: C.navy50 },
   PICKED_UP: { label: 'Picked Up',  color: '#16A34A', bg: '#F0FDF4' },
   COLLECTED: { label: 'Collected',  color: '#16A34A', bg: '#F0FDF4' },
   CANCELLED: { label: 'Cancelled',  color: '#9CA3AF', bg: '#F3F4F6' },
@@ -290,7 +290,7 @@ export default function AdminTeamScreen() {
                     </Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: pendingBatches.length > 0 ? '#FFF7ED' : C.gray50, borderRadius: 14, padding: 12, borderWidth: 1.5, borderColor: pendingBatches.length > 0 ? '#FDBA74' : C.gray200 }}>
-                    <Text style={{ fontSize: 22, fontWeight: '800', color: pendingBatches.length > 0 ? '#EA580C' : C.gray400 }}>
+                    <Text style={{ fontSize: 22, fontWeight: '800', color: pendingBatches.length > 0 ? C.amber : C.gray400 }}>
                       {pendingBatches.length}
                     </Text>
                     <Text style={{ fontSize: 11, color: pendingBatches.length > 0 ? '#9A3412' : C.gray500, marginTop: 2, lineHeight: 14 }}>

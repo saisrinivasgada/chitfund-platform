@@ -138,7 +138,7 @@ function CashPickupTrailModal({ request, workerName, memberMap = {}, onClose }) 
                 request.status === 'COLLECTED' ? 'bg-green-100 text-green-700' :
                 request.status === 'PICKED_UP' ? 'bg-green-100 text-green-700' :
                 request.status === 'CANCELLED' ? 'bg-gray-100 text-gray-500' :
-                'bg-blue-100 text-blue-700'
+                'bg-[#EEF2F8] text-[#1E3A5F]'
               }`}>
                 {STATUS_BADGE[request.status]?.label ?? request.status}
               </span>
@@ -602,7 +602,7 @@ export default function StaffDetailPage() {
                   <button
                     type="button"
                     onClick={() => setShowEditPhone(true)}
-                    className="text-xs text-indigo-600 hover:underline ml-1"
+                    className="text-xs hover:underline ml-1" style={{ color: '#1E3A5F' }}
                   >
                     Edit
                   </button>
@@ -613,7 +613,7 @@ export default function StaffDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowEditPhone(true)}
-                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+                className="flex items-center gap-1.5 text-sm hover:underline" style={{ color: '#1E3A5F' }}
               >
                 <Phone size={14} />
                 Add phone number
@@ -632,7 +632,7 @@ export default function StaffDetailPage() {
             <button
               type="button"
               onClick={() => setShowEditPhone(true)}
-              className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+              className="flex items-center gap-1.5 text-sm hover:underline" style={{ color: '#1E3A5F' }}
             >
               <Phone size={14} />
               Add phone number

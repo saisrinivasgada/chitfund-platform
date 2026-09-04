@@ -31,8 +31,30 @@ SERVICES=(
   "notification-service:chitfund-notification-service/target/notification-service-1.0.0-SNAPSHOT.jar:8086"
   "reporting-service:chitfund-reporting-service/target/reporting-service-1.0.0-SNAPSHOT.jar:8087"
   "audit-service:chitfund-audit-service/target/audit-service-1.0.0-SNAPSHOT.jar:8088"
+  "management-service:chitwise-management-service/target/management-service-1.0.0-SNAPSHOT.jar:8091"
   "api-gateway:chitfund-api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar:8080"
 )
+
+start_redis() {
+  if lsof -i ":6379" -sTCP:LISTEN -t &>/dev/null; then
+    echo "  SKIP  redis — already running on :6379"
+    return
+  fi
+  if command -v redis-server &>/dev/null; then
+    nohup redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru > "$LOGS/redis.log" 2>&1 &
+    echo "  START redis  →  :6379  (log: logs/redis.log)"
+  else
+    echo "  WARN  redis-server not found — install with: brew install redis"
+  fi
+}
+
+stop_redis() {
+  pids=$(pgrep -x redis-server 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    kill -9 $pids 2>/dev/null || true
+    echo "  STOP  redis (pid $pids)"
+  fi
+}
 
 start_frontend() {
   local port=3000
@@ -55,6 +77,7 @@ stop_frontend() {
 start_services() {
   mkdir -p "$LOGS"
   echo "Starting all services..."
+  start_redis
   start_frontend
   for entry in "${SERVICES[@]}"; do
     IFS=':' read -r name jar port <<< "$entry"
@@ -77,6 +100,7 @@ start_services() {
 
 stop_services() {
   echo "Stopping all services..."
+  stop_redis
   stop_frontend
   local killed=0
   for entry in "${SERVICES[@]}"; do

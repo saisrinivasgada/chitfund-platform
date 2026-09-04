@@ -271,7 +271,7 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse voidPayment(UUID batchId, VoidPaymentRequest request, UUID adminId) {
-        PaymentBatch batch = batchRepository.findById(batchId)
+        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, tenantId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Payment batch not found: " + batchId));
 
@@ -489,7 +489,7 @@ public class PaymentService {
 
     @Transactional
     public PaymentRecordResponse updatePromisedDate(UUID recordId, java.time.LocalDate date) {
-        PaymentRecord record = paymentRecordRepository.findById(recordId)
+        PaymentRecord record = paymentRecordRepository.findByIdAndTenantId(recordId, tenantId())
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("PaymentRecord", recordId));
         record.setPromisedPaymentDate(date);
         paymentRecordRepository.save(record);

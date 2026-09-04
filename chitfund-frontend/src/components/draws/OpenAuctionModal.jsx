@@ -121,8 +121,8 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
   const [commissionValue, setCommissionValue] = useState('');
   const [showCommissionToMembers, setShowCommissionToMembers] = useState(false);
 
-  const fallbackPayout = chit?.installmentAmount && chit?.totalMembers
-    ? (Number(chit.installmentAmount) * Number(chit.totalMembers)).toString()
+  const fallbackPayout = chit?.installmentAmount && chit?.capacity
+    ? (Number(chit.installmentAmount) * Number(chit.capacity)).toString()
     : '';
 
   const [form, setForm] = useState({ scheduledPayoutAmount: fallbackPayout });

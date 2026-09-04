@@ -29,7 +29,7 @@ function fmtAmt(v) { return '₹' + Number(v ?? 0).toLocaleString('en-IN'); }
 function PayoutStatusBadge({ status }) {
   const cfg = {
     PENDING:             { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
-    PARTIALLY_DISBURSED: { label: 'Partial',   cls: 'bg-blue-100 text-blue-700' },
+    PARTIALLY_DISBURSED: { label: 'Partial',   cls: 'bg-[#EEF2F8] text-[#1E3A5F]' },
     DISBURSED:           { label: 'Disbursed', cls: 'bg-green-100 text-green-700' },
     CANCELLED:           { label: 'Cancelled', cls: 'bg-gray-100 text-gray-500' },
   }[status] ?? { label: status, cls: 'bg-gray-100 text-gray-500' };
@@ -349,7 +349,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
             {disbursed > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Disbursed so far</span>
-                <span className="font-medium text-blue-700">{h(disbursed)}</span>
+                <span className="font-medium" style={{ color: '#1E3A5F' }}>{h(disbursed)}</span>
               </div>
             )}
             {remaining > 0 && payout.status !== 'DISBURSED' && (
@@ -405,7 +405,7 @@ function PayoutDetailModal({ payout, memberName, chitName, onClose }) {
                 </div>
               ))}
               {payout.status === 'PARTIALLY_DISBURSED' && (
-                <p className="text-xs text-blue-600 font-medium pt-1">
+                <p className="text-xs font-medium pt-1" style={{ color: '#1E3A5F' }}>
                   {hidden ? '••••••' : `₹${Number(payout.disbursedAmount).toLocaleString('en-IN')}`} disbursed · {hidden ? '••••••' : `₹${Number(payout.remainingAmount).toLocaleString('en-IN')}`} remaining
                 </p>
               )}
@@ -568,7 +568,7 @@ function DisburseModal({ payout, memberName, onClose }) {
           )}
 
           {alreadyDisbursed > 0 && (
-            <div className="text-xs text-blue-700 border-t border-green-200 pt-1.5 flex justify-between">
+            <div className="text-xs border-t border-green-200 pt-1.5 flex justify-between" style={{ color: '#1E3A5F' }}>
               <span>Already disbursed</span>
               <span><strong>{h(alreadyDisbursed)}</strong> · Remaining: <strong>{h(remainingAmount)}</strong></span>
             </div>
@@ -762,7 +762,7 @@ function PendingPayoutsTab() {
                   <Td>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                       chit?.status === 'ACTIVE' ? 'bg-green-100 text-green-700'
-                      : chit?.status === 'COMPLETED' ? 'bg-blue-100 text-blue-700'
+                      : chit?.status === 'COMPLETED' ? 'bg-[#EEF2F8] text-[#1E3A5F]'
                       : chit?.status === 'PAUSED' ? 'bg-amber-100 text-amber-700'
                       : 'bg-gray-100 text-gray-500'
                     }`}>
@@ -874,7 +874,7 @@ function PendingTab() {
                   <Td className="font-medium text-gray-900">{mName}</Td>
                   <Td className="font-semibold">D{p.monthNumber}</Td>
                   <Td className="font-bold text-green-700">{h(p.netPayoutAmount ?? p.winningAmount)}</Td>
-                  <Td className="text-blue-700 font-medium">
+                  <Td className="font-medium" style={{ color: '#1E3A5F' }}>
                     {isPartial ? h(p.disbursedAmount) : '—'}
                   </Td>
                   <Td className="text-amber-700 font-medium">
@@ -884,7 +884,7 @@ function PendingTab() {
                     <div className="flex flex-col gap-1 items-start">
                       <PayoutStatusBadge status={p.status} />
                       {createdByManager && (
-                        <span className="inline-flex items-center gap-1 text-xs text-purple-700 font-medium bg-purple-50 px-1.5 py-0.5 rounded">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium bg-[#EEF2F8] px-1.5 py-0.5 rounded" style={{ color: '#1E3A5F' }}>
                           <Shield size={10} className="flex-shrink-0" />
                           {creator.fullName ?? creator.username ?? 'Manager'}
                         </span>
@@ -995,7 +995,7 @@ function AllPayoutsTab() {
                   <Td className="font-semibold">D{p.monthNumber}</Td>
                   <Td className="font-medium text-gray-900">{mName}</Td>
                   <Td className="font-semibold text-green-700">{h(p.netPayoutAmount ?? p.winningAmount)}</Td>
-                  <Td className="text-blue-700">
+                  <Td className="" style={{ color: '#1E3A5F' }}>
                     {alreadyDisbursed > 0 ? h(alreadyDisbursed) : '—'}
                   </Td>
                   <Td className="text-amber-700">

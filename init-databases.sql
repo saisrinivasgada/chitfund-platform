@@ -19,4 +19,7 @@ GRANT ALL PRIVILEGES ON chitfund_payout.*       TO 'chitfund'@'%';
 GRANT ALL PRIVILEGES ON chitfund_notification.* TO 'chitfund'@'%';
 GRANT ALL PRIVILEGES ON chitfund_audit.*        TO 'chitfund'@'%';
 GRANT ALL PRIVILEGES ON chitfund_reporting.*    TO 'chitfund'@'%';
+CREATE DATABASE IF NOT EXISTS chitwise_management    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+GRANT ALL PRIVILEGES ON chitwise_management.*       TO 'chitfund'@'%';
 FLUSH PRIVILEGES;

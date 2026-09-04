@@ -29,7 +29,7 @@ const CHIT_STATUS_STYLE = {
   ACTIVE:    { text: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0', label: 'Active' },
   COMPLETED: { text: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB', label: 'Completed' },
   PAUSED:    { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: 'Paused' },
-  PENDING:   { text: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE', label: 'Pending' },
+  PENDING:   { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A', label: 'Pending' },
   DRAFT:     { text: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', label: 'Draft' },
 };
 
@@ -38,8 +38,8 @@ const MONTH_STATUS = {
   PARTIALLY_PAID:     { dot: '#D97706', circleBg: '#FEF3C7', circleText: '#92400E', bg: '#FFFBEB', border: '#FDE68A', text: '#B45309', label: 'Partial' },
   OUTSTANDING:        { dot: '#B91C1C', circleBg: '#FEE2E2', circleText: '#991B1B', bg: '#FFF9F9', border: '#FECACA', text: '#B91C1C', label: 'Outstanding' },
   WAIVED:             { dot: '#9CA3AF', circleBg: '#F3F4F6', circleText: '#4B5563', bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Waived' },
-  PAYOUT_DEDUCTED:    { dot: '#7C3AED', circleBg: '#EDE9FE', circleText: '#5B21B6', bg: '#F5F3FF', border: '#DDD6FE', text: '#6D28D9', label: 'Payout Deducted' },
-  SETTLEMENT_CLEARED: { dot: '#0F766E', circleBg: '#CCFBF1', circleText: '#065F46', bg: '#F0FDFA', border: '#99F6E4', text: '#0F766E', label: 'Settlement Cleared' },
+  PAYOUT_DEDUCTED:    { dot: '#1E3A5F', circleBg: '#EEF2F8', circleText: '#1E3A5F', bg: '#EEF2F8', border: '#CBD5E1', text: '#1E3A5F', label: 'Payout Deducted' },
+  SETTLEMENT_CLEARED: { dot: '#16A34A', circleBg: '#DCFCE7', circleText: '#15803D', bg: '#F0FDF4', border: '#BBF7D0', text: '#15803D', label: 'Settlement Cleared' },
 };
 
 // ─── Payout detail modal (full admin-style breakdown) ─────────────────────────
@@ -300,7 +300,7 @@ export default function MemberChitDetailPage() {
       {/* Header card */}
       <div
         className="rounded-2xl p-5 shadow-sm"
-        style={{ background: 'linear-gradient(90deg, #1E3A5F 0%, #2563EB 100%)' }}
+        style={{ background: 'linear-gradient(90deg, #1E3A5F 0%, #2D5490 100%)' }}
       >
         <div className="flex items-center gap-3">
           <div
@@ -349,7 +349,7 @@ export default function MemberChitDetailPage() {
 
       {/* Meta pills */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <InfoPill icon={Users}       label="Members"    value={chit.totalMembers ?? '—'} />
+        <InfoPill icon={Users}       label="Members"    value={chit.capacity ?? '—'} />
         <InfoPill icon={CalendarDays} label="Start Date" value={fmt(chit.startDate)} />
         <InfoPill icon={CalendarDays} label="End Date"   value={fmt(chit.endDate)} />
         <InfoPill icon={TrendingUp}  label="Draws Done" value={`${history.length} / ${chit.durationMonths ?? '—'}`} />
@@ -591,11 +591,11 @@ export default function MemberChitDetailPage() {
                         {draw.totalCollected > 0 && ` · Collected ${ha(draw.totalCollected)}`}
                       </p>
                     </div>
-                    {draw.totalMembers > 0 && (
+                    {draw.capacity > 0 && (
                       <div className="text-right flex-shrink-0 text-xs text-gray-400">
                         <div className="flex items-center gap-1">
                           <CheckCircle size={11} className="text-green-500" />
-                          {draw.settledCount}/{draw.totalMembers}
+                          {draw.settledCount}/{draw.capacity}
                         </div>
                       </div>
                     )}

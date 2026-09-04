@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, saveDeviceToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, saveDeviceToken, adminForgotPassword, adminVerifyResetOtp, adminResetPassword } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
@@ -21,6 +21,153 @@ function validatePassword(pw) {
   if (!/[0-9]/.test(pw)) return 'Must contain at least one number';
   if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain at least one special character';
   return null;
+}
+
+/* ── Admin email-OTP password reset — 3-step flow ── */
+function AdminForgotPasswordFlow({ onClose }) {
+  const [step, setStep]               = useState('email'); // 'email' | 'otp' | 'password' | 'done'
+  const [email, setEmail]             = useState('');
+  const [otp, setOtp]                 = useState('');
+  const [resetToken, setResetToken]   = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [showPass, setShowPass]       = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState('');
+  const [resendTimer, setResendTimer] = useState(0);
+  const resendRef = useRef(null);
+  useEffect(() => () => clearInterval(resendRef.current), []);
+
+  function startResend(secs) {
+    setResendTimer(secs);
+    clearInterval(resendRef.current);
+    resendRef.current = setInterval(() => {
+      setResendTimer((t) => { if (t <= 1) { clearInterval(resendRef.current); return 0; } return t - 1; });
+    }, 1000);
+  }
+
+  const inputCls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]';
+
+  async function handleSendOtp(e) {
+    e.preventDefault();
+    if (!email.trim()) { setError('Enter your email address'); return; }
+    setError(''); setLoading(true);
+    try {
+      await adminForgotPassword(email.trim());
+      startResend(60);
+      setStep('otp');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Something went wrong. Please try again.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleVerifyOtp(e) {
+    e.preventDefault();
+    if (otp.length !== 6) { setError('Enter the 6-digit OTP'); return; }
+    setError(''); setLoading(true);
+    try {
+      const data = await adminVerifyResetOtp(email.trim(), otp);
+      setResetToken(data.resetToken);
+      setStep('password');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Invalid or expired OTP. Please try again.');
+      setOtp('');
+    } finally { setLoading(false); }
+  }
+
+  async function handleReset(e) {
+    e.preventDefault();
+    if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
+    const pwErr = validatePassword(newPassword);
+    if (pwErr) { setError(pwErr); return; }
+    setError(''); setLoading(true);
+    try {
+      await adminResetPassword(resetToken, newPassword);
+      setStep('done');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Reset failed. Please start over.');
+    } finally { setLoading(false); }
+  }
+
+  if (step === 'done') return (
+    <div className="mt-5 px-4 py-5 rounded-xl border border-green-200 bg-green-50">
+      <div className="flex items-start gap-3">
+        <CheckCircle size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-green-900 mb-1">Password reset successfully!</p>
+          <p className="text-sm text-green-700">Sign in with your new password.</p>
+          <button type="button" onClick={onClose}
+            className="mt-2 text-xs font-medium text-green-700 underline cursor-pointer">← Back to sign in</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (step === 'password') return (
+    <div className="mt-5 space-y-4">
+      <p className="text-sm font-semibold text-gray-700">Set a new password</p>
+      <form onSubmit={handleReset} className="space-y-4">
+        <div className="relative">
+          <input type={showPass ? 'text' : 'password'} value={newPassword}
+            onChange={(e) => { setNewPassword(e.target.value); setError(''); }}
+            placeholder="At least 8 characters" required className={`${inputCls} pr-10`} />
+          <button type="button" onClick={() => setShowPass((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer">
+            {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
+        <input type={showPass ? 'text' : 'password'} value={confirmPass}
+          onChange={(e) => { setConfirmPass(e.target.value); setError(''); }}
+          placeholder="Confirm password" required className={inputCls} />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <Button type="submit" loading={loading} className="w-full">Set New Password</Button>
+      </form>
+    </div>
+  );
+
+  if (step === 'otp') return (
+    <div className="mt-5 space-y-4">
+      <div className="px-4 py-3 rounded-xl border border-blue-200 bg-blue-50">
+        <p className="text-sm text-blue-700">OTP sent to <span className="font-semibold">{email}</span>. Check your inbox.</p>
+      </div>
+      <form onSubmit={handleVerifyOtp} className="space-y-3">
+        <input type="text" inputMode="numeric" maxLength={6} value={otp}
+          onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); setError(''); }}
+          placeholder="6-digit code" autoFocus
+          className={`${inputCls} tracking-widest text-center text-lg font-mono`} />
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <Button type="submit" loading={loading} disabled={otp.length !== 6} className="w-full">Verify OTP</Button>
+        <div className="flex justify-between text-xs text-gray-400">
+          {resendTimer > 0
+            ? <span>Resend in {resendTimer}s</span>
+            : <button type="button" onClick={() => { setStep('email'); setOtp(''); setError(''); }}
+                className="hover:text-gray-600 cursor-pointer">← Resend OTP</button>
+          }
+          <button type="button" onClick={() => { setStep('email'); setOtp(''); setError(''); }}
+            className="hover:text-gray-600 cursor-pointer">Start over</button>
+        </div>
+      </form>
+    </div>
+  );
+
+  return (
+    <div className="mt-5 space-y-4">
+      <p className="text-sm text-gray-600 font-medium">Reset your admin password</p>
+      <form onSubmit={handleSendOtp} className="space-y-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-gray-700">Email address</label>
+          <input type="email" value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            placeholder="your-email@example.com" required className={inputCls} autoFocus />
+          <p className="text-xs text-gray-400">Enter the email registered to your admin account.</p>
+        </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <Button type="submit" loading={loading} className="w-full">Send OTP</Button>
+        <button type="button" onClick={onClose}
+          className="w-full text-xs text-gray-400 hover:text-gray-600 cursor-pointer">← Back to sign in</button>
+      </form>
+    </div>
+  );
 }
 
 /* ── Forgot password — 4-step flow ── */
@@ -769,7 +916,9 @@ export default function LoginPage() {
               {step === 'login' && (
                 <div>
                   {showOtpReset ? (
-                    <ForgotPasswordFlow onClose={() => setShowOtpReset(false)} />
+                    selectedRole?.key === 'admin'
+                      ? <AdminForgotPasswordFlow onClose={() => setShowOtpReset(false)} />
+                      : <ForgotPasswordFlow onClose={() => setShowOtpReset(false)} />
                   ) : (
                     <>
                       {/* Back button + role badge */}

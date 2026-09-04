@@ -52,6 +52,12 @@ public class Tenant {
     @Column(length = 20)
     private String contactPhone;
 
+    @Column(length = 30)
+    private String supportPhoneNumber;
+
+    @Column(length = 100)
+    private String businessRegNumber;
+
     @Column(length = 100)
     private String contactEmail;
 

@@ -20,6 +20,8 @@ public class TenantResponse {
     private LocalDateTime renewalRequestedAt;
     private String contactPhone;
     private String contactEmail;
+    private String supportPhoneNumber;
+    private String businessRegNumber;
     private long memberCount;
     private LocalDateTime createdAt;
     private String referralCode;

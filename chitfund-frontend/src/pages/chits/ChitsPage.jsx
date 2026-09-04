@@ -212,7 +212,7 @@ function CreateChitModal({ onClose }) {
     });
   }
 
-  const STEP_LABELS = ['Type', 'Details', 'Contribution', 'Schedule'];
+  const STEP_LABELS = ['Type', 'Details', 'Contribution', 'Payout Plan'];
   const fmtINR = (n) => n ? Number(n).toLocaleString('en-IN') : null;
 
   return (
@@ -275,7 +275,7 @@ function CreateChitModal({ onClose }) {
                     <div className="flex items-center gap-2">
                       <p className={`font-semibold text-sm ${selected ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{label}</p>
                       {!onPlan && (
-                        <span className="text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA' }}>
                           Not on your plan
                         </span>
                       )}
@@ -500,11 +500,13 @@ function CreateChitModal({ onClose }) {
         </div>
       )}
 
-      {/* ── Step 4: Reservation Schedule ─────────────────────────────────── */}
+      {/* ── Step 4: Payout Plan ───────────────────────────────────────────── */}
       {step === 4 && (
         <div className="space-y-4">
           <p className="text-sm text-gray-500">
-            Assign who receives the payout each month. Member is optional — slots can stay unallocated and be filled later.
+            {chitType === 'RESERVATION'
+              ? 'Assign who receives the payout each month. Member is optional — slots can stay unallocated and be filled later.'
+              : 'Set the payout amount for each draw month. Members are enrolled separately after creation.'}
           </p>
 
           {/* Warn when slots exist but no start date — month labels won't be included on submit */}
@@ -534,7 +536,7 @@ function CreateChitModal({ onClose }) {
                     <tr className="border-b border-gray-200">
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide w-10">#</th>
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Draw</th>
-                      <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
+                      {chitType === 'RESERVATION' && <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>}
                       <th className="text-left px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Payout (₹)</th>
                       <th className="w-8 px-2 py-2.5" />
                     </tr>
@@ -556,6 +558,7 @@ function CreateChitModal({ onClose }) {
                               {row.label}
                             </span>
                           </td>
+                          {chitType === 'RESERVATION' && (
                           <td className="px-3 py-2">
                             {(() => {
                               const orgHeld = Number(basic.orgHeldSpotsCount) || 0;
@@ -580,6 +583,7 @@ function CreateChitModal({ onClose }) {
                               );
                             })()}
                           </td>
+                          )}
                           <td className="px-3 py-2">
                             <Input type="number" min="0" placeholder="e.g. 45000"
                               value={row.payoutAmount}
@@ -634,7 +638,7 @@ function CreateChitModal({ onClose }) {
 
 // ─── Chit Card (board view) ───────────────────────────────────────────────────
 function ChitCard({ chit, onClick, isBehind }) {
-  const totalAmount = chit.chitValue ?? chit.totalAmount ?? (chit.installmentAmount ?? 0) * (chit.totalMembers ?? 0);
+  const totalAmount = chit.chitValue ?? chit.totalAmount ?? (chit.installmentAmount ?? 0) * (chit.capacity ?? 0);
   const isCompleted = chit.status === 'COMPLETED';
   const isAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
 
@@ -706,12 +710,12 @@ function ChitCard({ chit, onClick, isBehind }) {
           </div>
           <div className="flex items-center gap-1 text-gray-500">
             <Users size={11} />
-            <span className="font-medium text-gray-700">{chit.totalMembers}</span>
+            <span className="font-medium text-gray-700">{chit.capacity}</span>
           </div>
           {(chit.chitType ?? chit.winnerSelectionMode) && (() => {
             const type = chit.chitType ?? chit.winnerSelectionMode;
-            const typeStyle = type === 'RESERVATION' ? 'text-blue-600 bg-blue-50'
-              : type === 'LOTTERY' ? 'text-purple-600 bg-purple-50'
+            const typeStyle = type === 'RESERVATION' ? 'text-purple-700 bg-purple-50'
+              : type === 'LOTTERY' ? 'text-[#1E3A5F] bg-[#EEF2F8]'
               : type === 'AUCTION' ? 'text-amber-600 bg-amber-50'
               : 'text-gray-500 bg-gray-100';
             return (
@@ -755,10 +759,12 @@ const COL_INITIAL = 8;
 // ─── Board View ───────────────────────────────────────────────────────────────
 function BoardView({ chits, onChitClick, behindChitIds }) {
   const [colExpanded, setColExpanded] = useState({});
+  const hasPaused = chits.some((c) => c.status === 'PAUSED');
+  const visibleColumns = BOARD_COLUMNS.filter((col) => col.status !== 'PAUSED' || hasPaused);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {BOARD_COLUMNS.map((col) => {
+    <div className={`grid grid-cols-1 gap-4 ${hasPaused ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      {visibleColumns.map((col) => {
         const items = chits.filter((c) => (c.status ?? 'DRAFT') === col.status);
         const expanded = colExpanded[col.status] ?? false;
         const visible = expanded ? items : items.slice(0, COL_INITIAL);
@@ -906,13 +912,13 @@ function ListView({ chits, onChitClick, behindChitIds, page, setPage }) {
                 <Td>{(() => {
                   const type = c.chitType ?? c.winnerSelectionMode;
                   if (!type) return '—';
-                  const typeStyle = type === 'RESERVATION' ? 'text-blue-600 bg-blue-50'
-                    : type === 'LOTTERY' ? 'text-purple-600 bg-purple-50'
+                  const typeStyle = type === 'RESERVATION' ? 'text-purple-700 bg-purple-50'
+                    : type === 'LOTTERY' ? 'text-[#1E3A5F] bg-[#EEF2F8]'
                     : type === 'AUCTION' ? 'text-amber-600 bg-amber-50'
                     : 'text-gray-500 bg-gray-100';
                   return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${typeStyle}`}>{MODE_LABELS[type] ?? type}</span>;
                 })()}</Td>
-                <Td>{c.totalMembers}</Td>
+                <Td>{c.capacity}</Td>
                 <Td className="font-semibold">₹{c.installmentAmount?.toLocaleString()}</Td>
                 <Td>{c.startDate ?? '—'}</Td>
                 <Td>
@@ -983,7 +989,7 @@ function MoreListItem({ chit, onClick }) {
         </div>
         {chit.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{chit.description}</p>}
         <p className="text-xs text-gray-400 mt-0.5">
-          ₹{chit.chitValue?.toLocaleString()} &middot; {chit.totalMembers} members
+          ₹{chit.chitValue?.toLocaleString()} &middot; {chit.capacity} members
           {chit.startDate ? ` · ${chit.startDate}` : ''}
         </p>
       </div>

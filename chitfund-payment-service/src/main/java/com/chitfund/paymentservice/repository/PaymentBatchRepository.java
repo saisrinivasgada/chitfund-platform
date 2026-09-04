@@ -22,8 +22,8 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     Optional<PaymentBatch> findByIdempotencyKey(String idempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id")
-    Optional<PaymentBatch> findByIdForUpdate(@Param("id") UUID id);
+    @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id AND b.tenantId = :tenantId")
+    Optional<PaymentBatch> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
     // ── Tenant-scoped list queries (primary paths) ────────────────────────────
 

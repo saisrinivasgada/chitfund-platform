@@ -26,6 +26,7 @@
     <module>chitfund-notification-service</module>
     <module>chitfund-audit-service</module>
     <module>chitfund-reporting-service</module>
+    <module>chitwise-management-service</module>
   </modules>
 
 </project>

@@ -14,6 +14,8 @@ public interface AuctionSessionRepository extends JpaRepository<AuctionSession, 
 
     Optional<AuctionSession> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
+    Optional<AuctionSession> findByIdAndChitIdAndTenantId(UUID id, UUID chitId, String tenantId);
+
     List<AuctionSession> findByChitIdOrderByMonthNumberAsc(UUID chitId);
 
     boolean existsByChitIdAndMonthNumberAndStatus(UUID chitId, Integer monthNumber, AuctionStatus status);

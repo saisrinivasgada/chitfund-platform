@@ -4,7 +4,7 @@ import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '⌂', chits: '≡', requests: '◉', payouts: '₹', payments: '⊡' };
+  const icons: Record<string, string> = { index: '⌂', chits: '≡', invitations: '✉', requests: '◉', payouts: '₹', payments: '⊡' };
   return (
     <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
       {icons[name] ?? '●'}
@@ -35,11 +35,14 @@ export default function MemberLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       })}
     >
-      <Tabs.Screen name="index"    options={{ title: 'Home' }} />
-      <Tabs.Screen name="chits"    options={{ title: 'My Chits' }} />
-      <Tabs.Screen name="requests" options={{ title: 'Requests' }} />
-      <Tabs.Screen name="payouts"  options={{ title: 'Payouts' }} />
-      <Tabs.Screen name="payments" options={{ title: 'Payments' }} />
+      <Tabs.Screen name="index"       options={{ title: 'Home' }} />
+      <Tabs.Screen name="chits"       options={{ title: 'My Chits' }} />
+      <Tabs.Screen name="invitations" options={{ title: 'Invitations' }} />
+      <Tabs.Screen name="requests"    options={{ title: 'Requests' }} />
+      <Tabs.Screen name="payouts"     options={{ title: 'Payouts' }} />
+      <Tabs.Screen name="payments"    options={{ title: 'Payments' }} />
+      <Tabs.Screen name="messages"    options={{ href: null }} />
+      <Tabs.Screen name="groups"      options={{ href: null }} />
     </Tabs>
   );
 }

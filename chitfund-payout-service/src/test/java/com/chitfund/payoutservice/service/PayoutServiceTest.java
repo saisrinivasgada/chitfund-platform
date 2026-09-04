@@ -1,5 +1,6 @@
 package com.chitfund.payoutservice.service;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.payoutservice.client.AuditClient;
@@ -16,6 +17,7 @@ import com.chitfund.payoutservice.dto.response.PayoutResponse;
 import com.chitfund.payoutservice.kafka.PayoutEventPublisher;
 import com.chitfund.payoutservice.repository.PayoutDisbursementRepository;
 import com.chitfund.payoutservice.repository.PayoutRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -70,6 +72,12 @@ class PayoutServiceTest {
         chitId    = UUID.randomUUID();
         memberId  = UUID.randomUUID();
         payoutId  = UUID.randomUUID();
+        TenantContext.set("test-tenant-id");
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
     }
 
     // ─── Helper builders ──────────────────────────────────────────────────────
@@ -191,7 +199,7 @@ class PayoutServiceTest {
         @DisplayName("full disbursement: disbursedAmount = net, status → DISBURSED")
         void fullDisbursementSetsStatusToDisbursed() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -207,7 +215,7 @@ class PayoutServiceTest {
         @DisplayName("partial disbursement: disburse ₹20k of ₹45k → PARTIALLY_DISBURSED")
         void partialDisbursementSetsStatusToPartiallyDisbursed() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -225,7 +233,7 @@ class PayoutServiceTest {
             Payout payout = pendingPayout(bd(45_000));
             payout.setDisbursedAmount(bd(20_000)); // first instalment already done
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -243,7 +251,7 @@ class PayoutServiceTest {
             Payout payout = pendingPayout(bd(45_000));
             payout.setDisbursedAmount(bd(20_000));
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             // Remaining = 25k. Trying to disburse 30k — must be rejected.
             assertThatThrownBy(() ->
@@ -256,7 +264,7 @@ class PayoutServiceTest {
         @DisplayName("treasury safety: cannot disburse zero or negative amount")
         void rejectsZeroOrNegativeDisbursementAmount() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
                     payoutService.disburse(payoutId, disburseRequest(BigDecimal.ZERO), adminId))
@@ -269,7 +277,7 @@ class PayoutServiceTest {
         void rejectsDisbursementOfCancelledPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
                     payoutService.disburse(payoutId, disburseRequest(null), adminId))
@@ -283,7 +291,7 @@ class PayoutServiceTest {
             Payout payout = pendingPayout(bd(45_000));
             payout.setDisbursedAmount(bd(45_000));
             payout.setStatus(PayoutStatus.DISBURSED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
                     payoutService.disburse(payoutId, disburseRequest(null), adminId))
@@ -295,7 +303,7 @@ class PayoutServiceTest {
         @DisplayName("disbursement records a PayoutDisbursement transaction row")
         void disbursementPersistsTransactionRecord() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             ArgumentCaptor<PayoutDisbursement> txCaptor = ArgumentCaptor.forClass(PayoutDisbursement.class);
             when(disbursementRepository.save(txCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
@@ -315,7 +323,7 @@ class PayoutServiceTest {
         @DisplayName("full disbursement fires PayoutDisbursedEvent; partial does not")
         void fullDisbursementPublishesEvent() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -329,7 +337,7 @@ class PayoutServiceTest {
         @DisplayName("partial disbursement does NOT publish PayoutDisbursedEvent")
         void partialDisbursementDoesNotPublishEvent() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -350,7 +358,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be cancelled")
         void cancelsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -366,7 +374,7 @@ class PayoutServiceTest {
         void rejectsCancelOfDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.DISBURSED);
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -378,7 +386,7 @@ class PayoutServiceTest {
         void rejectsCancelOfPartiallyDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -390,7 +398,7 @@ class PayoutServiceTest {
         void rejectsDoubleCancellation() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -408,7 +416,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be voided")
         void voidsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -425,7 +433,7 @@ class PayoutServiceTest {
         void rejectsVoidOfCancelledPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -436,7 +444,7 @@ class PayoutServiceTest {
         void rejectsDoubleVoid() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.VOIDED);
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -452,7 +460,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("disburse on non-existent payout throws")
         void disburseThrowsWhenPayoutNotFound() {
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.empty());
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
             assertThatThrownBy(() ->
                     payoutService.disburse(payoutId, disburseRequest(null), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -461,7 +469,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("cancel on non-existent payout throws")
         void cancelThrowsWhenPayoutNotFound() {
-            when(payoutRepository.findById(payoutId)).thenReturn(Optional.empty());
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
         }
@@ -479,7 +487,7 @@ class PayoutServiceTest {
             Payout payout = pendingPayout(bd(45_000));
             payout.setDisbursedAmount(bd(44_999)); // ₹1 left
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
@@ -497,7 +505,7 @@ class PayoutServiceTest {
             Payout payout = pendingPayout(bd(45_000));
             payout.setDisbursedAmount(bd(10_000));
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             ArgumentCaptor<PayoutDisbursement> captor = ArgumentCaptor.forClass(PayoutDisbursement.class);
             when(disbursementRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
@@ -537,7 +545,7 @@ class PayoutServiceTest {
         @DisplayName("negative disbursement amount is rejected")
         void negativeDisbursementAmountIsRejected() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdForUpdate(payoutId)).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
                     payoutService.disburse(payoutId, disburseRequest(bd(-100)), adminId))

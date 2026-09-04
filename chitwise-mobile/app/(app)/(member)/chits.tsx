@@ -11,8 +11,8 @@ const MONTH_STATUS_COLOR: Record<string, string> = {
   PARTIALLY_PAID:      C.amber,
   OUTSTANDING:         C.red,
   WAIVED:              C.gray400,
-  PAYOUT_DEDUCTED:     '#7C3AED',
-  SETTLEMENT_CLEARED:  '#0F766E',
+  PAYOUT_DEDUCTED:     C.navy,
+  SETTLEMENT_CLEARED:  C.green,
 };
 
 const MONTH_STATUS_LABEL: Record<string, string> = {
@@ -182,6 +182,21 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
             <TouchableOpacity onPress={onClose} style={{ paddingLeft: 16 }}>
               <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* 4-stat info strip */}
+          <View style={{ flexDirection: 'row', backgroundColor: C.navy, paddingVertical: 12, paddingHorizontal: 8 }}>
+            {[
+              { label: 'Chit Value', value: chit.totalAmount ? `₹${Number(chit.totalAmount).toLocaleString('en-IN')}` : '—' },
+              { label: 'Installment', value: chit.installmentAmount ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}` : '—' },
+              { label: 'Duration', value: chit.totalDraws ? `${chit.totalDraws} mo` : '—' },
+              { label: 'Members', value: chit.memberCount != null ? String(chit.memberCount) : '—' },
+            ].map(({ label, value }, i, arr) => (
+              <View key={label} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < arr.length - 1 ? 1 : 0, borderRightColor: 'rgba(255,255,255,0.15)' }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#D4A017' }}>{value}</Text>
+                <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{label}</Text>
+              </View>
+            ))}
           </View>
 
           {/* Tabs — auction chits only */}
@@ -632,8 +647,8 @@ export default function MemberChitsScreen() {
                 <Badge status={c.status} />
               </View>
               {c.chitType === 'LOTTERY' && (
-                <View style={{ alignSelf: 'flex-start', backgroundColor: '#F5F3FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#7C3AED' }}>🎲 LOTTERY</Text>
+                <View style={{ alignSelf: 'flex-start', backgroundColor: C.navy50, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>🎲 LOTTERY</Text>
                 </View>
               )}
               {memberId && (

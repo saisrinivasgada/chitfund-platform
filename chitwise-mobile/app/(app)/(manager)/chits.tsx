@@ -22,7 +22,7 @@ import { toast } from '../../../components/Toast';
 const CLEARED = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED']);
 const PAY_COLOR: Record<string, string> = {
   SETTLED: C.green, SETTLEMENT_CLEARED: '#0D9488', WAIVED: C.gray400,
-  PAYOUT_DEDUCTED: '#7C3AED', PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
+  PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
 };
 const PAY_LABEL: Record<string, string> = {
   SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
@@ -400,8 +400,8 @@ export default function ManagerChitsScreen() {
               {(() => {
                 const type = c.chitType ?? c.winnerSelectionMode;
                 if (!type) return null;
-                const typeColor = type === 'RESERVATION' ? '#2563EB' : type === 'LOTTERY' ? '#7C3AED' : type === 'AUCTION' ? '#D97706' : C.gray400;
-                const typeBg   = type === 'RESERVATION' ? '#EFF6FF' : type === 'LOTTERY' ? '#F5F3FF' : type === 'AUCTION' ? '#FFFBEB' : C.gray100;
+                const typeColor = type === 'RESERVATION' ? C.navy : type === 'LOTTERY' ? C.gold : type === 'AUCTION' ? C.amber : C.gray400;
+                const typeBg   = type === 'RESERVATION' ? '#EEF2F8' : type === 'LOTTERY' ? '#FEF9C3' : type === 'AUCTION' ? '#FFFBEB' : C.gray100;
                 return (
                   <View style={{ alignSelf: 'flex-start', backgroundColor: typeBg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8 }}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: typeColor }}>{type}</Text>
@@ -691,7 +691,7 @@ export default function ManagerChitsScreen() {
                           </View>
                           <View style={{ alignItems: 'flex-end', gap: 4 }}>
                             <Badge status={p.status} />
-                            <Amount value={p.netPayoutAmount ?? p.winningAmount ?? 0} size="sm" color="#7C3AED" />
+                            <Amount value={p.netPayoutAmount ?? p.winningAmount ?? 0} size="sm" color={C.gold} />
                           </View>
                         </View>
                         {canDisburse && (
@@ -702,9 +702,9 @@ export default function ManagerChitsScreen() {
                               setDisburseMode('CASH');
                               setShowDisburse(true);
                             }}
-                            style={{ backgroundColor: '#EDE9FE', borderRadius: 10, padding: 9, alignItems: 'center', marginTop: 4 }}
+                            style={{ backgroundColor: '#EEF2F8', borderRadius: 10, padding: 9, alignItems: 'center', marginTop: 4 }}
                           >
-                            <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED' }}>Disburse Payout</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Disburse Payout</Text>
                           </TouchableOpacity>
                         )}
                       </Card>
@@ -737,9 +737,9 @@ export default function ManagerChitsScreen() {
                                 setPayoutAmount(String(w.winningAmount ?? selected?.chitValue ?? ''));
                                 setShowPayout(true);
                               }}
-                              style={{ backgroundColor: '#EDE9FE', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 }}
+                              style={{ backgroundColor: '#EEF2F8', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 }}
                             >
-                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#7C3AED' }}>Create Payout</Text>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>Create Payout</Text>
                             </TouchableOpacity>
                           ) : (
                             <View style={{ backgroundColor: '#F0FDF4', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -1013,11 +1013,11 @@ export default function ManagerChitsScreen() {
                     {(['RANDOM', 'PICK'] as const).map((mode) => (
                       <TouchableOpacity key={mode} onPress={() => { setLotteryDrawMode(mode); setLotteryPickedWinnerId(''); }}
                         style={{ flex: 1, padding: 12, borderRadius: 12, borderWidth: 2,
-                          borderColor: lotteryDrawMode === mode ? '#7C3AED' : C.gray200,
-                          backgroundColor: lotteryDrawMode === mode ? '#F5F3FF' : '#fff',
+                          borderColor: lotteryDrawMode === mode ? C.navy : C.gray200,
+                          backgroundColor: lotteryDrawMode === mode ? '#EEF2F8' : '#fff',
                           alignItems: 'center' }}>
                         <Text style={{ fontSize: 20, marginBottom: 4 }}>{mode === 'RANDOM' ? '🎲' : '👆'}</Text>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? '#7C3AED' : C.gray700 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: lotteryDrawMode === mode ? C.navy : C.gray700 }}>
                           {mode === 'RANDOM' ? 'Random Draw' : 'Pick Winner'}
                         </Text>
                       </TouchableOpacity>
@@ -1025,9 +1025,9 @@ export default function ManagerChitsScreen() {
                   </View>
 
                   {lotteryDrawMode === 'RANDOM' && (
-                    <View style={{ backgroundColor: '#F5F3FF', borderRadius: 10, padding: 12, marginBottom: 16 }}>
-                      <Text style={{ fontSize: 13, color: '#6D28D9', fontWeight: '600' }}>
-                        🎲 System will randomly pick from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
+                    <View style={{ backgroundColor: '#EEF2F8', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                      <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>
+                        System will randomly pick from {lotteryEligibleIds.length} eligible member{lotteryEligibleIds.length !== 1 ? 's' : ''}.
                       </Text>
                     </View>
                   )}
@@ -1049,11 +1049,11 @@ export default function ManagerChitsScreen() {
                           return (
                             <TouchableOpacity key={mid} onPress={() => setLotteryPickedWinnerId(mid)}
                               style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isSelected ? '#7C3AED' : C.gray100, alignItems: 'center', justifyContent: 'center', borderWidth: isSelected ? 0 : 1.5, borderColor: C.gray300 }}>
+                              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: isSelected ? C.navy : C.gray100, alignItems: 'center', justifyContent: 'center', borderWidth: isSelected ? 0 : 1.5, borderColor: C.gray300 }}>
                                 {isSelected && <Text style={{ fontSize: 12, color: '#fff', fontWeight: '800' }}>✓</Text>}
                               </View>
                               <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 14, color: isSelected ? '#7C3AED' : C.gray900, fontWeight: isSelected ? '700' : '400' }}>{name}</Text>
+                                <Text style={{ fontSize: 14, color: isSelected ? C.navy : C.gray900, fontWeight: isSelected ? '700' : '400' }}>{name}</Text>
                                 <Text style={{ fontSize: 11, color: C.gray400 }}>{spots} spot{spots > 1 ? 's' : ''} · {wins} win{wins !== 1 ? 's' : ''}</Text>
                               </View>
                             </TouchableOpacity>
@@ -1214,7 +1214,7 @@ export default function ManagerChitsScreen() {
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>
                   {memberMap[disbursePay?.memberId ?? disbursePay?.winnerId] ?? '—'}
                 </Text>
-                <Amount value={disbursePay?.netPayoutAmount ?? disbursePay?.winningAmount ?? 0} size="lg" color="#7C3AED" />
+                <Amount value={disbursePay?.netPayoutAmount ?? disbursePay?.winningAmount ?? 0} size="lg" color={C.gold} />
               </View>
               <View>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Actual Amount (₹)</Text>
@@ -1229,7 +1229,7 @@ export default function ManagerChitsScreen() {
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   {['CASH', 'UPI', 'BANK_TRANSFER'].map((m) => (
                     <TouchableOpacity key={m} onPress={() => setDisburseMode(m)}
-                      style={{ flex: 1, backgroundColor: disburseMode === m ? '#7C3AED' : C.gray100, borderRadius: 10, padding: 10, alignItems: 'center' }}>
+                      style={{ flex: 1, backgroundColor: disburseMode === m ? C.navy : C.gray100, borderRadius: 10, padding: 10, alignItems: 'center' }}>
                       <Text style={{ fontSize: 12, fontWeight: '700', color: disburseMode === m ? '#fff' : C.gray700 }}>
                         {m === 'BANK_TRANSFER' ? 'Bank' : m}
                       </Text>

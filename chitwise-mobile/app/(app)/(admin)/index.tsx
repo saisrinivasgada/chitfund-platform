@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +13,8 @@ import {
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
   getOrgReservations, realizeOrgPayout, getCashRequestSummary,
   getPendingSettlements,
+  createSupportTicket, listMyTickets, getTicketMessages,
+  sendTicketMessage, deleteTicketMessage, markTicketRead,
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -100,8 +102,8 @@ export default function AdminDashboard() {
           <View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={T.h1}>Dashboard</Text>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: user?.role === 'MANAGER' ? '#F5F3FF' : C.navy50 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: user?.role === 'MANAGER' ? '#7C3AED' : C.navy }}>{user?.role}</Text>
+              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: C.navy50 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>{user?.role}</Text>
               </View>
             </View>
             <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Hello, {user?.fullName?.split(' ')[0]} 👋</Text>
@@ -231,7 +233,7 @@ export default function AdminDashboard() {
             { label: '+ Cash Request', onPress: () => setShowNewRequest(true), accent: C.navy },
             { label: 'Cash Pickups', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } }), accent: C.amber },
             { label: 'Remittance', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } }), accent: C.green },
-            { label: 'Payouts', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } }), accent: '#7C3AED' },
+            { label: 'Payouts', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } }), accent: C.gold },
           ].map((a) => (
             <TouchableOpacity key={a.label} onPress={a.onPress}
               style={{ backgroundColor: a.accent, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, minWidth: '45%', flex: 1, alignItems: 'center' }}>
@@ -373,6 +375,10 @@ export default function AdminDashboard() {
             </View>
           );
         })()}
+
+        {/* Contact ChitWise */}
+        <ContactChitWiseButton userId={user?.id ?? ''} />
+
       </ScrollView>
 
       {/* New Cash Request Modal */}
@@ -601,5 +607,242 @@ function OrgHoldingsModal({ visible, onClose, reservations, onRealized }: {
         </ScrollView>
       </SafeAreaView>
     </Modal>
+  );
+}
+
+
+// ── Contact ChitWise (admin → ChitWise support) ───────────────────────────────
+const TICKET_TYPES = [
+  { value: 'BILLING', label: 'Billing' }, { value: 'CHIT', label: 'Chit Issue' },
+  { value: 'DRAW', label: 'Draw Issue' }, { value: 'PAYMENT', label: 'Payment' },
+  { value: 'PAYOUT', label: 'Payout' }, { value: 'MEMBER_MGMT', label: 'Member Mgmt' },
+  { value: 'ACCOUNT', label: 'Account' }, { value: 'TECHNICAL', label: 'Technical' },
+  { value: 'FEATURE_REQUEST', label: 'Feature Request' }, { value: 'GENERAL', label: 'General' },
+];
+const STATUS_COLORS: Record<string, string> = {
+  OPEN: '#1E40AF', IN_PROGRESS: '#B45309', ON_HOLD: '#6B7280',
+  RESOLVED: '#065F46', CLOSED: '#9CA3AF',
+};
+const DELETE_WINDOW_MS = 5 * 60 * 1000;
+
+function ContactChitWiseButton({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<'list' | 'new' | 'chat'>('list');
+  const [openTicket, setOpenTicket] = useState<any>(null);
+  const [type, setType] = useState('GENERAL');
+  const [subject, setSubject] = useState('');
+  const [description, setDescription] = useState('');
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState('');
+  const [now, setNow] = useState(Date.now());
+  const qc = useQueryClient();
+
+  const { data: ticketsData, isLoading: loadingTickets } = useQuery({
+    queryKey: ['my-tickets-mobile'],
+    queryFn: () => listMyTickets({ page: 0, size: 20 }),
+    enabled: open && view === 'list',
+    staleTime: 30_000,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim() || undefined }),
+    onSuccess: async (ticket) => {
+      Alert.alert('Ticket submitted', "We'll get back to you shortly.");
+      setSubject(''); setDescription(''); setType('GENERAL');
+      qc.invalidateQueries({ queryKey: ['my-tickets-mobile'] });
+      await openChat(ticket);
+    },
+    onError: () => Alert.alert('Error', 'Could not submit. Please try again.'),
+  });
+
+  const sendMut = useMutation({
+    mutationFn: (content: string) => sendTicketMessage(openTicket?.id, content),
+    onSuccess: (msg) => { setMessages(prev => [...prev, msg]); setInput(''); },
+    onError: () => Alert.alert('Error', 'Could not send message.'),
+  });
+
+  async function openChat(ticket: any) {
+    setOpenTicket(ticket);
+    setView('chat');
+    try {
+      const data = await getTicketMessages(ticket.id, { limit: 50 });
+      setMessages([...(data.items ?? [])].reverse());
+      await markTicketRead(ticket.id);
+    } catch {}
+  }
+
+  async function handleDeleteMsg(msg: any) {
+    try {
+      await deleteTicketMessage(openTicket.id, msg.id);
+      setMessages(prev => prev.map(m => m.id === msg.id
+        ? { ...m, deleted: true, content: 'This message was deleted' } : m));
+    } catch { Alert.alert('Error', 'Could not delete message.'); }
+  }
+
+  function resetAndClose() {
+    setOpen(false); setView('list'); setOpenTicket(null);
+    setMessages([]); setInput(''); setSubject(''); setDescription('');
+  }
+
+  const tickets = ticketsData?.items ?? [];
+
+  return (
+    <>
+      <TouchableOpacity
+        onPress={() => { setOpen(true); setView('list'); }}
+        style={{ marginTop: 20, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: C.navy + '30', backgroundColor: '#F0F4FA' }}
+      >
+        <Text style={{ fontSize: 18 }}>🎧</Text>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Contact ChitWise</Text>
+      </TouchableOpacity>
+
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={resetAndClose}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {(view === 'chat' || view === 'new') && (
+                <TouchableOpacity onPress={() => setView('list')} style={{ marginRight: 4 }}>
+                  <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
+                </TouchableOpacity>
+              )}
+              <View>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>
+                  {view === 'list' ? 'Contact ChitWise' : view === 'new' ? 'New Ticket' : openTicket?.subject ?? 'Ticket'}
+                </Text>
+                {view === 'chat' && openTicket && (
+                  <Text style={{ fontSize: 12, color: C.gray400 }}>#{openTicket.ticketNumber} · {openTicket.status.replace('_', ' ')}</Text>
+                )}
+              </View>
+            </View>
+            <TouchableOpacity onPress={resetAndClose}><Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text></TouchableOpacity>
+          </View>
+
+          {/* Tab row for list view */}
+          {view === 'list' && (
+            <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4, gap: 12 }}>
+              <TouchableOpacity onPress={() => setView('new')} style={{ flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: C.navy, alignItems: 'center' }}>
+                <Text style={{ color: C.white, fontWeight: '700', fontSize: 14 }}>+ New Ticket</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Content */}
+          {view === 'list' && (
+            <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+              {loadingTickets ? (
+                <ActivityIndicator style={{ marginTop: 40 }} color={C.navy} />
+              ) : tickets.length === 0 ? (
+                <Text style={{ textAlign: 'center', marginTop: 40, color: C.gray400, fontSize: 14 }}>No tickets yet</Text>
+              ) : (
+                tickets.map((t: any) => (
+                  <TouchableOpacity key={t.id} onPress={() => openChat(t)}
+                    style={{ paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{t.subject}</Text>
+                        <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>#{t.ticketNumber}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: STATUS_COLORS[t.status] ?? C.gray500, backgroundColor: STATUS_COLORS[t.status] + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99 }}>
+                          {t.status.replace('_', ' ')}
+                        </Text>
+                        {t.unreadCount > 0 && (
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: C.white, backgroundColor: '#EF4444', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 99 }}>{t.unreadCount}</Text>
+                        )}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          )}
+
+          {view === 'new' && (
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 6 }}>Issue type</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {TICKET_TYPES.map(t => (
+                      <TouchableOpacity key={t.value} onPress={() => setType(t.value)}
+                        style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: type === t.value ? C.navy : C.gray100, borderWidth: 1, borderColor: type === t.value ? C.navy : C.gray200 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: type === t.value ? C.white : C.gray600 }}>{t.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 6 }}>Subject</Text>
+                <TextInput value={subject} onChangeText={setSubject} placeholder="Briefly describe your issue" placeholderTextColor={C.gray400} maxLength={255}
+                  style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.gray900, marginBottom: 16 }} />
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 6 }}>Description <Text style={{ fontWeight: '400', color: C.gray400 }}>(optional)</Text></Text>
+                <TextInput value={description} onChangeText={setDescription} placeholder="Any additional details…" placeholderTextColor={C.gray400} multiline numberOfLines={5} textAlignVertical="top"
+                  style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.gray900, minHeight: 100, marginBottom: 24 }} />
+                {createMut.isError && <Text style={{ color: '#EF4444', fontSize: 13, marginBottom: 12 }}>Failed to submit. Please try again.</Text>}
+                <TouchableOpacity onPress={() => createMut.mutate()} disabled={!subject.trim() || createMut.isPending}
+                  style={{ backgroundColor: !subject.trim() ? C.gray200 : C.navy, borderRadius: 14, paddingVertical: 16, alignItems: 'center' }}>
+                  {createMut.isPending ? <ActivityIndicator color={C.white} /> : <Text style={{ color: C.white, fontWeight: '700', fontSize: 16 }}>Submit Ticket</Text>}
+                </TouchableOpacity>
+              </ScrollView>
+            </KeyboardAvoidingView>
+          )}
+
+          {view === 'chat' && (
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+              <FlatList
+                data={messages}
+                keyExtractor={(m) => m.id}
+                contentContainerStyle={{ padding: 16, gap: 10 }}
+                renderItem={({ item: msg }) => {
+                  const isMe = msg.senderType === 'ORG_ADMIN';
+                  const canDel = isMe && !msg.deleted && (now - new Date(msg.createdAt).getTime()) < DELETE_WINDOW_MS;
+                  return (
+                    <View style={{ alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+                      {!isMe && <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 2 }}>{msg.senderName}</Text>}
+                      <View style={{ backgroundColor: isMe ? C.navy : C.gray100, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, maxWidth: '80%' }}>
+                        <Text style={{ color: isMe ? C.white : C.gray900, fontSize: 14, fontStyle: msg.deleted ? 'italic' : 'normal', opacity: msg.deleted ? 0.6 : 1 }}>
+                          {msg.content}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                        <Text style={{ fontSize: 11, color: C.gray400 }}>
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        {canDel && (
+                          <TouchableOpacity onPress={() => Alert.alert('Delete message?', 'This cannot be undone.', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMsg(msg) },
+                          ])}>
+                            <Text style={{ fontSize: 11, color: '#EF4444' }}>Delete</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  );
+                }}
+              />
+              {openTicket?.status !== 'CLOSED' && openTicket?.status !== 'RESOLVED' ? (
+                <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  <TextInput
+                    value={input} onChangeText={setInput} placeholder="Type a message…"
+                    placeholderTextColor={C.gray400}
+                    style={{ flex: 1, borderWidth: 1, borderColor: C.gray200, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900 }}
+                  />
+                  <TouchableOpacity onPress={() => { if (input.trim()) sendMut.mutate(input.trim()); }}
+                    disabled={!input.trim() || sendMut.isPending}
+                    style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: !input.trim() ? C.gray200 : C.navy, alignItems: 'center', justifyContent: 'center' }}>
+                    {sendMut.isPending ? <ActivityIndicator color={C.white} size="small" /> : <Text style={{ color: C.white, fontSize: 18 }}>↑</Text>}
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 13, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  Ticket is {openTicket?.status?.toLowerCase()}. Open a new ticket for further help.
+                </Text>
+              )}
+            </KeyboardAvoidingView>
+          )}
+        </SafeAreaView>
+      </Modal>
+    </>
   );
 }

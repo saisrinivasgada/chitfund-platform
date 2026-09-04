@@ -41,13 +41,13 @@ const ACTION_TITLE: Record<string, { title: string; color: string; subtitle?: st
   'PAYMENT_BATCH.REMITTED':             { title: 'Remittance Complete',            color: '#16A34A', subtitle: 'Staff returned cash to admin' },
   'PAYMENT_BATCH.VOIDED':               { title: 'Payment Voided',                 color: C.red },
   'CASH_REQUEST.CREATED':               { title: 'Cash Pickup Created',            color: C.amber },
-  'CASH_REQUEST.ASSIGNED':              { title: 'Staff Assigned',                 color: '#7C3AED' },
+  'CASH_REQUEST.ASSIGNED':              { title: 'Staff Assigned',                 color: C.navy },
   'CASH_REQUEST.PICKED_UP':             { title: 'Cash Picked Up by Staff',        color: C.amber,   subtitle: 'Staff has cash — pending remittance to admin' },
   'CASH_REQUEST.COLLECTED':             { title: 'Cash Collected',                 color: '#16A34A' },
   'CASH_REQUEST.VOIDED':                { title: 'Pickup Voided',                  color: C.red },
   'CASH_REQUEST.CANCELLED':             { title: 'Pickup Cancelled',               color: C.red },
   'CASH_REQUEST.EDITED':                { title: 'Pickup Edited',                  color: C.navy },
-  'PAYOUT.CREATED':                { title: 'Payout Created',       color: '#7C3AED' },
+  'PAYOUT.CREATED':                { title: 'Payout Created',       color: C.gold },
   'PAYOUT.DISBURSED':              { title: 'Payout Disbursed',     color: '#16A34A' },
   'PAYOUT.CANCELLED':              { title: 'Payout Cancelled',     color: C.red },
   'PAYOUT.VOIDED':                 { title: 'Payout Voided',        color: C.red },
@@ -87,14 +87,14 @@ function activityIconFor(entityType?: string, action?: string): ActivityIcon {
     if (ac.includes('CANCEL') || ac.includes('VOID')) return { emoji: '❌', bg: '#FEE2E2' };
     if (ac.includes('COLLECT'))  return { emoji: '💰', bg: '#DCFCE7' };
     if (ac.includes('PICKED'))   return { emoji: '🧳', bg: '#FEF3C7' };
-    if (ac.includes('ASSIGN'))   return { emoji: '📦', bg: '#F5F3FF' };
+    if (ac.includes('ASSIGN'))   return { emoji: '📦', bg: C.navy50 };
     if (ac.includes('EDIT'))     return { emoji: '✏️',  bg: C.navy50 };
     return { emoji: '💵', bg: '#FEF3C7' };
   }
   if (et === 'PAYOUT') {
     if (ac.includes('CANCEL') || ac.includes('VOID')) return { emoji: '🏆', bg: '#FEE2E2' };
     if (ac.includes('DISBURS')) return { emoji: '🏆', bg: '#DCFCE7' };
-    return { emoji: '🏆', bg: '#F5F3FF' };
+    return { emoji: '🏆', bg: C.navy50 };
   }
   if (et === 'DRAW') {
     if (ac.includes('DELETE'))  return { emoji: '🎯', bg: '#FEE2E2' };
@@ -478,8 +478,8 @@ export default function ActivityScreen() {
               chitName    ? { label: chitName,                           color: C.navy,    bg: C.navy50 }     : null,
               log.actorRole ? {
                 label: log.actorRole,
-                color: (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#92400E' : log.actorRole === 'MANAGER' ? '#5B21B6' : C.navy,
-                bg:    (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#FEF3C7' : log.actorRole === 'MANAGER' ? '#F5F3FF' : C.navy50,
+                color: (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#92400E' : C.navy,
+                bg:    (log.actorRole === 'WORKER' || log.actorRole === 'STAFF') ? '#FEF3C7' : C.navy50,
               } : null,
             ].filter(Boolean) as { label: string; color: string; bg: string }[];
 

@@ -34,7 +34,7 @@ const MODE_LABEL = { CASH: 'Cash', UPI: 'UPI', BANK_TRANSFER: 'Bank Transfer', C
 const CHIT_STATUS_CONFIG = {
   ACTIVE:    { label: 'Activated',  icon: Play,        color: 'text-green-600',  bg: 'bg-green-50',  badge: 'bg-green-100 text-green-700' },
   PAUSED:    { label: 'Paused',     icon: PauseCircle, color: 'text-amber-600',  bg: 'bg-amber-50',  badge: 'bg-amber-100 text-amber-700' },
-  COMPLETED: { label: 'Completed',  icon: Trophy,      color: 'text-blue-600',   bg: 'bg-blue-50',   badge: 'bg-blue-100 text-blue-700' },
+  COMPLETED: { label: 'Completed',  icon: Trophy,      color: 'text-[#1E3A5F]', bg: 'bg-[#EEF2F8]', badge: 'bg-[#EEF2F8] text-[#1E3A5F]' },
   CANCELLED: { label: 'Cancelled',  icon: AlertCircle, color: 'text-red-500',    bg: 'bg-red-50',    badge: 'bg-red-100 text-red-600' },
   DRAFT:     { label: 'Edited',     icon: Zap,         color: 'text-gray-500',   bg: 'bg-gray-50',   badge: 'bg-gray-100 text-gray-600' },
 };
@@ -103,7 +103,7 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden, onDismis
   return (
     <div
       onClick={() => navigate(`/transactions/${batch.id}`)}
-      className="flex items-start gap-3 px-5 py-3 bg-white hover:bg-blue-50/30 transition-colors cursor-pointer group"
+      className="flex items-start gap-3 px-5 py-3 bg-white hover:bg-[#EEF2F8]/40 transition-colors cursor-pointer group"
     >
       <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0 mt-0.5">
         <Banknote size={14} className="text-amber-600" />
@@ -113,7 +113,9 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden, onDismis
           <span className="text-sm font-semibold text-gray-900">{member}</span>
           <span className="text-xs text-gray-500">{chitName}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-            batch.paymentMode === 'CASH' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+            batch.paymentMode === 'CASH' ? 'bg-amber-100 text-amber-700' :
+            batch.paymentMode === 'UPI'  ? 'bg-[#EEF2F8] text-[#1E3A5F]' :
+            'bg-[#EEF2F8] text-[#1E3A5F]'
           }`}>
             {MODE_LABEL[batch.paymentMode] ?? batch.paymentMode}
           </span>
@@ -131,7 +133,7 @@ function BatchRow({ batch, staffMap, memberMap, chitMap, chits, hidden, onDismis
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <span className="text-sm font-bold text-gray-800">{hidden ? HIDDEN : fmtAmt(batch.totalAmount)}</span>
-        <ExternalLink size={12} className="text-gray-300 group-hover:text-blue-400 transition-colors" />
+        <ExternalLink size={12} className="text-gray-300 group-hover:text-[#1E3A5F] transition-colors" />
         <DismissBtn onDismiss={onDismiss} />
       </div>
     </div>
@@ -273,12 +275,12 @@ export default function TodaysActivityFeed() {
                 </span>
               )}
               {activeDrawEvents.length > 0 && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF2F8', color: '#1E3A5F' }}>
                   {activeDrawEvents.length} draw event{activeDrawEvents.length !== 1 ? 's' : ''}
                 </span>
               )}
               {chitStatusChanges.length > 0 && (
-                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF2F8', color: '#1E3A5F' }}>
                   {chitStatusChanges.length} chit update{chitStatusChanges.length !== 1 ? 's' : ''}
                 </span>
               )}
@@ -366,7 +368,7 @@ export default function TodaysActivityFeed() {
             <SectionCard
               icon={ArrowDownCircle}
               iconColor="text-[#1E3A5F]"
-              iconBg="bg-blue-50"
+              iconBg="bg-[#EEF2F8]"
               title="Draw Activity"
               count={activeDrawEvents.length}
               subtitle={`${draws.filter((d) => d.openedAt && !d.closedAt).length} opened · ${draws.filter((d) => d.skippedAt).length} skipped`}
@@ -390,8 +392,8 @@ export default function TodaysActivityFeed() {
                   const openerRole = staffRoleMap[d.openedBy];
                   return (
                     <EventRow key={`open-${d.id}`}
-                      icon={ArrowDownCircle} iconColor="text-[#1E3A5F]" iconBg="bg-blue-50"
-                      label="Opened" labelColor="text-blue-700"
+                      icon={ArrowDownCircle} iconColor="text-[#1E3A5F]" iconBg="bg-[#EEF2F8]"
+                      label="Opened" labelColor="text-[#1E3A5F]"
                       detail={<span className="flex items-center gap-1.5 flex-wrap">{nm(staffMap, d.openedBy)} {openerRole && <RoleBadge role={openerRole} />} opened {cycle}</span>}
                       sub={d.dueDate ? `Due: ${d.dueDate}` : undefined}
                       time={fmtTime(d.openedAt)}
@@ -407,8 +409,8 @@ export default function TodaysActivityFeed() {
           {chitStatusChanges.length > 0 && (
             <SectionCard
               icon={Zap}
-              iconColor="text-purple-600"
-              iconBg="bg-purple-50"
+              iconColor="text-[#1E3A5F]"
+              iconBg="bg-[#EEF2F8]"
               title="Chit Updates"
               count={chitStatusChanges.length}
               subtitle="Status changes to chit funds"

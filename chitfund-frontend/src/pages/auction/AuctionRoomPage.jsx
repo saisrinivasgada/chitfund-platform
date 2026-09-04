@@ -357,7 +357,7 @@ export default function AuctionRoomPage() {
           {/* Countdown timer */}
           {isOpen && isOnline && secondsLeft !== null && (
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-mono font-bold
-              ${timerUrgent ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-blue-50 text-blue-700'}`}>
+              ${timerUrgent ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-[#EEF2F8] text-[#1E3A5F]'}`}>
               <Timer size={14} />
               {formatCountdown(secondsLeft)}
             </div>
@@ -411,13 +411,13 @@ export default function AuctionRoomPage() {
         ) : (
           /* Member hasn't bid yet — show who is winning */
           winningBid && (
-            <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4">
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <Gavel size={18} className="text-blue-600" />
+            <div className="flex items-center gap-3 rounded-2xl px-5 py-4" style={{ background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#C7D5E8' }}>
+                <Gavel size={18} style={{ color: '#1E3A5F' }} />
               </div>
               <div>
-                <p className="font-bold text-blue-800">You haven't bid yet</p>
-                <p className="text-sm text-blue-700">
+                <p className="font-bold" style={{ color: '#1E3A5F' }}>You haven't bid yet</p>
+                <p className="text-sm" style={{ color: '#2E5090' }}>
                   <strong>{memberMap[String(winningBid.memberId)] ?? 'Someone'}</strong> is currently winning at ₹{fmt(winningBid.bidAmount)}.
                   Bid lower to compete.
                 </p>
@@ -562,17 +562,17 @@ export default function AuctionRoomPage() {
 
       {/* Admin proxy bid panel */}
       {isAdmin && isOpen && isOnline && (
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
-          <h3 className="font-semibold text-blue-900 mb-1 flex items-center gap-2">
-            <Gavel size={15} className="text-blue-700" /> Place Bid on Behalf of Member
+        <div className="rounded-2xl p-5" style={{ background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
+          <h3 className="font-semibold mb-1 flex items-center gap-2" style={{ color: '#1E3A5F' }}>
+            <Gavel size={15} style={{ color: '#1E3A5F' }} /> Place Bid on Behalf of Member
           </h3>
-          <p className="text-xs text-blue-600 mb-4">
+          <p className="text-xs mb-4" style={{ color: '#2E5090' }}>
             For members who can't use the app. This bid is recorded in their name and fully audited.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <select
-                className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full rounded-xl px-3 py-2 text-sm bg-white text-gray-800 focus:outline-none focus:ring-2" style={{ border: '1px solid #C7D5E8' }}
                 value={proxyMemberId}
                 onChange={(e) => setProxyMemberId(e.target.value)}
               >

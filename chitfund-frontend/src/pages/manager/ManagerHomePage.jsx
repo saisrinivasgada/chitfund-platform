@@ -148,7 +148,7 @@ export default function ManagerHomePage() {
           label="Cash In Hand"
           value={hidden ? '••••••' : `₹${fmt(cashInHand)}`}
           sub="Pending handover to admin"
-          color="#7C3AED"
+          color="#1E3A5F"
           onClick={() => navigate('/payments/cash-requests')}
         />
         <StatCard

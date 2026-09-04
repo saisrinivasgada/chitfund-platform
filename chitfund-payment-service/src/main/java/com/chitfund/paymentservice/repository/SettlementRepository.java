@@ -38,8 +38,8 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
      * the locked section is very short and contention is rare (one settlement = one member)."
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT s FROM Settlement s WHERE s.id = :id")
-    Optional<Settlement> findByIdWithLock(@Param("id") UUID id);
+    @Query("SELECT s FROM Settlement s WHERE s.id = :id AND s.tenantId = :tenantId")
+    Optional<Settlement> findByIdWithLock(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
     /**
      * Returns all settlements that still have outstanding payment obligations.

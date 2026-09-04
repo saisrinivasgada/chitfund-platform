@@ -25,7 +25,7 @@ function NotifItem({ n, onRead, onNavigate }) {
     <div
       onClick={hasLink ? () => onNavigate(n) : (isUnread ? () => onRead(n.id) : undefined)}
       className={`px-4 py-3 border-b border-gray-100 last:border-0 transition-colors ${
-        isUnread ? 'bg-blue-50/50 hover:bg-blue-50' : 'hover:bg-gray-50'
+        isUnread ? 'bg-[#EEF2F8]/50 hover:bg-[#EEF2F8]' : 'hover:bg-gray-50'
       } ${(hasLink || isUnread) ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-start gap-3">

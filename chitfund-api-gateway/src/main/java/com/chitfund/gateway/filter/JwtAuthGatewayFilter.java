@@ -37,6 +37,9 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     @Value("${jwt.secret}")
     private String jwtSecret;
 
+    @Value("${internal.service.key}")
+    private String internalServiceKey;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public JwtAuthGatewayFilter() {
@@ -68,10 +71,15 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                 }
 
                 // Forward user identity headers to downstream services
-                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                String tenantId = claims.get("tenantId", String.class);
+                String username = claims.get("username", String.class);
+                var reqBuilder = exchange.getRequest().mutate()
                         .header("X-User-Id", claims.getSubject())
                         .header("X-User-Role", claims.get("role", String.class))
-                        .build();
+                        .header("X-Internal-Auth", internalServiceKey);
+                if (tenantId != null) reqBuilder.header("X-Tenant-Id", tenantId);
+                if (username != null) reqBuilder.header("X-User-Name", username);
+                ServerHttpRequest mutatedRequest = reqBuilder.build();
 
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
 
