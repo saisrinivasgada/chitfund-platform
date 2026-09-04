@@ -766,12 +766,9 @@ public class SettlementService {
      */
     @Transactional
     public SettlementResponse voidSettlement(UUID settlementId, UUID adminId) {
-        Settlement settlement = settlementRepository.findById(settlementId)
+        String tenantId = TenantContext.get();
+        Settlement settlement = settlementRepository.findByIdAndTenantId(settlementId, tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found"));
-
-        if (!settlement.getTenantId().equals(TenantContext.get())) {
-            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found");
-        }
 
         if (settlement.getPaymentStatus() == SettlementPaymentStatus.VOIDED) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Settlement is already voided");
@@ -779,7 +776,7 @@ public class SettlementService {
 
         // Revert SETTLEMENT_CLEARED records back to OUTSTANDING for this member
         List<PaymentRecord> cleared = paymentRecordRepository
-                .findByMemberIdAndStatusIn(settlement.getMemberId(),
+                .findByTenantIdAndMemberIdAndStatusIn(tenantId, settlement.getMemberId(),
                         List.of(PaymentRecordStatus.SETTLEMENT_CLEARED));
         for (PaymentRecord rec : cleared) {
             rec.setStatus(PaymentRecordStatus.OUTSTANDING);
@@ -792,7 +789,7 @@ public class SettlementService {
         // COLLECTION txn → reverse as OUT (cash/bank leaves treasury back to member)
         // DISBURSEMENT txn → reverse as IN (cash/bank returns to treasury)
         List<SettlementPaymentTransaction> txns = transactionRepository
-                .findBySettlement_IdOrderByCreatedAtAsc(settlementId);
+                .findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(settlementId, tenantId);
         for (SettlementPaymentTransaction txn : txns) {
             AccountType account = txn.getMode() != null
                     && txn.getMode().name().equals("CASH") ? AccountType.CASH : AccountType.BANK;
@@ -809,7 +806,7 @@ public class SettlementService {
             walletReq.setCategory("SETTLEMENT_VOID_REVERSAL");
             walletReq.setDescription(desc);
             walletReq.setReferenceId(txn.getId());
-            adminWalletService.addEntry(walletReq, adminId, TenantContext.get());
+            adminWalletService.addEntry(walletReq, adminId, tenantId);
         }
         if (!txns.isEmpty()) {
             log.info("Void settlement {}: reversed {} payment transactions in treasury", settlementId, txns.size());

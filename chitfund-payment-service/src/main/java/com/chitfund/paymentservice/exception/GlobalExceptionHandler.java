@@ -6,6 +6,7 @@ import com.chitfund.common.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,6 +38,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error("AUTH_003", "You do not have permission to perform this action"));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataConflict(DataIntegrityViolationException ex) {
+        log.warn("Database constraint conflict detected");
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(ErrorCode.CONCURRENT_MODIFICATION.getCode(),
+                        "The request conflicts with a concurrent or duplicate operation"));
     }
 
     @ExceptionHandler(Exception.class)

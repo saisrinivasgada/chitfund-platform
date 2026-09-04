@@ -49,7 +49,8 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     List<PaymentRecord> findBySettledByPayoutId(UUID settledByPayoutId);
 
     // All SETTLEMENT_CLEARED records for a member — used when voiding a settlement
-    List<PaymentRecord> findByMemberIdAndStatusIn(UUID memberId, List<PaymentRecordStatus> statuses);
+    List<PaymentRecord> findByTenantIdAndMemberIdAndStatusIn(
+            String tenantId, UUID memberId, List<PaymentRecordStatus> statuses);
 
     // Used to verify enrollment before accepting payment from admin-held slot holders (non-member UUIDs)
     boolean existsByMemberIdAndChitId(UUID memberId, UUID chitId);

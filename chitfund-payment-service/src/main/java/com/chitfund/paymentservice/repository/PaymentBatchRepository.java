@@ -19,7 +19,8 @@ import java.util.UUID;
 
 public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID> {
 
-    Optional<PaymentBatch> findByIdempotencyKey(String idempotencyKey);
+    Optional<PaymentBatch> findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+            String tenantId, String idempotencyOperation, String idempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id AND b.tenantId = :tenantId")

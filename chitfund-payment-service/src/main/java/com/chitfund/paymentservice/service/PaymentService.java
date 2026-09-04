@@ -31,6 +31,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
 
 import com.chitfund.paymentservice.dto.response.PagedResponse;
 import org.springframework.data.domain.Page;
@@ -56,6 +57,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentService {
+
+    private static final String COLLECT_CASH_OPERATION = "COLLECT_CASH";
+    private static final String RECORD_PAYMENT_OPERATION = "RECORD_PAYMENT";
 
     private final PaymentBatchRepository batchRepository;
     private final PaymentRecordRepository paymentRecordRepository;
@@ -97,10 +101,18 @@ public class PaymentService {
     @Transactional
     public PaymentBatchResponse collectCash(CollectCashRequest request, UUID workerId, boolean callerIsAdmin, String idempotencyKey, boolean skipMemberCheck) {
         planExpiryChecker.assertNotExpired();
+        String tenantId = tenantId();
+        UUID effectiveCollector = request.getOverrideCollectedBy() != null
+                ? request.getOverrideCollectedBy() : workerId;
+        String requestHash = IdempotencyFingerprint.of(
+                request.getChitId(), request.getMemberId(), request.getAmount(),
+                request.getNotes(), effectiveCollector, callerIsAdmin);
         if (idempotencyKey != null) {
-            var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
+            var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                    tenantId, COLLECT_CASH_OPERATION, idempotencyKey);
             if (existing.isPresent()) {
                 PaymentBatch b = existing.get();
+                assertMatchingIdempotencyRequest(b.getIdempotencyRequestHash(), requestHash);
                 return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
             }
         }
@@ -112,13 +124,10 @@ public class PaymentService {
                     "Member " + request.getMemberId() + " is not active");
         }
 
-        UUID effectiveCollector = request.getOverrideCollectedBy() != null
-                ? request.getOverrideCollectedBy() : workerId;
-
         boolean adminSelfCollect = callerIsAdmin && request.getOverrideCollectedBy() == null;
 
         PaymentBatch batch = PaymentBatch.builder()
-                .tenantId(tenantId())
+                .tenantId(tenantId)
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .totalAmount(request.getAmount())
@@ -128,8 +137,10 @@ public class PaymentService {
                 .collectedAt(LocalDateTime.now())
                 .notes(request.getNotes())
                 .idempotencyKey(idempotencyKey)
+                .idempotencyOperation(idempotencyKey != null ? COLLECT_CASH_OPERATION : null)
+                .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
                 .build();
-        batchRepository.save(batch);
+        batchRepository.saveAndFlush(batch);
 
         if (adminSelfCollect) {
             List<PaymentAllocation> allocations = applyFifo(batch, workerId);
@@ -172,10 +183,16 @@ public class PaymentService {
     @Transactional
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
         planExpiryChecker.assertNotExpired();
+        String tenantId = tenantId();
+        String requestHash = IdempotencyFingerprint.of(
+                request.getChitId(), request.getMemberId(), request.getAmount(),
+                request.getPaymentMode(), request.getNotes());
         if (idempotencyKey != null) {
-            var existing = batchRepository.findByIdempotencyKey(idempotencyKey);
+            var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                    tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
             if (existing.isPresent()) {
                 PaymentBatch b = existing.get();
+                assertMatchingIdempotencyRequest(b.getIdempotencyRequestHash(), requestHash);
                 return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
             }
         }
@@ -188,7 +205,7 @@ public class PaymentService {
         // CASH via this endpoint = admin collected directly (COMPLETED immediately, no remittance step)
         // Worker-collected CASH still goes through POST /payments/collect → AWAITING_REMITTANCE
         PaymentBatch batch = PaymentBatch.builder()
-                .tenantId(tenantId())
+                .tenantId(tenantId)
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .totalAmount(request.getAmount())
@@ -199,8 +216,10 @@ public class PaymentService {
                 .collectedBy(request.getPaymentMode() == PaymentMode.CASH ? adminId : null)
                 .recordedBy(adminId)
                 .idempotencyKey(idempotencyKey)
+                .idempotencyOperation(idempotencyKey != null ? RECORD_PAYMENT_OPERATION : null)
+                .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
                 .build();
-        batchRepository.save(batch);
+        batchRepository.saveAndFlush(batch);
 
         List<PaymentAllocation> allocations = applyFifo(batch, adminId);
 
@@ -219,6 +238,15 @@ public class PaymentService {
         publishAfterCommit(() -> eventPublisher.publish(recordedEvent));
 
         return toBatchResponse(batch, allocations);
+    }
+
+    private void assertMatchingIdempotencyRequest(String storedHash, String requestHash) {
+        if (storedHash == null || !storedHash.equals(requestHash)) {
+            throw new BusinessException(
+                    ErrorCode.CONCURRENT_MODIFICATION,
+                    "Idempotency key was already used with different payment details",
+                    HttpStatus.CONFLICT);
+        }
     }
 
     /**

@@ -22,11 +22,10 @@ public interface SettlementPaymentTransactionRepository
      * All transactions for a given settlement, ordered oldest-first.
      * Used to build the payment history timeline on the settlement detail screen.
      */
-    List<SettlementPaymentTransaction> findBySettlement_IdOrderByCreatedAtAsc(UUID settlementId);
+    List<SettlementPaymentTransaction> findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(
+            UUID settlementId, String tenantId);
 
     /** Fast existence check used as the first step of idempotency handling. */
-    boolean existsByIdempotencyKey(String idempotencyKey);
-
-    /** Fetches the full transaction when we need to return it on a duplicate request. */
-    Optional<SettlementPaymentTransaction> findByIdempotencyKey(String idempotencyKey);
+    Optional<SettlementPaymentTransaction> findByTenantIdAndIdempotencyKey(
+            String tenantId, String idempotencyKey);
 }

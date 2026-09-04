@@ -12,7 +12,10 @@ import java.util.UUID;
 
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Entity
-@Table(name = "payment_batches")
+@Table(name = "payment_batches", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_payment_batch_tenant_operation_idem",
+                columnNames = {"tenant_id", "idempotency_operation", "idempotency_key"})
+})
 @Data
 @Builder
 @NoArgsConstructor
@@ -59,8 +62,14 @@ public class PaymentBatch {
     @Column(columnDefinition = "text")
     private String notes;
 
-    @Column(unique = true, length = 64)
+    @Column(length = 64)
     private String idempotencyKey;
+
+    @Column(name = "idempotency_operation", length = 32)
+    private String idempotencyOperation;
+
+    @Column(name = "idempotency_request_hash", length = 64)
+    private String idempotencyRequestHash;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;

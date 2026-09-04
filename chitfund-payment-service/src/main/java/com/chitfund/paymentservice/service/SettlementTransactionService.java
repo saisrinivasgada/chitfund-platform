@@ -20,8 +20,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -70,20 +73,33 @@ public class SettlementTransactionService {
             RecordSettlementTransactionRequest req,
             UUID adminId) {
 
+        String tenantId = requireTenantId();
+        String requestHash = IdempotencyFingerprint.of(
+                settlementId, req.getAmount(), req.getMode(),
+                req.getReferenceNumber(), req.getNotes());
+
         // ── 1. Idempotency check ──────────────────────────────────────────────
         // Return the existing record if the client is retrying the same request.
         // We do NOT throw — idempotent endpoints must be retry-safe.
-        if (transactionRepository.existsByIdempotencyKey(req.getIdempotencyKey())) {
+        var existingTransaction = transactionRepository.findByTenantIdAndIdempotencyKey(
+                tenantId, req.getIdempotencyKey());
+        if (existingTransaction.isPresent()) {
             log.info("Idempotent retry detected for key={}; returning existing transaction", req.getIdempotencyKey());
-            SettlementPaymentTransaction existing = transactionRepository
-                    .findByIdempotencyKey(req.getIdempotencyKey())
-                    .orElseThrow(); // safe — existsByIdempotencyKey just returned true
+            SettlementPaymentTransaction existing = existingTransaction.get();
+            if (!existing.getSettlement().getId().equals(settlementId)
+                    || existing.getIdempotencyRequestHash() == null
+                    || !existing.getIdempotencyRequestHash().equals(requestHash)) {
+                throw new BusinessException(
+                        ErrorCode.CONCURRENT_MODIFICATION,
+                        "Idempotency key was already used with different settlement details",
+                        HttpStatus.CONFLICT);
+            }
             Settlement settlement = existing.getSettlement();
             return toResponse(existing, settlement);
         }
 
         // ── 2. Load settlement with pessimistic write lock ────────────────────
-        Settlement settlement = settlementRepository.findByIdWithLock(settlementId, TenantContext.get())
+        Settlement settlement = settlementRepository.findByIdWithLock(settlementId, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
 
         // ── 3. Status gate — reject if already fully settled ─────────────────
@@ -118,6 +134,7 @@ public class SettlementTransactionService {
 
         // ── 7. Create and save transaction ────────────────────────────────────
         SettlementPaymentTransaction txn = SettlementPaymentTransaction.builder()
+                .tenantId(tenantId)
                 .settlement(settlement)
                 .amount(req.getAmount())
                 .mode(req.getMode())
@@ -127,8 +144,9 @@ public class SettlementTransactionService {
                 .recordedBy(adminId)
                 .recordedAt(LocalDateTime.now())
                 .idempotencyKey(req.getIdempotencyKey())
+                .idempotencyRequestHash(requestHash)
                 .build();
-        transactionRepository.save(txn);
+        transactionRepository.saveAndFlush(txn);
 
         // ── 8. Update settlement running totals and payment status ────────────
         if (direction == TransactionDirection.COLLECTION) {
@@ -173,7 +191,7 @@ public class SettlementTransactionService {
         walletReq.setCategory("SETTLEMENT_PAYMENT");
         walletReq.setDescription(description);
         walletReq.setReferenceId(txn.getId()); // payment transaction ID for direct receipt lookup
-        adminWalletService.addEntry(walletReq, adminId, TenantContext.get());
+        adminWalletService.addEntry(walletReq, adminId, tenantId);
 
         log.info("Settlement transaction recorded: settlementId={} direction={} amount={} mode={} status={}",
                 settlementId, direction, req.getAmount(), req.getMode(), settlement.getPaymentStatus());
@@ -187,15 +205,24 @@ public class SettlementTransactionService {
      */
     @Transactional(readOnly = true)
     public List<SettlementTransactionResponse> getTransactions(UUID settlementId) {
+        String tenantId = requireTenantId();
         // Verify settlement exists
-        Settlement settlement = settlementRepository.findById(settlementId)
+        Settlement settlement = settlementRepository.findByIdAndTenantId(settlementId, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
 
         return transactionRepository
-                .findBySettlement_IdOrderByCreatedAtAsc(settlementId)
+                .findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(settlementId, tenantId)
                 .stream()
                 .map(txn -> toResponse(txn, settlement))
                 .toList();
+    }
+
+    private String requireTenantId() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context", HttpStatus.UNAUTHORIZED);
+        }
+        return tenantId;
     }
 
     /**

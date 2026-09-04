@@ -34,7 +34,8 @@ import java.util.UUID;
                 @Index(name = "idx_spt_settlement", columnList = "settlement_id")
         },
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_spt_idempotency", columnNames = "idempotency_key")
+                @UniqueConstraint(name = "uk_spt_tenant_idempotency",
+                        columnNames = {"tenant_id", "idempotency_key"})
         }
 )
 @Data
@@ -46,6 +47,9 @@ public class SettlementPaymentTransaction {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @Column(name = "tenant_id", nullable = false, updatable = false, length = 36)
+    private String tenantId;
 
     /** The settlement this transaction belongs to. */
     @ManyToOne(fetch = FetchType.LAZY)
@@ -86,8 +90,11 @@ public class SettlementPaymentTransaction {
      * Client-supplied idempotency key (UUID format, max 36 chars).
      * Unique per transaction — duplicate key returns the existing row.
      */
-    @Column(name = "idempotency_key", nullable = false, length = 36, unique = true)
+    @Column(name = "idempotency_key", nullable = false, length = 36)
     private String idempotencyKey;
+
+    @Column(name = "idempotency_request_hash", nullable = false, length = 64)
+    private String idempotencyRequestHash;
 
     /** Set in @PrePersist — server-side insertion timestamp. */
     @Column(name = "created_at", nullable = false)
