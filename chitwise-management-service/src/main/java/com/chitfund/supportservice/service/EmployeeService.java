@@ -15,7 +15,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -77,26 +81,35 @@ public class EmployeeService {
             throw new IllegalStateException("Email already registered");
         }
 
-        String token = UUID.randomUUID().toString();
+        // Generate a cryptographically secure one-time token.
+        // Store only the SHA-256 hash; the raw token is returned once to the caller
+        // who must deliver it via email and MUST NOT log it.
+        String rawToken = UUID.randomUUID().toString() + "-" + UUID.randomUUID();
+        String tokenHash = sha256Hex(rawToken);
+
         Employee employee = Employee.builder()
                 .id(UUID.randomUUID().toString())
                 .fullName(req.getFullName())
                 .email(req.getEmail())
                 .username(req.getEmail()) // temporary; set on accept-invite
                 .role(req.getRole())
-                .inviteToken(token)
+                .inviteToken(tokenHash) // store hash, never the raw token
                 .inviteExpiresAt(Instant.now().plusSeconds(7 * 24 * 3600)) // 7 days
                 .build();
         employee = employeeRepository.save(employee);
 
-        log.info("Employee invite created: email={} token={}", req.getEmail(), token);
-        // In prod, send invite email here via EmailService
+        // Do NOT log the raw token — send it only through the email channel.
+        log.info("Employee invite created for email=[{}]", req.getEmail());
+        // TODO: inject EmailService and send rawToken in the invite link
+        // emailService.sendInviteEmail(req.getEmail(), rawToken);
         return toResponse(employee);
     }
 
     @Transactional
     public EmployeeLoginResponse acceptInvite(AcceptInviteRequest req) {
-        Employee employee = employeeRepository.findByInviteToken(req.getToken())
+        // Hash the provided token and look up by hash, so the DB never stores raw tokens.
+        String providedHash = sha256Hex(req.getToken());
+        Employee employee = employeeRepository.findByInviteToken(providedHash)
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or expired invite token"));
 
         if (employee.getInviteExpiresAt() != null && Instant.now().isAfter(employee.getInviteExpiresAt())) {
@@ -112,6 +125,8 @@ public class EmployeeService {
         employee.setUsername(req.getUsername());
         employee.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         employee.setInviteAcceptedAt(Instant.now());
+        // Clear the token hash so the invite link cannot be replayed after acceptance.
+        employee.setInviteToken(null);
         employee.setActive(true);
         employeeRepository.save(employee);
         // Re-fetch to get DB-generated employeeNumber
@@ -145,6 +160,17 @@ public class EmployeeService {
         return e.getEmployeeNumber() != null
                 ? String.format("CW-%04d", e.getEmployeeNumber())
                 : e.getId();
+    }
+
+    /** Returns the lowercase hex-encoded SHA-256 digest of the input. */
+    private static String sha256Hex(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
     }
 
     private EmployeeResponse toResponse(Employee e) {
