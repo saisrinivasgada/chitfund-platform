@@ -3,10 +3,9 @@ import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, UsersRound } from 'lucide-react';
+import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
-import MessagesPanel from '../messaging/MessagesPanel';
-import GroupsPanel from '../messaging/GroupsPanel';
+import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
@@ -276,7 +275,6 @@ export default function MemberPortalLayout() {
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
-  const [showGroups, setShowGroups] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: me } = useQuery({
@@ -348,7 +346,7 @@ export default function MemberPortalLayout() {
             <button
               type="button"
               onClick={() => setShowMessages(true)}
-              title="Chat with your org admin"
+              title="Messages"
               className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
             >
               <MessageSquare size={16} />
@@ -357,14 +355,6 @@ export default function MemberPortalLayout() {
                   {memberMsgUnread > 9 ? '9+' : memberMsgUnread}
                 </span>
               )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowGroups(true)}
-              title="Group chats"
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors cursor-pointer"
-            >
-              <UsersRound size={16} />
             </button>
             <NotificationBell />
 
@@ -441,8 +431,7 @@ export default function MemberPortalLayout() {
           onClose={() => setShowSignOut(false)}
         />
       )}
-      {showMessages && <MessagesPanel onClose={() => setShowMessages(false)} />}
-      {showGroups && <GroupsPanel onClose={() => setShowGroups(false)} />}
+      {showMessages && <UnifiedMessagesPanel onClose={() => setShowMessages(false)} />}
     </div>
   );
 }

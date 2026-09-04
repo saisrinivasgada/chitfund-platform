@@ -10,8 +10,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 import ContactChitWiseModal from './ContactChitWiseModal';
-import MessagesPanel from '../messaging/MessagesPanel';
-import GroupsPanel from '../messaging/GroupsPanel';
+import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import {
   LayoutDashboard,
   Users,
@@ -39,7 +38,6 @@ import {
   HeadphonesIcon,
   Building2,
   MessageSquare,
-  UsersRound,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -523,13 +521,17 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   const [showSignOut, setShowSignOut] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
-  const [showGroups, setShowGroups] = useState(false);
+  const [pendingConversation, setPendingConversation] = useState(null);
   const [showAdminContact, setShowAdminContact] = useState(false);
 
   const isStaffOrManager = role === 'STAFF' || role === 'MANAGER';
+  const canSeeMessages = role === 'ADMIN' || role === 'MANAGER' || role === 'STAFF';
 
   useEffect(() => {
-    const handler = () => setShowMessages(true);
+    const handler = (e) => {
+      setPendingConversation(e?.detail?.conversation ?? null);
+      setShowMessages(true);
+    };
     window.addEventListener('open-messages-panel', handler);
     return () => window.removeEventListener('open-messages-panel', handler);
   }, []);
@@ -775,10 +777,10 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
             {(role === 'ADMIN' || role === 'MANAGER') && (
               <QuickNotes role={role} />
             )}
-            {(role === 'ADMIN' || role === 'MANAGER') && (
+            {canSeeMessages && (
               <button
-                onClick={() => setShowMessages(true)}
-                title="Member Messages"
+                onClick={() => { setPendingConversation(null); setShowMessages(true); }}
+                title="Messages"
                 className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer relative"
               >
                 <MessageSquare size={16} />
@@ -791,12 +793,12 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
               </button>
             )}
             <button
-              onClick={() => setShowGroups(true)}
-              title="Group Chats"
-              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-green-50 hover:border-green-200 hover:text-green-600 transition-colors cursor-pointer"
+              onClick={() => { navigate('/my-account'); onClose?.(); }}
+              title="My Account"
+              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 transition-colors cursor-pointer"
             >
-              <UsersRound size={16} />
-              <span className="text-[10px] font-medium">Groups</span>
+              <UserCircle size={16} />
+              <span className="text-[10px] font-medium">Account</span>
             </button>
             {role === 'ADMIN' && (
               <button
@@ -849,8 +851,12 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
         <ContactChitWiseModal onClose={() => setShowSupport(false)} currentUserId={user?.id} />,
         document.body
       )}
-      {showMessages && <MessagesPanel onClose={() => setShowMessages(false)} />}
-      {showGroups && <GroupsPanel onClose={() => setShowGroups(false)} />}
+      {showMessages && (
+        <UnifiedMessagesPanel
+          onClose={() => { setShowMessages(false); setPendingConversation(null); }}
+          initialConversation={pendingConversation}
+        />
+      )}
       {showAdminContact && adminContact?.supportPhoneNumber && createPortal(
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowAdminContact(false)}>
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>

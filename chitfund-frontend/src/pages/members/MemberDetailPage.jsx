@@ -1908,9 +1908,10 @@ export default function MemberDetailPage() {
               <Button
                 variant="secondary"
                 onClick={() => startConversation({ memberId: member.userId, memberName: member.fullName })
-                  .then(() => {
-                    // Open the messages panel — dispatch a custom event the sidebar picks up
-                    window.dispatchEvent(new CustomEvent('open-messages-panel'));
+                  .then((conversation) => {
+                    qc.invalidateQueries({ queryKey: ['conversations'] });
+                    // Open the messages panel directly on this conversation — sidebar picks up the event
+                    window.dispatchEvent(new CustomEvent('open-messages-panel', { detail: { conversation } }));
                   })
                   .catch(() => {})}
               >
