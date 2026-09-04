@@ -22,7 +22,6 @@ import {
   BarChart2,
   LogOut,
   UserCircle,
-  Briefcase,
   ClipboardList,
   StickyNote,
   Trash2,
@@ -60,7 +59,7 @@ const ALL_NAV = [
 ];
 
 // ─── Quick Notes (ADMIN + MANAGER — real DB via team-notes API) ───────────────
-function QuickNotes({ role }) {
+function QuickNotes() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [idx,  setIdx]  = useState(0);
@@ -773,7 +772,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
               <span className="text-[10px] font-medium">{hidden ? 'Show' : 'Hide'}</span>
             </button>
             {(role === 'ADMIN' || role === 'MANAGER') && (
-              <QuickNotes role={role} />
+              <QuickNotes />
             )}
             {(role === 'ADMIN' || role === 'MANAGER') && (
               <button

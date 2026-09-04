@@ -9,12 +9,11 @@ import {
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import Button from '../../components/ui/Button';
-import Badge, { statusBadge } from '../../components/ui/Badge';
 import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, X, Filter, Tag, FileText, Calendar, User, Hash, ArrowLeftRight } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Banknote, CreditCard, Info, Phone, Mail, MapPin, X, Filter, ArrowLeftRight } from 'lucide-react';
 
 function utc(s) { return s ? (s.endsWith('Z') || s.includes('+') ? s : s + 'Z') : null; }
 function parseTs(val) {
@@ -33,16 +32,6 @@ function isToday(date) {
 // UUID regex used to detect and replace UUIDs in auto-generated descriptions
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
-// Plain text version — used where JSX cannot be rendered (e.g. title/subtitle text)
-function resolveDescription(desc, memberMap, chitMap) {
-  if (!desc) return '—';
-  return desc.replace(UUID_RE, (uuid) => {
-    const lower = uuid.toLowerCase();
-    if (memberMap[lower] ?? memberMap[uuid]) return memberMap[lower] ?? memberMap[uuid];
-    if (chitMap[lower] ?? chitMap[uuid]) return chitMap[lower] ?? chitMap[uuid];
-    return uuid;
-  });
-}
 
 // JSX version — renders member/chit UUIDs as clickable links, unknown UUIDs as short mono text
 function ResolvedDescription({ desc, memberMap, chitMap, navigate }) {
@@ -96,32 +85,6 @@ function ResolvedDescription({ desc, memberMap, chitMap, navigate }) {
   return <>{parts}</>;
 }
 
-// ─── Shared mini-components for the detail modal ──────────────────────────
-function TxInfoRow({ icon: Icon, label, value, valueClass = '' }) {
-  return (
-    <div className="flex items-start gap-4 py-4 border-b border-gray-100 last:border-0">
-      <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center mt-0.5">
-        <Icon size={16} className="text-gray-400" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">{label}</p>
-        <p className={`text-sm font-medium text-gray-800 break-words leading-relaxed ${valueClass}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function TxSection({ title, icon: Icon, children }) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-        <Icon size={14} className="text-gray-400" />
-        <span className="text-sm font-semibold text-gray-700">{title}</span>
-      </div>
-      <div className="px-6">{children}</div>
-    </div>
-  );
-}
 
 function TransactionDetailModal({ tx, memberMap, chitMap, staffMap, onClose }) {
   const navigate = useNavigate();

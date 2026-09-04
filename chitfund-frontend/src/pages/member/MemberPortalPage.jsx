@@ -17,9 +17,9 @@ import FormField, { Input, Select } from '../../components/ui/FormField';
 import {
   BookOpen, AlertTriangle, Trophy, CheckCircle, Banknote,
   Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
-  IndianRupee, Phone, ArrowRight, Layers, LayoutDashboard,
-  TrendingUp, Wallet, CalendarCheck, Zap, ArrowUpRight, ThumbsUp, ThumbsDown,
-  CreditCard, Filter, ArrowDownCircle, Building2, Gavel, Bell,
+  Phone, ArrowRight, Layers, LayoutDashboard,
+  CalendarCheck, Zap, ArrowUpRight, ThumbsUp, ThumbsDown,
+  CreditCard, ArrowDownCircle, Building2, Gavel, Bell,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
@@ -270,7 +270,7 @@ function OverviewTab({ memberId, chits, totalOutstanding, onNewRequest, onSwitch
       .filter((a) => a.status === 'OPEN')
       .map((a) => ({ ...a, chitName: c.name, chitId: c.id }));
   });
-  const { data: myPayouts = [] } = useQuery({
+  useQuery({
     queryKey: ['memberPortalPayouts', memberId],
     queryFn: () => getPayoutsForMember(memberId),
     enabled: !!memberId,
@@ -1236,7 +1236,7 @@ function PaymentsTab() {
 
 // ─── Requests tab ─────────────────────────────────────────────────────────────
 
-function RequestsTab({ memberId, chits, onNewRequest }) {
+function RequestsTab({ chits, onNewRequest }) {
   const { hidden } = useHiddenAmounts();
   const [trail, setTrail] = useState(null);
   const [approvedChoice, setApprovedChoice] = useState({}); // requestId → true/false/null
@@ -1580,9 +1580,9 @@ function PendingInvitationsCard({ onSwitchTab }) {
 
 // ─── Member Invitations Tab ───────────────────────────────────────────────────
 
-function MemberInvitationsTab({ memberId }) {
+function MemberInvitationsTab() {
   const qc = useQueryClient();
-  const { data: invitations = [], isLoading, refetch } = useQuery({
+  const { data: invitations = [], isLoading } = useQuery({
     queryKey: ['member-invitations'],
     queryFn: getMyInvitations,
   });
@@ -1625,7 +1625,7 @@ function InvitationCard({ inv, onResponded }) {
   const [reason, setReason] = useState(myResponse.reason ?? '');
   const [selectedDraws, setSelectedDraws] = useState(new Set(myResponse.requestedDrawNumbers ?? []));
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [, setSubmitted] = useState(false);
 
   const availableSlots = inv.availableSlots ?? [];
 
@@ -1909,7 +1909,7 @@ function CashPickupModal({ memberId, chits, onClose }) {
     ])
   );
   const outstanding = balanceMap[chitId] ?? null;
-  const balanceFetching = balanceResults.some((r) => r.isFetching);
+  balanceResults.some((r) => r.isFetching);
 
   const mutation = useMutation({
     mutationFn: createCashRequest,
@@ -1984,7 +1984,7 @@ function CashPickupModal({ memberId, chits, onClose }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function MemberPortalPage() {
-  const { user: authUser, planExpiresAt } = useAuth();
+  const { planExpiresAt } = useAuth();
   const isPlanExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const { hidden } = useHiddenAmounts();
   const [searchParams, setSearchParams] = useSearchParams();

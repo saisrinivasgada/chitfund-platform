@@ -4,7 +4,7 @@ import {
   createSupportTicket, listMyTickets, getTicketMessages,
   sendTicketMessage, deleteTicketMessage, markTicketRead,
 } from '../../services/api';
-import { X, HeadphonesIcon, Send, ChevronLeft, Clock, CheckCircle, Loader2, Trash2 } from 'lucide-react';
+import { X, HeadphonesIcon, Send, ChevronLeft, CheckCircle, Loader2, Trash2 } from 'lucide-react';
 import Button from '../ui/Button';
 
 const TICKET_TYPES = [

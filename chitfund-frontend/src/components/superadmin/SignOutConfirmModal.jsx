@@ -1,4 +1,4 @@
-import { LogOut, X } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 
 export default function SignOutConfirmModal({ onConfirm, onCancel }) {
   return (

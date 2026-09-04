@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TrendingUp, CheckCircle, AlertCircle } from 'lucide-react';
+import { TrendingUp, CheckCircle } from 'lucide-react';
 import Modal from './Modal';
 import Button from './Button';
 import { requestPlanUpgrade } from '../../services/api';
@@ -102,6 +102,7 @@ export default function PlanLimitModal({ isOpen, onClose, message, currentPlan =
 }
 
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePlanLimitHandler(currentPlan) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');

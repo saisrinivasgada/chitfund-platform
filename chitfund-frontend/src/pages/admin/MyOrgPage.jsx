@@ -17,12 +17,11 @@ import { PageSpinner, ListSkeleton } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import {
   Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Mail, AtSign,
-  Copy, Check, AlertTriangle, Users, Building2, Hash, Phone, Pencil, CheckCircle,
+  Copy, Check, AlertTriangle, Users, Building2, Pencil, CheckCircle,
   ArrowLeft, ChevronRight,
 } from 'lucide-react';
-import PhoneInput from '../../components/ui/PhoneInput';
 import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
-import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
@@ -153,7 +152,7 @@ function CredentialRow({ label, value, mono }) {
 function AddStaffModal({ onClose, allowedRoles }) {
   const qc = useQueryClient();
   const toast = useToastContext();
-  const { user: currentUser, tenantPlan } = useAuth();
+  const { tenantPlan } = useAuth();
   const [form, setForm] = useState(INITIAL_FORM);
   const [tempPass, setTempPass] = useState(null);
   const [fe, setFe] = useState({});

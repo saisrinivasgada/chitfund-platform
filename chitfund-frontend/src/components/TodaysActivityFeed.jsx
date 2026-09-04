@@ -8,7 +8,7 @@ import {
 } from '../services/api';
 import { useHiddenAmounts } from '../hooks/useHiddenAmounts';
 import {
-  Banknote, CreditCard, CheckCircle, XCircle,
+  Banknote, CheckCircle, XCircle,
   ArrowDownCircle, Clock, SkipForward, Gift, Ban,
   RefreshCw, ChevronDown, ChevronRight, ExternalLink,
   Play, PauseCircle, Trophy, Zap, AlertCircle, X,

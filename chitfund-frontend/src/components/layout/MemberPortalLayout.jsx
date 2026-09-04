@@ -272,6 +272,7 @@ const ROLE_LABELS = {
 
 export default function MemberPortalLayout() {
   const { isAuthenticated, isRestoring, user, tenantId, tenantName, logout } = useAuth();
+  const navigate = useNavigate();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);

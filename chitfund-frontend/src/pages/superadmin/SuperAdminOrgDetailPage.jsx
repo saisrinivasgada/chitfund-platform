@@ -29,7 +29,6 @@ import {
   superAdminProxyAs,
   lockUser,
   unlockUser,
-  resendSetupLink,
   superAdminSetupAppAccess,
   superAdminListCapabilities,
   superAdminCancelTenant,
@@ -72,7 +71,6 @@ const PLAN_CHIT_TYPES = {
   ENTERPRISE: ['RESERVATION'],
   'ENTERPRISE+': ['RESERVATION'],
   CUSTOM:     ['RESERVATION', 'LOTTERY', 'AUCTION'],
-  CUSTOM:     [],
 };
 
 function UsageBar({ label, used, limit }) {
@@ -891,7 +889,7 @@ export default function SuperAdminOrgDetailPage() {
   async function handleResumeTenant() {
     setResuming(true);
     try {
-      const updated = await superAdminResumeTenant(tenantId);
+      await superAdminResumeTenant(tenantId);
       setTenant((prev) => ({ ...prev, cancellationRequestedAt: null, cancellationRequestedBy: null }));
       showToast('Subscription resumed');
     } catch (err) {

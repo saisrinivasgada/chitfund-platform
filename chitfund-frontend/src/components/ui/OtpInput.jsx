@@ -9,10 +9,17 @@ export default function OtpInput({ phone, countryCode, onVerify, onResend, onCan
   const [verifying, setVerifying] = useState(false);
   const [cooldown, setCooldown]   = useState(RESEND_COOLDOWN);
   const [resending, setResending] = useState(false);
-  const refs = Array.from({ length: 6 }, () => useRef(null));
+  const ref0 = useRef(null);
+  const ref1 = useRef(null);
+  const ref2 = useRef(null);
+  const ref3 = useRef(null);
+  const ref4 = useRef(null);
+  const ref5 = useRef(null);
+  const refs = [ref0, ref1, ref2, ref3, ref4, ref5];
 
   useEffect(() => {
     refs[0].current?.focus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

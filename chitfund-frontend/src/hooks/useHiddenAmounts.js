@@ -11,7 +11,7 @@ let _current = (() => {
 
 function _broadcast(next) {
   _current = next;
-  try { localStorage.setItem(KEY, String(next)); } catch {}
+  try { localStorage.setItem(KEY, String(next)); } catch { /* ignore storage errors */ }
   _listeners.forEach((fn) => fn(next));
 }
 

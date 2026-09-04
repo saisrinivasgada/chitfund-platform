@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Receipt, Search, ArrowUpCircle, RefreshCw, ShoppingCart,
-  Banknote, X, Info, Calendar, CreditCard, ChevronRight, Filter,
+  Banknote, X, Info, ChevronRight, Filter,
 } from 'lucide-react';
 import {
   billingListPayments, billingRecordPayment, billingRecordUpgrade,
-  billingUpgradePreview, superAdminListTenants, billingGetPayment,
+  billingUpgradePreview, superAdminListTenants,
 } from '../../services/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

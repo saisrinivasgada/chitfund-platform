@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, User, Building2, Hash, Calendar, IndianRupee, CheckCircle,
-  Clock, XCircle, AlertCircle, CreditCard, Banknote, Minus, ChevronRight,
+  Clock, XCircle, AlertCircle, CreditCard, Banknote,
 } from 'lucide-react';
 import { getPayoutById, getMember, getChit, listStaff, getMembers } from '../../services/api';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
@@ -73,6 +73,7 @@ export default function PayoutDetailPage() {
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers });
+  const { hidden } = useHiddenAmounts();
   const nameMap = Object.fromEntries([
     ...staff.map((s) => [String(s.id), s.fullName ?? s.username]),
     ...allMembers.map((m) => [String(m.id), m.fullName ?? m.username]),
@@ -96,7 +97,6 @@ export default function PayoutDetailPage() {
   const StatusIcon = status.icon;
   const hasDeductions = Number(payout.discountAmount ?? 0) > 0;
   const disbursements = payout.disbursements ?? [];
-  const { hidden } = useHiddenAmounts();
 
   return (
     <div className="max-w-xl mx-auto p-4 space-y-4">

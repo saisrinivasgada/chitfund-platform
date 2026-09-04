@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, applyDowngrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToastContext } from '../components/layout/AppLayout';
 import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle } from 'lucide-react';
 
-const PLAN_ORDER = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 const PLAN_LABELS = { BASIC: 'Basic', GROWTH: 'Growth', ENTERPRISE: 'Enterprise', CUSTOM: 'Custom' };
 const PLAN_COLORS = {
   BASIC:      'bg-gray-100 text-gray-700',

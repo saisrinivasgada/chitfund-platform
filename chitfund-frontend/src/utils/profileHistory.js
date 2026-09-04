@@ -10,7 +10,7 @@ export function recordProfileChange(userId, changes) {
     const existing = JSON.parse(localStorage.getItem(storageKey(userId)) ?? '[]');
     const entry = { id: String(Date.now()), at: new Date().toISOString(), changes };
     localStorage.setItem(storageKey(userId), JSON.stringify([entry, ...existing].slice(0, MAX_ENTRIES)));
-  } catch {}
+  } catch { /* ignore storage errors */ }
 }
 
 export function getProfileHistory(userId) {

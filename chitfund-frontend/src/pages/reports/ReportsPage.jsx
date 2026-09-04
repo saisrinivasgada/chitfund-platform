@@ -13,7 +13,6 @@ import {
   listStaff, getPayoutById, getPaymentBatchById,
 } from '../../services/api';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
-import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
 import { Select, Input } from '../../components/ui/FormField';
@@ -21,9 +20,8 @@ import { ListSkeleton } from '../../components/ui/Spinner';
 import {
   BarChart2, DollarSign, Users, Banknote,
   Download, Filter, Printer, ChevronDown, ChevronRight,
-  Wallet, AlertCircle, TrendingUp, TrendingDown, FileText, ExternalLink, Layers,
-  User, Building2, Hash, Calendar, IndianRupee, CheckCircle, Clock, XCircle, CreditCard,
-  ArrowLeftRight, Tag, X,
+  Wallet, AlertCircle, TrendingUp, FileText, ExternalLink, Layers,
+  Building2, Calendar, CheckCircle, Clock, XCircle, CreditCard,
 } from 'lucide-react';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -94,7 +92,7 @@ function useSessionState(key, defaultValue) {
   const setAndPersist = useCallback((newVal) => {
     setValue((prev) => {
       const next = typeof newVal === 'function' ? newVal(prev) : newVal;
-      try { sessionStorage.setItem(key, JSON.stringify(next)); } catch {}
+      try { sessionStorage.setItem(key, JSON.stringify(next)); } catch { /* ignore storage errors */ }
       return next;
     });
   }, [key]);
@@ -519,7 +517,6 @@ function PayoutDetailModal({ payoutId, onClose }) {
                             return { month: Number(m), amount: Number(a) };
                           })
                         : null;
-                      const multiDraw = breakdown && breakdown.length > 1;
                       return (
                         <div className="border-b border-gray-100">
                           <div className="flex items-center justify-between py-2.5">
@@ -1701,25 +1698,6 @@ function ChitReportTab() {
         <span><strong>Status:</strong> ${chit.status}</span>
         <span><strong>Started:</strong> ${fmtDate(chit.startDate)}</span>
         <span><strong>Installment:</strong> ${fmt(chit.installmentAmount)}</span>
-      </div>
-    `;
-
-    const summaryHtml = `
-      <div class="summary">
-        <div class="summary-item"><p class="lbl">Total Draws</p><p class="val">${draws.length}</p></div>
-        <div class="summary-item"><p class="lbl">Expected</p><p class="val">${fmt(totalExpected)}</p></div>
-        <div class="summary-item"><p class="lbl">Collected</p><p class="val" style="color:#166534">${fmt(totalCollected)}</p></div>
-        <div class="summary-item"><p class="lbl">Outstanding</p><p class="val" style="color:#991b1b">${fmt(totalOutstanding)}</p></div>
-        <div class="summary-item"><p class="lbl">Disbursed Payouts</p><p class="val" style="color:#1d4ed8">${fmt(totalDisbursed)}</p></div>
-        <div class="summary-item"><p class="lbl">Withheld Instmts</p><p class="val" style="color:#92400e">${fmt(totalWithheld)}</p></div>
-      </div>
-      <div style="margin:12px 0;padding:12px 16px;background:${profitLoss >= 0 ? '#f0fdf4' : '#fef2f2'};border:2px solid ${profitLoss >= 0 ? '#16a34a' : '#dc2626'};border-radius:8px;display:flex;align-items:center;gap:32px;flex-wrap:wrap">
-        <div><p style="font-size:11px;color:#6b7280;margin:0">Total Collected</p><p style="font-size:16px;font-weight:700;color:#166534;margin:0">${fmt(totalCollected)}</p></div>
-        <div style="font-size:20px;color:#9ca3af">−</div>
-        <div><p style="font-size:11px;color:#6b7280;margin:0">Disbursed Payouts</p><p style="font-size:16px;font-weight:700;color:#1d4ed8;margin:0">${fmt(totalDisbursed)}</p></div>
-        ${adminInvestment > 0 ? `<div style="font-size:20px;color:#9ca3af">+</div><div><p style="font-size:11px;color:#6b7280;margin:0">Admin Investment</p><p style="font-size:16px;font-weight:700;color:#7c3aed;margin:0">${fmt(adminInvestment)}</p><p style="font-size:10px;color:#9ca3af;margin:0">advance to additional members</p></div>` : ''}
-        <div style="font-size:20px;color:#9ca3af">=</div>
-        <div><p style="font-size:11px;color:#6b7280;margin:0">${profitLoss >= 0 ? 'Surplus (Profit)' : 'Deficit (Loss)'}</p><p style="font-size:20px;font-weight:800;color:${profitLoss >= 0 ? '#16a34a' : '#dc2626'};margin:0">${profitLoss >= 0 ? '+' : ''}${fmt(profitLoss)}</p></div>
       </div>
     `;
 

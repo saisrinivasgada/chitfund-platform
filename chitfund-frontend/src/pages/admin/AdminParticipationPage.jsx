@@ -8,7 +8,6 @@ import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 export default function AdminParticipationPage() {
   const { adminId } = useParams();
   const navigate = useNavigate();
-  const { hidden } = useHiddenAmounts();
 
   const { data: adminUser, isLoading: userLoading } = useQuery({
     queryKey: ['user', adminId],
@@ -129,6 +128,7 @@ export default function AdminParticipationPage() {
 }
 
 function OrgSlotRow({ slot }) {
+  const { hidden } = useHiddenAmounts();
   const isRealized = slot.status === 'PROCESSED';
   const date = slot.reservationMonth
     ? new Date(slot.reservationMonth + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })

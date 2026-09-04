@@ -17,7 +17,7 @@ export function useNotifSocket(onInAppUpdated) {
             if (data.type === 'IN_APP_UPDATED') {
               callbackRef.current?.();
             }
-          } catch (_) {}
+          } catch { /* ignore WebSocket message parse errors */ }
         });
       },
     });

@@ -16,7 +16,7 @@ export default function HubLayout() {
     }
     setHubToken(token);
     if (user) {
-      try { setHubUser(JSON.parse(user)); } catch {}
+      try { setHubUser(JSON.parse(user)); } catch { /* ignore malformed JSON */ }
     }
   }, [navigate]);
 

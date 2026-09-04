@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import {
   hubListEmployees, hubStartDm, hubListDms, hubGetDmMessages, hubSendDm,
   hubDeleteDmMessage, hubMarkDmRead, hubCreateChatGroup, hubListChatGroups,
-  hubGetGroupMessages, hubSendGroupMessage, hubDeleteGroupMessage, hubAddChatGroupMember,
+  hubGetGroupMessages, hubSendGroupMessage, hubDeleteGroupMessage,
   getHubToken,
 } from '../../services/api';
 import { MessageSquare, Users, Plus, Send, Trash2, ChevronUp, X, Search } from 'lucide-react';
@@ -233,7 +233,7 @@ function ChatView({ type, item, myId, myUsername }) {
               });
               if (isDm) hubMarkDmRead(item.id).catch(() => {});
             }
-          } catch {}
+          } catch { /* ignore WebSocket message parse errors */ }
         });
       },
     });

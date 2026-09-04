@@ -8,7 +8,7 @@ import {
 import { PageSpinner } from '../../components/ui/Spinner';
 import {
   MessageSquare, Building2, Mail, Phone, Clock, ChevronDown, ChevronUp,
-  Check, FolderOpen, PauseCircle, XCircle, RotateCcw, CalendarClock,
+  Check, FolderOpen, PauseCircle, XCircle, CalendarClock,
 } from 'lucide-react';
 
 const TYPE_LABEL = { PROSPECT: 'Prospect', ORG_SUPPORT: 'Org Support' };

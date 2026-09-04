@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import {
   ArrowLeft, BookOpen, Users, Wallet, Award, BarChart2,
   CheckCircle, Calendar, CreditCard, TrendingUp, Bell,
-  Shield, Settings, UserCheck, Gavel, PieChart,
+  Settings, UserCheck, Gavel, PieChart,
 } from 'lucide-react';
 
 const P = '#1E3A5F';

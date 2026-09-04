@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit,
-  resendSetupLink, resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
+  resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests, lockUser, unlockUser,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
   getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
@@ -14,14 +14,14 @@ import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
-import Badge, { statusBadge } from '../../components/ui/Badge';
+import Badge from '../../components/ui/Badge';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
-import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
+import { formatPhone } from '../../components/ui/PhoneInput';
 import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import {
-  ArrowLeft, Edit2, User, Building2, FileText, History, AlertTriangle,
+  ArrowLeft, Edit2, User, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
   Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight, Banknote,
@@ -1103,13 +1103,6 @@ function PaymentHistorySection({ memberId }) {
     WAIVED:             'text-gray-400 bg-gray-50',
     PAYOUT_DEDUCTED:    'text-[#1E3A5F] bg-[#EEF2F8]',
     SETTLEMENT_CLEARED: 'text-teal-700 bg-teal-50',
-  };
-
-  const chitStatusColor = {
-    ACTIVE:    '#16A34A',
-    COMPLETED: '#6B7280',
-    PAUSED:    '#D97706',
-    PENDING:   '#D97706',
   };
 
   return (

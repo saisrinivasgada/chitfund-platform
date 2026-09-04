@@ -13,6 +13,7 @@ import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
 
 const ToastContext = createContext(null);
+// eslint-disable-next-line react-refresh/only-export-components
 export const useToastContext = () => useContext(ToastContext);
 
 export default function AppLayout() {

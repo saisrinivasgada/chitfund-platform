@@ -9,7 +9,7 @@ import { recordProfileChange } from '../../utils/profileHistory';
 import PhoneInput from '../ui/PhoneInput';
 import Button from '../ui/Button';
 import {
-  X, Check, Loader, AlertCircle, User, Phone, Mail, MapPin, AtSign,
+  X, Check, Loader, AlertCircle, User, Mail, MapPin, AtSign,
   UserCircle, Lock, Eye, EyeOff, ShieldCheck, MessageSquare,
 } from 'lucide-react';
 

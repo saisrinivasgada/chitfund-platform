@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+// eslint-disable-next-line react-refresh/only-export-components
 export function computeDefaultDueDate(startDateStr, cycleNum, monthlyDueDate) {
   if (!startDateStr) return '';
   const parts = startDateStr.split('-').map(Number);
@@ -149,7 +150,7 @@ export default function OpenDrawModal({ chitId, chit, draws, onClose }) {
       .map(([mid]) => mid);
   })() : [];
 
-  const baseInstallment   = Number(chit.installmentAmount ?? (chit.chitValue / chit.capacity) ?? 0);
+  const baseInstallment   = Number(chit.installmentAmount ?? chit.chitValue / chit.capacity) || 0;
   const defaultPostPayout = Number(chit.defaultPostPayoutContribution ?? baseInstallment);
 
   const enrolledMemberIds = [...new Set(enrollments.map((e) => e.memberId ?? e.id))];

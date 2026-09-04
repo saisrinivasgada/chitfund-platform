@@ -12,11 +12,6 @@ function normalizeUser(userData) {
   return userData;
 }
 
-// Proxy sessions use sessionStorage (tab-isolated); real sessions use in-memory token.
-// Non-sensitive display data (user info, tenant) stays in localStorage for UX persistence.
-function readStore(key, fallback = null) {
-  return sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? fallback;
-}
 
 export function AuthProvider({ children }) {
   const [isProxySession, setIsProxySession] = useState(() => !!sessionStorage.getItem('token'));
@@ -196,4 +191,5 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);

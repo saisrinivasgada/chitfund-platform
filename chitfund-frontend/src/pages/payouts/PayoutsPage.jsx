@@ -12,7 +12,6 @@ import PayoutCreationForm from '../../components/payout/PayoutCreationForm';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
-import Badge, { statusBadge } from '../../components/ui/Badge';
 import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
@@ -70,7 +69,6 @@ function TabBar({ active, onChange, tabs = TABS }) {
 
 // ─── Create Payout Tab ─────────────────────────────────────────────────────
 function CreatePayoutTab() {
-  const toast = useToastContext();
   const qc = useQueryClient();
   const [chitId, setChitId] = useState('');
   const [selectedWinnerKey, setSelectedWinnerKey] = useState('');

@@ -2,18 +2,18 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getChit, updateChitStatus, updateChitName, updateChitDetails, pauseChit, resumeChit, deleteChit,
+  getChit, updateChitStatus, updateChitDetails, pauseChit, resumeChit, deleteChit,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
-  getDraws, openDraw, closeDraw, skipDraw, deleteDraw, shiftReservations,
+  getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
   getWinners, recordWinner, deleteWinnerForDraw,
-  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, markSlotProcessed, swapSlots, getSlotHistory,
+  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
-  getDrawPayments, recordPayment, collectPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
-  getPaymentBatches, voidPaymentBatch, markPayoutDeducted, revertPayoutDeductions,
-  getPayoutsByChit, getPayoutsForMember, createPayout, disbursePayout, cancelPayout,
+  getDrawPayments, recordPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
+  getPaymentBatches, voidPaymentBatch, revertPayoutDeductions,
+  getPayoutsByChit, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
-  getMe, listStaff, getUserById, getWalletBalance,
+  listStaff, getUserById, getWalletBalance,
   getChitAuditLogs, listAuctions, voidAuction,
   sendChitInvitation, getChitInvitations, getChitInvitationDetail, closeChitInvitation, overrideInvitationResponse, approveInvitationResponse, rejectInvitationResponse,
 } from '../../services/api';
@@ -33,10 +33,10 @@ import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 import OpenDrawModal from '../../components/draws/OpenDrawModal';
 import OpenAuctionModal from '../../components/draws/OpenAuctionModal';
 import {
-  ArrowLeft, Settings, Users, Calendar, Trophy, BookMarked,
+  ArrowLeft, Settings, Users, Calendar, Trophy,
   UserPlus, Trash2, Plus, ChevronDown, CheckCircle, XCircle,
   AlertTriangle, Pause, Play, List, Info, Phone, Mail, MapPin, ArrowLeftRight, Eye,
-  Banknote, AlertCircle, ChevronRight, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink, Shuffle, Gavel, Smartphone,
+  Banknote, AlertCircle, Clock, ArrowRight, RotateCcw, X, History, Vault, CreditCard, Building2, ExternalLink, Shuffle, Gavel, Smartphone,
 } from 'lucide-react';
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -498,6 +498,7 @@ function MembersTab({ chitId, chit }) {
               const mid = e.memberId ?? e.id;
               const member = memberMap[mid];
               const isAdmin = !member; // UUID not in member-service = admin/staff holding a spot
+              const displayName = member?.fullName ?? 'this member';
               return (
                 <Tr key={mid}>
                   <Td className="font-medium text-gray-900">
@@ -575,11 +576,6 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
   const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
-  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
-  const adminOptions = staffList.map((s) => ({
-    id: s.id,
-    fullName: `${s.fullName ?? s.username} (Admin)`,
-  }));
 
   // Need draws + existing reservations to detect late-joiner backlog
   const { data: draws = [] } = useQuery({ queryKey: ['draws', chitId], queryFn: () => getDraws(chitId) });
@@ -590,7 +586,7 @@ function AddSlotModal({ chitId, chit, onClose, prefill = null }) {
   const [form, setForm] = useState({ reservationMonth: initMonth, memberId: '', orgHeld: false, payoutAmount: initPayout, postPayoutContribution: '' });
   const [showBacklogConfirm, setShowBacklogConfirm] = useState(false);
 
-  const baseInstallment = Number(chit?.installmentAmount ?? (chit?.chitValue / chit?.capacity) ?? 0);
+  const baseInstallment = Number(chit?.installmentAmount ?? chit?.chitValue / chit?.capacity) || 0;
   const pastRealDrawCount = draws.filter((d) => d.status !== 'SKIPPED').length;
 
   // A member is a "late joiner" if they have NO existing reservations in this chit
@@ -756,14 +752,6 @@ function computeDefaultDueDate(startDateStr, cycleNum, monthlyDueDate) {
   return `${targetYear}-${String(targetMon + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-// "Rajesh Kumar Sharma" → "Rajesh S."  keeps options compact in narrow dropdowns
-function shortName(full) {
-  if (!full) return '';
-  const parts = full.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  return parts[0] + ' ' + parts[parts.length - 1][0] + '.';
-}
-
 function formatMonthLabel(dateStr, fallbackMonth) {
   if (!dateStr) return fallbackMonth != null ? `Draw ${fallbackMonth}` : '—';
   const parts = dateStr.substring(0, 7).split('-');
@@ -898,7 +886,7 @@ function SlotAuditTooltip({ slot, memberMap }) {
 }
 
 // ─── Member / Admin picker modal ─────────────────────────────────────────────
-function MemberPickerRow({ id, name, phone, city, isAdmin, isSelected, balance, slotCount, onSelect }) {
+function MemberPickerRow({ name, phone, city, isAdmin, isSelected, balance, slotCount, onSelect }) {
   return (
     <button
       type="button"
@@ -1391,9 +1379,6 @@ function ReservationScheduleTab({ chitId, chit }) {
   ]);
   const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
     .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
-
-  // Precompute for member picker: which IDs are regular members vs. admins
-  const memberIdSet = new Set(activeMembers.map((m) => String(m.id)));
 
   // Current displayed value for a field — edit state wins over server state
   function getEdit(slot) {
@@ -1995,65 +1980,6 @@ function ReservationScheduleTab({ chitId, chit }) {
   );
 }
 
-// ─── (SlotPickerDropdown moved to components/draws/OpenDrawModal.jsx) ───────────
-function SlotPickerDropdown({ slots, value, onChange, disabled, placeholder = 'Select slot…' }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    function onOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onOutside);
-    return () => document.removeEventListener('mousedown', onOutside);
-  }, []);
-
-  const selected = slots.find((s) => s.id === value);
-
-  const label = (s) =>
-    `Slot #${s.monthNumber} (${formatMonthLabel(s.reservationMonth, s.monthNumber)})`;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
-        className="w-full text-left text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-1 focus:ring-[#1E3A5F] disabled:opacity-50 flex items-center justify-between gap-2"
-      >
-        <span className={selected ? 'text-gray-900' : 'text-gray-400'}>
-          {selected ? label(selected) : placeholder}
-        </span>
-        <ChevronDown size={14} className={`text-gray-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-52">
-          {slots.length === 0 ? (
-            <p className="px-3 py-2.5 text-sm text-gray-400 italic">No available slots</p>
-          ) : slots.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => { onChange(s.id); setOpen(false); }}
-              className={`w-full text-left px-3 py-2.5 text-sm flex items-center justify-between gap-3 hover:bg-gray-50 ${
-                s.id === value ? 'bg-[#EEF2F8] text-[#1E3A5F] font-medium' : 'text-gray-800'
-              }`}
-            >
-              <span className="font-medium">Slot #{s.monthNumber}</span>
-              <span className="text-xs text-gray-500 whitespace-nowrap">
-                {formatMonthLabel(s.reservationMonth, s.monthNumber)}
-                {s.payoutAmount ? ` · ₹${Number(s.payoutAmount).toLocaleString()}` : ''}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Auction Summary Popover ──────────────────────────────────────────────────
 function AuctionSummaryPopover({ session }) {
   const fmt = (v) => v != null ? `₹${Number(v).toLocaleString('en-IN')}` : '—';
   const rows = [
@@ -2267,575 +2193,6 @@ function PayoutPlanTab({ chitId, chit }) {
   );
 }
 
-// ─── Months Tab ───────────────────────────────────────────────────────────────
-function OpenDrawModal_LOCAL({ chitId, chit, draws, onClose }) {
-  // Derive draw number before any hooks so it's available to useState initializer
-  const nextCycleNum = draws.length > 0 ? Math.max(...draws.map((c) => c.monthNumber)) + 1 : 1;
-
-  const qc = useQueryClient();
-  const toast = useToastContext();
-  const [step, setStep] = useState(1);
-  const [dueDate, setDueDate] = useState(() => computeDefaultDueDate(chit?.startDate, nextCycleNum, chit?.monthlyDueDate));
-  const [additionalWinners, setAdditionalWinners] = useState([]); // [{ id, memberId, slotId }]
-  const [preview, setPreview] = useState(null);
-
-  const addWinner    = () => setAdditionalWinners((prev) => [...prev, { id: Date.now(), memberId: '', slotId: '' }]);
-  const removeWinner = (id) => setAdditionalWinners((prev) => prev.filter((w) => w.id !== id));
-  const updateWinner = (id, updates) => setAdditionalWinners((prev) => prev.map((w) => w.id === id ? { ...w, ...updates } : w));
-
-  const { data: enrollments = [] } = useQuery({
-    queryKey: ['enrollments', chitId],
-    queryFn: () => getEnrollments(chitId),
-  });
-  const { data: reservations = [] } = useQuery({
-    queryKey: ['reservations', chitId],
-    queryFn: () => getReservations(chitId),
-  });
-  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
-  const { data: staffListDraw = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
-  const memberMap = Object.fromEntries([
-    ...staffListDraw.map((s) => [String(s.id), { id: s.id, fullName: `${s.fullName ?? s.username} (Admin)`, phone: null }]),
-    ...allMembers.map((m) => [m.id, m]),
-  ]);
-  // Only ACTIVE members can be selected for additional early payout
-  const activeMembers = [...allMembers.filter((m) => m.status === 'ACTIVE')]
-    .sort((a, b) => (a.fullName ?? '').localeCompare(b.fullName ?? ''));
-
-  const baseInstallment    = Number(chit.installmentAmount ?? (chit.chitValue / chit.capacity) ?? 0);
-  const defaultPostPayout  = Number(chit.defaultPostPayoutContribution ?? baseInstallment);
-
-  // Deduplicated member IDs from enrollments (DB has duplicate rows per member)
-  const enrolledMemberIds = [...new Set(enrollments.map((e) => e.memberId ?? e.id))];
-
-  // Outstanding balances from previous cycles — positive = member owes, negative = credit
-  const { data: balanceMap = {} } = useQuery({
-    queryKey: ['balances', chitId, enrolledMemberIds.join(',')],
-    queryFn: () => getMemberBalanceBulk(enrolledMemberIds),
-    enabled: enrolledMemberIds.length > 0,
-  });
-
-  // Primary winner: the first unpaid slot in schedule order (lowest monthNumber among all RESERVED slots).
-  // We do NOT pin to nextCycleNum because a lower-numbered slot may still be pending —
-  // e.g. slot 19 is RESERVED for Anita while the slot-19 cycle was already opened for a
-  // different holder. In a chit fund, schedule order wins: pay the lowest slot first.
-  const primaryWinnerSlot = [...reservations]
-    .filter((r) => r.status === 'RESERVED')
-    .sort((a, b) => (a.monthNumber ?? 999) - (b.monthNumber ?? 999))[0] ?? null;
-  const isOrgDraw = primaryWinnerSlot?.orgHeld === true;
-  const cyclePayoutAmount = primaryWinnerSlot?.payoutAmount ? Number(primaryWinnerSlot.payoutAmount) : null;
-
-  // Candidates for additional early payout: all enrolled members (members + any admin) with RESERVED slots
-  const activeMemberIds = new Set([
-    ...activeMembers.map((m) => String(m.id)),
-    ...staffListDraw.map((s) => String(s.id)),
-  ]);
-  const extraCandidates = (() => {
-    const seen = new Set();
-    return enrollments.filter((e) => {
-      const mid = e.memberId ?? e.id;
-      if (seen.has(mid)) return false;
-      if (!activeMemberIds.has(String(mid))) return false;
-      const memberReserved = reservations.filter((r) => r.memberId === mid && r.status === 'RESERVED');
-      // Allow primary winner only if they have >1 reserved slot (one for primary, one for extra)
-      if (mid === primaryWinnerSlot?.memberId && memberReserved.length <= 1) return false;
-      if (!memberReserved.length) return false;
-      seen.add(mid);
-      return true;
-    });
-  })();
-
-  function computePreview() {
-    const seen = new Set();
-    const members = [];
-    for (const e of enrollments) {
-      const mid = e.memberId ?? e.id;
-      if (seen.has(mid)) continue;   // skip duplicate enrollment rows
-      seen.add(mid);
-
-      const memberSlots    = reservations.filter((r) => r.memberId === mid);
-      const processedSlots = memberSlots.filter((r) => r.status === 'PROCESSED');
-      const reservedSlots  = memberSlots.filter((r) => r.status === 'RESERVED');
-
-      // This cycle's installment: post-payout rate per settled slot + base rate per pending slot
-      const processedAmt = processedSlots.reduce(
-        (s, sl) => s + Number(sl.postPayoutContribution ?? defaultPostPayout), 0
-      );
-      const amountDue = processedAmt + reservedSlots.length * baseInstallment;
-
-      const previousBalance = Number(balanceMap[mid] ?? 0);
-      const isPrimary  = String(mid) === String(primaryWinnerSlot?.memberId);
-      const extraCount = additionalWinners.filter((w) => w.memberId && String(w.memberId) === String(mid)).length;
-      const isExtra    = extraCount > 0;
-      const isWinner   = isPrimary || isExtra;
-      // Total wins for this member (could be primary + multiple extra slots)
-      const winCount   = (isPrimary ? 1 : 0) + extraCount;
-      const netPayout  = isWinner && cyclePayoutAmount !== null
-        ? winCount * cyclePayoutAmount - amountDue
-        : null;
-
-      members.push({
-        memberId: mid,
-        memberName:      memberMap[mid]?.fullName ?? `Member #${mid}`,
-        phone:           memberMap[mid]?.phone ?? null,
-        previousBalance,
-        processedCount:  processedSlots.length,
-        reservedCount:   reservedSlots.length,
-        reservedSlotNums: reservedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
-        processedSlotNums: processedSlots.map((r) => r.monthNumber).filter(Boolean).sort((a, b) => a - b),
-        amountDue,
-        isWinner, isPrimary, isExtra, winCount,
-        netPayout,
-      });
-    }
-    // Add org-held RESERVED slots as separate rows in the preview
-    const orgSlots = reservations.filter((r) => r.orgHeld && r.status === 'RESERVED');
-    for (const slot of orgSlots) {
-      members.push({
-        memberId: `org_${slot.id}`,
-        memberName: 'Organization',
-        phone: null,
-        isOrg: true,
-        previousBalance: 0,
-        processedCount: 0,
-        reservedCount: 1,
-        reservedSlotNums: [slot.monthNumber].filter(Boolean),
-        processedSlotNums: [],
-        amountDue: baseInstallment,
-        isWinner: false,
-        isPrimary: slot.id === primaryWinnerSlot?.id,
-        isExtra: false,
-        winCount: 0,
-        netPayout: null,
-      });
-    }
-
-    setPreview({ cycleNum: nextCycleNum, members });
-    setStep(2);
-  }
-
-  // Slot IDs to mark PROCESSED when cycle is opened
-  const slotsToProcess = [
-    ...(primaryWinnerSlot ? [primaryWinnerSlot.id] : []),
-    ...additionalWinners.filter((w) => w.slotId).map((w) => w.slotId),
-  ];
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      await openDraw({
-        chitId,
-        monthNumber: nextCycleNum,
-        dueDate,
-        installmentAmount: baseInstallment,
-        maxCycles: chit?.capacity ?? nextCycleNum,
-        members: preview.members.filter((m) => !m.isOrg).map((m) => ({ memberId: m.memberId, amountDue: m.amountDue })),
-      });
-
-      // Mark winner slots PROCESSED — commitment is made at cycle open time
-      if (slotsToProcess.length > 0) {
-        await Promise.all(slotsToProcess.map((sid) => markSlotProcessed({ chitId, reservationId: sid }).catch(() => {})));
-      }
-
-      // Allocate winner(s) — records who won this cycle; payout is managed separately in Winners tab
-      // Org-held draws have no member winner — skip recordWinner entirely for org slots
-      // Group by memberId so same member with multiple slots gets ONE combined winner record
-      const primaryAmt = Number(primaryWinnerSlot?.payoutAmount ?? chit?.chitValue ?? 0);
-      const winsByMember = {};
-      if (primaryWinnerSlot && !primaryWinnerSlot.orgHeld) {
-        const mid = String(primaryWinnerSlot.memberId);
-        winsByMember[mid] = (winsByMember[mid] ?? 0) + 1;
-      }
-      for (const aw of additionalWinners) {
-        if (aw.memberId && aw.slotId) {
-          winsByMember[String(aw.memberId)] = (winsByMember[String(aw.memberId)] ?? 0) + 1;
-        }
-      }
-      const winnersToRecord = Object.entries(winsByMember).map(([memberId, count]) => ({
-        memberId,
-        winningAmount: count * primaryAmt,
-      }));
-      await Promise.all(
-        winnersToRecord.map(({ memberId, winningAmount }) =>
-          recordWinner({
-            chitId,
-            winnerId: memberId,
-            monthNumber: nextCycleNum,
-            winningAmount,
-            discountAmount: 0,
-          }).catch(() => {})
-        )
-      );
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['draws', chitId] });
-      qc.invalidateQueries({ queryKey: ['reservations', chitId] });
-      qc.invalidateQueries({ queryKey: ['winners', chitId] });
-      toast.success(`Draw ${nextCycleNum} opened`);
-      onClose();
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to open draw'),
-  });
-
-  const totalCollection = preview?.members.reduce((s, m) => s + m.amountDue, 0) ?? 0;
-
-  const winnerName = primaryWinnerSlot
-    ? (isOrgDraw ? null : (memberMap[primaryWinnerSlot.memberId]?.fullName ?? 'Unknown'))
-    : null;
-
-  const totalMembers   = enrollments.length > 0 ? [...new Set(enrollments.map((e) => e.memberId ?? e.id))].length : (chit?.capacity ?? 0);
-  const processedCount = [...new Set(enrollments.map((e) => e.memberId ?? e.id))].length > 0
-    ? reservations.filter((r) => r.status === 'PROCESSED').length : 0;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-8 lg:p-10">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0"
-        style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Dialog */}
-      <div className="relative w-full sm:max-w-3xl rounded-t-2xl sm:rounded-2xl sm:shadow-2xl overflow-hidden flex flex-col sm:flex-row max-h-[82vh]">
-
-        {/* ── Left panel — navy context sidebar ── */}
-        <div
-          className="flex-shrink-0 sm:w-52 flex flex-col overflow-y-auto"
-          style={{ background: 'linear-gradient(160deg, #162D49 0%, #1E3A5F 60%, #243F6A 100%)', padding: '24px 24px', gap: 20, display: 'flex', flexDirection: 'column' }}
-        >
-          {/* Draw number */}
-          <div>
-            <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-1">Opening</p>
-            <p className="text-3xl font-black text-white leading-none" style={{ fontFamily: 'Merriweather, serif' }}>
-              Draw #{nextCycleNum}
-            </p>
-            <p className="text-xs text-white/50 mt-1">{chit?.name}</p>
-          </div>
-
-          {/* Divider */}
-          <div className="h-px bg-white/10" />
-
-          {/* Winner block */}
-          <div>
-            <div className="flex items-center gap-1.5 mb-2">
-              <Trophy size={12} style={{ color: '#D4A017' }} />
-              <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest">
-                {isOrgDraw ? 'This Draw' : 'Winner'}
-              </p>
-            </div>
-            {isOrgDraw ? (
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <Building2 size={14} style={{ color: '#D4A017' }} />
-                  <p className="text-sm font-bold text-white leading-snug">Organization</p>
-                </div>
-                <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(212,160,23,0.2)', color: '#D4A017' }}>
-                  Org-held slot · no payout
-                </span>
-              </div>
-            ) : winnerName ? (
-              <>
-                <p className="text-sm font-bold text-white leading-snug">{winnerName}</p>
-                {cyclePayoutAmount && (
-                  <p className="text-base font-black mt-1" style={{ color: '#D4A017' }}>
-                    ₹{cyclePayoutAmount.toLocaleString()}
-                  </p>
-                )}
-                {additionalWinners.filter((w) => w.memberId).map((w) => (
-                  <div key={w.id} className="mt-2 rounded-lg px-3 py-2" style={{ background: 'rgba(212,160,23,0.15)' }}>
-                    <p className="text-[10px] text-white/40 uppercase tracking-widest mb-0.5">
-                      {String(w.memberId) === String(primaryWinnerSlot?.memberId) ? 'Double Payout' : 'Also paying'}
-                    </p>
-                    <p className="text-xs font-semibold text-white/80">{memberMap[w.memberId]?.fullName ?? '—'}</p>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <p className="text-sm text-white/40 italic">No winner scheduled</p>
-            )}
-          </div>
-
-          {/* Divider */}
-          <div className="h-px bg-white/10" />
-
-          {/* Chit progress */}
-          <div className="mt-auto">
-            <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Progress</p>
-            <div className="flex items-end gap-1.5">
-              <span className="text-2xl font-black text-white">{nextCycleNum - 1}</span>
-              <span className="text-sm text-white/40 mb-0.5">/ {chit?.capacity ?? '?'}</span>
-            </div>
-            <p className="text-[11px] text-white/40 mt-0.5">draws done</p>
-            {/* Progress bar */}
-            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: chit?.capacity ? `${Math.min(100, ((nextCycleNum - 1) / chit.capacity) * 100)}%` : '0%',
-                  background: 'linear-gradient(90deg, #D4A017, #F59E0B)',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Step dots */}
-          <div className="flex items-center gap-2 pt-1">
-            {[1, 2].map((s) => (
-              <div key={s} className={`h-1.5 rounded-full transition-all ${step === s ? 'w-5 bg-white' : 'w-1.5 bg-white/25'}`} />
-            ))}
-            <span className="text-[10px] text-white/30 ml-1">{step === 1 ? 'Configure' : 'Preview'}</span>
-          </div>
-        </div>
-
-        {/* ── Right panel — white form / preview ── */}
-        <div className="flex-1 bg-white flex flex-col min-h-0">
-
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 flex-shrink-0" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 16 }}>
-            <div>
-              <h3 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Merriweather, serif' }}>
-                {step === 1 ? 'Configure Draw' : 'Preview & Confirm'}
-              </h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {step === 1 ? 'Set the due date for this cycle' : `${preview?.members.filter((m) => !m.isOrg).length ?? 0} members · ₹${totalCollection.toLocaleString()} total`}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="flex items-center justify-center w-7 h-7 rounded-full transition-all duration-150 cursor-pointer bg-[#EFF4FA] text-[#1E3A5F] hover:bg-[#1E3A5F] hover:text-white flex-shrink-0"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          {/* Scrollable body */}
-          <div className="flex-1 min-h-0 overflow-y-auto" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 20, paddingBottom: 20 }}>
-
-            {step === 1 ? (
-              <form id="open-draw-form" onSubmit={(e) => { e.preventDefault(); computePreview(); }} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-                {/* Due date */}
-                <FormField label="Payment Due Date" required>
-                  <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} required />
-                </FormField>
-
-                {/* Additional winners */}
-                {cyclePayoutAmount && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {additionalWinners.map((aw, idx) => {
-                      // RESERVED slots for this additional winner, excluding primary slot and slots already picked by earlier rows
-                      const usedSlotIds = new Set(additionalWinners.filter((_, i) => i < idx).map((w) => w.slotId).filter(Boolean));
-                      const awSlots = aw.memberId
-                        ? reservations.filter((r) =>
-                            String(r.memberId) === String(aw.memberId) &&
-                            r.status === 'RESERVED' &&
-                            r.id !== primaryWinnerSlot?.id &&
-                            !usedSlotIds.has(r.id)
-                          )
-                        : [];
-                      return (
-                        <div key={aw.id} className="rounded-xl border border-[#1E3A5F]/20 bg-[#F0F4FA]">
-                          <div className="flex items-center justify-between border-b border-[#1E3A5F]/10" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 12 }}>
-                            <p className="text-sm font-semibold text-gray-800">Additional Winner {idx + 1}</p>
-                            <button type="button" onClick={() => removeWinner(aw.id)}
-                              className="text-gray-400 hover:text-red-500 transition-colors">
-                              <X size={14} />
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3" style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 12, paddingBottom: 16 }}>
-                            <FormField label="Member">
-                              <Select value={aw.memberId}
-                                onChange={(e) => updateWinner(aw.id, { memberId: e.target.value, slotId: '' })}>
-                                <option value="">Select member…</option>
-                                {[...extraCandidates].sort((a, b) => {
-                                  const nameA = memberMap[a.memberId ?? a.id]?.fullName ?? '';
-                                  const nameB = memberMap[b.memberId ?? b.id]?.fullName ?? '';
-                                  return nameA.localeCompare(nameB);
-                                }).map((e) => {
-                                  const mid = e.memberId ?? e.id;
-                                  return <option key={mid} value={mid}>{memberMap[mid]?.fullName ?? `Member #${mid}`}</option>;
-                                })}
-                              </Select>
-                            </FormField>
-                            <FormField label="Slot to settle">
-                              <SlotPickerDropdown slots={awSlots} value={aw.slotId}
-                                onChange={(v) => updateWinner(aw.id, { slotId: v })}
-                                disabled={!aw.memberId} placeholder="Select slot…" />
-                            </FormField>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {extraCandidates.length > 0 && (
-                      <button type="button" onClick={addWinner}
-                        className="flex items-center gap-2 text-sm text-[#1E3A5F] hover:text-[#0f2540] font-semibold transition-colors">
-                        <Plus size={14} /> Add another member
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Due date note */}
-                <div className="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-xl px-4 py-3">
-                  <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-                  <span>Members will be notified to submit payment by the due date. Winner receives payout upon cycle close.</span>
-                </div>
-
-              </form>
-            ) : (
-              <div className="space-y-4">
-
-                {/* Stats row */}
-                <div className={`grid gap-3 ${preview.members.some((m) => m.isOrg) ? 'grid-cols-4' : 'grid-cols-3'}`}>
-                  {[
-                    { label: 'Due Date', value: (() => { const [y,m,d] = dueDate.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); })() },
-                    { label: 'Members', value: preview.members.filter((m) => !m.isOrg).length },
-                    ...(preview.members.some((m) => m.isOrg)
-                      ? [{ label: 'Org Held', value: preview.members.filter((m) => m.isOrg).length, orgBox: true }]
-                      : []),
-                    { label: 'Total', value: `₹${totalCollection.toLocaleString()}` },
-                  ].map(({ label, value, orgBox }) => (
-                    <div key={label} className={`rounded-xl border px-3 py-2.5 text-center ${orgBox ? 'bg-[#EEF2F8] border-[#1E3A5F]/20' : 'bg-gray-50 border-gray-100'}`}>
-                      <p className={`text-[10px] font-semibold uppercase tracking-widest ${orgBox ? 'text-[#1E3A5F]/60' : 'text-gray-400'}`}>{label}</p>
-                      <p className={`text-sm font-bold mt-0.5 ${orgBox ? 'text-[#1E3A5F]' : 'text-gray-900'}`}>{value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Member table */}
-                <div className="rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="overflow-y-auto max-h-64">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10">
-                        <tr className="bg-gray-50 border-b border-gray-100">
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
-                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">This Draw</th>
-                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Net Payout</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {preview.members.map((m) => (
-                          <tr key={m.memberId}
-                            className={`transition-colors ${m.isOrg ? 'bg-[#EEF2F8]/40' : m.isPrimary ? 'bg-amber-50/70' : m.isExtra ? 'bg-[#EEF2F8]/60' : 'bg-white hover:bg-gray-50/60'}`}>
-                            <td className={`py-2.5 pl-4 pr-3 ${m.isOrg && m.isPrimary ? 'border-l-2 border-[#1E3A5F]' : (m.isPrimary || m.isExtra) ? 'border-l-2' : ''}`}
-                              style={(!m.isOrg && (m.isPrimary || m.isExtra)) ? { borderLeftColor: m.isPrimary ? '#D97706' : '#1E3A5F' } : {}}>
-                              <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {m.isOrg
-                                    ? <span className="flex items-center gap-1 font-semibold text-[#1E3A5F] text-sm"><Building2 size={12} /> {m.memberName}</span>
-                                    : <span className="font-semibold text-gray-900 text-sm">{m.memberName}</span>}
-                                  {m.isOrg && m.isPrimary && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">
-                                      <Building2 size={8} /> This draw's slot
-                                    </span>
-                                  )}
-                                  {!m.isOrg && m.isPrimary && (
-                                    <span className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
-                                      <Trophy size={8} /> Winner
-                                    </span>
-                                  )}
-                                  {m.isExtra && (
-                                    <span className="text-[10px] bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-full font-semibold">
-                                      {m.winCount > 1 ? `×${m.winCount} Payout` : 'Extra'}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {m.phone && <span className="text-xs text-gray-400 flex items-center gap-1"><Phone size={9} />{m.phone}</span>}
-                                  {m.previousBalance > 0 && (
-                                    <span className="text-[10px] bg-red-50 text-red-500 border border-red-100 px-1.5 py-0.5 rounded-md">
-                                      +₹{m.previousBalance.toLocaleString()} owed
-                                    </span>
-                                  )}
-                                  {m.previousBalance < 0 && (
-                                    <span className="text-[10px] bg-green-50 text-green-600 border border-green-100 px-1.5 py-0.5 rounded-md">
-                                      ₹{Math.abs(m.previousBalance).toLocaleString()} credit
-                                    </span>
-                                  )}
-                                </div>
-                                {(m.reservedSlotNums?.length > 0 || m.processedSlotNums?.length > 0) && (
-                                  <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                                    {m.reservedSlotNums?.map((n) => (
-                                      <span key={n} className="text-[10px] font-semibold bg-[#EEF2F8] text-[#1E3A5F] px-1.5 py-0.5 rounded-md">
-                                        Slot #{n}
-                                      </span>
-                                    ))}
-                                    {m.processedSlotNums?.map((n) => (
-                                      <span key={n} className="text-[10px] font-semibold bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-md line-through">
-                                        Slot #{n}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-middle">
-                              <span className="text-sm font-semibold text-gray-800">₹{m.amountDue.toLocaleString()}</span>
-                            </td>
-                            <td className="px-4 py-2.5 text-right align-middle">
-                              {m.isWinner && m.netPayout !== null ? (
-                                <div className="flex flex-col items-end">
-                                  <span className="text-sm font-bold text-green-700">₹{m.netPayout.toLocaleString()}</span>
-                                  <span className="text-[9px] text-gray-400">after deduction</span>
-                                </div>
-                              ) : <span className="text-gray-300 text-sm">—</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="sticky bottom-0 bg-gray-50 border-t border-gray-200">
-                        <tr>
-                          <td className="px-4 py-2.5 text-xs font-semibold text-gray-500">
-                            {preview.members.filter((m) => !m.isOrg).length} members
-                          </td>
-                          <td className="px-4 py-2.5 text-right text-sm font-bold text-gray-900">₹{totalCollection.toLocaleString()}</td>
-                          <td />
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-
-                {slotsToProcess.length > 0 && (
-                  <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 rounded-xl px-4 py-2.5">
-                    <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
-                    {slotsToProcess.length === 1 ? '1 reservation slot' : `${slotsToProcess.length} reservation slots`} will be marked settled.
-                  </div>
-                )}
-
-              </div>
-            )}
-          </div>
-
-          {/* Footer buttons */}
-          <div className="flex-shrink-0 border-t border-gray-100 flex gap-3 bg-white" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 16, paddingBottom: 16 }}>
-            {step === 1 ? (
-              <>
-                <Button type="button" variant="muted" onClick={onClose} className="flex-1">Cancel</Button>
-                <Button
-                  type="submit"
-                  form="open-draw-form"
-                  disabled={enrollments.length === 0 || additionalWinners.some((w) => !w.memberId || !w.slotId)}
-                  className="flex-1">
-                  Preview →
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button type="button" variant="muted" onClick={() => setStep(1)} className="flex-1">← Back</Button>
-                <Button onClick={() => mutation.mutate()} loading={mutation.isPending} className="flex-1">
-                  Open Draw #{nextCycleNum}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
   const qc = useQueryClient();
@@ -2851,7 +2208,7 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
     skipReason: '',
   });
 
-  const baseInstallment = Number(chit?.installmentAmount ?? (chit?.chitValue / chit?.capacity) ?? 0);
+  const baseInstallment = Number(chit?.installmentAmount ?? chit?.chitValue / chit?.capacity) || 0;
   const uniqueMemberIds = [...new Set(enrollments.map((e) => e.memberId ?? e.id))];
 
   const mutation = useMutation({
@@ -3182,7 +2539,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
 }
 
 // ── Per-cycle payment rows (lazy-loaded when the card is expanded) ────────────
-function DrawPaymentRows({ draw, chitId, chit, reservations, memberMap, onCollect, onView, onViewTransactions }) {
+function DrawPaymentRows({ draw, chit, reservations, memberMap, onCollect, onView, onViewTransactions }) {
   const [dueTooltip, setDueTooltip] = useState(null); // { rect, backdateCount, backlogPerDraw, regularAmt, amountDue }
   const qc = useQueryClient();
   const toast = useToastContext();
@@ -5399,6 +4756,7 @@ function buildSummary(action, after, before, memberMap) {
 }
 
 function AuditTab({ chitId }) {
+  const [, setSearchParams] = useSearchParams();
   const [filter,  setFilter]  = useState('all');
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -5596,8 +4954,6 @@ function InvitationsTab({ chitId, chit }) {
   const [rejectReason, setRejectReason] = useState('');
 
   const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
-  const isLottery = chit.chitType === 'LOTTERY';
-  const isAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
 
   const { data: invitations = [], isLoading } = useQuery({
     queryKey: ['chit-invitations', chitId],
@@ -5614,6 +4970,7 @@ function InvitationsTab({ chitId, chit }) {
         setSearchParams(p => { const n = new URLSearchParams(p); n.delete('inv'); return n; }, { replace: true });
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invParam, invitations]);
 
   const { data: invDetail } = useQuery({
@@ -6057,7 +5414,7 @@ function InvitationsTab({ chitId, chit }) {
   );
 }
 
-function SendInvitationModal({ chitId, chit, allMembers, reservationByMember, enrollmentByMember, isReservation, onClose, onSent }) {
+function SendInvitationModal({ chitId, allMembers, reservationByMember, enrollmentByMember, isReservation, onClose, onSent }) {
   const toast = useToastContext();
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [message, setMessage] = useState('');
@@ -6156,8 +5513,6 @@ export default function ChitDetailPage() {
   const activeTab = rawTab ? rawTab.charAt(0).toUpperCase() + rawTab.slice(1) : 'Overview';
   const setActiveTab = (tab) => { const p = new URLSearchParams(searchParams); p.set('tab', tab); setSearchParams(p, { replace: true }); };
 
-  const qc = useQueryClient();
-  const toast = useToastContext();
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const [showEditModal, setShowEditModal] = useState(false);
@@ -6199,7 +5554,6 @@ export default function ChitDetailPage() {
       </Button>
     </div>
   );
-  const isReservation = (chit.chitType ?? 'RESERVATION') === 'RESERVATION';
   const chitIsLottery = chit.chitType === 'LOTTERY';
   const chitIsAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
   const scheduleTabLabel = (chitIsLottery || chitIsAuction) ? 'Payout Plan' : 'Schedule';

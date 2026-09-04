@@ -45,6 +45,7 @@ export default function ProxyPage() {
 
     login(token, userData, tenantData, { proxy: true });
     navigate(roleRedirect(claims.role), { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

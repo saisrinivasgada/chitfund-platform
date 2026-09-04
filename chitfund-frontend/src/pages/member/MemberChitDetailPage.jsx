@@ -269,8 +269,7 @@ export default function MemberChitDetailPage() {
   const ha = (v) => hidden ? '••••••' : fmtAmount(v);
   const ss = CHIT_STATUS_STYLE[chit.status] ?? CHIT_STATUS_STYLE.ACTIVE;
   const outstanding = Number(balance?.totalOutstanding ?? 0);
-  const totalPaid = history.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
-  const totalDue  = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
+
   const settledCount = history.filter((r) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED'].includes(r.status)).length;
 
   // Build a draw-info lookup: monthNumber → draw

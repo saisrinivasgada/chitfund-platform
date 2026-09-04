@@ -12,7 +12,7 @@ import { CardGridSkeleton } from '../../components/ui/Spinner';
 import { Td } from '../../components/ui/Table';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, BookOpen, Users, Calendar, ArrowRight, LayoutGrid, List, ArrowUp, ArrowDown, ChevronsUpDown, BookMarked, Shuffle, Gavel, ChevronLeft, ChevronRight, Trash2, Check, Radio, CheckCircle } from 'lucide-react';
-import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 
 const MODE_LABELS = {
   AUCTION: 'Auction',
@@ -642,7 +642,7 @@ function ChitCard({ chit, onClick, isBehind }) {
   const isCompleted = chit.status === 'COMPLETED';
   const isAuction = chit.chitType === 'AUCTION' || chit.winnerSelectionMode === 'AUCTION';
 
-  const { data: outstanding } = useQuery({
+  useQuery({
     queryKey: ['chit-outstanding', chit.id],
     queryFn: () => getChitOutstandingSummary(chit.id),
     enabled: isCompleted,
@@ -658,8 +658,6 @@ function ChitCard({ chit, onClick, isBehind }) {
   });
   const liveAuction = auctionSessions.find((a) => a.status === 'OPEN');
   const pendingAuction = !liveAuction && auctionSessions.find((a) => a.status === 'PENDING');
-
-  const hasOutstanding = isCompleted && outstanding && Number(outstanding.totalOutstanding) > 0;
 
   return (
     <div

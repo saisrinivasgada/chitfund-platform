@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Printer, Receipt, AlertCircle, ArrowUpCircle,
-  RefreshCw, ShoppingCart, Banknote, X, CheckCircle,
+  RefreshCw, ShoppingCart, Banknote, X,
 } from 'lucide-react';
 import { billingGetPayment, billingRecordRefund } from '../../services/api';
 

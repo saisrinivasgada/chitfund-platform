@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, CheckCircle, Clock, XCircle, Banknote, CreditCard, Building2,
-  User, FileText, Calendar, Hash, Layers, AlertCircle, Receipt, AlertTriangle,
+  User, FileText, Calendar, Hash, Layers, Receipt, AlertTriangle,
   Mail, MapPin, Phone, Copy, Check, IndianRupee, Users, CalendarDays, ShieldCheck,
   Printer,
 } from 'lucide-react';

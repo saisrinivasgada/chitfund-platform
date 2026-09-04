@@ -21,6 +21,7 @@ export default function Badge({ children, variant = 'default' }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function statusBadge(status) {
   if (!status) return 'default';
   const s = status.toLowerCase();

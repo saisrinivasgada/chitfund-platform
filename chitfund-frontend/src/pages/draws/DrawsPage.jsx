@@ -24,12 +24,6 @@ import {
   ExternalLink, Gavel,
 } from 'lucide-react';
 
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d.endsWith('Z') || d.includes('+') ? d : d + 'Z').toLocaleDateString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
 
 // ─── Skip Draw Modal ───────────────────────────────────────────────────────────
 function SkipDrawModal({ chit, chitId, draws, onClose }) {
@@ -462,7 +456,7 @@ export default function DrawsPage() {
     queryKey: ['chits'],
     queryFn: getChits,
   });
-  const { data: allDrawsNumbers = [] } = useQuery({
+  useQuery({
     queryKey: ['draws-latest'],
     queryFn: async () => {
       const ids = chits.filter((c) => c.status === 'ACTIVE').map((c) => c.id);

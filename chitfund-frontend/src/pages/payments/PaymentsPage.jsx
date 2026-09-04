@@ -20,7 +20,7 @@ import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ListSkeleton } from '../../components/ui/Spinner';
 import RoleBadge from '../../components/ui/RoleBadge';
-import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, ChevronRight, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock } from 'lucide-react';
+import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
@@ -317,7 +317,7 @@ function SetupCashPickupModal({ onClose }) {
     ])
   );
   const outstanding = balanceMap[chitId] ?? null;
-  const balanceFetching = balanceResults.some((r) => r.isFetching);
+  balanceResults.some((r) => r.isFetching);
 
   const mutation = useMutation({
     mutationFn: () => adminCreateCashRequest({
@@ -458,7 +458,7 @@ function VoidPickupModal({ request, memberMap, staffMap, loading, onConfirm, onC
   );
 }
 
-function EditCashRequestModal({ request, memberMap, staffMap, staff, onClose }) {
+function EditCashRequestModal({ request, memberMap, staff, onClose }) {
   const qc = useQueryClient();
   const toast = useToastContext();
 
@@ -1078,10 +1078,6 @@ export function RecordPaymentTab() {
   const qc = useQueryClient();
   const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
 
-  // Managers don't record direct payments — redirect to cash requests
-  if (user?.role === 'MANAGER') {
-    return <Navigate to="/payments/cash-requests" replace />;
-  }
   const { hidden } = useHiddenAmounts();
 
   const [memberId, setMemberId]     = useState('');
@@ -1157,9 +1153,6 @@ export function RecordPaymentTab() {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
   });
 
-  const selectedChit = collectableChits.find((c) => c.id === chitId);
-  const isCash = paymentMode === 'CASH';
-
   // Fetch balances for ALL of this member's chits in parallel once the list loads
   const chitBalanceResults = useQueries({
     queries: collectableChits.map((c) => ({
@@ -1182,6 +1175,14 @@ export function RecordPaymentTab() {
     enabled: !!memberId,
   });
   const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
+
+  // Managers don't record direct payments — redirect to cash requests
+  if (user?.role === 'MANAGER') {
+    return <Navigate to="/payments/cash-requests" replace />;
+  }
+
+  const selectedChit = collectableChits.find((c) => c.id === chitId);
+  const isCash = paymentMode === 'CASH';
 
   const outstanding = chitId ? (balanceMap[chitId] ?? null) : null;
   const amtNum = Number(amount || 0);
@@ -1864,7 +1865,7 @@ export function HistoryTab() {
         ) : (
           <>
           <Table columns={['Member', 'Chit', 'Draw(s)', 'Amount', 'Mode', 'Recorded By', 'Date & Time', 'Status']}>
-            {batches.map((b, idx) => (
+            {batches.map((b) => (
               <Tr key={b.id} onClick={() => navigate(`/transactions/${b.id}`, { state: { returnTab: 'History' } })} className="cursor-pointer hover:bg-[#EEF2F8]/40 transition-colors">
                 <Td className="font-medium text-gray-900">
                   {memberMap[b.memberId] ?? b.memberId?.slice(0, 8) ?? '—'}

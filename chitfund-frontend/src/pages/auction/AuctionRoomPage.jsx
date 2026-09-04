@@ -245,7 +245,7 @@ export default function AuctionRoomPage() {
               prevBidCountRef.current = newCount;
               return updated;
             });
-          } catch (_) {}
+          } catch { /* ignore WebSocket message parse errors */ }
         });
       },
       onDisconnect: () => setLiveData(null),

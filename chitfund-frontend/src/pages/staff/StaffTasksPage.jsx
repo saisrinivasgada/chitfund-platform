@@ -22,7 +22,7 @@ import { PageSpinner } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import Modal from '../../components/ui/Modal';
 import {
-  ClipboardList, CheckCircle, History, IndianRupee, Calendar, AlertCircle,
+  ClipboardList, History, IndianRupee, Calendar, AlertCircle,
   Clock, UserCheck, Banknote, PackageCheck, ChevronRight, X, CalendarClock, Pencil, AlertTriangle,
 } from 'lucide-react';
 
@@ -202,7 +202,7 @@ function CashRequestTimelineModal({ request, memberMap, chitMap, onClose }) {
 }
 
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
-function TabBar({ active, onChange, tasks, history }) {
+function TabBar({ active, onChange, tasks }) {
   const tabs = [
     { key: 'tasks',   label: 'Active Tasks',  icon: ClipboardList, count: tasks },
     { key: 'history', label: 'My History',     icon: History,       count: null  },

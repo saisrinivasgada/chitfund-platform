@@ -8,7 +8,6 @@ import {
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { PageSpinner } from '../../components/ui/Spinner';
-import { useState } from 'react';
 import {
   CreditCard, Banknote, Clock, CheckCircle, ArrowRight,
   IndianRupee, AlertTriangle,
@@ -108,7 +107,7 @@ export default function ManagerHomePage() {
 
   const completedToday = todayBatches.filter((b) => b.status === 'COMPLETED');
   const todayTotal = completedToday.reduce((s, b) => s + (b.totalAmount ?? 0), 0);
-  const workers = staff.filter((s) => s.role === 'STAFF');
+  staff.filter((s) => s.role === 'STAFF');
 
   if (todayLoading || remLoading) return <PageSpinner />;
 

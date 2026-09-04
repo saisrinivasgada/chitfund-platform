@@ -8,44 +8,6 @@ import { AlertTriangle, PhoneCall, Mail, Clock } from 'lucide-react';
 const SUPPORT_EMAIL = 'saisrinivasgada@gmail.com';
 const SUPPORT_WHATSAPP = 'https://wa.me/919999999999'; // update with real number
 
-function ContactSupportModal({ reason }) {
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
-        <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-50 mx-auto mb-4">
-          <PhoneCall size={24} className="text-amber-600" />
-        </div>
-        <h3 className="text-base font-bold text-gray-900 mb-2">Contact ChitWise Support</h3>
-        <p className="text-sm text-gray-500 mb-6">{reason}</p>
-        <div className="space-y-3">
-          <a
-            href={`mailto:${SUPPORT_EMAIL}?subject=Account Issue - ${reason}`}
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <Mail size={15} />
-            Email Support
-          </a>
-          <a
-            href={SUPPORT_WHATSAPP}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#25D366' }}
-          >
-            <PhoneCall size={15} />
-            WhatsApp Support
-          </a>
-          <button
-            className="text-xs text-gray-400 hover:text-gray-600 mt-1 cursor-pointer"
-            onClick={() => { /* raise ticket — placeholder */ alert('Ticket system coming soon!'); }}
-          >
-            Raise a support ticket →
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function PendingActivationScreen({ orgName }) {
   const { logout } = useAuth();
@@ -93,51 +55,6 @@ function PendingActivationScreen({ orgName }) {
   );
 }
 
-function SuspendedAdminScreen({ orgName }) {
-  const { logout } = useAuth();
-  const navigate = useNavigate();
-  return (
-    <div className="min-h-screen bg-[#F5F7FA] flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 max-w-md w-full p-10 text-center">
-        <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-red-50 mx-auto mb-5">
-          <AlertTriangle size={28} className="text-red-500" />
-        </div>
-        <h2 className="text-lg font-bold text-gray-900 mb-2">Account Suspended</h2>
-        <p className="text-sm text-gray-500 mb-1">
-          <span className="font-semibold">{orgName}</span> has been suspended by ChitWise.
-        </p>
-        <p className="text-sm text-gray-400 mb-8">
-          All operations are paused. Please contact support to resolve this.
-        </p>
-        <div className="space-y-3">
-          <a
-            href={`mailto:${SUPPORT_EMAIL}?subject=Account Suspended - ${orgName}`}
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <Mail size={15} />
-            Email Support
-          </a>
-          <a
-            href={SUPPORT_WHATSAPP}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-sm font-medium text-white transition-colors"
-            style={{ backgroundColor: '#25D366' }}
-          >
-            <PhoneCall size={15} />
-            WhatsApp Support
-          </a>
-          <button
-            onClick={() => { logout(); navigate('/login', { replace: true }); }}
-            className="text-xs text-gray-400 hover:text-gray-600 mt-2 cursor-pointer"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ContactAdminScreen({ orgName, reason }) {
   const { logout } = useAuth();

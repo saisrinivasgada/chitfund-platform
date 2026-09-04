@@ -19,7 +19,7 @@ import Modal from '../../components/ui/Modal';
 import {
   HandCoins, Info, ChevronDown, ChevronUp, CheckSquare, Square,
   TrendingUp, TrendingDown, CheckCircle, History, ChevronRight,
-  Printer, BookOpen, AlertTriangle, XCircle, Eye,
+  Printer, BookOpen, XCircle, Eye,
 } from 'lucide-react';
 
 // ─── Case badge styling ────────────────────────────────────────────────────
@@ -62,14 +62,6 @@ function PayoutStatusPill({ status }) {
   );
 }
 
-// ─── Amount display ────────────────────────────────────────────────────────
-function Amt({ value, hidden, showSign = false, className = '' }) {
-  if (hidden) return <span className="font-medium text-gray-400 tracking-widest">••••••</span>;
-  const n = Number(value ?? 0);
-  const formatted = `₹${Math.abs(n).toLocaleString('en-IN')}`;
-  const sign = showSign ? (n > 0 ? '+' : n < 0 ? '−' : '') : '';
-  return <span className={className}>{sign}{formatted}</span>;
-}
 
 // ─── Tooltip (Info icon hover) ─────────────────────────────────────────────
 const TIP_W = 320; // matches w-80
@@ -694,6 +686,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       setShowHistoryView(true);
       if (initialPaymentId) setHighlightPaymentId(initialPaymentId);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedSettlement]);
 
   // Settlement history for selected member — paginated
@@ -757,7 +750,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
   });
 
   // ── Derived calculation (respecting toggles + mode overrides) ─────────
-  const chitItems = preview?.chitItems ?? [];
+  const chitItems = useMemo(() => preview?.chitItems ?? [], [preview?.chitItems]);
 
   // Re-compute net amounts client-side when admin toggles mode (for CASE_C)
   // The backend already returns both mode amounts; we just pick the right one.
@@ -897,6 +890,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
     w.document.close();
     w.focus();
     w.print();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includedItems, selectedMember, totalOwed, totalRefunded, grandTotal, adjustmentAmount, adjustmentReason]);
 
   // ── Render ─────────────────────────────────────────────────────────────

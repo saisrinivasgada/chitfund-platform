@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import {
-  listConversations, startConversation, getMyConversation,
+  listConversations, getMyConversation,
   getChatMessages, sendChatMessage, deleteChatMessage, markConversationRead,
   getAuthToken,
 } from '../../services/api';
@@ -36,7 +36,7 @@ function generateClientId() {
 
 // ── ConversationList (admin/manager view) ─────────────────────────────────────
 
-function ConversationList({ onSelect, search, setSearch }) {
+function ConversationList({ onSelect, search }) {
   const { data, isLoading } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => listConversations({ size: 50 }),
@@ -97,10 +97,10 @@ function ConversationList({ onSelect, search, setSearch }) {
 
 // ── ChatView (shared between admin and member) ────────────────────────────────
 
-function ChatView({ conversation, userId, isMember, onBack }) {
+function ChatView({ conversation, userId, onBack }) {
   const queryClient = useQueryClient();
   const [input, setInput] = useState('');
-  const [pendingIds, setPendingIds] = useState(new Set());
+  const [, setPendingIds] = useState(new Set());
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const stompClientRef = useRef(null);
@@ -181,7 +181,7 @@ function ChatView({ conversation, userId, isMember, onBack }) {
   const sendMutation = useMutation({
     mutationFn: ({ content, clientMessageId }) =>
       sendChatMessage(conversation.id, content, clientMessageId),
-    onMutate: ({ content, clientMessageId }) => {
+    onMutate: ({ clientMessageId }) => {
       setPendingIds(s => new Set(s).add(clientMessageId));
     },
     onSuccess: (msg, { clientMessageId }) => {

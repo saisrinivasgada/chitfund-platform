@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const COUNTRIES = [
   { code: '+91',  iso: 'IN', name: 'India',           flag: '🇮🇳' },
   { code: '+1',   iso: 'US', name: 'USA',             flag: '🇺🇸' },
@@ -24,6 +25,7 @@ export const COUNTRIES = [
   { code: '+27',  iso: 'ZA', name: 'South Africa',    flag: '🇿🇦' },
 ];
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function formatPhone(countryCode, phone) {
   if (!phone) return '';
   return `(${countryCode}) ${phone}`;

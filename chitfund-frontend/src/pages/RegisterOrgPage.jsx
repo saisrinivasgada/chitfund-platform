@@ -112,6 +112,7 @@ export default function RegisterOrgPage() {
         set('plan', data[0].plan);
       }
     }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

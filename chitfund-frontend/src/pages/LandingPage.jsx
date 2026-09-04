@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { getPublicPlans, submitProspectContact } from '../services/api';
 import { motion, useInView, AnimatePresence } from 'framer-motion';
 import {
-  BookOpen, ArrowRight, ChevronDown, Shield, Zap, Users, BarChart2,
+  BookOpen, ArrowRight, ChevronDown, Shield, Users, BarChart2,
   Check, Star, ArrowUpRight, RefreshCw, Headphones,
   LogIn, Building2, UserCheck, ClipboardList, Trophy, IndianRupee, Calendar,
-  Bell, FileText, PieChart, LayoutDashboard, CreditCard, Banknote,
-  Clock, PackageCheck, AlertTriangle, Wallet, Shuffle, Briefcase,
-  TrendingUp, Layers, HandCoins, ChevronRight, ChevronLeft, ArrowLeft,
+  Bell, FileText, LayoutDashboard, CreditCard, Banknote,
+  Clock, AlertTriangle, Wallet, Shuffle, Briefcase,
+  TrendingUp, Layers, ChevronRight, ChevronLeft, ArrowLeft,
   Phone, PenLine, X, BookMarked, MessageCircle, Smartphone, Lock, Play,
 } from 'lucide-react';
 const P = '#1E3A5F';
@@ -731,7 +731,7 @@ function ProblemVisual({ slide }) {
 }
 
 function ProblemsSlider() {
-  const { active, dir, progressKey, paused, frozenFill, containerRef, go, prev, next } = useSlider(PROBLEM_SLIDES.length, { autoPlay: false });
+  const { active, dir, containerRef, go, prev, next } = useSlider(PROBLEM_SLIDES.length, { autoPlay: false });
   const slide = PROBLEM_SLIDES[active];
 
   return (
@@ -1367,7 +1367,7 @@ export default function LandingPage() {
                 title: 'Scale without the paperwork',
                 desc: 'Run 50 chit groups the same way you run 5. ChitWise handles the tracking so you can focus on growing your business.',
               },
-            ].map(({ icon: Icon, cardBg, iconBg, iconColor, titleColor, descColor, dividerColor, checkColor, badgeColor, title, desc }, i) => (
+            ].map(({ icon: Icon, cardBg, iconBg, iconColor, titleColor, descColor, dividerColor, checkColor, title, desc }, i) => (
               <Reveal key={title} delay={i * 0.12}>
                 <motion.div
                   className="rounded-3xl p-7 shadow-lg h-full flex flex-col"

@@ -12,9 +12,8 @@ import EmptyState from '../../components/ui/EmptyState';
 import { ListSkeleton } from '../../components/ui/Spinner';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Mail, AtSign, Copy, Check, AlertTriangle, Users } from 'lucide-react';
-import PhoneInput from '../../components/ui/PhoneInput';
 import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
-import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 import { getMyTenantLimits } from '../../services/api';
 
 const ROLE_BADGE = {

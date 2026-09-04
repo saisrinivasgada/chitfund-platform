@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   getChits, getMembers, getPendingPayouts, getWalletBalance,
-  getActiveCashRequests, getPendingRemittance, listStaff,
+  getPendingRemittance, listStaff,
   getOrgReservations, getCashRequestSummary, getWinners, getAllPayouts,
   getMyReferralInfo, getMyEffectiveLimits, getPendingSettlements, listAuctions,
 } from '../services/api';
@@ -17,8 +17,8 @@ import ManagerHomePage from './manager/ManagerHomePage';
 import TodaysActivityFeed from '../components/TodaysActivityFeed';
 import {
   BookOpen, Users, CreditCard, Banknote, Plus, UserPlus,
-  ArrowRight, Wallet, Truck, Clock, Calendar, Building2,
-  CheckCircle, XCircle, PackageCheck, AlertTriangle, Copy, Check, ShieldAlert, Gavel,
+  ArrowRight, Wallet, Truck, Clock, Building2,
+  CheckCircle, XCircle, PackageCheck, AlertTriangle, ShieldAlert, Gavel,
 } from 'lucide-react';
 
 const HIDDEN_PLACEHOLDER = '••••••';
@@ -212,44 +212,6 @@ function TreasuryCard({ label, amount, icon: Icon, color, hidden }) {
   );
 }
 
-function ReferralCard({ referralCode, creditBalance }) {
-  const [copied, setCopied] = useState(false);
-  function copyCode() {
-    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
-    if (navigator.clipboard) navigator.clipboard.writeText(referralCode).then(done).catch(() => done());
-    else done();
-  }
-  const credit = Number(creditBalance ?? 0);
-  return (
-    <div className="bg-gradient-to-r from-[#EEF2F8] to-[#F0F4FA] rounded-xl border border-[#CBD5E1] p-5">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#EEF2F8] flex items-center justify-center flex-shrink-0">
-            <Users size={18} style={{ color: '#1E3A5F' }} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Refer other organizations</p>
-            <p className="text-xs text-gray-500">Share your code — new orgs get a first-month discount, you earn credit after their first 30 days.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 sm:flex-shrink-0">
-          <span className="font-mono text-sm font-bold text-[#1E3A5F] bg-[#EEF2F8] px-3 py-1.5 rounded-lg">
-            {referralCode}
-          </span>
-          <button onClick={copyCode} className="p-2 rounded-lg text-[#1E3A5F] hover:bg-[#EEF2F8] transition-colors" title="Copy code">
-            {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
-          </button>
-        </div>
-      </div>
-      {credit > 0 && (
-        <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200">
-          <CheckCircle size={13} className="text-green-500" />
-          <span className="text-xs font-semibold text-green-700">₹{credit.toFixed(0)} referral credit earned</span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function DashboardPage() {
   const { user, planExpiresAt } = useAuth();
@@ -258,9 +220,6 @@ export default function DashboardPage() {
   const [limitsDismissed, setLimitsDismissed] = useState(
     () => !!sessionStorage.getItem('overLimitDismissed')
   );
-
-  if (user?.role === 'STAFF')  return <StaffHomePage />;
-  if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
   const { hidden } = useHiddenAmounts();
   const isAdmin = user?.role === 'ADMIN';
@@ -350,7 +309,7 @@ export default function DashboardPage() {
     staleTime: 300_000,
   });
 
-  const { data: referralInfo } = useQuery({
+  useQuery({
     queryKey: ['myReferralInfo'],
     queryFn: getMyReferralInfo,
     enabled: isAdmin,
@@ -429,6 +388,9 @@ export default function DashboardPage() {
   function navToCashFilter(filter) {
     navigate(`/payments/cash-requests?filter=${filter}`);
   }
+
+  if (user?.role === 'STAFF')  return <StaffHomePage />;
+  if (user?.role === 'MANAGER') return <ManagerHomePage />;
 
   if (chitsLoading || membersLoading) return <DashboardSkeleton />;
 
