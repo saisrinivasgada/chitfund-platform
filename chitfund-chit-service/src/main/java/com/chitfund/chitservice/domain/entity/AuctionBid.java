@@ -20,6 +20,9 @@ public class AuctionBid {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "tenant_id", nullable = false, updatable = false, length = 36)
+    private String tenantId;
+
     @Column(nullable = false)
     private UUID auctionSessionId;
 

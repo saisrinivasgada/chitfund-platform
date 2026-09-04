@@ -34,6 +34,8 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
+                // SockJS handshake is public; STOMP CONNECT is authenticated by WebSocketConfig.
+                .requestMatchers("/ws/auction/**").permitAll()
                 .requestMatchers("/internal/**").permitAll()
                 .anyRequest().authenticated()
             )

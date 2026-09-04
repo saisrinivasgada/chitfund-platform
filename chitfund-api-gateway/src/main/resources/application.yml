@@ -157,6 +157,13 @@ spring:
             - JwtAuthGatewayFilter
             - StripPrefix=1
 
+        # Auction SockJS/STOMP endpoint. The chit-service validates the JWT on
+        # STOMP CONNECT and authorizes the tenant on SUBSCRIBE.
+        - id: chit-service-auction-websocket
+          uri: ${CHIT_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/ws/auction/**
+
         # WebSocket — SockJS + STOMP (web); native WebSocket (mobile); no JWT filter
         - id: websocket
           uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}

@@ -4,6 +4,10 @@ import com.chitfund.chitservice.domain.entity.AuctionSession;
 import com.chitfund.chitservice.domain.enums.AuctionMode;
 import com.chitfund.chitservice.domain.enums.AuctionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -16,7 +20,16 @@ public interface AuctionSessionRepository extends JpaRepository<AuctionSession, 
 
     Optional<AuctionSession> findByIdAndChitIdAndTenantId(UUID id, UUID chitId, String tenantId);
 
-    List<AuctionSession> findByChitIdOrderByMonthNumberAsc(UUID chitId);
+    Optional<AuctionSession> findByIdAndTenantId(UUID id, String tenantId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM AuctionSession a WHERE a.id = :id AND a.chitId = :chitId AND a.tenantId = :tenantId")
+    Optional<AuctionSession> findByIdAndChitIdAndTenantIdForUpdate(
+            @Param("id") UUID id,
+            @Param("chitId") UUID chitId,
+            @Param("tenantId") String tenantId);
+
+    List<AuctionSession> findByChitIdAndTenantIdOrderByMonthNumberAsc(UUID chitId, String tenantId);
 
     boolean existsByChitIdAndMonthNumberAndStatus(UUID chitId, Integer monthNumber, AuctionStatus status);
 

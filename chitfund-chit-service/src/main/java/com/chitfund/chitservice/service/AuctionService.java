@@ -115,7 +115,8 @@ public class AuctionService {
 
     @Transactional
     public AuctionSessionResponse placeBid(UUID chitId, UUID auctionId, PlaceBidRequest request, UUID memberId) {
-        AuctionSession session = getOpenSession(auctionId, chitId);
+        AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
+        String tenantId = session.getTenantId();
 
         if (session.getClosesAt() != null && LocalDateTime.now().isAfter(session.getClosesAt())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -140,7 +141,7 @@ public class AuctionService {
 
         // Must beat the current best by at least minBidStep (if set)
         Optional<AuctionBid> currentBest = auctionBidRepository
-                .findTopByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(auctionId);
+                .findTopByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(auctionId, tenantId);
         if (currentBest.isPresent()) {
             BigDecimal step = session.getMinBidStep() != null ? session.getMinBidStep() : BigDecimal.ONE;
             BigDecimal maxAllowed = currentBest.get().getBidAmount().subtract(step);
@@ -158,6 +159,7 @@ public class AuctionService {
         }
 
         AuctionBid bid = AuctionBid.builder()
+                .tenantId(tenantId)
                 .auctionSessionId(auctionId)
                 .chitId(chitId)
                 .memberId(memberId)
@@ -211,7 +213,8 @@ public class AuctionService {
 
     public List<AuctionSessionResponse> listAuctions(UUID chitId) {
         chitService.findByIdScoped(chitId);
-        return auctionSessionRepository.findByChitIdOrderByMonthNumberAsc(chitId).stream()
+        return auctionSessionRepository.findByChitIdAndTenantIdOrderByMonthNumberAsc(
+                        chitId, TenantContext.get()).stream()
                 .map(this::buildResponse)
                 .collect(Collectors.toList());
     }
@@ -219,7 +222,8 @@ public class AuctionService {
     @Transactional
     public AuctionSessionResponse closeAuction(UUID chitId, UUID auctionId,
                                                CloseAuctionRequest request, UUID closedBy) {
-        AuctionSession session = getOpenSession(auctionId, chitId);
+        AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
+        String auctionTenantId = session.getTenantId();
         Chit chit = chitService.findByIdScoped(chitId);
 
         UUID winnerId;
@@ -236,7 +240,8 @@ public class AuctionService {
         } else {
             // ONLINE: take the highest-discount bid
             AuctionBid winningBid = auctionBidRepository
-                    .findTopByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(auctionId)
+                    .findTopByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+                            auctionId, auctionTenantId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                             "Cannot close auction — no bids placed yet"));
             winnerId = winningBid.getMemberId();
@@ -331,7 +336,8 @@ public class AuctionService {
         );
 
         List<String> otherBidderIds = auctionBidRepository
-            .findByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(auctionId).stream()
+            .findByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+                    auctionId, auctionTenantId).stream()
             .map(b -> b.getMemberId().toString())
             .filter(id -> !id.equals(winnerId.toString()))
             .distinct()
@@ -352,7 +358,7 @@ public class AuctionService {
     @Transactional
     public AuctionSessionResponse extendAuction(UUID chitId, UUID auctionId, int additionalMinutes, UUID adminId) {
         AuctionSession session = auctionSessionRepository
-                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
+                .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
 
         if (session.getAuctionMode() != AuctionMode.ONLINE) {
@@ -379,7 +385,7 @@ public class AuctionService {
     @Transactional
     public AuctionSessionResponse voidAuction(UUID chitId, UUID auctionId, UUID adminId) {
         AuctionSession session = auctionSessionRepository
-                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
+                .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
 
         if (session.getStatus() == AuctionStatus.VOIDED) {
@@ -424,9 +430,9 @@ public class AuctionService {
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
-    private AuctionSession getOpenSession(UUID auctionId, UUID chitId) {
+    private AuctionSession getOpenSessionForUpdate(UUID auctionId, UUID chitId) {
         AuctionSession session = auctionSessionRepository
-                .findByIdAndChitIdAndTenantId(auctionId, chitId, TenantContext.get())
+                .findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Auction session not found"));
         if (session.getStatus() != AuctionStatus.OPEN) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Auction is not open");
@@ -445,7 +451,8 @@ public class AuctionService {
 
     private AuctionSessionResponse buildResponse(AuctionSession session) {
         List<AuctionBid> bids = auctionBidRepository
-                .findByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(session.getId());
+                .findByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+                        session.getId(), session.getTenantId());
 
         UUID winningBidMemberId = bids.isEmpty() ? null : bids.get(0).getMemberId();
 

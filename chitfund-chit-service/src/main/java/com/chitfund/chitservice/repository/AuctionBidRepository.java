@@ -9,9 +9,12 @@ import java.util.UUID;
 
 public interface AuctionBidRepository extends JpaRepository<AuctionBid, UUID> {
 
-    List<AuctionBid> findByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(UUID auctionSessionId);
+    List<AuctionBid> findByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+            UUID auctionSessionId, String tenantId);
 
-    Optional<AuctionBid> findTopByAuctionSessionIdOrderByDiscountOfferedDescBidTimeAsc(UUID auctionSessionId);
+    Optional<AuctionBid> findTopByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
+            UUID auctionSessionId, String tenantId);
 
-    boolean existsByAuctionSessionIdAndMemberId(UUID auctionSessionId, UUID memberId);
+    boolean existsByAuctionSessionIdAndMemberIdAndTenantId(
+            UUID auctionSessionId, UUID memberId, String tenantId);
 }
