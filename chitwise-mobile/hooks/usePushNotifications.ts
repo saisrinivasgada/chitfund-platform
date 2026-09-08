@@ -6,6 +6,7 @@ import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerPushToken, unregisterPushToken, markReminderSeen } from '../services/api';
+import { useAuthStore } from '../store/authStore';
 
 // How the app behaves when a push arrives while it is in the foreground
 Notifications.setNotificationHandler({
@@ -18,8 +19,38 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function getScreenRoute(screen: string, role?: string): string | null {
+  const r = role ?? 'MEMBER';
+  switch (screen) {
+    case 'reminders': return '/(app)/(member)/reminders';
+    case 'chits':
+      return r === 'MEMBER' ? '/(app)/(member)/chits' : null;
+    case 'payments':
+      if (r === 'MEMBER') return '/(app)/(member)/payments';
+      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/payments';
+      return null;
+    case 'payouts': return '/(app)/(member)/payouts';
+    case 'requests': return '/(app)/(member)/requests';
+    case 'tasks': return '/(app)/(staff)/index';
+    case 'account':
+      if (r === 'MEMBER') return '/(app)/(member)/my-account';
+      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/my-account';
+      return null;
+    case 'messages':
+      if (r === 'MEMBER') return '/(app)/(member)/messages';
+      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/messages';
+      return null;
+    case 'support':
+      if (r === 'MEMBER') return '/(app)/(member)/support';
+      if (r === 'ADMIN' || r === 'MANAGER') return '/(app)/(admin)/support';
+      return null;
+    default: return null;
+  }
+}
+
 export function usePushNotifications(isLoggedIn: boolean) {
   const router = useRouter();
+  const { user } = useAuthStore();
   const tokenRef = useRef<string | null>(null);
   const notifListenerRef    = useRef<Notifications.Subscription | null>(null);
   const responseListenerRef = useRef<Notifications.Subscription | null>(null);
@@ -115,6 +146,16 @@ export function usePushNotifications(isLoggedIn: boolean) {
 
           try { router.push({ pathname: '/(app)/(member)/reminders', params: { openReminderId: data.reminderId } } as any); } catch {}
           return;
+        }
+
+        // Screen-based navigation (screen key sent in push data)
+        if (data?.screen) {
+          const role = useAuthStore.getState().user?.role;
+          const route = getScreenRoute(data.screen, role);
+          if (route) {
+            try { router.push(route as any); } catch {}
+            return;
+          }
         }
 
         const link: string | undefined = data?.link;
