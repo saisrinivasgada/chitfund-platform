@@ -3291,7 +3291,7 @@ function HistoryTab() {
       'Enter reason for voiding this payment:',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Void', style: 'destructive', onPress: (reason) => voidMut.mutate({ id: batch.id, reason: reason ?? 'Voided by admin' }) },
+        { text: 'Void', style: 'destructive', onPress: (reason?: string) => voidMut.mutate({ id: batch.id, reason: reason ?? 'Voided by admin' }) },
       ],
       'plain-text',
     );

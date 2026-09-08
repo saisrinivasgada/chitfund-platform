@@ -92,7 +92,7 @@ function SupportPhoneSection({ currentPhone }: { currentPhone?: string | null })
       setOtpSent(true);
       toast.noted('OTP sent to ' + phone.trim());
     } catch (e: any) {
-      toast.error(e.response?.data?.message ?? 'Failed to send OTP');
+      Alert.alert('Error', e.response?.data?.message ?? 'Failed to send OTP');
     } finally { setLoading(false); }
   }
 
@@ -105,7 +105,7 @@ function SupportPhoneSection({ currentPhone }: { currentPhone?: string | null })
       qc.invalidateQueries({ queryKey: ['org-settings'] });
       setChanging(false); setPhone(''); setOtp(''); setOtpSent(false);
     } catch (e: any) {
-      toast.error(e.response?.data?.message ?? 'Invalid OTP');
+      Alert.alert('Error', e.response?.data?.message ?? 'Invalid OTP');
     } finally { setLoading(false); }
   }
 
@@ -191,7 +191,7 @@ export default function MyOrgScreen() {
   const updateMut = useMutation({
     mutationFn: updateOrgDetails,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['org-settings'] }); toast.saved('Saved'); },
-    onError: (e: any) => toast.error(e.response?.data?.message ?? 'Failed to update'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update'),
   });
 
   function handleSave(field: string, value: string) {
