@@ -1,0 +1,48 @@
+appId: ${APP_ID}
+name: Admin Login
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd
+
+# If Sign In is visible (no Keychain token), do full OTP login
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${ADMIN_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${ADMIN_PASSWORD}
+      - pressKey: Enter
+      - extendedWaitUntil:
+          visible:
+            text: "Verify your identity"
+          timeout: 10000
+      - waitForAnimationToEnd
+      - runScript: helpers/read_otp.js
+      - tapOn:
+          text: "123456"
+      - inputText: ${output.otp}
+      - tapOn:
+          text: "Verify & Sign In"
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Select Organisation"
+          commands:
+            - tapOn:
+                index: 0
+                text: "›"
+            - waitForAnimationToEnd
+
+# Either fresh login or Keychain token — must reach Dashboard
+- extendedWaitUntil:
+    visible:
+      text: "Dashboard"
+    timeout: 15000

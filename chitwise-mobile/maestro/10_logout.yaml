@@ -1,0 +1,79 @@
+appId: ${APP_ID}
+name: Logout flow
+---
+- launchApp
+- waitForAnimationToEnd
+
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${ADMIN_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${ADMIN_PASSWORD}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Verify your identity"
+          commands:
+            - waitForAnimationToEnd
+            - runScript: helpers/read_otp.js
+            - tapOn:
+                text: "123456"
+            - inputText: ${output.otp}
+            - tapOn:
+                text: "Verify & Sign In"
+            - waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        text: "Select Organisation"
+    commands:
+      - tapOn:
+          index: 0
+          text: "›"
+      - waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      text: "Dashboard"
+    timeout: 15000
+
+# Open Account Settings modal via avatar button (bounds [350,84][386,120] on 393pt screen)
+- tapOn:
+    point: "94%,12%"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+# Verify modal opened
+- extendedWaitUntil:
+    visible:
+      text: "Account Settings"
+    timeout: 5000
+
+# Tap Log Out in the fixed footer (triggers native Alert)
+- tapOn:
+    text: "Log Out"
+- waitForAnimationToEnd
+
+# Confirm logout — tap the Alert's "Log Out" button by coordinate
+# bounds [205,473][345,521] on 393x852pt screen → center at 70%,58%
+# iOS blocks modal taps while Alert is showing; text match hits footer instead
+- tapOn:
+    point: "70%,58%"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+# After logout the app navigates to /(auth)/login — wait for the login form
+- extendedWaitUntil:
+    visible:
+      text: "Enter your username"
+    timeout: 25000

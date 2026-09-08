@@ -1,0 +1,41 @@
+appId: ${APP_ID}
+name: Member Requests — View cash requests
+---
+- launchApp
+- waitForAnimationToEnd
+
+# Login as member if needed
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${MEMBER_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${MEMBER_PASSWORD}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Select Organisation"
+          commands:
+            - tapOn:
+                index: 0
+                text: "›"
+            - waitForAnimationToEnd
+
+# Navigate to Requests tab (4th tab, 87% from left)
+- extendedWaitUntil:
+    visible:
+      text: "Home"
+    timeout: 10000
+- tapOn:
+    point: "87%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Requests"
