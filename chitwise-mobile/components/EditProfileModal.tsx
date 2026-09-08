@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Modal, TouchableOpacity, TextInput,
+  View, Text, ScrollView, Modal, TouchableOpacity, TextInput, ActivityIndicator,
   Alert, KeyboardAvoidingView, Platform, ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuthStore, StoredAccount } from '../store/authStore';
-import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices } from '../services/api';
+import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
@@ -361,7 +361,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
             {/* ── Profile tab ─────────────────────────────────────────────── */}
             {tab === 'profile' && (
