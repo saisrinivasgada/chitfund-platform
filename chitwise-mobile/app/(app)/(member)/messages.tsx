@@ -138,6 +138,7 @@ function AdminChatView({ conversation, userId, onBack }: { conversation: any; us
   const sendMut = useMutation({
     mutationFn: ({ content, clientMessageId }: any) => sendChatMessage(conversation.id, content, clientMessageId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['m-chatMessages', conversation.id] }),
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
 
   const deleteMut = useMutation({
@@ -219,6 +220,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
       qc.invalidateQueries({ queryKey: ['m-groupMessages-member', group.id] });
       qc.invalidateQueries({ queryKey: ['m-groups-member'] });
     },
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
 
   const deleteMut = useMutation({

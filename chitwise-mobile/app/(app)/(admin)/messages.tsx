@@ -107,6 +107,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
       queryClient.invalidateQueries({ queryKey: ['m-conversations'] });
       setInput('');
     },
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
 
   const deleteMutation = useMutation({
@@ -282,6 +283,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
       queryClient.invalidateQueries({ queryKey: ['m-groups'] });
       setInput('');
     },
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send message'),
   });
 
   const deleteMutation = useMutation({
