@@ -955,4 +955,46 @@ export const superAdminListReferralCredits = async (status?: string): Promise<an
   return res.data.data ?? [];
 };
 
+export const superAdminSearchContactRequests = async ({ type, status, fromDate, toDate, page = 0, size = 20 }: { type?: string; status?: string; fromDate?: string; toDate?: string; page?: number; size?: number } = {}): Promise<any> => {
+  const params: any = { page, size };
+  if (type) params.type = type;
+  if (status) params.status = status;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const res = await api.get('/super-admin/contact-requests/search', { params });
+  return res.data.data;
+};
+
+export const superAdminGetContactRequest = async (id: string): Promise<any> => {
+  const res = await api.get(`/super-admin/contact-requests/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListContactMessages = async (id: string): Promise<any[]> => {
+  const res = await api.get(`/super-admin/contact-requests/${id}/messages`);
+  return res.data.data ?? [];
+};
+
+export const superAdminSendContactMessage = async (id: string, content: string): Promise<any> => {
+  const res = await api.post(`/super-admin/contact-requests/${id}/messages`, { content });
+  return res.data.data;
+};
+
+export const superAdminUpdateContactStatus = async (id: string, status: string, holdUntil?: string): Promise<any> => {
+  const body: any = { status };
+  if (holdUntil) body.holdUntil = holdUntil;
+  const res = await api.patch(`/super-admin/contact-requests/${id}/status`, body);
+  return res.data.data;
+};
+
+export const billingGetPayment = async (paymentId: string): Promise<any> => {
+  const res = await api.get(`/super-admin/billing/payments/${paymentId}`);
+  return res.data.data;
+};
+
+export const billingRecordRefund = async (paymentId: string, payload: any): Promise<any> => {
+  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
+  return res.data.data;
+};
+
 export default api;
