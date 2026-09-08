@@ -3222,6 +3222,7 @@ function HistoryTab() {
   const [chitId, setChitId] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [histShowCount, setHistShowCount] = useState(20);
+  const [selectedBatch, setSelectedBatch] = useState<any>(null);
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits-hist'], queryFn: getChits, staleTime: 60_000 });
@@ -3264,8 +3265,106 @@ function HistoryTab() {
     { key: 'VOIDED', label: 'Voided' },
   ];
 
+  const qc = useQueryClient();
+  const remitMut = useMutation({
+    mutationFn: (id: string) => remitPayment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pay-history'] });
+      setSelectedBatch(null);
+      toast.collected('Payment remitted to treasury');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remit'),
+  });
+  const voidMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => voidPaymentBatch(id, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pay-history'] });
+      setSelectedBatch(null);
+      toast.noted('Payment voided');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to void'),
+  });
+
+  function confirmVoid(batch: any) {
+    Alert.prompt(
+      'Void Payment',
+      'Enter reason for voiding this payment:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Void', style: 'destructive', onPress: (reason) => voidMut.mutate({ id: batch.id, reason: reason ?? 'Voided by admin' }) },
+      ],
+      'plain-text',
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+
+      {/* ── Batch detail modal ── */}
+      <Modal visible={!!selectedBatch} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedBatch(null)}>
+        {selectedBatch && (() => {
+          const b = selectedBatch;
+          const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
+          return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
+                <TouchableOpacity onPress={() => setSelectedBatch(null)} style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.gray100, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 18, color: C.gray500 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+                {/* Status + Amount */}
+                <View style={{ backgroundColor: C.navy, borderRadius: 16, padding: 18 }}>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: '#D4A017' }}>
+                    ₹{Number(b.totalAmount ?? b.amount ?? 0).toLocaleString('en-IN')}
+                  </Text>
+                  <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    <View style={{ backgroundColor: st.color + '30', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>{st.label}</Text>
+                    </View>
+                    <View style={{ backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.8)' }}>
+                        {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                {/* Details */}
+                <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, overflow: 'hidden' }}>
+                  {[
+                    { label: 'Member', value: memberMap[b.memberId] ?? '—' },
+                    { label: 'Chit', value: chitMap[b.chitId] ?? '—' },
+                    { label: 'Draw(s)', value: b.allocations?.length ? drawLabel(b.allocations) : '—' },
+                    { label: 'Collected By', value: b.collectedBy ? (staffMap[b.collectedBy] ?? b.collectedBy.slice(0, 8)) : '—' },
+                    { label: 'Date', value: b.collectedAt ? fmtDateTime(b.collectedAt) : fmtDateTime(b.createdAt) },
+                    { label: 'Ref / Notes', value: b.referenceNumber ?? b.notes ?? '—' },
+                  ].map(({ label, value }) => (
+                    <View key={label} style={{ flexDirection: 'row', padding: 13, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                      <Text style={{ width: 100, fontSize: 12, fontWeight: '600', color: C.gray400 }}>{label}</Text>
+                      <Text style={{ flex: 1, fontSize: 13, color: C.gray900 }}>{value}</Text>
+                    </View>
+                  ))}
+                </View>
+                {/* Actions */}
+                {b.status === 'AWAITING_REMITTANCE' && (
+                  <TouchableOpacity onPress={() => remitMut.mutate(b.id)} disabled={remitMut.isPending}
+                    style={{ backgroundColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{remitMut.isPending ? 'Remitting…' : 'Remit to Treasury'}</Text>
+                  </TouchableOpacity>
+                )}
+                {b.status !== 'VOIDED' && b.status !== 'COMPLETED' && (
+                  <TouchableOpacity onPress={() => confirmVoid(b)} disabled={voidMut.isPending}
+                    style={{ borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1.5, borderColor: C.red }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: C.red }}>{voidMut.isPending ? 'Voiding…' : 'Void Payment'}</Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            </SafeAreaView>
+          );
+        })()}
+      </Modal>
+
 
       {/* ── Member filter ── */}
       <Text style={{ ...T.label, marginBottom: 6 }}>Filter by Member</Text>
@@ -3352,7 +3451,8 @@ function HistoryTab() {
           {displayedBatches.map((b: any) => {
             const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
             return (
-              <Card key={b.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: st.color }}>
+              <TouchableOpacity key={b.id} onPress={() => setSelectedBatch(b)} activeOpacity={0.75}>
+              <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: st.color }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
@@ -3393,6 +3493,7 @@ function HistoryTab() {
                   </Text>
                 </View>
               </Card>
+              </TouchableOpacity>
             );
           })}
           {allDisplayedBatches.length > histShowCount && (
