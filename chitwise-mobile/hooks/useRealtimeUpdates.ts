@@ -56,7 +56,10 @@ export function useRealtimeUpdates(enabled = true) {
 
     const client = new Client({
       webSocketFactory: () => new WebSocket(WS_URL) as any,
-      connectHeaders: { Authorization: `Bearer ${token}` },
+      beforeConnect: async () => {
+        const currentToken = useAuthStore.getState().user?.token ?? token;
+        client.connectHeaders = { Authorization: `Bearer ${currentToken}` };
+      },
       reconnectDelay: 5000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
