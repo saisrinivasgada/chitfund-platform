@@ -966,7 +966,7 @@ export default function AdminChitsScreen() {
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Draw</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                    {c.winnersAssigned ?? c.currentDraw ?? 0}/{c.durationMonths ?? c.totalDraws ?? '—'}
+                    {c.status === 'COMPLETED' ? (c.durationMonths ?? c.totalDraws ?? '—') : (c.winnersAssigned ?? c.currentDraw ?? 0)}/{c.durationMonths ?? c.totalDraws ?? '—'}
                   </Text>
                 </View>
                 {(c.totalAmount ?? c.chitValue) && (

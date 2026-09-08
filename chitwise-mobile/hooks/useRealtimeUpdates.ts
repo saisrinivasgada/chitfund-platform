@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { Client } from '@stomp/stompjs';
 import { useQueryClient } from '@tanstack/react-query';
-
-const PROD_HOST = '3.21.196.51';
+import { useAuthStore } from '../store/authStore';
 
 const WS_URL = __DEV__
   ? 'ws://localhost:8080/ws-native'
-  : `ws://${PROD_HOST}/ws-native`;
+  : 'wss://thechitwise.com/ws-native';
 
 // Maps WS event type → React Query keys to invalidate
 const INVALIDATIONS: Record<string, string[][]> = {
@@ -50,12 +49,14 @@ const INVALIDATIONS: Record<string, string[][]> = {
 
 export function useRealtimeUpdates(enabled = true) {
   const qc = useQueryClient();
+  const token = useAuthStore((s) => s.user?.token);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !token) return;
 
     const client = new Client({
       webSocketFactory: () => new WebSocket(WS_URL) as any,
+      connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 5000,
       heartbeatIncoming: 10000,
       heartbeatOutgoing: 10000,
@@ -74,5 +75,5 @@ export function useRealtimeUpdates(enabled = true) {
 
     client.activate();
     return () => { client.deactivate(); };
-  }, [enabled, qc]);
+  }, [enabled, token, qc]);
 }

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import {
   getBillingInfo, getMyTenantLimits, myBillingPayments,
   requestRenewal, requestPlanUpgrade, getPublicPlans,
+  listStaff, getChits, getMembersPage,
 } from '../../../services/api';
 import { C, T, GlassCard, LoadingScreen, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -213,6 +214,13 @@ export default function BillingScreen() {
     queryFn: getPublicPlans,
     staleTime: 600_000,
   });
+  const { data: staffList = [] } = useQuery({ queryKey: ['org-staff-summary'], queryFn: listStaff, staleTime: 120_000 });
+  const { data: membersPage } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembersPage({ page: 0, size: 1 }), staleTime: 120_000 });
+  const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ status: 'ACTIVE' }), staleTime: 120_000 });
+
+  const memberCount = (membersPage as any)?.totalElements ?? 0;
+  const activeChitCount = (allChits as any[]).length;
+  const staffCount = (staffList as any[]).filter((s: any) => s.role === 'MANAGER' || s.role === 'STAFF' || s.role === 'AGENT').length;
 
   const qc = useQueryClient();
   const renewalMut = useMutation({
@@ -369,9 +377,9 @@ export default function BillingScreen() {
         {limits && (
           <GlassCard style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, marginBottom: 16 }}>Plan Usage</Text>
-            <UsageBar label="Members"        used={limits.currentMembers ?? 0}  limit={limits.maxMembers ?? -1} />
-            <UsageBar label="Chit Funds"     used={limits.currentChits ?? 0}    limit={limits.maxChits ?? -1} />
-            <UsageBar label="Staff Accounts" used={(limits.currentStaff ?? 0) + (limits.currentManagers ?? 0)} limit={limits.maxStaff ?? -1} />
+            <UsageBar label="Members"        used={memberCount}      limit={(limits as any).maxMembers ?? -1} />
+            <UsageBar label="Active Chits"   used={activeChitCount}  limit={(limits as any).maxActiveChits ?? -1} />
+            <UsageBar label="Staff Accounts" used={staffCount}        limit={(limits as any).maxStaff ?? -1} />
           </GlassCard>
         )}
 

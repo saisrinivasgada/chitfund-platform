@@ -231,7 +231,7 @@ export default function ChitDetailScreen() {
         {[
           { label: 'Chit Value', value: chit.totalAmount ? `₹${Number(chit.totalAmount).toLocaleString('en-IN')}` : '—' },
           { label: 'Installment', value: chit.installmentAmount ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}` : '—' },
-          { label: 'Draws', value: chit.totalDraws ? `${chit.status === 'COMPLETED' ? chit.totalDraws : (chit.currentDraw ?? 1)}/${chit.totalDraws}` : '—' },
+          { label: 'Draws', value: (() => { const total = chit.totalDraws ?? chit.durationMonths; return total ? `${chit.status === 'COMPLETED' ? total : (chit.winnersAssigned ?? chit.currentDraw ?? 0)}/${total}` : '—'; })() },
           { label: 'Members', value: chit.memberCount != null ? String(chit.memberCount) : '—' },
         ].map(({ label, value }, i, arr) => (
           <View key={label} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < arr.length - 1 ? 1 : 0, borderRightColor: 'rgba(255,255,255,0.15)' }}>
@@ -448,7 +448,7 @@ export default function ChitDetailScreen() {
               <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.gray100 }}>
                 <Text style={{ fontSize: 11, color: C.gray400 }}>Months Paid</Text>
                 <Text style={{ fontSize: 20, fontWeight: '800', color: C.gray900, marginTop: 2 }}>
-                  {settledCount}<Text style={{ fontSize: 13, fontWeight: '400', color: C.gray400 }}>/{chit?.totalDraws ?? histArr.length}</Text>
+                  {settledCount}<Text style={{ fontSize: 13, fontWeight: '400', color: C.gray400 }}>/{chit?.totalDraws ?? chit?.durationMonths ?? histArr.length}</Text>
                 </Text>
               </View>
               <View style={{ flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', backgroundColor: outstanding > 0 ? '#FFF5F5' : '#F0FDF4', borderWidth: 1, borderColor: outstanding > 0 ? '#FECACA' : '#BBF7D0' }}>
@@ -464,6 +464,28 @@ export default function ChitDetailScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* Draw progress card */}
+            {(() => {
+              const totalD = chit?.totalDraws ?? chit?.durationMonths;
+              const completedD = chit?.status === 'COMPLETED' ? totalD : (chit?.winnersAssigned ?? chit?.currentDraw ?? 0);
+              if (!totalD) return null;
+              const pct = totalD > 0 ? Math.min(100, Math.round((completedD / totalD) * 100)) : 0;
+              return (
+                <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Draw Progress</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>{completedD}/{totalD} draws</Text>
+                  </View>
+                  <View style={{ height: 8, backgroundColor: C.gray100, borderRadius: 4, overflow: 'hidden' }}>
+                    <View style={{ height: 8, width: `${pct}%` as any, backgroundColor: chit?.status === 'COMPLETED' ? C.green : C.navy, borderRadius: 4 }} />
+                  </View>
+                  {chit?.status === 'COMPLETED' && (
+                    <Text style={{ fontSize: 11, color: C.green, marginTop: 6, fontWeight: '600' }}>Chit completed</Text>
+                  )}
+                </View>
+              );
+            })()}
 
             {/* My payout */}
             {myPayout && (() => {

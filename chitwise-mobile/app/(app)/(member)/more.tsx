@@ -59,6 +59,13 @@ export default function MemberMoreScreen() {
       accent: C.navy,
     }] : []),
     {
+      emoji: '🔔',
+      label: 'Reminders',
+      description: 'Payment reminders from your admin',
+      route: '/(app)/(member)/reminders',
+      accent: '#D97706',
+    },
+    {
       emoji: '🙋',
       label: 'Support',
       description: 'Raise a request with your admin',
