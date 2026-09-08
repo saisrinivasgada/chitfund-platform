@@ -369,10 +369,9 @@ export default function BillingScreen() {
         {limits && (
           <GlassCard style={{ marginBottom: 16 }}>
             <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, marginBottom: 16 }}>Plan Usage</Text>
-            <UsageBar label="Members"    used={limits.currentMembers ?? 0}  limit={limits.maxMembers ?? -1} />
-            <UsageBar label="Chit Funds" used={limits.currentChits ?? 0}    limit={limits.maxChits ?? -1} />
-            <UsageBar label="Staff"      used={limits.currentStaff ?? 0}    limit={limits.maxStaff ?? -1} />
-            <UsageBar label="Managers"   used={limits.currentManagers ?? 0} limit={limits.maxManagers ?? -1} />
+            <UsageBar label="Members"        used={limits.currentMembers ?? 0}  limit={limits.maxMembers ?? -1} />
+            <UsageBar label="Chit Funds"     used={limits.currentChits ?? 0}    limit={limits.maxChits ?? -1} />
+            <UsageBar label="Staff Accounts" used={(limits.currentStaff ?? 0) + (limits.currentManagers ?? 0)} limit={limits.maxStaff ?? -1} />
           </GlassCard>
         )}
 

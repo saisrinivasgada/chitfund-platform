@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { superAdminListPlans, superAdminCreatePlan, superAdminUpdatePlan2, superAdminListCapabilities, superAdminAddCapability, superAdminDeleteCapability } from '../../../services/api';
-// superAdminUpdatePlan2 is also used for toggling isPublic/isActive
 import { C } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 
@@ -322,42 +321,52 @@ export default function PlansScreen() {
             <View key={p.plan} style={{
               backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
-              opacity: p.active ? 1 : 0.55,
+              opacity: p.isActive === false ? 0.55 : 1,
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                <View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>{p.displayName ?? p.plan}</Text>
-                    {!p.active && (
+                    {p.isPublic && p.isActive ? (
+                      <View style={{ backgroundColor: '#D1FAE5', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>● LIVE</Text>
+                      </View>
+                    ) : p.isActive === false ? (
                       <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
                         <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500 }}>INACTIVE</Text>
+                      </View>
+                    ) : (
+                      <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500 }}>DRAFT</Text>
                       </View>
                     )}
                   </View>
                   {p.tagline && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{p.tagline}</Text>}
                 </View>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
-                  {fmtPaise(p.priceMonthlyInr)}<Text style={{ fontSize: 11, color: C.gray400 }}>/mo</Text>
-                </Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
+                    {fmtPaise(p.effectivePriceInr ?? p.priceMonthlyInr)}<Text style={{ fontSize: 11, color: C.gray400 }}>/mo</Text>
+                  </Text>
+                  {p.globalDiscountPct ? (
+                    <Text style={{ fontSize: 11, color: '#059669', fontWeight: '600' }}>{p.globalDiscountPct}% off</Text>
+                  ) : null}
+                </View>
               </View>
 
               {/* Limits */}
-              {p.limits && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                  {[
-                    { label: 'Members',  v: p.limits.maxMembers },
-                    { label: 'Chits',    v: p.limits.maxChits },
-                    { label: 'Staff',    v: p.limits.maxStaff },
-                    { label: 'Managers', v: p.limits.maxManagers },
-                  ].map(({ label, v }) => (
-                    <View key={label} style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: C.navy }}>
-                        {v === -1 ? '∞' : v} {label}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {[
+                  { label: 'Members', v: p.maxMembers },
+                  { label: 'Chits',   v: p.maxActiveChits },
+                  { label: 'Staff',   v: p.maxStaff },
+                ].map(({ label, v }) => v != null ? (
+                  <View key={label} style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: C.navy }}>
+                      {v === -1 ? '∞' : v} {label}
+                    </Text>
+                  </View>
+                ) : null)}
+              </View>
 
               {/* Features */}
               {(p.features ?? []).slice(0, 3).map((f: string, i: number) => (
@@ -367,12 +376,40 @@ export default function PlansScreen() {
                 <Text style={{ fontSize: 12, color: C.gray400 }}>+{(p.features ?? []).length - 3} more features</Text>
               )}
 
-              <TouchableOpacity
-                onPress={() => setEditing(p)}
-                style={{ marginTop: 12, backgroundColor: C.navy50, borderRadius: 10, padding: 10, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Edit Plan</Text>
-              </TouchableOpacity>
+              {/* Actions */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => setEditing(p)}
+                  style={{ flex: 1, backgroundColor: C.navy50, borderRadius: 10, padding: 10, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Edit</Text>
+                </TouchableOpacity>
+                {p.isActive !== false && (
+                  p.isPublic ? (
+                    <TouchableOpacity
+                      onPress={() => handleTakeOffline(p)}
+                      style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 10, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Stop Live</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => handleMakeLive(p)}
+                      style={{ flex: 1, backgroundColor: '#D1FAE5', borderRadius: 10, padding: 10, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#059669' }}>Make Live</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+                {p.isActive !== false && (
+                  <TouchableOpacity
+                    onPress={() => handleDeactivate(p)}
+                    style={{ backgroundColor: C.gray100, borderRadius: 10, paddingHorizontal: 14, padding: 10, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray500 }}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           ))
         )}
