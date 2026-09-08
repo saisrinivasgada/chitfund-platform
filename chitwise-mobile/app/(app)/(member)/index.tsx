@@ -281,7 +281,7 @@ export default function MemberHomeScreen() {
           )}
         </View>
 
-        {/* Message Admin */}
+        {/* Messages (admin DM + groups unified) */}
         <TouchableOpacity
           onPress={() => router.push('/(app)/(member)/messages')}
           style={{
@@ -292,21 +292,7 @@ export default function MemberHomeScreen() {
           }}
         >
           <Text style={{ fontSize: 18 }}>💬</Text>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Message your Admin</Text>
-        </TouchableOpacity>
-
-        {/* Group Chats */}
-        <TouchableOpacity
-          onPress={() => router.push('/(app)/(member)/groups')}
-          style={{
-            marginBottom: 8, flexDirection: 'row', alignItems: 'center',
-            justifyContent: 'center', gap: 8, paddingVertical: 14,
-            borderRadius: 14, borderWidth: 1, borderColor: '#16a34a30',
-            backgroundColor: '#F0FDF4',
-          }}
-        >
-          <Text style={{ fontSize: 18 }}>👥</Text>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: '#16a34a' }}>My Groups</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Messages</Text>
         </TouchableOpacity>
 
         {/* Contact Support — only shown if admin has a support phone set */}

@@ -29,22 +29,17 @@ export default function MoreScreen() {
     refetchInterval: 60_000,
   });
 
+  const chatEnabled = user?.chatEnabled !== false;
+
   const items: NavItem[] = [
-    {
+    ...(chatEnabled ? [{
       emoji: '💬',
-      label: 'Member Messages',
-      description: 'Chat directly with your members',
+      label: 'Messages',
+      description: 'Chat with members and groups',
       route: '/(app)/(admin)/messages',
       badge: (msgUnread as number) > 0 ? (msgUnread as number) : undefined,
       accent: C.navy,
-    },
-    {
-      emoji: '👥',
-      label: 'Group Chats',
-      description: 'Broadcast to multiple members',
-      route: '/(app)/(admin)/groups',
-      accent: '#16a34a',
-    },
+    }] : []),
     {
       emoji: '◈',
       label: 'Activity Log',
@@ -81,6 +76,27 @@ export default function MoreScreen() {
       route: '/(app)/(admin)/roles',
       accent: C.navyLight,
     },
+    {
+      emoji: '🏢',
+      label: 'My Organization',
+      description: 'Org details, hub & settings',
+      route: '/(app)/(admin)/my-org',
+      accent: C.navy,
+    },
+    {
+      emoji: '🎧',
+      label: 'Support',
+      description: 'Get help · raise a ticket',
+      route: '/(app)/(admin)/support',
+      accent: '#059669',
+    },
+    {
+      emoji: '👤',
+      label: 'My Account',
+      description: 'Profile, password & settings',
+      route: '/(app)/(admin)/my-account',
+      accent: C.navy,
+    },
   ];
 
   return (
@@ -105,6 +121,7 @@ export default function MoreScreen() {
           {items.map((item) => (
             <TouchableOpacity
               key={item.label}
+              accessibilityLabel={item.label}
               onPress={() => router.push(item.route as any)}
               activeOpacity={0.75}
               style={{

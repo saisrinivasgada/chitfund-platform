@@ -21,6 +21,7 @@ export function ProfileAvatarButton({ size = 36, bgColor, textColor }: Props) {
       <TouchableOpacity
         onPress={() => setShow(true)}
         activeOpacity={0.75}
+        accessibilityLabel="Profile Menu"
         style={{
           width: size, height: size, borderRadius: radius,
           backgroundColor: bg,

@@ -8,7 +8,7 @@ import {
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
-  adminUpdateUserPhone, startConversation,
+  adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -352,6 +352,41 @@ export default function AdminMembersScreen() {
     enabled: !!selected?.id && showDetail,
     staleTime: 60_000,
   });
+
+  // Scheduled reminders for member
+  const [showCreateReminder, setShowCreateReminder] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState('');
+  const [reminderFreqMin, setReminderFreqMin] = useState<number | null>(null);
+  const { data: memberRemindersPage, refetch: refetchReminders } = useQuery({
+    queryKey: ['m-member-reminders', selected?.id],
+    queryFn: () => getRemindersForMember(selected!.id),
+    enabled: !!selected?.id && showDetail,
+    staleTime: 30_000,
+  });
+  const memberReminders: any[] = (memberRemindersPage as any)?.content ?? [];
+
+  const cancelReminderMutation = useMutation({
+    mutationFn: (reminderId: string) => removeReminder(reminderId),
+    onSuccess: () => { refetchReminders(); toast.noted('Reminder cancelled'); },
+    onError: () => Alert.alert('Error', 'Failed to cancel reminder'),
+  });
+
+  const createReminderMutation = useMutation({
+    mutationFn: () => sendReminder({
+      memberProfileId: selected!.id,
+      chits: [],
+      message: reminderMessage.trim() || undefined,
+      repeatIntervalMinutes: reminderFreqMin,
+    }),
+    onSuccess: () => {
+      refetchReminders();
+      setShowCreateReminder(false);
+      setReminderMessage('');
+      setReminderFreqMin(null);
+      toast.noted('Reminder sent');
+    },
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send reminder'),
+  });
   const SETTLEMENT_TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
   const pendingSettlements = ((memberSettlementsPage as any)?.content ?? []).filter(
     (s: any) => !SETTLEMENT_TERMINAL.has(s.paymentStatus)
@@ -565,12 +600,16 @@ export default function AdminMembersScreen() {
               {selected?.userId && (
                 <TouchableOpacity
                   onPress={() => {
-                    startConversation({ memberId: selected.userId, memberName: selected.fullName })
-                      .then(() => {
-                        setShowDetail(false);
-                        setTimeout(() => router.push('/(app)/(admin)/messages'), 300);
-                      })
-                      .catch(() => {});
+                    // Open in draft mode — conversation is created lazily on first message send
+                    const cached = (qc.getQueryData<any>(['m-conversations'])?.items ?? []);
+                    const existing = cached.find((c: any) => c.memberId === selected.userId);
+                    setShowDetail(false);
+                    setTimeout(() => router.push({
+                      pathname: '/(app)/(admin)/messages',
+                      params: existing
+                        ? { conversationId: existing.id, memberName: selected.fullName }
+                        : { draftMemberId: selected.userId, memberName: selected.fullName },
+                    } as any), 300);
                   }}
                   style={{ padding: 8, backgroundColor: '#EFF4FA', borderRadius: 8 }}
                 >
@@ -1211,7 +1250,58 @@ export default function AdminMembersScreen() {
                 {/* Reminders */}
                 {selected?.hasAppAccess && (
                   <View style={{ marginTop: 16, gap: 10 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>REMINDERS</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>REMINDERS</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowCreateReminder(true)}
+                        style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>+ New</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Scheduled reminders list */}
+                    {memberReminders.length > 0 && (
+                      <View style={{ gap: 8 }}>
+                        {memberReminders.map((r: any) => {
+                          const freqLabel = r.repeatIntervalMinutes
+                            ? r.repeatIntervalMinutes >= 1440
+                              ? `Every ${Math.round(r.repeatIntervalMinutes / 1440)}d`
+                              : r.repeatIntervalMinutes >= 60
+                                ? `Every ${Math.round(r.repeatIntervalMinutes / 60)}h`
+                                : `Every ${r.repeatIntervalMinutes}m`
+                            : 'One-time';
+                          const chitNames = (r.chits ?? []).map((c: any) => c.chitName ?? c.chitId).join(', ') || 'General';
+                          return (
+                            <View key={r.id} style={{ backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.gray200, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>{freqLabel}</Text>
+                                  <Text style={{ fontSize: 11, color: C.gray400 }}>· {chitNames}</Text>
+                                </View>
+                                {r.message ? (
+                                  <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500, fontStyle: 'italic' }} numberOfLines={2}>"{r.message}"</Text>
+                                ) : null}
+                                {r.totalAmount > 0 && (
+                                  <Text style={{ fontSize: 11, color: C.red, marginTop: 2 }}>₹{Number(r.totalAmount).toLocaleString('en-IN')} due</Text>
+                                )}
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => Alert.alert('Cancel Reminder', 'Remove this scheduled reminder?', [
+                                  { text: 'Keep', style: 'cancel' },
+                                  { text: 'Cancel Reminder', style: 'destructive', onPress: () => cancelReminderMutation.mutate(r.id) },
+                                ])}
+                                style={{ padding: 6 }}
+                              >
+                                <Text style={{ fontSize: 16, color: C.red }}>🗑</Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    {/* Quick send buttons */}
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <TouchableOpacity
                         onPress={() => Alert.alert('Send Reminder', `Send a push notification payment reminder to ${selected.fullName}?`, [
@@ -1222,7 +1312,7 @@ export default function AdminMembersScreen() {
                         style={{ flex: 1, backgroundColor: C.navy50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.navy + '40', opacity: reminderMutation.isPending ? 0.5 : 1 }}
                       >
                         <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
-                          {reminderMutation.isPending ? 'Sending…' : '🔔 Push Reminder'}
+                          {reminderMutation.isPending ? 'Sending…' : '🔔 Push Now'}
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -1254,6 +1344,66 @@ export default function AdminMembersScreen() {
                     )}
                   </View>
                 )}
+
+                {/* Create Reminder Sheet */}
+                <Modal visible={showCreateReminder} transparent animationType="slide" onRequestClose={() => setShowCreateReminder(false)}>
+                  <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => setShowCreateReminder(false)}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+                      <TouchableOpacity activeOpacity={1}>
+                        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+                          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
+                          </View>
+                          <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 16 }}>Schedule Reminder</Text>
+
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Message *</Text>
+                          <TextInput
+                            value={reminderMessage}
+                            onChangeText={setReminderMessage}
+                            placeholder="e.g. Please pay your monthly installment"
+                            placeholderTextColor={C.gray400}
+                            multiline
+                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
+                          />
+
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 8 }}>Repeat Frequency</Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                            {[
+                              { label: 'Once', value: null },
+                              { label: 'Daily', value: 1440 },
+                              { label: 'Weekly', value: 10080 },
+                              { label: 'Monthly', value: 43200 },
+                            ].map((opt) => (
+                              <TouchableOpacity
+                                key={String(opt.value)}
+                                onPress={() => setReminderFreqMin(opt.value)}
+                                style={{
+                                  paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1,
+                                  borderColor: reminderFreqMin === opt.value ? C.navy : C.gray200,
+                                  backgroundColor: reminderFreqMin === opt.value ? C.navy : '#fff',
+                                }}
+                              >
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: reminderFreqMin === opt.value ? '#fff' : C.gray600 ?? C.gray500 }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+
+                          <TouchableOpacity
+                            onPress={() => createReminderMutation.mutate()}
+                            disabled={!reminderMessage.trim() || createReminderMutation.isPending}
+                            style={{ backgroundColor: !reminderMessage.trim() || createReminderMutation.isPending ? C.gray200 : C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+                          >
+                            {createReminderMutation.isPending
+                              ? <ActivityIndicator color="#fff" />
+                              : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Send Reminder</Text>}
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    </KeyboardAvoidingView>
+                  </TouchableOpacity>
+                </Modal>
 
                 {/* Settle + Delete — bottom of detail */}
                 <View style={{ marginTop: 24, gap: 10, paddingBottom: 8 }}>

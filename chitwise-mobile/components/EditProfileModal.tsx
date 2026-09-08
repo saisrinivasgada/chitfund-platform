@@ -342,11 +342,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
         </View>
 
         {/* Tab switcher */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}
-        >
+        <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}>
           {([
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
@@ -354,15 +350,15 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
             ...(role === 'ADMIN' ? [{ id: 'history', label: 'My Changes' }] : []),
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{
-              paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
+              flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
               backgroundColor: tab === id ? C.white : 'transparent',
             }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: tab === id ? C.navy : C.gray400, whiteSpace: 'nowrap' } as any}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: tab === id ? C.navy : C.gray400 } as any} numberOfLines={1}>
                 {label}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>

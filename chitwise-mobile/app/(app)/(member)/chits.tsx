@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { getMyChits, getMyMemberProfile, getMemberBalance, getPaymentHistory, getDraws, getWinners, getPayoutsForMember, listAuctions, getAuction, placeBid } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -602,7 +603,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
 }
 
 export default function MemberChitsScreen() {
-  const [selected, setSelected] = useState<any>(null);
+  const router = useRouter();
 
   const { data: chits = [], isLoading: chitsLoading, refetch } = useQuery({
     queryKey: ['member-chits'],
@@ -639,7 +640,7 @@ export default function MemberChitsScreen() {
           <EmptyState title="No chit funds" message="You haven't been enrolled in any chit funds yet." />
         }
         renderItem={({ item: c }) => (
-          <TouchableOpacity activeOpacity={0.85} onPress={() => setSelected(c)}>
+          <TouchableOpacity activeOpacity={0.85} onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: c.id } } as any)}>
             <Card style={{ marginBottom: 14 }}>
               {/* Chit name + status */}
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -707,9 +708,6 @@ export default function MemberChitsScreen() {
         )}
       />
 
-      {selected && memberId && (
-        <ChitDetailModal chit={selected} memberId={memberId} onClose={() => setSelected(null)} />
-      )}
     </SafeAreaView>
   );
 }

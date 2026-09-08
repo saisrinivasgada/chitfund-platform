@@ -664,6 +664,11 @@ export const markTicketRead = async (ticketId: string): Promise<void> => {
   await api.put(`/tickets/${ticketId}/read`);
 };
 
+// ─── Org Settings ─────────────────────────────────────────────────────────────
+export const getOrgSettings = async (): Promise<any> => {
+  try { return unwrapObj(await api.get('/users/me/org-settings')); } catch { return null; }
+};
+
 // ─── Admin Support Contact (for members/staff/managers to contact admin) ──────
 export const getAdminSupportContact = async (): Promise<{ supportPhoneNumber: string } | null> => {
   const res = await api.get('/users/tenant/support-contact');
@@ -776,27 +781,27 @@ export const voidAuction = async (params: { chitId: string; auctionId: string })
 
 export const listConversations = async ({ page = 0, size = 30 } = {}): Promise<any> => {
   const res = await api.get('/conversations', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const startConversation = async (body: { memberId: string; memberName: string }): Promise<any> => {
   const res = await api.post('/conversations', body);
-  return res.data.data;
+  return res.data;
 };
 
 export const getMyConversation = async (): Promise<any> => {
   const res = await api.get('/conversations/mine');
-  return res.data.data;
+  return res.data;
 };
 
 export const getConversationUnread = async (): Promise<number> => {
   const res = await api.get('/conversations/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getMemberConversationUnread = async (): Promise<number> => {
   const res = await api.get('/conversations/mine/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getChatMessages = async (
@@ -806,7 +811,7 @@ export const getChatMessages = async (
   const params: any = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/conversations/${conversationId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendChatMessage = async (
@@ -815,7 +820,7 @@ export const sendChatMessage = async (
   clientMessageId?: string
 ): Promise<any> => {
   const res = await api.post(`/conversations/${conversationId}/messages`, { content, clientMessageId });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteChatMessage = async (conversationId: string, messageId: string): Promise<void> => {
@@ -828,24 +833,29 @@ export const markConversationRead = async (conversationId: string): Promise<void
 
 // ─── Group Chat (Phase 3) ──────────────────────────────────────────────────────
 
-export const createGroup = async (body: { name: string; description?: string; memberIds?: string[] }): Promise<any> => {
+export const createGroup = async (body: {
+  name: string;
+  description?: string;
+  memberIds: string[];
+  members: { userId: string; userName: string; role: string }[];
+}): Promise<any> => {
   const res = await api.post('/groups', body);
-  return res.data.data;
+  return res.data;
 };
 
 export const listGroups = async ({ page = 0, size = 20 } = {}): Promise<any> => {
   const res = await api.get('/groups', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const getGroupMembers = async (groupId: string): Promise<any[]> => {
   const res = await api.get(`/groups/${groupId}/members`);
-  return res.data.data ?? [];
+  return res.data ?? [];
 };
 
 export const addGroupMember = async (groupId: string, body: { userId: string; userName: string; role?: string }): Promise<any> => {
   const res = await api.post(`/groups/${groupId}/members`, body);
-  return res.data.data;
+  return res.data;
 };
 
 export const removeGroupMember = async (groupId: string, userId: string): Promise<void> => {
@@ -856,16 +866,57 @@ export const getGroupMessages = async (groupId: string, { cursor, limit = 50 }: 
   const params: any = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/groups/${groupId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendGroupMessage = async (groupId: string, content: string, clientMessageId: string): Promise<any> => {
   const res = await api.post(`/groups/${groupId}/messages`, { content, clientMessageId });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteGroupMessage = async (groupId: string, messageId: string): Promise<void> => {
   await api.put(`/groups/${groupId}/messages/${messageId}/delete`);
+};
+
+// ── Reminders ─────────────────────────────────────────────────────────────────
+
+export const getMyReminders = async ({ filter = 'all', page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get('/reminders/mine', { params: { filter, page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const getMyReminder = async (reminderId: string): Promise<any> => {
+  const res = await api.get(`/reminders/${reminderId}`);
+  return res.data.data ?? res.data;
+};
+
+export const markReminderSeen = async (reminderId: string): Promise<void> => {
+  await api.put(`/reminders/${reminderId}/seen`);
+};
+
+export const setReminderPromisedDate = async (reminderId: string, promisedDate: string): Promise<any> => {
+  const res = await api.put(`/reminders/${reminderId}/promised-date`, { promisedDate });
+  return res.data.data ?? res.data;
+};
+
+export const removeReminder = async (reminderId: string): Promise<void> => {
+  await api.delete(`/reminders/${reminderId}`);
+};
+
+export const getRemindersForMember = async (memberProfileId: string, { page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get(`/reminders/member/${memberProfileId}`, { params: { page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const sendReminder = async ({ memberProfileId, chits, message, repeatIntervalMinutes, reminderTime }: {
+  memberProfileId: string;
+  chits: { chitId: string; amount: number }[];
+  message?: string;
+  repeatIntervalMinutes?: number | null;
+  reminderTime?: string | null;
+}): Promise<any> => {
+  const res = await api.post('/reminders', { memberProfileId, chits, message, repeatIntervalMinutes: repeatIntervalMinutes || null, reminderTime: reminderTime || null });
+  return res.data.data ?? res.data;
 };
 
 export default api;

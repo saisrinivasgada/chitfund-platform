@@ -2,17 +2,25 @@ import { Tabs } from 'expo-router';
 import { Text, Platform, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
+import { useReminderSync } from '../../../hooks/useReminderSync';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '⌂', chits: '≡', invitations: '✉', requests: '◉', payouts: '₹', payments: '⊡' };
+  const icons: Record<string, string> = {
+    index:     '⌂',
+    chits:     '≡',
+    reminders: '🔔',
+    requests:  '↩',
+    more:      '···',
+  };
   return (
-    <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
+    <Text style={{ fontSize: name === 'more' ? 14 : 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
       {icons[name] ?? '●'}
     </Text>
   );
 }
 
 export default function MemberLayout() {
+  useReminderSync();
   return (
     <Tabs
       screenOptions={({ route }) => ({
@@ -35,14 +43,21 @@ export default function MemberLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       })}
     >
-      <Tabs.Screen name="index"       options={{ title: 'Home' }} />
-      <Tabs.Screen name="chits"       options={{ title: 'My Chits' }} />
-      <Tabs.Screen name="invitations" options={{ title: 'Invitations' }} />
-      <Tabs.Screen name="requests"    options={{ title: 'Requests' }} />
-      <Tabs.Screen name="payouts"     options={{ title: 'Payouts' }} />
-      <Tabs.Screen name="payments"    options={{ title: 'Payments' }} />
+      {/* ── Visible tabs (5) ─────────────────────────────────────── */}
+      <Tabs.Screen name="index"     options={{ title: 'Home' }} />
+      <Tabs.Screen name="chits"     options={{ title: 'My Chits' }} />
+      <Tabs.Screen name="reminders" options={{ title: 'Reminders' }} />
+      <Tabs.Screen name="requests"  options={{ title: 'Requests' }} />
+      <Tabs.Screen name="more"      options={{ title: 'More' }} />
+
+      {/* ── Hidden (accessible via More or deep links) ───────────── */}
+      <Tabs.Screen name="payments"    options={{ href: null }} />
+      <Tabs.Screen name="invitations" options={{ href: null }} />
+      <Tabs.Screen name="payouts"     options={{ href: null }} />
       <Tabs.Screen name="messages"    options={{ href: null }} />
       <Tabs.Screen name="groups"      options={{ href: null }} />
+      <Tabs.Screen name="my-account"  options={{ href: null }} />
+      <Tabs.Screen name="chit-detail" options={{ href: null }} />
     </Tabs>
   );
 }

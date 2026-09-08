@@ -20,6 +20,9 @@ export interface AuthUser {
   tenantId?: string;
   tenantName?: string;
   mustChangePassword?: boolean;
+  chatEnabled?: boolean;
+  adminPhone?: string;
+  adminEmail?: string;
 }
 
 export interface StoredAccount {
