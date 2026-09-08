@@ -23,14 +23,16 @@ import { useUIStore } from '../../../store/uiStore';
 import { toast } from '../../../components/Toast';
 
 // Statuses that count as "cleared" (no payment needed)
-const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED']);
+const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED', 'CREDIT_COVERED', 'PARTIAL_CREDIT']);
 const PAY_STATUS_COLOR: Record<string, string> = {
   SETTLED: C.green, SETTLEMENT_CLEARED: C.green, WAIVED: C.gray400,
   PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
+  CREDIT_COVERED: C.green, PARTIAL_CREDIT: C.amber,
 };
 const PAY_STATUS_LABEL: Record<string, string> = {
   SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
   PAYOUT_DEDUCTED: 'Payout', PARTIALLY_PAID: 'Partial', OUTSTANDING: 'Pending',
+  CREDIT_COVERED: 'Credit', PARTIAL_CREDIT: 'Partial Credit',
 };
 
 // Compute ISO due date for a given cycle number relative to chit start date

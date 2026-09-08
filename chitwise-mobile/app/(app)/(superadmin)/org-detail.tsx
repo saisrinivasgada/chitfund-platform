@@ -21,6 +21,10 @@ import {
   superAdminListUpgradeRequests,
   superAdminClearRenewalRequest,
   billingRecordPayment,
+  superAdminGetEffectiveLimits,
+  superAdminSetCustomLimits,
+  superAdminListCapabilities,
+  superAdminListPlans,
 } from '../../../services/api';
 import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -66,6 +70,7 @@ export default function OrgDetailPage() {
   const [showRecordPayment, setShowRecordPayment] = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
   const [reactivateSlug, setReactivateSlug] = useState('');
+  const [showCustomLimits, setShowCustomLimits] = useState(false);
 
   const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ['sa-org', tenantId],
@@ -91,6 +96,22 @@ export default function OrgDetailPage() {
     queryKey: ['sa-upgrades'],
     queryFn: superAdminListUpgradeRequests,
     staleTime: 60_000,
+  });
+  const { data: effectiveLimits, refetch: refetchLimits } = useQuery({
+    queryKey: ['sa-org-limits', tenantId],
+    queryFn: () => superAdminGetEffectiveLimits(tenantId!),
+    enabled: !!tenantId,
+    staleTime: 60_000,
+  });
+  const { data: plans = [] } = useQuery({
+    queryKey: ['sa-plans'],
+    queryFn: superAdminListPlans,
+    staleTime: 300_000,
+  });
+  const { data: capDefs = [] } = useQuery({
+    queryKey: ['super-capabilities'],
+    queryFn: superAdminListCapabilities,
+    staleTime: 300_000,
   });
 
   const activateMut = useMutation({
@@ -125,12 +146,12 @@ export default function OrgDetailPage() {
   });
   const recordPaymentMut = useMutation({
     mutationFn: ({ amount, method, pType }: { amount: string; method: string; pType: string }) =>
-      billingRecordPayment({ tenantId: tenantId!, amountPaise: Math.round(Number(amount) * 100), paymentMethod: method, paymentType: pType }),
+      billingRecordPayment({ tenantId: tenantId!, amountPaise: Math.round(Number(amount) * 100), paymentMethod: method, type: pType }),
     onSuccess: () => { setShowRecordPayment(false); refetchOrg(); toast.saved('Payment recorded'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); }
+  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); refetchLimits(); }
 
   const orgData = org as any;
 
@@ -295,12 +316,56 @@ export default function OrgDetailPage() {
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Change Plan</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => setShowCustomLimits(true)}
+            style={{ flex: 1, backgroundColor: '#FEF3C7', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#D97706' }}>Set Limits</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => setShowAddUser(true)}
             style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ User</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Plan usage bars */}
+        {effectiveLimits && (
+          <View style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Plan Usage</Text>
+              {(effectiveLimits as any).hasCustomLimits && (
+                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706' }}>CUSTOM LIMITS</Text>
+                </View>
+              )}
+            </View>
+            {[
+              { label: 'Active Chits', used: (effectiveLimits as any).activeChitsCount ?? 0, max: (effectiveLimits as any).maxActiveChits },
+              { label: 'Members',      used: (effectiveLimits as any).memberCount ?? 0,      max: (effectiveLimits as any).maxMembers },
+              { label: 'Staff',        used: (effectiveLimits as any).staffCount ?? 0,       max: (effectiveLimits as any).maxStaff },
+            ].map(({ label, used, max }) => {
+              const unlimited = max === -1 || max == null;
+              const pct = unlimited ? 0 : Math.min(100, Math.round((used / Math.max(max, 1)) * 100));
+              const over = !unlimited && used >= max;
+              return (
+                <View key={label} style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500 }}>{label}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: over ? C.red : C.gray700 }}>
+                      {used} / {unlimited ? '∞' : max}
+                    </Text>
+                  </View>
+                  {!unlimited && (
+                    <View style={{ height: 6, backgroundColor: C.gray100, borderRadius: 3 }}>
+                      <View style={{ height: 6, width: `${pct}%` as any, backgroundColor: over ? C.red : pct > 80 ? '#D97706' : '#059669', borderRadius: 3 }} />
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* Alerts for this org */}
         {orgAlerts.length > 0 && (
@@ -565,6 +630,18 @@ export default function OrgDetailPage() {
         loading={recordPaymentMut.isPending}
       />
 
+      {/* Custom limits modal */}
+      {showCustomLimits && (
+        <SetCustomLimitsModal
+          tenantId={tenantId!}
+          existing={effectiveLimits as any}
+          plans={plans as any[]}
+          capDefs={capDefs as any[]}
+          onClose={() => setShowCustomLimits(false)}
+          onSaved={() => { setShowCustomLimits(false); refetchOrg(); refetchLimits(); toast.saved('Custom limits saved'); }}
+        />
+      )}
+
       {/* Reactivate modal */}
       <Modal visible={showReactivate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowReactivate(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
@@ -756,6 +833,131 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
             disabled={!fullName || !phone}
             fullWidth
             size="lg"
+          />
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Set Custom Limits Modal ───────────────────────────────────────────────────
+function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onSaved }: {
+  tenantId: string;
+  existing: any;
+  plans: any[];
+  capDefs: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const CHIT_TYPES = ['RESERVATION', 'LOTTERY', 'AUCTION'];
+  const existingAllowedTypes = existing?.allowedChitTypes
+    ? existing.allowedChitTypes.split(',').map((s: string) => s.trim()).filter((t: string) => CHIT_TYPES.includes(t))
+    : ['RESERVATION'];
+
+  const [maxChits,    setMaxChits]    = useState(String(existing?.maxActiveChits ?? 5));
+  const [maxMembers,  setMaxMembers]  = useState(String(existing?.maxMembers ?? 100));
+  const [maxStaff,    setMaxStaff]    = useState(String(existing?.maxStaff ?? 3));
+  const [allowedTypes, setAllowedTypes] = useState<string[]>(existingAllowedTypes);
+  const [enabledCaps, setEnabledCaps]   = useState<string[]>(existing?.enabledCapabilities ?? []);
+  const [priceStr,    setPriceStr]    = useState(existing?.priceMonthlyInr ? String(existing.priceMonthlyInr / 100) : '0');
+  const [notes,       setNotes]       = useState(existing?.notes ?? '');
+
+  const mut = useMutation({
+    mutationFn: () => superAdminSetCustomLimits(tenantId, {
+      maxActiveChits: Number(maxChits),
+      maxMembers:     Number(maxMembers),
+      maxStaff:       Number(maxStaff),
+      allowedChitTypes: allowedTypes.join(','),
+      enabledCapabilities: enabledCaps,
+      priceMonthlyInr: Math.round(Number(priceStr) * 100),
+      notes: notes || null,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-org-limits', tenantId] }); onSaved(); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save'),
+  });
+
+  function toggleType(t: string) {
+    setAllowedTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  }
+  function toggleCap(key: string) {
+    setEnabledCaps(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Set Custom Limits</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          {/* Numeric limits */}
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>LIMITS (−1 = unlimited)</Text>
+          {[
+            { label: 'Max Active Chits', val: maxChits,   set: setMaxChits },
+            { label: 'Max Members',      val: maxMembers, set: setMaxMembers },
+            { label: 'Max Staff',        val: maxStaff,   set: setMaxStaff },
+          ].map(({ label, val, set }) => (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={{ flex: 1, fontSize: 13, color: C.gray700 }}>{label}</Text>
+              <TextInput
+                value={val} onChangeText={set} keyboardType="numeric"
+                style={{ width: 80, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 15, color: C.gray900, textAlign: 'center' }}
+              />
+            </View>
+          ))}
+
+          {/* Allowed chit types */}
+          <View>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>ALLOWED CHIT TYPES</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {CHIT_TYPES.map(t => (
+                <TouchableOpacity key={t} onPress={() => toggleType(t)}
+                  style={{ flex: 1, backgroundColor: allowedTypes.includes(t) ? '#FEF3C7' : C.gray100, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1.5, borderColor: allowedTypes.includes(t) ? '#D97706' : C.gray200 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: allowedTypes.includes(t) ? '#D97706' : C.gray500 }}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Capabilities */}
+          {capDefs.length > 0 && (
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>CAPABILITIES</Text>
+              {capDefs.map((cap: any) => (
+                <TouchableOpacity key={cap.key} onPress={() => toggleCap(cap.key)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: enabledCaps.includes(cap.key) ? '#F0FDF4' : C.gray50, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
+                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: enabledCaps.includes(cap.key) ? '#059669' : C.gray300, alignItems: 'center', justifyContent: 'center' }}>
+                    {enabledCaps.includes(cap.key) && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Monthly price */}
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Monthly Price (₹)</Text>
+            <TextInput value={priceStr} onChangeText={setPriceStr} keyboardType="decimal-pad" placeholder="0"
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
+          </View>
+
+          {/* Notes */}
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (internal)</Text>
+            <TextInput value={notes} onChangeText={setNotes} multiline numberOfLines={2} placeholder="e.g. Negotiated pricing"
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60 }} />
+          </View>
+        </ScrollView>
+        <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+          <Button
+            label={mut.isPending ? 'Saving…' : 'Save Custom Limits'}
+            onPress={() => mut.mutate()}
+            loading={mut.isPending}
+            disabled={allowedTypes.length === 0}
+            fullWidth size="lg"
           />
         </View>
       </SafeAreaView>
