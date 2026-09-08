@@ -2,17 +2,20 @@ import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, Linking } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
 import {
   getTodaysDraws, getTodaysPaymentBatches, getTodaysPayouts,
   getPendingRemittance, getPendingPayouts, getWalletBalance,
   getMembers, getChits, getActiveCashRequests, getAdminSupportContact,
+  getMyAssignedRequests,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
 
@@ -27,6 +30,8 @@ export default function ManagerDashboardScreen() {
   const { data: pendingRemit = [],  isLoading: l3, refetch: r3 } = useQuery({ queryKey: ['pending-remit'],  queryFn: getPendingRemittance });
   const { data: pendingPayouts = [],isLoading: l4, refetch: r4 } = useQuery({ queryKey: ['pending-payouts'],queryFn: getPendingPayouts });
   const { data: cashRequests = [],  isLoading: l5, refetch: r5 } = useQuery({ queryKey: ['cash-requests'],  queryFn: getActiveCashRequests });
+  // Pickups assigned to this manager personally — drives the Cash In Hand stat.
+  const { data: myTasks = [] } = useQuery({ queryKey: ['manager-pickups'], queryFn: getMyAssignedRequests, refetchInterval: 60_000 });
   const { data: walletBal }                                        = useQuery({ queryKey: ['wallet-balance'],queryFn: getWalletBalance });
   const { data: members = [] }                                     = useQuery({ queryKey: ['members'],       queryFn: getMembers });
   const { data: chits = [] }                                       = useQuery({ queryKey: ['chits'],         queryFn: getChits });
@@ -46,6 +51,14 @@ export default function ManagerDashboardScreen() {
 
   const todayCollected = (todayBatches as any[]).reduce((sum: number, b: any) => sum + (b.amount ?? b.totalAmount ?? 0), 0);
   const treasuryBalance = (walletBal as any)?.totalBalance ?? (walletBal as any)?.cashBalance ?? 0;
+
+  const myOpenPickups = (myTasks as any[]).filter(
+    (t: any) => t.status === 'PICKED_UP' || t.status === 'PARTIALLY_COLLECTED'
+  );
+  const cashInHand = myOpenPickups.reduce(
+    (sum: number, t: any) => sum + Number(t.collectedAmount ?? t.requestedAmount ?? 0), 0
+  );
+  const myAssignedCount = (myTasks as any[]).filter((t: any) => t.status === 'ASSIGNED').length;
 
   if (isLoading) return <LoadingScreen />;
 
@@ -97,6 +110,39 @@ export default function ManagerDashboardScreen() {
             </View>
           </View>
         </View>
+
+        {/* My own cash pickups — manager can be assigned collections too */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push('/(app)/(manager)/pickups' as any)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 14,
+            backgroundColor: cashInHand > 0 ? '#FFFBEB' : C.white,
+            borderRadius: 16, padding: 16, marginBottom: 20,
+            borderWidth: 1.5, borderColor: cashInHand > 0 ? C.amber : C.gray200,
+          }}
+        >
+          <View style={{
+            width: 46, height: 46, borderRadius: 14,
+            backgroundColor: (cashInHand > 0 ? C.amber : C.navy) + '18',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Text style={{ fontSize: 22 }}>✋</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: cashInHand > 0 ? C.amber : C.gray400 }}>
+              CASH IN HAND
+            </Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 2, color: cashInHand > 0 ? C.amber : C.gray900 }}>
+              ₹{Number(cashInHand).toLocaleString('en-IN')}
+            </Text>
+            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+              {cashInHand > 0 ? 'Pending handover to admin' : 'Nothing collected yet'}
+              {myAssignedCount > 0 ? ` · ${myAssignedCount} to collect` : ''}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+        </TouchableOpacity>
 
         {/* Action items that need attention */}
         <SectionHeader title="Needs Attention" />
