@@ -44,6 +44,7 @@ public class ChitMonthDrawService {
     private final com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
     private final com.chitfund.paymentservice.client.AuditClient auditClient;
     private final PlanExpiryChecker planExpiryChecker;
+    private final MemberCreditService memberCreditService;
 
     @Transactional
     public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
@@ -77,18 +78,46 @@ public class ChitMonthDrawService {
         drawRepository.save(cycle);
 
         // Auction draws: payment records created after auction closes (via applyAuctionDividend)
-        List<PaymentRecord> records = isAuctionDraw ? List.of() : request.getMembers().stream()
-                .map(m -> PaymentRecord.builder()
-                        .tenantId(com.chitfund.common.context.TenantContext.get())
+        List<PaymentRecord> records;
+        if (isAuctionDraw) {
+            records = List.of();
+        } else {
+            records = new java.util.ArrayList<>();
+            String tenantId = com.chitfund.common.context.TenantContext.get();
+            for (var m : request.getMembers()) {
+                BigDecimal amountDue = m.getAmountDue();
+                BigDecimal creditBalance = memberCreditService.getBalance(m.getMemberId());
+                BigDecimal creditToApply = creditBalance.min(amountDue);
+
+                PaymentRecordStatus status;
+                BigDecimal amountPaid;
+                if (creditToApply.compareTo(BigDecimal.ZERO) <= 0) {
+                    status = PaymentRecordStatus.OUTSTANDING;
+                    amountPaid = BigDecimal.ZERO;
+                } else if (creditToApply.compareTo(amountDue) >= 0) {
+                    status = PaymentRecordStatus.CREDIT_COVERED;
+                    amountPaid = amountDue;
+                    memberCreditService.consumeCredit(m.getMemberId(), amountDue, null, request.getChitId(), adminId,
+                            "Auto-applied — draw #" + request.getMonthNumber() + " opened for chit " + request.getChitId());
+                } else {
+                    status = PaymentRecordStatus.PARTIAL_CREDIT;
+                    amountPaid = creditToApply;
+                    memberCreditService.consumeCredit(m.getMemberId(), creditToApply, null, request.getChitId(), adminId,
+                            "Partial auto-applied — draw #" + request.getMonthNumber() + " opened for chit " + request.getChitId());
+                }
+
+                records.add(PaymentRecord.builder()
+                        .tenantId(tenantId)
                         .chitId(request.getChitId())
                         .memberId(m.getMemberId())
                         .monthNumber(request.getMonthNumber())
                         .dueDate(request.getDueDate())
-                        .amountDue(m.getAmountDue())
-                        .amountPaid(BigDecimal.ZERO)
-                        .status(PaymentRecordStatus.OUTSTANDING)
-                        .build())
-                .toList();
+                        .amountDue(amountDue)
+                        .amountPaid(amountPaid)
+                        .status(status)
+                        .build());
+            }
+        }
         if (!records.isEmpty()) {
             paymentRecordRepository.saveAll(records);
         }

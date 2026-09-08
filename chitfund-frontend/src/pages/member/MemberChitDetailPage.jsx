@@ -40,6 +40,8 @@ const MONTH_STATUS = {
   WAIVED:             { dot: '#9CA3AF', circleBg: '#F3F4F6', circleText: '#4B5563', bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Waived' },
   PAYOUT_DEDUCTED:    { dot: '#1E3A5F', circleBg: '#EEF2F8', circleText: '#1E3A5F', bg: '#EEF2F8', border: '#CBD5E1', text: '#1E3A5F', label: 'Payout Deducted' },
   SETTLEMENT_CLEARED: { dot: '#16A34A', circleBg: '#DCFCE7', circleText: '#15803D', bg: '#F0FDF4', border: '#BBF7D0', text: '#15803D', label: 'Settlement Cleared' },
+  CREDIT_COVERED:     { dot: '#059669', circleBg: '#D1FAE5', circleText: '#065F46', bg: '#ECFDF5', border: '#6EE7B7', text: '#065F46', label: 'Credit Covered' },
+  PARTIAL_CREDIT:     { dot: '#0891B2', circleBg: '#CFFAFE', circleText: '#164E63', bg: '#ECFEFF', border: '#A5F3FC', text: '#164E63', label: 'Partial Credit' },
 };
 
 // ─── Payout detail modal (full admin-style breakdown) ─────────────────────────
@@ -271,7 +273,7 @@ export default function MemberChitDetailPage() {
   const outstanding = Number(balance?.totalOutstanding ?? 0);
   const totalPaid = history.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
   const totalDue  = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
-  const settledCount = history.filter((r) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const settledCount = history.filter((r) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED'].includes(r.status)).length;
 
   // Build a draw-info lookup: monthNumber → draw
   const drawByMonth = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
