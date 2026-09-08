@@ -106,7 +106,7 @@ public class UserController {
                     EffectiveLimitsResponse.builder().plan("UNLIMITED").maxActiveChits(-1)
                             .maxMembers(-1).maxStaff(-1)
                             .enabledCapabilities(planService.getAllCapabilityKeys())
-                            .analyticsEnabled(true).prioritySupport(true).build()));
+                            .analyticsEnabled(true).prioritySupport(true).chatEnabled(true).build()));
         }
         return ResponseEntity.ok(ApiResponse.success(tenantService.getEffectiveLimits(tenantId)));
     }

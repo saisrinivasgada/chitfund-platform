@@ -38,13 +38,15 @@ spring:
     validate-on-migrate: false
 
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
+    host: ${MAIL_HOST:smtp.office365.com}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:noreply@thechitwise.com}
+    username: ${MAIL_USERNAME:help@thechitwise.com}
     password: ${MAIL_PASSWORD:}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.ssl.trust: smtp.office365.com
 
 server:
   port: 8081
@@ -55,14 +57,20 @@ jwt:
   refresh-token-expiry-days: ${JWT_REFRESH_EXPIRY_DAYS:7}
 
 app:
+  cookie:
+    secure: ${COOKIE_SECURE:true}
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
   frontend-url: ${FRONTEND_URL:https://app.thechitwise.com}
   notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
   audit-service-url: ${AUDIT_SERVICE_URL:http://localhost:8088}
+  mail:
+    from: ${MAIL_FROM:ChitWise <help@thechitwise.com>}
   sms:
     enabled: false
   otp:
     max-per-phone-per-day: ${OTP_MAX_PER_DAY:50}
+    cooldown:
+      enabled: ${OTP_COOLDOWN_ENABLED:false}
 
 management:
   endpoints:
@@ -72,6 +80,9 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    mail:
+      enabled: false
 
 logging:
   level:

@@ -21,4 +21,7 @@ public class TenantInfo {
     private String role;           // role in THIS tenant (ADMIN, MEMBER, etc.)
     private String memberId;       // null if not a MEMBER role
     private boolean analyticsEnabled;
+    private boolean chatEnabled;
+    private String adminPhone;
+    private String adminEmail;
 }

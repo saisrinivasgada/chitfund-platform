@@ -46,4 +46,25 @@ public class NotificationServiceClient {
             log.warn("notification-service unreachable for in-app notification to {}: {}", recipientId, e.getMessage());
         }
     }
+
+    public void sendPushWithData(UUID userId, String title, String message, Map<String, String> data) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("userId", userId.toString());
+            body.put("title", title);
+            body.put("body", message);
+            body.put("data", data);
+
+            restTemplate.postForObject(
+                    notificationServiceUrl + "/internal/notify/push",
+                    new HttpEntity<>(body, headers),
+                    Void.class);
+        } catch (RestClientException e) {
+            log.warn("notification-service push unreachable for user {}: {}", userId, e.getMessage());
+        }
+    }
 }
