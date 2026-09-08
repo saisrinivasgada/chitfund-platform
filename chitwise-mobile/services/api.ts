@@ -919,4 +919,40 @@ export const sendReminder = async ({ memberProfileId, chits, message, repeatInte
   return res.data.data ?? res.data;
 };
 
+export const superAdminChitUsageSummary = async (): Promise<any[]> => {
+  const res = await api.get('/super-admin/chits/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const superAdminMemberUsageSummary = async (): Promise<any[]> => {
+  const res = await api.get('/super-admin/members/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const superAdminResumeTenant = async (tenantId: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/resume`);
+  return res.data.data;
+};
+
+export const billingRecordUpgrade = async (payload: any): Promise<any> => {
+  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
+  return res.data.data;
+};
+
+export const superAdminSetPromotionVisibility = async (id: string, isPublic: boolean): Promise<any> => {
+  const res = await api.patch(`/superadmin/promotions/${id}/visibility`, { isPublic });
+  return res.data.data;
+};
+
+export const superAdminDeactivatePromotion = async (id: string): Promise<any> => {
+  const res = await api.delete(`/superadmin/promotions/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListReferralCredits = async (status?: string): Promise<any[]> => {
+  const params = status ? { status } : {};
+  const res = await api.get('/superadmin/promotions/referral-credits', { params });
+  return res.data.data ?? [];
+};
+
 export default api;

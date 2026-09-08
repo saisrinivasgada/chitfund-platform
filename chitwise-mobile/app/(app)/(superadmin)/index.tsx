@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
   TextInput, ActivityIndicator,
@@ -11,6 +11,10 @@ import {
   superAdminActivateTenant,
   superAdminSuspendTenant,
   superAdminUpdatePlan,
+  superAdminListRenewalRequests,
+  superAdminListUpgradeRequests,
+  superAdminChitUsageSummary,
+  superAdminMemberUsageSummary,
 } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
 import { C, T, Badge, fmtDate } from '../../../components/ui';
@@ -42,6 +46,10 @@ export default function SuperAdminOrgsPage() {
     queryKey: ['sa-tenants', statusFilter],
     queryFn: () => superAdminListTenants(statusFilter ? { status: statusFilter } : {}),
   });
+  const { data: renewals = [] } = useQuery({ queryKey: ['sa-renewals'], queryFn: superAdminListRenewalRequests, staleTime: 120_000 });
+  const { data: upgrades = [] } = useQuery({ queryKey: ['sa-upgrades'], queryFn: superAdminListUpgradeRequests, staleTime: 120_000 });
+  const { data: chitUsage = [] } = useQuery({ queryKey: ['sa-chit-usage'], queryFn: superAdminChitUsageSummary, staleTime: 120_000 });
+  const { data: memberUsage = [] } = useQuery({ queryKey: ['sa-member-usage'], queryFn: superAdminMemberUsageSummary, staleTime: 120_000 });
 
   const activateMut = useMutation({
     mutationFn: (id: string) => superAdminActivateTenant(id),
@@ -70,6 +78,15 @@ export default function SuperAdminOrgsPage() {
     pending:   all.filter((t) => t.status === 'PENDING').length,
     suspended: all.filter((t) => t.status === 'SUSPENDED').length,
   };
+
+  const now = new Date();
+  const renewalIds = new Set((renewals as any[]).map((r: any) => r.tenantId ?? r.id));
+  const expiredCount = all.filter((t) => t.planExpiresAt && new Date(t.planExpiresAt) < now && t.status === 'ACTIVE' && !renewalIds.has(t.id)).length;
+  const totalAlerts = stats.pending + expiredCount + (renewals as any[]).length + (upgrades as any[]).length;
+
+  const totalChits = (chitUsage as any[]).reduce((s: number, u: any) => s + Number(u.activeCount ?? 0), 0);
+  const totalMembers = (memberUsage as any[]).reduce((s: number, u: any) => s + Number(u.memberCount ?? 0), 0);
+  const recentOrgs = [...all].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()).slice(0, 5);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -109,8 +126,31 @@ export default function SuperAdminOrgsPage() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Alert banner */}
+        {totalAlerts > 0 && (
+          <TouchableOpacity
+            onPress={() => router.push('/(app)/(superadmin)/alerts' as any)}
+            style={{ backgroundColor: '#FEF2F2', borderRadius: 14, padding: 14, marginBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: '#FECACA' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 18 }}>🔔</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#991B1B' }}>{totalAlerts} alert{totalAlerts !== 1 ? 's' : ''} need attention</Text>
+              <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 2 }}>
+                {[
+                  stats.pending > 0 && `${stats.pending} pending`,
+                  expiredCount > 0 && `${expiredCount} expired`,
+                  (renewals as any[]).length > 0 && `${(renewals as any[]).length} renewals`,
+                  (upgrades as any[]).length > 0 && `${(upgrades as any[]).length} upgrades`,
+                ].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 18, color: '#DC2626' }}>›</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Stats row */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
           {[
             { label: 'Total',     value: stats.total,     color: C.navy },
             { label: 'Active',    value: stats.active,    color: C.green },
@@ -123,6 +163,24 @@ export default function SuperAdminOrgsPage() {
             </View>
           ))}
         </View>
+
+        {/* Platform usage */}
+        {(totalChits > 0 || totalMembers > 0) && (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Active Chits</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#7C3AED', marginTop: 2 }}>{totalChits}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Total Members</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#0891B2', marginTop: 2 }}>{totalMembers}</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Upgrades</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#EA580C', marginTop: 2 }}>{(upgrades as any[]).length}</Text>
+            </View>
+          </View>
+        )}
 
         {/* Quick nav */}
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
@@ -140,6 +198,39 @@ export default function SuperAdminOrgsPage() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Recently registered */}
+        {!search && !statusFilter && recentOrgs.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8 }}>
+              Recently Registered
+            </Text>
+            {recentOrgs.map((t: any) => (
+              <TouchableOpacity key={t.id}
+                onPress={() => router.push({ pathname: '/(app)/(superadmin)/org-detail', params: { tenantId: t.id } })}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: C.gray100 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>{t.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>{t.name}</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>@{t.slug}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <View style={{
+                    borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+                    backgroundColor: t.status === 'ACTIVE' ? '#D1FAE5' : t.status === 'PENDING' ? '#FEF3C7' : '#FEE2E2',
+                  }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: t.status === 'ACTIVE' ? '#059669' : t.status === 'PENDING' ? '#92400E' : '#DC2626' }}>
+                      {t.status}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 10, color: C.gray400, marginTop: 2 }}>{fmtDate(t.createdAt)}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Search */}
         <TextInput
