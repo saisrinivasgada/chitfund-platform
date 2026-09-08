@@ -646,6 +646,9 @@ export default function LoginPage() {
           tenantPlan:    tenantInfo.plan ?? 'BASIC',
           tenantStatus:  tenantInfo.status ?? 'ACTIVE',
           analyticsEnabled: tenantInfo.analyticsEnabled !== false,
+          chatEnabled: tenantInfo.chatEnabled === true,
+          adminPhone: tenantInfo.adminPhone ?? null,
+          adminEmail: tenantInfo.adminEmail ?? null,
           planExpiresAt: tenantInfo.planExpiresAt ?? null,
         }
       : {};

@@ -34,10 +34,10 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
-  Receipt,
   HeadphonesIcon,
   Building2,
   MessageSquare,
+  MoreHorizontal,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -54,11 +54,10 @@ const ALL_NAV = [
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
   { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'] },
   { to: '/myorg',      icon: Building2,       label: 'My Organization', roles: ['ADMIN', 'MANAGER'] },
-  { to: '/billing',    icon: Receipt,         label: 'Billing & Plan', roles: ['ADMIN'] },
 ];
 
 // ─── Quick Notes (ADMIN + MANAGER — real DB via team-notes API) ───────────────
-function QuickNotes({ role }) {
+function QuickNotes({ role, inMore = false }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [idx,  setIdx]  = useState(0);
@@ -178,11 +177,11 @@ function QuickNotes({ role }) {
     deleteMut.mutate(currentNote.id);
   }
 
-  const hasDot = notes.some(n => n.text?.trim());
+  const noteCount = notes.filter(n => n.text?.trim()).length;
   const isSaving = updateMut.isPending;
 
   return (
-    <div ref={wrapRef} className="relative flex-1 flex flex-col">
+    <div ref={wrapRef} className={inMore ? 'relative flex-1' : 'relative flex-1 flex flex-col'}>
 
       {/* ── Bubble popup ──────────────────────────────────────────────── */}
       {open && (
@@ -382,16 +381,18 @@ function QuickNotes({ role }) {
       <button
         onClick={() => setOpen((v) => !v)}
         title="Quick notes"
-        className={`relative w-full h-[60px] flex flex-col items-center justify-center gap-1 rounded-xl border transition-colors cursor-pointer ${
-          open
-            ? 'bg-amber-50 border-amber-300 text-amber-700'
-            : 'bg-white border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-600'
+        className={`relative flex flex-col items-center justify-center gap-1.5 rounded-xl transition-all cursor-pointer ${
+          inMore
+            ? `w-full h-[52px] ${open ? 'bg-amber-50 border border-amber-200 text-amber-700 scale-105 shadow-md' : 'bg-white border border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-600 hover:scale-105 hover:shadow-md'}`
+            : `w-full h-[60px] border ${open ? 'bg-amber-50 border-amber-300 text-amber-700 scale-105 shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-600 hover:scale-105 hover:shadow-md'}`
         }`}
       >
         <StickyNote size={16} />
         <span className="text-[10px] font-medium">Notes</span>
-        {hasDot && !open && (
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 border-2 border-white" />
+        {noteCount > 0 && !open && (
+          <span className="absolute -top-1 -right-1 bg-amber-400 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 shadow-sm border-2 border-white">
+            {noteCount}
+          </span>
         )}
       </button>
     </div>
@@ -512,7 +513,7 @@ function SignOutModal({ onConfirm, onClose }) {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse }) {
-  const { user, logout, analyticsEnabled, tenantName } = useAuth();
+  const { user, logout, analyticsEnabled, chatEnabled, tenantName } = useAuth();
   const navigate = useNavigate();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const role = user?.role ?? 'ADMIN';
@@ -523,9 +524,20 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   const [showMessages, setShowMessages] = useState(false);
   const [pendingConversation, setPendingConversation] = useState(null);
   const [showAdminContact, setShowAdminContact] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const moreRef = useRef(null);
 
   const isStaffOrManager = role === 'STAFF' || role === 'MANAGER';
   const canSeeMessages = role === 'ADMIN' || role === 'MANAGER' || role === 'STAFF';
+
+  useEffect(() => {
+    if (!showMore) return;
+    function handleClick(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target)) setShowMore(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showMore]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -735,99 +747,110 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
 
         {/* Full footer — always on mobile, on desktop only when expanded */}
         <div className={collapsed ? 'lg:hidden' : ''}>
-          <button
-            type="button"
-            onClick={() => { navigate('/my-account'); onClose?.(); }}
-            className="flex items-center gap-3 px-3 mb-2 w-full hover:bg-gray-50 rounded-lg py-2 transition-colors cursor-pointer text-left"
-            title="My Account"
-          >
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-              style={{ backgroundColor: '#D4A017' }}
-            >
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">
-                {user?.name ?? user?.username ?? 'User'}
-              </p>
-              <p className="text-xs text-[#1E3A5F] truncate font-medium flex items-center gap-1">
-                <UserCircle size={10} /> My Account
-              </p>
-            </div>
-          </button>
-          {memberAccount && altPhone && (
+          {/* Row 1: My Account + Hide — same card style as row 2 */}
+          <div className="flex gap-1.5 mb-2 items-stretch">
             <button
-              onClick={() => setShowSwitch(true)}
-              className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-1"
+              type="button"
+              onClick={() => { navigate('/my-account'); onClose?.(); }}
+              className="flex-[2] h-[60px] flex items-center gap-2.5 px-3 bg-white rounded-xl border border-gray-200 text-left hover:bg-[#EFF4FA] hover:border-[#1E3A5F]/20 hover:scale-[1.02] hover:shadow-md transition-all cursor-pointer group"
+              title="My Account"
             >
-              <RefreshCw size={18} />
-              Switch to Member
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold flex-shrink-0 group-hover:shadow-md transition-shadow"
+                style={{ backgroundColor: '#D4A017' }}
+              >
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate leading-tight">
+                  {user?.name ?? user?.username ?? 'User'}
+                </p>
+                <p className="text-[10px] text-[#1E3A5F] font-medium leading-tight">My Account →</p>
+              </div>
             </button>
-          )}
-          <div className="flex gap-2 mt-1">
             <button
               onClick={toggleHidden}
               title={hidden ? 'Show amounts' : 'Hide amounts'}
-              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 transition-colors cursor-pointer"
+              className="flex-1 h-[52px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800 hover:scale-105 hover:shadow-md transition-all cursor-pointer self-end"
             >
               {hidden ? <Eye size={16} /> : <EyeOff size={16} />}
               <span className="text-[10px] font-medium">{hidden ? 'Show' : 'Hide'}</span>
             </button>
+          </div>
+
+          {/* Switch to Member — if applicable */}
+          {memberAccount && altPhone && (
+            <button
+              onClick={() => setShowSwitch(true)}
+              className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-2"
+            >
+              <RefreshCw size={16} />
+              Switch to Member
+            </button>
+          )}
+
+          {/* Row 2: Notes | Messages | More — equal widths, More slides Support+Sign out RIGHT */}
+          <div className="flex items-stretch gap-1.5">
             {(role === 'ADMIN' || role === 'MANAGER') && (
-              <QuickNotes role={role} />
+              <QuickNotes role={role} inMore />
             )}
-            {canSeeMessages && (
+            {canSeeMessages && chatEnabled && (
               <button
                 onClick={() => { setPendingConversation(null); setShowMessages(true); }}
                 title="Messages"
-                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer relative"
+                className="flex-1 h-[52px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 hover:scale-105 hover:shadow-md transition-all cursor-pointer relative"
               >
                 <MessageSquare size={16} />
                 <span className="text-[10px] font-medium">Messages</span>
                 {msgUnread > 0 && (
-                  <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 shadow-sm border-2 border-white">
                     {msgUnread > 9 ? '9+' : msgUnread}
                   </span>
                 )}
               </button>
             )}
-            <button
-              onClick={() => { navigate('/my-account'); onClose?.(); }}
-              title="My Account"
-              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 transition-colors cursor-pointer"
-            >
-              <UserCircle size={16} />
-              <span className="text-[10px] font-medium">Account</span>
-            </button>
-            {role === 'ADMIN' && (
-              <button
-                onClick={() => setShowSupport(true)}
-                title="Contact ChitWise"
-                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer"
+            {/* More — Support + Sign out slide OUT to the RIGHT */}
+            <div className="relative flex-1" ref={moreRef}>
+              {/* Sliding buttons: start hidden behind More, slide right out of sidebar */}
+              <div
+                className="absolute bottom-0 left-full flex gap-1.5 pl-1.5"
+                style={{
+                  transform: showMore ? 'translateX(0)' : 'translateX(-100%)',
+                  opacity: showMore ? 1 : 0,
+                  transition: 'transform 280ms cubic-bezier(0.4,0,0.2,1), opacity 200ms ease',
+                  pointerEvents: showMore ? 'auto' : 'none',
+                  zIndex: 10,
+                }}
               >
-                <HeadphonesIcon size={16} />
-                <span className="text-[10px] font-medium">Support</span>
-              </button>
-            )}
-            {isStaffOrManager && adminContact?.supportPhoneNumber && (
+                {(role === 'ADMIN' || (isStaffOrManager && adminContact?.supportPhoneNumber)) && (
+                  <button
+                    onClick={() => { setShowMore(false); role === 'ADMIN' ? setShowSupport(true) : setShowAdminContact(true); }}
+                    className="w-[52px] h-[52px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 hover:scale-105 hover:shadow-md transition-all cursor-pointer shadow-md"
+                  >
+                    <HeadphonesIcon size={16} />
+                    <span className="text-[10px] font-medium">Support</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => { setShowMore(false); setShowSignOut(true); }}
+                  className="w-[52px] h-[52px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 hover:scale-105 hover:shadow-md transition-all cursor-pointer shadow-md"
+                >
+                  <LogOut size={16} />
+                  <span className="text-[10px] font-medium">Sign out</span>
+                </button>
+              </div>
               <button
-                onClick={() => setShowAdminContact(true)}
-                title="Contact ChitWise"
-                className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 transition-colors cursor-pointer"
+                onClick={() => setShowMore((v) => !v)}
+                className={`w-full h-[52px] flex flex-col items-center justify-center gap-1 rounded-xl border transition-all duration-200 cursor-pointer ${
+                  showMore
+                    ? 'bg-[#1E3A5F] border-[#1E3A5F] text-white shadow-md scale-105'
+                    : 'bg-white border-gray-200 text-gray-500 hover:bg-[#EFF4FA] hover:border-[#1E3A5F]/30 hover:text-[#1E3A5F] hover:scale-105 hover:shadow-md'
+                }`}
               >
-                <HeadphonesIcon size={16} />
-                <span className="text-[10px] font-medium">Support</span>
+                <MoreHorizontal size={16} />
+                <span className="text-[10px] font-medium">More</span>
               </button>
-            )}
-            <button
-              onClick={() => setShowSignOut(true)}
-              title="Sign out"
-              className="flex-1 h-[60px] flex flex-col items-center justify-center gap-1 bg-white rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors cursor-pointer"
-            >
-              <LogOut size={16} />
-              <span className="text-[10px] font-medium">Sign out</span>
-            </button>
+            </div>
           </div>
         </div>
       </div>

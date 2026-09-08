@@ -112,7 +112,7 @@ export default function TransactionDetailPage() {
   const navigate    = useNavigate();
   const toast       = useToastContext();
   const qc          = useQueryClient();
-  const { user }    = useAuth();
+  const { user, tenantName } = useAuth();
   const isMember    = user?.role === 'MEMBER';
   const [showRemitConfirm, setShowRemitConfirm] = useState(false);
   const [showVoidForm,    setShowVoidForm]    = useState(false);
@@ -317,11 +317,14 @@ export default function TransactionDetailPage() {
     <div className="hidden print:block">
       <div style={{ fontFamily: "'Segoe UI', Arial, sans-serif", maxWidth: '420px', margin: '0 auto', padding: '40px 32px', color: '#111827' }}>
         {/* Brand */}
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '6px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '4px' }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="27" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/></svg>
             <div style={{ fontSize: '26px', fontWeight: '900', color: '#1E3A5F', letterSpacing: '-0.5px' }}>ChitWise</div>
           </div>
+          {tenantName && (
+            <div style={{ fontSize: '18px', fontWeight: '800', color: '#1E3A5F', marginBottom: '4px' }}>{tenantName}</div>
+          )}
           <div style={{ fontSize: '11px', color: '#9CA3AF', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Official Payment Receipt</div>
         </div>
         {/* Divider */}
@@ -364,7 +367,7 @@ export default function TransactionDetailPage() {
         {/* Footer */}
         <div style={{ textAlign: 'center', borderTop: '1px dashed #E5E7EB', paddingTop: '20px' }}>
           <div style={{ fontSize: '11px', color: '#9CA3AF' }}>This is a computer-generated receipt and does not require a signature.</div>
-          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E3A5F', marginTop: '10px' }}>ChitWise</div>
+          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E3A5F', marginTop: '10px' }}>ChitWise{tenantName ? ` · ${tenantName}` : ''}</div>
           <div style={{ fontSize: '10px', color: '#D1D5DB', marginTop: '2px' }}>Chit Fund Management Platform</div>
         </div>
       </div>

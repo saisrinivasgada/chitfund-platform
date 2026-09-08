@@ -18,11 +18,12 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import {
   Plus, Briefcase, UserCheck, UserX, Trash2, Shield, User, Mail, AtSign,
   Copy, Check, AlertTriangle, Users, Building2, Hash, Phone, Pencil, CheckCircle,
-  ArrowLeft, ChevronRight,
+  ArrowLeft, ChevronRight, Receipt,
 } from 'lucide-react';
 import PhoneInput from '../../components/ui/PhoneInput';
 import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
 import PlanLimitModal, { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
+import BillingPage from '../BillingPage';
 
 const ROLE_BADGE = {
   ADMIN:   { label: 'Admin',   variant: 'default' },
@@ -722,6 +723,11 @@ function OrgDetailsSection({ isAdmin }) {
   );
 }
 
+const ORG_TABS = [
+  { key: 'org',     label: 'Organization', icon: Building2 },
+  { key: 'billing', label: 'Billing & Plan', icon: Receipt },
+];
+
 export default function MyOrgPage() {
   const navigate = useNavigate();
   const toast = useToastContext();
@@ -730,6 +736,7 @@ export default function MyOrgPage() {
   const isManager = currentUser?.role === 'MANAGER';
   const isExpired = planExpiresAt && new Date(planExpiresAt) < new Date();
   const qc = useQueryClient();
+  const [activeTab, setActiveTab] = useState('org'); // 'org' | 'billing'
   const [view, setView] = useState('org'); // 'org' | 'team'
   const [showAdd, setShowAdd] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
@@ -779,10 +786,40 @@ export default function MyOrgPage() {
 
   const visibleStaff = isManager ? staff.filter((s) => s.role !== 'ADMIN') : staff;
 
-  // ── Org view ─────────────────────────────────────────────────────────────
+  // ── Tab bar (shared across all views) ────────────────────────────────────
+  const tabBar = isAdmin ? (
+    <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-full mb-6">
+      {ORG_TABS.map(({ key, label, icon: Icon }) => (
+        <button
+          key={key}
+          onClick={() => { setActiveTab(key); if (key === 'org') setView('org'); }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+            activeTab === key
+              ? 'bg-white text-[#1E3A5F] shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Icon size={15} />
+          {label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  // ── Billing tab ───────────────────────────────────────────────────────────
+  if (activeTab === 'billing') {
+    return (
+      <div className="p-4 sm:p-8 max-w-3xl mx-auto">
+        {tabBar}
+        <BillingPage />
+      </div>
+    );
+  }
+
   if (view === 'org') {
     return (
       <div className="p-4 sm:p-8 max-w-3xl mx-auto space-y-6">
+        {tabBar}
         {(isAdmin || isManager) && <OrgDetailsSection isAdmin={isAdmin} />}
         {isAdmin && <OrgHoldingsSection />}
 
@@ -818,6 +855,7 @@ export default function MyOrgPage() {
       >
         <ArrowLeft size={16} /> Back to My Organization
       </button>
+      {tabBar}
 
       {/* Team section header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

@@ -841,9 +841,18 @@ function openPrint(title, html) {
   const w = window.open('', '_blank');
   if (!w) { alert('Allow pop-ups to print reports.'); return; }
   const safeTitle = escHtml(title);
+  const tenantName = escHtml(localStorage.getItem('tenantName') ?? '');
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="21" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/></svg>`;
+  const header = `<div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #1E3A5F;padding-bottom:12px;margin-bottom:18px">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">${logoSvg}<span style="font-size:20px;font-weight:900;color:#1E3A5F;letter-spacing:-0.5px">ChitWise</span></div>
+      ${tenantName ? `<div style="font-size:17px;font-weight:800;color:#1E3A5F;margin-bottom:2px">${tenantName}</div>` : ''}
+    </div>
+    <div style="text-align:right;font-size:9.5px;color:#888;line-height:1.9"><b>${safeTitle}</b><br>Generated: ${new Date().toLocaleString('en-IN')}</div>
+  </div>`;
   w.document.write(`<!DOCTYPE html><html><head><title>${safeTitle}</title><style>${PRINT_CSS}</style></head><body>
-    <h1>${safeTitle}</h1>${html}
-    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; ChitWise Management System</div>
+    ${header}${html}
+    <div class="footer">ChitWise${tenantName ? ` · ${tenantName}` : ''} &nbsp;|&nbsp; Chit Fund Management Platform</div>
     <script>window.onload=()=>setTimeout(()=>window.print(),400);</script>
   </body></html>`);
   w.document.close();

@@ -103,6 +103,9 @@ export default function SelectCompanyPage() {
         tenantStatus: tenant.status ?? 'ACTIVE',
         planExpiresAt: tenant.planExpiresAt ?? null,
         analyticsEnabled: tenant.analyticsEnabled !== false,
+        chatEnabled: tenant.chatEnabled === true,
+        adminPhone: tenant.adminPhone ?? null,
+        adminEmail: tenant.adminEmail ?? null,
       });
       if (userData.mustChangePassword) {
         navigate('/change-password', { replace: true });

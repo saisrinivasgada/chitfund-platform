@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, applyDowngrade, getPublicPlans, getMembers, getChits, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
+import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, applyDowngrade, getPublicPlans, getMembersPage, getChitsPage, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToastContext } from '../components/layout/AppLayout';
-import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle } from 'lucide-react';
+import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle, HeadphonesIcon, Lock, MessageSquare, BarChart2, Headphones } from 'lucide-react';
+import ContactChitWiseModal from '../components/layout/ContactChitWiseModal';
 
 const PLAN_ORDER = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 const PLAN_LABELS = { BASIC: 'Basic', GROWTH: 'Growth', ENTERPRISE: 'Enterprise', CUSTOM: 'Custom' };
@@ -558,19 +559,20 @@ export default function BillingPage() {
   const [cancelling, setCancelling] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [downgrading, setDowngrading] = useState(false);
+  const [showBillingSupport, setShowBillingSupport] = useState(false);
   const PAYMENT_PAGE_SIZE = 8;
 
   const { data: billing, isLoading } = useQuery({ queryKey: ['billing-info'], queryFn: getMyBillingInfo });
   const { data: plans = [] } = useQuery({ queryKey: ['public-plans'], queryFn: getPublicPlans });
   const { data: myPayments = [] } = useQuery({ queryKey: ['my-billing-payments'], queryFn: myBillingPayments, staleTime: 60_000 });
   const { data: effectiveLimits } = useQuery({ queryKey: ['myTenantLimits'], queryFn: getMyTenantLimits, staleTime: 60_000 });
-  const { data: membersList = [] } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembers({ page: 0, size: 500 }), staleTime: 5 * 60_000 });
-  const { data: chitsList = [] }   = useQuery({ queryKey: ['chits-active'], queryFn: () => getChits({ status: 'ACTIVE', page: 0, size: 500 }), staleTime: 5 * 60_000 });
+  const { data: membersPage } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembersPage({ page: 0, size: 1 }), staleTime: 5 * 60_000 });
+  const { data: chitsPage }   = useQuery({ queryKey: ['chits-active-count'], queryFn: () => getChitsPage({ status: 'ACTIVE', page: 0, size: 1 }), staleTime: 5 * 60_000 });
   const { data: staffList = [] } = useQuery({ queryKey: ['staff-list'], queryFn: listStaff });
 
   const plan = billing?.plan ?? tenantPlan ?? 'BASIC';
-  const memberCount  = membersList.length;
-  const activeChits  = chitsList.length;
+  const memberCount  = membersPage?.totalElements ?? 0;
+  const activeChits  = chitsPage?.totalElements ?? 0;
   const staffCount   = staffList.filter(s => s.role === 'MANAGER' || s.role === 'STAFF').length;
 
   // Use org's effective limits (accounts for per-org custom overrides by super admin)
@@ -651,7 +653,7 @@ export default function BillingPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-5">
+    <div className="space-y-5">
       {selectedPayment && (
         <PaymentDetailModal
           payment={selectedPayment}
@@ -812,6 +814,49 @@ export default function BillingPage() {
           </div>
 
           </div>{/* end top grid */}
+
+          {/* ── Capabilities card ── */}
+          {effectiveLimits && (() => {
+            const ALL_CAPS = [
+              { key: 'live_chat',        label: 'Member Messaging & Group Chat', desc: 'Members and admins can chat in real time', icon: MessageSquare },
+              { key: 'full_analytics',   label: 'Full Analytics & Reports',      desc: 'Advanced reports and export tools',         icon: BarChart2 },
+              { key: 'priority_support', label: 'Priority Support',              desc: 'Faster response times from our team',       icon: Headphones },
+            ];
+            const enabled = new Set(effectiveLimits.enabledCapabilities ?? []);
+            const hasAny  = ALL_CAPS.some(c => enabled.has(c.key));
+            const missingAny = ALL_CAPS.some(c => !enabled.has(c.key));
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
+                <p className="text-sm font-semibold text-gray-800 mb-4">Plan Features</p>
+                <div className="space-y-3">
+                  {ALL_CAPS.map(({ key, label, desc, icon: Icon }) => {
+                    const active = enabled.has(key);
+                    return (
+                      <div key={key} className={`flex items-center gap-3 p-3 rounded-xl border ${active ? 'border-green-100 bg-green-50/50' : 'border-gray-100 bg-gray-50/60'}`}>
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${active ? 'bg-green-100' : 'bg-gray-100'}`}>
+                          <Icon size={16} className={active ? 'text-green-600' : 'text-gray-400'} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold ${active ? 'text-gray-900' : 'text-gray-400'}`}>{label}</p>
+                          <p className={`text-xs mt-0.5 ${active ? 'text-gray-500' : 'text-gray-400'}`}>{desc}</p>
+                        </div>
+                        {active
+                          ? <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                          : <Lock size={14} className="text-gray-300 flex-shrink-0" />
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+                {missingAny && (
+                  <p className="text-xs text-gray-400 mt-4 text-center">
+                    Locked features are available on higher plans.{' '}
+                    {hasOtherPlans && <button onClick={() => setShowUpgradeModal(true)} className="text-[#1E3A5F] font-medium hover:underline cursor-pointer">View plans →</button>}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── Renewal card — only in last 7 days or expired ── */}
           {(isExpired || (daysLeft !== null && daysLeft <= 7)) && (
@@ -988,16 +1033,22 @@ export default function BillingPage() {
             )}
           </div>
           {/* ── Help card ── */}
-          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 text-center">
-            <p className="text-sm font-medium text-gray-700 mb-1">Need help with billing?</p>
-            <p className="text-xs text-gray-400">
-              Reach us at{' '}
-              <a href="mailto:help@thechitwise.com" className="text-[#1E3A5F] font-medium hover:underline">
-                help@thechitwise.com
-              </a>
-              {' '}— we usually respond within one business day.
-            </p>
+          <div className="bg-gray-50 border border-gray-100 rounded-2xl p-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-0.5">Need help with billing?</p>
+              <p className="text-xs text-gray-400">Raise a billing ticket — our support team will respond within one business day.</p>
+            </div>
+            <button
+              onClick={() => setShowBillingSupport(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1E3A5F] text-white text-sm font-semibold hover:bg-[#16304F] hover:scale-[1.02] hover:shadow-md transition-all cursor-pointer flex-shrink-0"
+            >
+              <HeadphonesIcon size={15} />
+              Raise Ticket
+            </button>
           </div>
+          {showBillingSupport && (
+            <ContactChitWiseModal onClose={() => setShowBillingSupport(false)} initialType="BILLING" />
+          )}
         </>
       )}
     </div>

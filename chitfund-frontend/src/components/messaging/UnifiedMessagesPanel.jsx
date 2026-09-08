@@ -7,9 +7,9 @@ import {
   getChatMessages, sendChatMessage, deleteChatMessage, markConversationRead,
   listGroups, getGroupMessages, sendGroupMessage, deleteGroupMessage,
   getGroupMembers, removeGroupMember,
-  getAuthToken,
+  getAuthToken, getMembers, startConversation,
 } from '../../services/api';
-import { X, ChevronLeft, Send, Trash2, MessageSquare, Search, Loader2, Plus, Users, UserMinus } from 'lucide-react';
+import { X, ChevronLeft, Send, Trash2, MessageSquare, Search, Loader2, Plus, Users, UserMinus, Minus, Maximize2 } from 'lucide-react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 import NewChatModal from './NewChatModal';
@@ -38,7 +38,9 @@ function generateClientId() {
 
 // ── UnifiedConversationList (admin/manager/staff view) ─────────────────────────
 
-function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, search, canDm, canCreateGroup, isMember, memberConv }) {
+function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, onStartContact, search, filter, canDm, canCreateGroup, isMember, memberConv }) {
+  const queryClient = useQueryClient();
+
   const { data: convData, isLoading: convLoading } = useQuery({
     queryKey: ['conversations'],
     queryFn: () => listConversations({ size: 50 }),
@@ -54,11 +56,21 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
     refetchInterval: 30_000,
   });
 
+  // Members fetched only when there's a search query (for contact suggestions)
+  const { data: membersRaw = [] } = useQuery({
+    queryKey: ['members-for-chat'],
+    queryFn: () => getMembers({ status: 'ACTIVE', size: 200 }),
+    enabled: canDm && search.length >= 2,
+    staleTime: 60_000,
+  });
+
   const isLoading = (canDm && convLoading) || groupLoading;
+
+  const conversations = convData?.items ?? [];
 
   const items = useMemo(() => {
     const convItems = canDm
-      ? (convData?.items ?? []).map((c) => ({
+      ? conversations.map((c) => ({
           kind: 'MEMBER',
           id: c.id,
           title: c.memberName,
@@ -74,7 +86,7 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
       ? [{
           kind: 'MEMBER',
           id: memberConv.id,
-          title: 'Chat with your Org',
+          title: tenantName ?? 'your Org',
           preview: memberConv.lastMessagePreview
             ? (memberConv.lastMessageIsAdmin ? '' : 'You: ') + memberConv.lastMessagePreview
             : 'No messages yet',
@@ -92,12 +104,35 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
       unread: g.unreadCount ?? 0,
       raw: g,
     }));
-    const merged = [...myOrgItem, ...convItems, ...groupItems].filter((i) =>
-      !search || i.title?.toLowerCase().includes(search.toLowerCase())
-    );
+
+    let merged = [...myOrgItem, ...convItems, ...groupItems];
+
+    // Tab filter
+    if (filter === 'unread') merged = merged.filter((i) => i.unread > 0);
+    else if (filter === 'groups') merged = merged.filter((i) => i.kind === 'GROUP');
+
+    // Search filter
+    if (search) merged = merged.filter((i) => i.title?.toLowerCase().includes(search.toLowerCase()));
+
     merged.sort((a, b) => new Date(b.lastMessageAt ?? 0) - new Date(a.lastMessageAt ?? 0));
     return merged;
-  }, [convData, groupData, canDm, search, isMember, memberConv]);
+  }, [convData, groupData, canDm, search, filter, isMember, memberConv]);
+
+  // Contact suggestions: members without an existing conversation, shown when search returns no DM match
+  const existingMemberIds = useMemo(
+    () => new Set(conversations.map((c) => c.memberId).filter(Boolean)),
+    [conversations]
+  );
+
+  const contactSuggestions = useMemo(() => {
+    if (!canDm || search.length < 2) return [];
+    const hasConvMatch = items.some((i) => i.kind === 'MEMBER');
+    if (hasConvMatch) return [];
+    return (Array.isArray(membersRaw) ? membersRaw : membersRaw?.items ?? [])
+      .filter((m) => !existingMemberIds.has(m.memberId ?? m.id))
+      .filter((m) => (m.fullName ?? m.name ?? '').toLowerCase().includes(search.toLowerCase()))
+      .slice(0, 5);
+  }, [membersRaw, search, items, canDm, existingMemberIds]);
 
   if (isLoading) return (
     <div className="flex-1 flex items-center justify-center">
@@ -106,20 +141,58 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {items.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-gray-400 px-6 text-center">
-          <MessageSquare size={36} className="opacity-40" />
-          <p className="text-sm font-medium">No conversations yet</p>
-          <p className="text-xs">
-            {canDm || canCreateGroup
-              ? 'Tap the + button to message a member or start a group.'
-              : "You haven't been added to any group yet."}
-          </p>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto">
-          {items.map((item) => (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        {/* Contact suggestions (WhatsApp-style: show member to start new chat) */}
+        {contactSuggestions.length > 0 && (
+          <div>
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Start new chat</span>
+            </div>
+            {contactSuggestions.map((m) => (
+              <button
+                key={m.memberId ?? m.id}
+                onClick={() => {
+                  startConversation({ memberId: m.userId ?? m.memberId ?? m.id, memberName: m.fullName ?? m.name })
+                    .then((conv) => {
+                      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                      onSelectMember(conv);
+                    })
+                    .catch(() => {});
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-100 text-left"
+              >
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-sm text-blue-700 flex-shrink-0">
+                  {(m.fullName ?? m.name ?? '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold text-gray-900 block truncate">{m.fullName ?? m.name}</span>
+                  <span className="text-xs text-blue-600">Tap to start a conversation</span>
+                </div>
+              </button>
+            ))}
+            {items.length > 0 && (
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Existing chats</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {items.length === 0 && contactSuggestions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 text-gray-400 px-6 text-center py-16">
+            <MessageSquare size={36} className="opacity-40" />
+            <p className="text-sm font-medium">{search ? 'No results' : 'No conversations yet'}</p>
+            <p className="text-xs">
+              {search
+                ? 'No members or groups match your search'
+                : (canDm || canCreateGroup)
+                  ? 'Tap the + button to message a member or start a group.'
+                  : "You haven't been added to any group yet."}
+            </p>
+          </div>
+        ) : (
+          items.map((item) => (
             <button
               key={`${item.kind}-${item.id}`}
               onClick={() => item.kind === 'MEMBER' ? onSelectMember(item.raw) : onSelectGroup(item.raw)}
@@ -132,10 +205,10 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-900 truncate">{item.title}</span>
+                  <span className={`text-sm truncate ${item.unread > 0 ? 'font-bold text-gray-900' : 'font-semibold text-gray-900'}`}>{item.title}</span>
                   <span className="text-[10px] text-gray-400 ml-2 flex-shrink-0">{formatTime(item.lastMessageAt)}</span>
                 </div>
-                <p className="text-xs text-gray-500 truncate mt-0.5">{item.preview}</p>
+                <p className={`text-xs truncate mt-0.5 ${item.unread > 0 ? 'text-gray-700 font-medium' : 'text-gray-500'}`}>{item.preview}</p>
               </div>
               {item.unread > 0 && (
                 <span className={`ml-1 flex-shrink-0 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ${
@@ -145,16 +218,17 @@ function UnifiedConversationList({ onSelectMember, onSelectGroup, onNewChat, sea
                 </span>
               )}
             </button>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       {/* Floating "+" new chat button */}
       {(canDm || canCreateGroup) && (
         <button
           onClick={onNewChat}
           title="New chat"
-          className="absolute bottom-5 right-5 w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center justify-center cursor-pointer transition-colors"
+          className="absolute bottom-5 right-5 w-12 h-12 rounded-full text-white shadow-lg flex items-center justify-center cursor-pointer transition-all hover:scale-105 hover:shadow-xl"
+          style={{ backgroundColor: '#1E3A5F' }}
         >
           <Plus size={22} />
         </button>
@@ -227,44 +301,65 @@ function MembersDrawer({ groupId, isAdmin, onClose }) {
 
 // ── ChatView (member DM) ────────────────────────────────────────────────────────
 
-function ChatView({ conversation, userId, onBack }) {
+function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBack }) {
   const queryClient = useQueryClient();
+  // conv may start without an id (draft mode) when opened from member profile before any message
+  const [conv, setConv] = useState(initialConv);
+  const hasId = !!conv.id;
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const stompClientRef = useRef(null);
 
+  // If we opened in draft mode but the conversations list has already loaded with a real conv for
+  // this member (cache miss at click time), promote to real conv so history loads immediately.
+  const { data: convList } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => listConversations({ size: 50 }),
+    staleTime: 30_000,
+    enabled: !hasId && !!conv.memberId,
+  });
+  useEffect(() => {
+    if (hasId || !convList) return;
+    const found = (convList.items ?? []).find(c => c.memberId === conv.memberId);
+    if (found) setConv(found);
+  }, [convList, hasId, conv.memberId]);
+
   const { data: msgData, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['chatMessages', conversation.id],
-    queryFn: ({ pageParam }) => getChatMessages(conversation.id, { cursor: pageParam, limit: 50 }),
+    queryKey: ['chatMessages', conv.id],
+    queryFn: ({ pageParam }) => getChatMessages(conv.id, { cursor: pageParam, limit: 50 }),
     getNextPageParam: (last) => last?.nextCursor ?? undefined,
     staleTime: 10_000,
+    enabled: hasId,
   });
 
   const messages = (msgData?.pages ?? []).flatMap(p => p?.items ?? []).reverse();
 
   useEffect(() => {
-    markConversationRead(conversation.id).catch(() => {});
+    if (!hasId) return;
+    markConversationRead(conv.id).catch(() => {});
     queryClient.invalidateQueries({ queryKey: ['conversations'] });
     queryClient.invalidateQueries({ queryKey: ['convUnread'] });
-  }, [conversation.id, queryClient]);
+  }, [conv.id, hasId, queryClient]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
+  // WebSocket only connects once a real conversation id exists
   useEffect(() => {
+    if (!hasId) return;
     const token = getAuthToken();
     const client = new Client({
       webSocketFactory: () => new SockJS('/api/ws/support'),
       connectHeaders: { Authorization: token ? `Bearer ${token}` : '' },
       reconnectDelay: 3000,
       onConnect: () => {
-        client.subscribe(`/topic/conversation.${conversation.id}`, (frame) => {
+        client.subscribe(`/topic/conversation.${conv.id}`, (frame) => {
           try {
             const payload = JSON.parse(frame.body);
             if (payload.type === 'MESSAGE_DELETED') {
-              queryClient.setQueryData(['chatMessages', conversation.id], (old) => {
+              queryClient.setQueryData(['chatMessages', conv.id], (old) => {
                 if (!old) return old;
                 return {
                   ...old,
@@ -282,7 +377,7 @@ function ChatView({ conversation, userId, onBack }) {
               queryClient.invalidateQueries({ queryKey: ['conversations'] });
               queryClient.invalidateQueries({ queryKey: ['convUnread'] });
             } else if (payload.id) {
-              queryClient.setQueryData(['chatMessages', conversation.id], (old) => {
+              queryClient.setQueryData(['chatMessages', conv.id], (old) => {
                 if (!old) return old;
                 const exists = old.pages.some(p => (p.items ?? []).some(m => m.id === payload.id));
                 if (exists) return old;
@@ -292,7 +387,7 @@ function ChatView({ conversation, userId, onBack }) {
                   pages: [{ ...firstPage, items: [payload, ...(firstPage.items ?? [])] }, ...old.pages.slice(1)],
                 };
               });
-              markConversationRead(conversation.id).catch(() => {});
+              markConversationRead(conv.id).catch(() => {});
             }
           } catch { /* ignore parse errors */ }
         });
@@ -301,17 +396,43 @@ function ChatView({ conversation, userId, onBack }) {
     client.activate();
     stompClientRef.current = client;
     return () => client.deactivate();
-  }, [conversation.id, queryClient, userId]);
+  }, [conv.id, hasId, queryClient, userId]);
 
   const sendMutation = useMutation({
-    mutationFn: ({ content, clientMessageId }) =>
-      sendChatMessage(conversation.id, content, clientMessageId),
+    mutationFn: async ({ content, clientMessageId }) => {
+      let convId = conv.id;
+      let createdConv = null;
+      if (!convId) {
+        // First message — create the conversation now
+        createdConv = await startConversation({ memberId: conv.memberId, memberName: conv.memberName });
+        convId = createdConv.id;
+      }
+      const msg = await sendChatMessage(convId, content, clientMessageId);
+      return { msg, createdConv, convId };
+    },
+    onSuccess: ({ msg, createdConv, convId }) => {
+      if (createdConv) {
+        setConv(createdConv);
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      }
+      queryClient.setQueryData(['chatMessages', convId], (old) => {
+        if (!old) return { pages: [{ items: [msg], nextCursor: null }], pageParams: [undefined] };
+        const exists = old.pages.some(p => (p.items ?? []).some(m => m.id === msg.id));
+        if (exists) return old;
+        const firstPage = old.pages[0] ?? { items: [] };
+        return {
+          ...old,
+          pages: [{ ...firstPage, items: [msg, ...(firstPage.items ?? [])] }, ...old.pages.slice(1)],
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (messageId) => deleteChatMessage(conversation.id, messageId),
+    mutationFn: (messageId) => deleteChatMessage(conv.id, messageId),
     onSuccess: (_, messageId) => {
-      queryClient.setQueryData(['chatMessages', conversation.id], (old) => {
+      queryClient.setQueryData(['chatMessages', conv.id], (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -351,11 +472,13 @@ function ChatView({ conversation, userId, onBack }) {
           </button>
         )}
         <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold text-sm">
-          {conversation.memberName?.[0]?.toUpperCase() ?? '?'}
+          {isMember ? (orgLabel?.[0]?.toUpperCase() ?? 'O') : (conv.memberName?.[0]?.toUpperCase() ?? '?')}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">{conversation.memberName}</p>
-          <p className="text-[10px] text-gray-400">Member</p>
+          <p className="text-sm font-semibold text-gray-900 truncate">
+            {isMember ? orgLabel : conv.memberName}
+          </p>
+          <p className="text-[10px] text-gray-400">{isMember ? 'Admin' : 'Member'}</p>
         </div>
       </div>
 
@@ -384,7 +507,7 @@ function ChatView({ conversation, userId, onBack }) {
             <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} group`}>
               <div className={`relative max-w-[75%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                 {!mine && (
-                  <p className="text-[10px] text-gray-400 mb-0.5 ml-1">{msg.senderName}</p>
+                  <p className="text-[11px] font-semibold text-gray-700 mb-0.5 ml-1">{msg.senderName}</p>
                 )}
                 <div className={`px-3 py-2 rounded-2xl text-sm break-words ${
                   msg.deleted
@@ -397,6 +520,11 @@ function ChatView({ conversation, userId, onBack }) {
                 </div>
                 <div className={`flex items-center gap-1 mt-0.5 ${mine ? 'flex-row-reverse' : ''}`}>
                   <span className="text-[10px] text-gray-400">{formatTime(msg.createdAt)}</span>
+                  {mine && !msg.deleted && (
+                    <span className={`text-[11px] leading-none ${msg.readAt ? 'text-blue-400' : 'text-gray-400'}`}>
+                      {msg.readAt ? '✓✓' : '✓'}
+                    </span>
+                  )}
                   {mine && !msg.deleted && canDelete(msg.createdAt) && (
                     <button
                       onClick={() => deleteMutation.mutate(msg.id)}
@@ -510,6 +638,18 @@ function GroupChatView({ group, userId, role, onBack }) {
 
   const sendMutation = useMutation({
     mutationFn: ({ content, clientMessageId }) => sendGroupMessage(group.id, content, clientMessageId),
+    onSuccess: (newMsg) => {
+      queryClient.setQueryData(['groupMessages', group.id], (old) => {
+        if (!old) return { pages: [{ items: [newMsg], nextCursor: null }], pageParams: [undefined] };
+        const exists = old.pages.some((p) => (p.items ?? []).some((m) => m.id === newMsg.id));
+        if (exists) return old;
+        const firstPage = old.pages[0] ?? { items: [] };
+        return {
+          ...old,
+          pages: [{ ...firstPage, items: [newMsg, ...(firstPage.items ?? [])] }, ...old.pages.slice(1)],
+        };
+      });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -592,7 +732,7 @@ function GroupChatView({ group, userId, role, onBack }) {
             <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'} group`}>
               <div className={`relative max-w-[75%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                 {!mine && (
-                  <p className="text-[10px] text-gray-400 mb-0.5 ml-1">{msg.senderName}</p>
+                  <p className="text-[11px] font-semibold text-gray-700 mb-0.5 ml-1">{msg.senderName}</p>
                 )}
                 <div className={`px-3 py-2 rounded-2xl text-sm break-words ${
                   msg.deleted
@@ -652,17 +792,30 @@ function GroupChatView({ group, userId, role, onBack }) {
 // ── UnifiedMessagesPanel (entry point) ──────────────────────────────────────────
 
 export default function UnifiedMessagesPanel({ onClose, initialConversation, initialGroup }) {
-  const { user } = useAuth();
+  const { user, tenantName } = useAuth();
   const role = user?.role ?? 'MEMBER';
   const userId = user?.id;
   const isMember = role === 'MEMBER';
   const canDm = role === 'ADMIN' || role === 'MANAGER';
   const canCreateGroup = role === 'ADMIN' || role === 'MANAGER';
+  const orgLabel = tenantName ?? 'your Org';
 
   const [selectedConv, setSelectedConv] = useState(initialConversation ?? null);
   const [selectedGroup, setSelectedGroup] = useState(initialGroup ?? null);
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
   const [showNewChat, setShowNewChat] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  // When the panel is already open and a new initialConversation is pushed in
+  // (e.g. admin clicks "Message" on a member detail page), jump to that conversation.
+  useEffect(() => {
+    if (initialConversation) {
+      setSelectedConv(initialConversation);
+      setSelectedGroup(null);
+      setIsMinimized(false);
+    }
+  }, [initialConversation]);
 
   // Member: fetch their single org conversation (shown as a list item alongside groups)
   const { data: memberConv } = useQuery({
@@ -683,8 +836,36 @@ export default function UnifiedMessagesPanel({ onClose, initialConversation, ini
   const title = selectedGroup
     ? selectedGroup.name
     : selectedConv
-      ? (isMember ? 'Chat with your Org' : selectedConv.memberName)
+      ? (isMember ? (tenantName ?? 'your Org') : selectedConv.memberName)
       : 'Messages';
+
+  if (isMinimized) {
+    return createPortal(
+      <div
+        className="fixed bottom-0 right-6 z-[60] flex items-center gap-3 px-4 py-3 bg-[#1E3A5F] text-white rounded-t-xl shadow-2xl cursor-pointer select-none"
+        style={{ minWidth: 220 }}
+        onClick={() => setIsMinimized(false)}
+      >
+        <MessageSquare size={16} className="flex-shrink-0" />
+        <span className="text-sm font-semibold truncate flex-1">{title}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setIsMinimized(false); }}
+          className="text-white/70 hover:text-white cursor-pointer"
+          title="Maximize"
+        >
+          <Maximize2 size={14} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="text-white/70 hover:text-white cursor-pointer"
+          title="Close"
+        >
+          <X size={14} />
+        </button>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex" onClick={onClose}>
@@ -695,9 +876,18 @@ export default function UnifiedMessagesPanel({ onClose, initialConversation, ini
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <h2 className="text-sm font-bold text-gray-900 truncate">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 cursor-pointer flex-shrink-0">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setIsMinimized(true)}
+              className="text-gray-400 hover:text-gray-700 cursor-pointer"
+              title="Minimize"
+            >
+              <Minus size={16} />
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 cursor-pointer">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Search (list view only) */}
@@ -708,10 +898,34 @@ export default function UnifiedMessagesPanel({ onClose, initialConversation, ini
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search conversations..."
-                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+                placeholder="Search or start new chat..."
+                className="w-full pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer">
+                  <X size={14} />
+                </button>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* Filter capsules (hidden when searching) */}
+        {showingList && !search && (
+          <div className="flex gap-2 px-4 py-2 border-b border-gray-100">
+            {[['all', 'All'], ['unread', 'Unread'], ['groups', 'Groups']].map(([f, label]) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer ${
+                  filter === f
+                    ? 'bg-[#1E3A5F] text-white border-[#1E3A5F]'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
 
@@ -722,6 +936,7 @@ export default function UnifiedMessagesPanel({ onClose, initialConversation, ini
             onSelectGroup={setSelectedGroup}
             onNewChat={() => setShowNewChat(true)}
             search={search}
+            filter={filter}
             canDm={canDm}
             canCreateGroup={canCreateGroup}
             isMember={isMember}
@@ -732,6 +947,8 @@ export default function UnifiedMessagesPanel({ onClose, initialConversation, ini
           <ChatView
             conversation={selectedConv}
             userId={userId}
+            isMember={isMember}
+            orgLabel={orgLabel}
             onBack={handleBack}
           />
         )}
