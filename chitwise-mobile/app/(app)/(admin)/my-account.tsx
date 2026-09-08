@@ -29,10 +29,14 @@ function InfoRow({ label, value, onEdit }: { label: string; value?: string | nul
   );
 }
 
+type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
+
 export default function MyAccountScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
-  const [showEdit, setShowEdit] = useState(false);
+  const { user, logout } = useAuthStore();
+  const [editTab, setEditTab] = useState<ProfileTab | null>(null);
+  const showEdit = editTab !== null;
+  const setShowEdit = (v: boolean) => setEditTab(v ? 'profile' : null);
 
   const { data: me, isLoading } = useQuery({ queryKey: ['me'], queryFn: getMe });
 
@@ -87,7 +91,7 @@ export default function MyAccountScreen() {
         <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>SECURITY</Text>
           <TouchableOpacity
-            onPress={() => setShowEdit(true)}
+            onPress={() => setEditTab('security')}
             activeOpacity={0.7}
             style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}
           >
@@ -98,7 +102,7 @@ export default function MyAccountScreen() {
             <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setShowEdit(true)}
+            onPress={() => setEditTab('accounts')}
             activeOpacity={0.7}
             style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}
           >
@@ -108,12 +112,26 @@ export default function MyAccountScreen() {
             </View>
             <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setEditTab('history')}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Profile Change History</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>What changed on your account</Text>
+            </View>
+            <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+          </TouchableOpacity>
           <View style={{ height: 4 }} />
         </View>
 
         {/* Logout */}
         <TouchableOpacity
-          onPress={() => setShowEdit(true)}
+          onPress={() => Alert.alert('Log Out', 'Sign out of this account?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Log Out', style: 'destructive', onPress: () => logout() },
+          ])}
           activeOpacity={0.75}
           style={{ borderWidth: 1.5, borderColor: '#DC2626', borderRadius: 14, padding: 14, alignItems: 'center' }}
         >
@@ -123,7 +141,7 @@ export default function MyAccountScreen() {
       </ScrollView>
 
       {showEdit && (
-        <EditProfileModal visible onClose={() => setShowEdit(false)} />
+        <EditProfileModal visible initialTab={editTab!} onClose={() => setEditTab(null)} />
       )}
     </SafeAreaView>
   );

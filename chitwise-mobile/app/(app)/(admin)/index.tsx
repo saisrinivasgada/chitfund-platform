@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
@@ -12,7 +12,8 @@ import {
   adminCreateCashRequest, getAuditLogs,
   getTodaysPaymentBatches, getTodaysDraws, getTodaysPayouts,
   getOrgReservations, realizeOrgPayout, getCashRequestSummary,
-  getPendingSettlements,
+  getPendingSettlements, getPendingPayouts, getAllPayouts, getWinners,
+  getPendingRemittance, getMyTenantLimits, listAuctions,
   createSupportTicket, listMyTickets, getTicketMessages,
   sendTicketMessage, deleteTicketMessage, markTicketRead,
 } from '../../../services/api';
@@ -59,6 +60,61 @@ export default function AdminDashboard() {
     staleTime: 60_000,
   });
 
+  // Payouts — "pending payout" (winner picked, nothing created) vs
+  // "pending disbursement" (payout row exists but money not sent yet)
+  const { data: pendingPayouts = [], refetch: refetchPendingPayouts } = useQuery({
+    queryKey: ['m-dash-pending-payouts'], queryFn: getPendingPayouts, staleTime: 30_000,
+  });
+  const { data: allPayouts = [] } = useQuery({
+    queryKey: ['m-dash-all-payouts'], queryFn: () => getAllPayouts({}), staleTime: 300_000,
+  });
+  const { data: remittanceBatches = [], refetch: refetchRemittance } = useQuery({
+    queryKey: ['m-dash-remittance'], queryFn: getPendingRemittance, staleTime: 30_000,
+  });
+  const { data: tenantLimits } = useQuery({
+    queryKey: ['m-dash-limits'], queryFn: getMyTenantLimits, staleTime: 300_000,
+  });
+
+  const eligibleChits = (chits as any[]).filter((c: any) => c.status !== 'DRAFT');
+  const { data: chitWinnersMap = {} } = useQuery({
+    queryKey: ['m-dash-winners', eligibleChits.map((c: any) => c.id).join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        eligibleChits.map((c: any) =>
+          getWinners(c.id).then((ws: any) => [c.id, ws]).catch(() => [c.id, []])
+        )
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: eligibleChits.length > 0,
+    staleTime: 300_000,
+  });
+
+  // Auction sessions across active auction chits — surfaces live/pending rooms
+  const activeAuctionChits = (chits as any[]).filter(
+    (c: any) => c.status === 'ACTIVE' && (c.chitType === 'AUCTION' || c.winnerSelectionMode === 'AUCTION')
+  );
+  const auctionQueries = useQueries({
+    queries: activeAuctionChits.map((c: any) => ({
+      queryKey: ['m-dash-auctions', c.id],
+      queryFn: () => listAuctions(c.id),
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+    })),
+  });
+  const liveAuctions = activeAuctionChits.flatMap((c: any, i: number) =>
+    ((auctionQueries[i]?.data as any[]) ?? [])
+      .filter((a: any) => a.status === 'OPEN')
+      .map((a: any) => ({ ...a, chitName: c.name, chitId: c.id }))
+  );
+  const pendingAuctions = activeAuctionChits.flatMap((c: any, i: number) => {
+    const sessions = (auctionQueries[i]?.data as any[]) ?? [];
+    if (sessions.some((a: any) => a.status === 'OPEN')) return [];
+    return sessions
+      .filter((a: any) => a.status === 'PENDING')
+      .map((a: any) => ({ ...a, chitName: c.name, chitId: c.id }));
+  });
+
   const newRequestMutation = useMutation({
     mutationFn: () => adminCreateCashRequest(nrMemberId, nrChitId, parseFloat(nrAmount), undefined, nrNotes),
     onSuccess: () => {
@@ -71,7 +127,7 @@ export default function AdminDashboard() {
   });
 
   const isLoading = crLoading || chitsLoading || membersLoading;
-  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); refetchSettlements(); }
+  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); refetchSettlements(); refetchPendingPayouts(); refetchRemittance(); }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
@@ -80,6 +136,31 @@ export default function AdminDashboard() {
   const memberMap = Object.fromEntries(
     (members as any[]).map((m: any) => [m.id?.toLowerCase(), m.fullName ?? m.name])
   );
+
+  // Winners with no payout row yet — mirrors the web "Pending Payout" stat
+  const paidKeys = new Set(
+    (allPayouts as any[])
+      .filter((p: any) => p.status !== 'CANCELLED')
+      .map((p: any) => `${p.chitId}:${p.monthNumber}:${String(p.memberId)}`)
+  );
+  let pendingPayoutCount = 0;
+  for (const [chitId, winners] of Object.entries(chitWinnersMap as Record<string, any[]>)) {
+    for (const w of winners ?? []) {
+      const mid = w.memberId ?? w.winnerId;
+      if (!paidKeys.has(`${chitId}:${w.monthNumber}:${String(mid)}`)) pendingPayoutCount++;
+    }
+  }
+
+  // Usage above plan limits — admin needs to know before adds start failing
+  const limitViolations: { label: string; current: number; limit: number }[] = [];
+  if (tenantLimits) {
+    const maxChits = Number((tenantLimits as any).maxActiveChits ?? 0);
+    const maxMembers = Number((tenantLimits as any).maxMembers ?? 0);
+    if (maxChits > 0 && activeChits.length > maxChits)
+      limitViolations.push({ label: 'Active Chit Groups', current: activeChits.length, limit: maxChits });
+    if (maxMembers > 0 && activeMembers.length > maxMembers)
+      limitViolations.push({ label: 'Members', current: activeMembers.length, limit: maxMembers });
+  }
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayBatches    = todayBatchesRaw as any[];
@@ -123,6 +204,82 @@ export default function AdminDashboard() {
           </View>
         </View>
 
+        {/* Over-limit warning — usage exceeds the plan */}
+        {limitViolations.length > 0 && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => router.push('/(app)/(admin)/billing')}
+            style={{
+              backgroundColor: '#FEF2F2', borderRadius: 16, padding: 14, marginBottom: 16,
+              borderWidth: 1.5, borderColor: '#FECACA',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <Text style={{ fontSize: 16 }}>🛡️</Text>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: '#991B1B' }}>Usage Over Plan Limit</Text>
+            </View>
+            {limitViolations.map((v) => (
+              <Text key={v.label} style={{ fontSize: 12, color: '#B91C1C', marginTop: 2 }}>
+                {v.label}: {v.current} of {v.limit} — {v.current - v.limit} over
+              </Text>
+            ))}
+            <Text style={{ fontSize: 11, color: '#DC2626', marginTop: 6, fontWeight: '600' }}>
+              Tap to upgrade your plan →
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Auctions — live rooms first, then sessions not yet started */}
+        {(liveAuctions.length > 0 || pendingAuctions.length > 0) && (
+          <View style={{ marginBottom: 16 }}>
+            <SectionHeader title="Auctions" />
+            {liveAuctions.map((a: any) => (
+              <TouchableOpacity
+                key={a.id}
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: a.chitId, openTab: 'auction' } })}
+                style={{
+                  backgroundColor: '#FEF2F2', borderRadius: 14, padding: 14, marginBottom: 8,
+                  borderWidth: 1.5, borderColor: '#FECACA', flexDirection: 'row', alignItems: 'center', gap: 10,
+                }}
+              >
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#DC2626' }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>
+                    {a.chitName} — Draw {a.monthNumber}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600', marginTop: 2 }}>
+                    Live — bidding in progress
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 16, color: '#DC2626' }}>→</Text>
+              </TouchableOpacity>
+            ))}
+            {pendingAuctions.map((a: any) => (
+              <TouchableOpacity
+                key={a.id}
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: a.chitId, openTab: 'auction' } })}
+                style={{
+                  backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8,
+                  borderWidth: 1.5, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>⚖️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }} numberOfLines={1}>
+                    {a.chitName} — Draw {a.monthNumber}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#D97706', fontWeight: '600', marginTop: 2 }}>
+                    Auction pending — not yet started
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 16, color: '#D97706' }}>→</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* Wallet Balance — liquid glass on dark */}
         <TouchableOpacity onPress={() => router.push('/(app)/(admin)/payments')} activeOpacity={0.8}>
           <View style={{
@@ -144,6 +301,25 @@ export default function AdminDashboard() {
               <Amount value={(wallet as any)?.totalBalance ?? (wallet as any)?.balance ?? 0} size="xl" color={C.gold} />
             )}
             <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>Tap to open Finance →</Text>
+
+            {/* Cash vs bank split */}
+            {!walletError && wallet && (
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' }}>
+                {[
+                  { label: 'Cash on Hand', value: (wallet as any)?.cashBalance },
+                  { label: 'Bank Balance', value: (wallet as any)?.bankBalance },
+                ].map((t) => (
+                  <View key={t.label} style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '700', letterSpacing: 0.6 }}>
+                      {t.label.toUpperCase()}
+                    </Text>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff', marginTop: 3 }}>
+                      ₹{Number(t.value ?? 0).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         </TouchableOpacity>
 
@@ -156,6 +332,77 @@ export default function AdminDashboard() {
           <StatCard glass label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />
           <StatCard glass label="New Requests" value={String(pendingRequests.length)} accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />
         </View>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+          <StatCard
+            glass
+            label="Pending Payout"
+            value={String(pendingPayoutCount)}
+            sub="winner picked, no payout"
+            accent={C.amber}
+            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })}
+          />
+          <StatCard
+            glass
+            label="Pending Disbursement"
+            value={String((pendingPayouts as any[]).length)}
+            sub="created, not disbursed"
+            accent={C.red}
+            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })}
+          />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+          <StatCard
+            glass
+            label="Picked Up"
+            value={String((cashSummary as any)?.pickedUp ?? 0)}
+            accent={C.green}
+            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })}
+          />
+          <StatCard
+            glass
+            label="Partial Collections"
+            value={String((cashSummary as any)?.partiallyCollected ?? 0)}
+            accent={C.amber}
+            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })}
+          />
+        </View>
+        {(() => {
+          const batches = remittanceBatches as any[];
+          const cashOut = ((cashSummary as any)?.pickedUp ?? 0) + ((cashSummary as any)?.partiallyCollected ?? 0);
+          const total = batches.length + cashOut;
+          if (total === 0) return null;
+          const totalAmt = batches.reduce((s: number, b: any) => s + Number(b.totalAmount ?? b.amount ?? 0), 0);
+          return (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push({
+                pathname: '/(app)/(admin)/payments',
+                params: cashOut > 0 ? { tab: 'Cash Requests' } : { tab: 'Remittance' },
+              })}
+              style={{
+                backgroundColor: C.white, borderRadius: 16, padding: 14, marginBottom: 10,
+                borderWidth: 1.5, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 12,
+              }}
+            >
+              <Text style={{ fontSize: 20 }}>⏳</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.6 }}>REMITTANCE AWAITING</Text>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: C.gray900, marginTop: 2 }}>{total}</Text>
+                <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                  {[
+                    cashOut > 0 ? `${cashOut} with staff` : null,
+                    batches.length > 0 ? `${batches.length} batch${batches.length !== 1 ? 'es' : ''}` : null,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              {totalAmt > 0 && (
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#D97706' }}>
+                  ₹{totalAmt.toLocaleString('en-IN')}
+                </Text>
+              )}
+            </TouchableOpacity>
+          );
+        })()}
         {(cashSummary as any)?.todayCancelled > 0 && (
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
             <StatCard
@@ -230,6 +477,8 @@ export default function AdminDashboard() {
         <SectionHeader title="Quick Actions" />
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           {[
+            { label: '+ New Chit', onPress: () => router.push({ pathname: '/(app)/(admin)/chits', params: { openAdd: '1' } }), accent: C.navy },
+            { label: '+ Add Member', onPress: () => router.push({ pathname: '/(app)/(admin)/members', params: { openAdd: '1' } }), accent: C.green },
             { label: '+ Cash Request', onPress: () => setShowNewRequest(true), accent: C.navy },
             { label: 'Cash Pickups', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } }), accent: C.amber },
             { label: 'Remittance', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } }), accent: C.green },
@@ -375,6 +624,67 @@ export default function AdminDashboard() {
             </View>
           );
         })()}
+
+        {/* Recent Chit Funds */}
+        <View style={{ marginBottom: 20 }}>
+          <SectionHeader title="Recent Chit Funds"
+            action={<TouchableOpacity onPress={() => router.push('/(app)/(admin)/chits')}><Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>View all →</Text></TouchableOpacity>}
+          />
+          {(chits as any[]).length === 0 ? (
+            <Text style={{ color: C.gray400, textAlign: 'center', paddingVertical: 16, fontSize: 13 }}>No chit funds yet</Text>
+          ) : (chits as any[]).slice(0, 5).map((c: any) => (
+            <TouchableOpacity
+              key={c.id}
+              activeOpacity={0.8}
+              onPress={() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } })}
+            >
+              <Card style={{ marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{c.name}</Text>
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                      ₹{Number(c.installmentAmount ?? 0).toLocaleString('en-IN')} / month · {c.capacity} members
+                    </Text>
+                  </View>
+                  <Badge status={c.status} />
+                </View>
+              </Card>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Recent Members */}
+        <View style={{ marginBottom: 20 }}>
+          <SectionHeader title="Recent Members"
+            action={<TouchableOpacity onPress={() => router.push('/(app)/(admin)/members')}><Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>View all →</Text></TouchableOpacity>}
+          />
+          {(members as any[]).length === 0 ? (
+            <Text style={{ color: C.gray400, textAlign: 'center', paddingVertical: 16, fontSize: 13 }}>No members yet</Text>
+          ) : (members as any[]).slice(0, 5).map((m: any) => (
+            <TouchableOpacity
+              key={m.id}
+              activeOpacity={0.8}
+              onPress={() => router.push('/(app)/(admin)/members')}
+            >
+              <Card style={{ marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: C.white }}>
+                      {(m.fullName ?? m.name ?? '?')[0].toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                      {m.fullName ?? m.name}
+                    </Text>
+                    {m.phone && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>{m.phone}</Text>}
+                  </View>
+                  <Badge status={m.status ?? 'ACTIVE'} />
+                </View>
+              </Card>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         {/* Contact ChitWise */}
         <ContactChitWiseButton userId={user?.id ?? ''} />

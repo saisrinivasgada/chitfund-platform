@@ -26,10 +26,20 @@ function InfoRow({ label, value, onEdit }: { label: string; value?: string | nul
   );
 }
 
+type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
+
+const MEMBER_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  ACTIVE:      { bg: '#DCFCE7', text: '#15803D' },
+  BLACKLISTED: { bg: '#FEE2E2', text: '#B91C1C' },
+  INACTIVE:    { bg: '#F3F4F6', text: '#6B7280' },
+};
+
 export default function MemberMyAccountScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [showEdit, setShowEdit] = useState(false);
+  const [editTab, setEditTab] = useState<ProfileTab | null>(null);
+  const showEdit = editTab !== null;
+  const setShowEdit = (v: boolean) => setEditTab(v ? 'profile' : null);
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: getMe });
   const { data: memberMe } = useQuery({ queryKey: ['member-me'], queryFn: getMyMemberProfile });
@@ -56,8 +66,21 @@ export default function MemberMyAccountScreen() {
           <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, marginBottom: 4 }}>
             {me?.fullName ?? me?.username ?? '—'}
           </Text>
-          <View style={{ backgroundColor: '#D97706' + '18', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: '#D97706' }}>MEMBER</Text>
+          {me?.username && (
+            <Text style={{ fontSize: 13, color: C.gray400, marginBottom: 6 }}>@{me.username}</Text>
+          )}
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <View style={{ backgroundColor: '#D97706' + '18', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#D97706' }}>MEMBER</Text>
+            </View>
+            {memberMe?.status && (() => {
+              const s = MEMBER_STATUS_COLORS[memberMe.status] ?? MEMBER_STATUS_COLORS.INACTIVE;
+              return (
+                <View style={{ backgroundColor: s.bg, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: s.text }}>{memberMe.status}</Text>
+                </View>
+              );
+            })()}
           </View>
         </View>
 
@@ -79,16 +102,47 @@ export default function MemberMyAccountScreen() {
           <InfoRow label="Contact Email" value={memberMe?.email} onEdit={() => setShowEdit(true)} />
           <InfoRow label="Address" value={memberMe?.address} onEdit={() => setShowEdit(true)} />
           <InfoRow label="City" value={memberMe?.city} onEdit={() => setShowEdit(true)} />
+          {/* Read-only — PAN and referrer are set by the admin, not self-editable */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: C.gray400, marginBottom: 2 }}>PAN</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: memberMe?.panNumber ? C.gray900 : C.gray300 }}>
+                {memberMe?.panNumber || 'Not set'}
+              </Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: C.gray400, marginBottom: 2 }}>Referred By</Text>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: memberMe?.referredByName ? C.gray900 : C.gray300 }}>
+                {memberMe?.referredByName || 'Not set'}
+              </Text>
+            </View>
+          </View>
           <View style={{ height: 4 }} />
         </View>
 
         {/* Security */}
         <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>SECURITY</Text>
-          <TouchableOpacity onPress={() => setShowEdit(true)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}>
+          <TouchableOpacity onPress={() => setEditTab('security')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Change Password</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>Update your login password</Text>
+            </View>
+            <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setEditTab('accounts')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Saved Accounts</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>Switch or manage linked accounts</Text>
+            </View>
+            <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setEditTab('history')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Profile Change History</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>What changed on your account</Text>
             </View>
             <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
           </TouchableOpacity>
@@ -98,7 +152,7 @@ export default function MemberMyAccountScreen() {
       </ScrollView>
 
       {showEdit && (
-        <EditProfileModal visible onClose={() => setShowEdit(false)} />
+        <EditProfileModal visible initialTab={editTab!} onClose={() => setEditTab(null)} />
       )}
     </SafeAreaView>
   );

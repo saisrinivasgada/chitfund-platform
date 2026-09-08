@@ -46,6 +46,7 @@ const SECTIONS: Section[] = [
       { label: 'Skip a draw',                 ADMIN: '✓', MANAGER: '✓', STAFF: '—' },
       { label: 'Close / delete a draw',       ADMIN: '✓', MANAGER: '✓', STAFF: '—' },
       { label: 'Record draw winner',          ADMIN: '✓', MANAGER: '✓', STAFF: '—' },
+      { label: 'All draw actions are audited', ADMIN: '✓', MANAGER: '✓', STAFF: '—' },
     ],
   },
   {
@@ -100,6 +101,12 @@ const ROLE_COLORS = {
   STAFF:   { bg: '#F0FDF4', border: '#BBF7D0', text: '#16A34A' },
 };
 
+const ROLE_DESCRIPTIONS: Record<string, string> = {
+  ADMIN:   'Full platform access. Manages chit funds, draws, disbursements, team, and system settings.',
+  MANAGER: 'Operations oversight. Opens, skips, and closes draws. Collects payments and creates payouts — but cannot disburse funds. All draw actions are audited.',
+  STAFF:   'Field operations. Handles cash pickups from members. No access to financials or fund management.',
+};
+
 function PermCell({ value }: { value: PermValue }) {
   const color = value === '✓' ? '#16A34A' : value === '~' ? '#D97706' : '#9CA3AF';
   return (
@@ -132,15 +139,18 @@ export default function RolesScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
 
-        {/* Role badges */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+        {/* Role cards — name plus what the role is actually for */}
+        <View style={{ gap: 10, marginBottom: 20 }}>
           {(['ADMIN', 'MANAGER', 'STAFF'] as const).map((role) => (
             <View key={role} style={{
-              flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center',
+              padding: 14, borderRadius: 12,
               backgroundColor: ROLE_COLORS[role].bg,
               borderWidth: 1.5, borderColor: ROLE_COLORS[role].border,
             }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: ROLE_COLORS[role].text }}>{role}</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: ROLE_COLORS[role].text, marginBottom: 4 }}>{role}</Text>
+              <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500, lineHeight: 17 }}>
+                {ROLE_DESCRIPTIONS[role]}
+              </Text>
             </View>
           ))}
         </View>

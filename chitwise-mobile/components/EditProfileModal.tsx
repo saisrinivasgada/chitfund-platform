@@ -57,7 +57,11 @@ function passwordStrength(pw: string) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
+
+export default function EditProfileModal({ visible, onClose, initialTab = 'profile' }: {
+  visible: boolean; onClose: () => void; initialTab?: ProfileTab;
+}) {
   const { user, logout, accounts, switchToAccount, removeAccount, logoutFromAccount, logoutAll } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
@@ -71,7 +75,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const { data: me } = useQuery({ queryKey: ['edit-profile-me'], queryFn: getMe, enabled: visible });
   const { data: memberMe } = useQuery({ queryKey: ['edit-profile-member-me'], queryFn: getMyMemberProfile, enabled: visible && role === 'MEMBER' });
 
-  const [tab, setTab] = useState<'profile' | 'security' | 'history' | 'accounts'>('profile');
+  const [tab, setTab] = useState<ProfileTab>(initialTab);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   // Phone OTP state
@@ -213,9 +217,14 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
     }, 350);
   }, [me?.username]);
 
+  // Tab resets only when the modal opens — not when the queries below resolve,
+  // otherwise a tab the user picked gets yanked back mid-interaction.
+  useEffect(() => {
+    if (visible) setTab(initialTab);
+  }, [visible, initialTab]);
+
   useEffect(() => {
     if (!visible) return;
-    setTab('profile');
     setUsernameAvail(null);
     setUsernameChecking(false);
     if (me) {
@@ -370,7 +379,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
             { id: 'accounts', label: accounts.length > 1 ? `Accts (${accounts.length})` : 'Accts' },
-            ...(role === 'ADMIN' || role === 'MANAGER' || role === 'STAFF' ? [{ id: 'history', label: 'History' }] : []),
+            { id: 'history', label: 'History' },
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{
               flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',

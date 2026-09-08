@@ -149,7 +149,7 @@ type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule' | 'audit'
 export default function AdminChitsScreen() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
-  const params = useLocalSearchParams<{ openChitId?: string }>();
+  const params = useLocalSearchParams<{ openChitId?: string; openTab?: string; openAdd?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -273,13 +273,23 @@ export default function AdminChitsScreen() {
     ? (tenantLimits.allowedChitTypes as string).split(',').map((t: string) => t.trim())
     : ['RESERVATION', 'LOTTERY', 'AUCTION'];
 
-  // Auto-open chit when navigated from member detail with openChitId param
+  // Auto-open chit when navigated from member detail or the dashboard.
+  // openTab lets the dashboard drop straight into e.g. the auction tab.
   useEffect(() => {
     if (params.openChitId && (chits as any[]).length > 0) {
       const target = (chits as any[]).find((c: any) => c.id === params.openChitId);
-      if (target) { setSelected(target); setDetailTab('info'); setShowDetail(true); }
+      if (target) {
+        setSelected(target);
+        setDetailTab((params.openTab as DetailTab) ?? 'info');
+        setShowDetail(true);
+      }
     }
-  }, [params.openChitId, chits]);
+  }, [params.openChitId, params.openTab, chits]);
+
+  // Dashboard "New Chit" quick action opens the create form directly
+  useEffect(() => {
+    if (params.openAdd === '1') setShowCreate(true);
+  }, [params.openAdd]);
   const { data: enrollments = [] } = useQuery({
     queryKey: ['a-enrollments', selected?.id],
     queryFn: () => getEnrollments(selected!.id),

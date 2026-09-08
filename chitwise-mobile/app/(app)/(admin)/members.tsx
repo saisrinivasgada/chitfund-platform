@@ -73,13 +73,15 @@ export default function AdminMembersScreen() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const router = useRouter();
-  const params = useLocalSearchParams<{ filter?: string }>();
+  const params = useLocalSearchParams<{ filter?: string; openAdd?: string }>();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(params.filter ?? null);
   const [selected, setSelected] = useState<any>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   useEffect(() => { setStatusFilter(params.filter ?? null); }, [params.filter]);
+  // Dashboard "Add Member" quick action opens the create form directly
+  useEffect(() => { if (params.openAdd === '1') setShowCreate(true); }, [params.openAdd]);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
