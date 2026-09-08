@@ -67,6 +67,16 @@ declare -a SERVICE_ORDER=(
 log "Starting ChitFund Platform..."
 echo ""
 
+# ── Redis ─────────────────────────────────────────────────────────────────
+if nc -z localhost 6379 2>/dev/null; then
+  warn "Redis already running on 6379 — skipping"
+else
+  log "Starting Redis..."
+  brew services start redis > /dev/null 2>&1
+  until nc -z localhost 6379 2>/dev/null; do sleep 1; done
+  log "Redis started on port 6379"
+fi
+
 # ── Zookeeper ─────────────────────────────────────────────────────────────
 if nc -z localhost 2181 2>/dev/null; then
   warn "Zookeeper already running on 2181 — skipping"

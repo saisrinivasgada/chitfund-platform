@@ -101,6 +101,13 @@ spring:
           filters:
             - JwtAuthGatewayFilter
 
+        - id: user-service-reminders
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/reminders/**
+          filters:
+            - JwtAuthGatewayFilter
+
         # ── Chit Service ──────────────────────────────────────────────────────
         # Controllers live at /api/chits/** — no stripping.
         - id: chit-service

@@ -46,12 +46,13 @@ get_meta() {
     reporting)    echo "chitfund-reporting-service:8087" ;;
     audit)        echo "chitfund-audit-service:8088" ;;
     gateway)      echo "chitfund-api-gateway:8080" ;;
+    management)   echo "chitwise-management-service:8091" ;;
     *)            echo "" ;;
   esac
 }
 
-# Deploy order — gateway always last
-ALL_ORDER=(user chit member payment payout notification reporting audit gateway)
+# Deploy order — gateway always last, management is independent
+ALL_ORDER=(user chit member payment payout notification reporting audit gateway management)
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -151,9 +152,11 @@ deploy_service() {
   log "Starting $short from $(basename $jar)..."
   nohup java \
     -DJWT_SECRET="${JWT_SECRET:-dev-local-jwt-secret-not-for-production-32+}" \
+    -DINTERNAL_SERVICE_KEY="${INTERNAL_SERVICE_KEY:-chitfund-internal-service-key}" \
     -jar "$jar" \
     --spring.datasource.password="${DB_PASSWORD:-ChitWise@Local1}" \
     --app.jwt.secret="${JWT_SECRET:-dev-local-jwt-secret-not-for-production-32+}" \
+    --app.internal-key="${INTERNAL_SERVICE_KEY:-chitfund-internal-service-key}" \
     > "$LOG_DIR/$dir.log" 2>&1 &
 
   # 4. Wait for health

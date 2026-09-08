@@ -5,6 +5,7 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
+import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.InAppNotificationService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
@@ -33,6 +34,7 @@ public class InternalNotifyController {
     private final InAppNotificationService inAppService;
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
+    private final ExpoPushService expoPushService;
 
     @Value("${notification.internal-key}")
     private String internalKey;
@@ -145,6 +147,30 @@ public class InternalNotifyController {
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create bulk in-app notifications: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(ApiResponse.error("GENERAL_400", "Bad request"));
+        }
+    }
+
+    @PostMapping("/push")
+    public ResponseEntity<ApiResponse<Void>> pushNotify(
+            @RequestHeader("X-Internal-Key") String key,
+            @RequestBody Map<String, Object> body) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+
+        try {
+            UUID userId = UUID.fromString((String) body.get("userId"));
+            String title   = (String) body.getOrDefault("title", "");
+            String message = (String) body.getOrDefault("body", "");
+            @SuppressWarnings("unchecked")
+            Map<String, String> data = (Map<String, String>) body.getOrDefault("data", null);
+            expoPushService.sendToUserWithData(userId, title, message, data);
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (Exception e) {
+            log.error("Failed to send direct push notification: {}", e.getMessage());
             return ResponseEntity.badRequest().body(ApiResponse.error("GENERAL_400", "Bad request"));
         }
     }
