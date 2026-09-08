@@ -525,6 +525,53 @@ export default function ChitDetailScreen() {
                       </View>
                     )}
                   </View>
+
+                  {/* Why the net differs from the won amount */}
+                  {(() => {
+                    const deductions = [
+                      { label: `Draw #${myPayout.monthNumber} installment withheld`, value: Number(myPayout.installmentSettlement ?? 0) },
+                      { label: 'Cross-chit settlement', value: Number(myPayout.crossChitSettlement ?? 0) },
+                      { label: 'Manual adjustment', value: Number(myPayout.manualAdjustment ?? 0) },
+                    ].filter((d) => d.value > 0);
+                    if (deductions.length === 0) return null;
+                    return (
+                      <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: isDisbursed ? '#BBF7D0' : '#FDE68A' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500, letterSpacing: 0.5, marginBottom: 6 }}>
+                          WITHHELD
+                        </Text>
+                        {deductions.map((d) => (
+                          <View key={d.label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500, flex: 1, paddingRight: 10 }}>{d.label}</Text>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>
+                              − ₹{d.value.toLocaleString('en-IN')}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
+
+                  {/* Disbursement records */}
+                  {(myPayout.disbursements ?? []).length > 0 && (
+                    <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: isDisbursed ? '#BBF7D0' : '#FDE68A' }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500, letterSpacing: 0.5, marginBottom: 6 }}>
+                        DISBURSEMENTS
+                      </Text>
+                      {(myPayout.disbursements as any[]).map((d: any, i: number) => (
+                        <View key={d.id ?? i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <View style={{ flex: 1, paddingRight: 10 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray900 }}>
+                              ₹{Number(d.amount ?? 0).toLocaleString('en-IN')}
+                            </Text>
+                            <Text style={{ fontSize: 10, color: C.gray400 }}>
+                              {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(d.disbursedAt)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
               );
             })()}

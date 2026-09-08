@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View, Text, FlatList, RefreshControl, Modal, ScrollView, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getMyMemberProfile, getPayoutsForMember, getMyChits } from '../../../services/api';
+import { getMyMemberProfile, getPayoutsForMember, getMyChits, getPayoutById } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Divider, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -31,6 +31,164 @@ const FILTER_CHIPS = [
   { key: 'DISBURSED',          label: 'Disbursed' },
   { key: 'CANCELLED',          label: 'Cancelled' },
 ];
+
+const MODE_EMOJI: Record<string, string> = {
+  CASH: '💵', UPI: '📱', BANK: '🏦', NEFT: '🏦', RTGS: '🏦', IMPS: '🏦', BANK_TRANSFER: '🏦',
+};
+
+function BreakdownRow({ label, sub, value, color, bold, tinted }: {
+  label: string; sub?: string; value: string; color?: string; bold?: boolean; tinted?: string;
+}) {
+  return (
+    <View style={{
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+      paddingVertical: 11, paddingHorizontal: tinted ? 12 : 0,
+      marginHorizontal: tinted ? -12 : 0,
+      backgroundColor: tinted ?? 'transparent',
+      borderBottomWidth: 1, borderBottomColor: C.gray100,
+    }}>
+      <View style={{ flex: 1, paddingRight: 12 }}>
+        <Text style={{ fontSize: 13, fontWeight: bold ? '700' : '500', color: bold ? C.gray900 : C.gray600 ?? C.gray500 }}>
+          {label}
+        </Text>
+        {sub ? <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{sub}</Text> : null}
+      </View>
+      <Text style={{ fontSize: bold ? 15 : 13, fontWeight: bold ? '800' : '600', color: color ?? C.gray900 }}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * The list endpoint returns a payout summary without `disbursements`, so the
+ * modal refetches the full record by id and seeds it with the summary so the
+ * numbers render immediately instead of flashing empty.
+ */
+function PayoutDetailModal({ summary, chitName, onClose }: {
+  summary: any; chitName: string; onClose: () => void;
+}) {
+  const { data: full } = useQuery({
+    queryKey: ['member-payout', summary?.id],
+    queryFn: () => getPayoutById(summary.id),
+    enabled: !!summary?.id,
+    initialData: summary,
+  });
+
+  const p = full ?? summary;
+  const inr = (v: any) => `₹${Number(v ?? 0).toLocaleString('en-IN')}`;
+  const statusColor = PAYOUT_STATUS_COLOR[p.status] ?? C.gray400;
+  const disbursements: any[] = p.disbursements ?? [];
+  const isDisbursed = p.status === 'DISBURSED' || p.status === 'PARTIALLY_DISBURSED';
+  const remaining = Number(p.remainingAmount ?? 0);
+
+  return (
+    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>
+                Payout — Draw #{p.drawNumber ?? p.monthNumber ?? '—'}
+              </Text>
+              <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{chitName}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ backgroundColor: statusColor + '20', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor }}>
+                  {PAYOUT_STATUS_LABEL[p.status] ?? p.status}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Breakdown */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 4 }}>
+              PAYOUT BREAKDOWN
+            </Text>
+            <BreakdownRow label="Winning Amount" value={inr(p.winningAmount)} bold />
+            {Number(p.installmentSettlement ?? 0) > 0 && (
+              <BreakdownRow
+                label="Installment Withheld"
+                sub={`Draw #${p.drawNumber ?? p.monthNumber} installment`}
+                value={`− ${inr(p.installmentSettlement)}`}
+                color={C.red}
+              />
+            )}
+            {Number(p.crossChitSettlement ?? 0) > 0 && (
+              <BreakdownRow
+                label="Cross-Chit Settlement"
+                sub="Outstanding dues from your other chits"
+                value={`− ${inr(p.crossChitSettlement)}`}
+                color={C.red}
+              />
+            )}
+            {Number(p.manualAdjustment ?? 0) > 0 && (
+              <BreakdownRow label="Manual Adjustment" value={`− ${inr(p.manualAdjustment)}`} color={C.red} />
+            )}
+            {Number(p.discountAmount ?? 0) > 0 && (
+              <BreakdownRow label="Total Withheld" value={`− ${inr(p.discountAmount)}`} color={C.red} bold tinted="#FEF2F2" />
+            )}
+            <BreakdownRow label="Net Payout" value={inr(p.netPayoutAmount)} color={C.navy} bold tinted={C.gray50} />
+
+            {/* Disbursements */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 22, marginBottom: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>
+                DISBURSEMENTS
+              </Text>
+              <Text style={{ fontSize: 11, color: C.gray400 }}>
+                Paid <Text style={{ fontWeight: '700', color: C.green }}>{inr(p.disbursedAmount)}</Text>
+                {remaining > 0 ? <Text style={{ color: C.amber }}>{`  ·  ${inr(remaining)} pending`}</Text> : null}
+              </Text>
+            </View>
+
+            {disbursements.length === 0 ? (
+              <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 18 }}>
+                {isDisbursed ? 'No disbursement records' : 'Not yet disbursed'}
+              </Text>
+            ) : (
+              disbursements.map((d: any, i: number) => (
+                <View
+                  key={d.id ?? i}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 12,
+                    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100,
+                  }}
+                >
+                  <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#F0FDF4', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 16 }}>{MODE_EMOJI[d.mode] ?? '💵'}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{inr(d.amount)}</Text>
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>
+                      {d.mode}{d.referenceNumber ? ` · ${d.referenceNumber}` : ''}
+                    </Text>
+                    {d.notes ? (
+                      <Text style={{ fontSize: 11, color: C.gray500, fontStyle: 'italic', marginTop: 1 }}>{d.notes}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(d.disbursedAt)}</Text>
+                </View>
+              ))
+            )}
+
+            {p.notes ? (
+              <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 14, marginTop: 18 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#B45309', letterSpacing: 0.5, marginBottom: 5 }}>NOTES</Text>
+                <Text style={{ fontSize: 13, color: '#92400E' }}>{p.notes}</Text>
+              </View>
+            ) : null}
+            <View style={{ height: 16 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function MemberPayoutsScreen() {
   const [detail, setDetail] = useState<any>(null);
@@ -219,58 +377,13 @@ export default function MemberPayoutsScreen() {
       />
 
       {/* Detail modal */}
-      <Modal visible={!!detail} animationType="slide" transparent presentationStyle="overFullScreen">
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payout Details</Text>
-              <TouchableOpacity onPress={() => setDetail(null)}>
-                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {detail && (() => {
-                const p = detail;
-                const statusColor = PAYOUT_STATUS_COLOR[p.status] ?? C.gray400;
-                const chitName = chitMap[p.chitId] ?? '—';
-                const netAmt = p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0;
-                const disbursed = p.disbursedAmount ?? 0;
-                const remaining = p.remainingAmount ?? (netAmt - disbursed);
-
-                const Row = ({ label, value, color }: { label: string; value: string; color?: string }) => (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                    <Text style={{ fontSize: 13, color: C.gray500 }}>{label}</Text>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: color ?? C.gray900 }}>{value}</Text>
-                  </View>
-                );
-
-                return (
-                  <>
-                    <Row label="Chit Fund" value={chitName} />
-                    <Row label="Draw Number" value={`#${p.drawNumber ?? p.monthNumber ?? '—'}`} />
-                    <Row label="Status" value={PAYOUT_STATUS_LABEL[p.status] ?? p.status} color={statusColor} />
-                    <Row label="Won Amount" value={`₹${Number(netAmt).toLocaleString('en-IN')}`} color={C.green} />
-                    {(p.winningAmount && p.netPayoutAmount && p.winningAmount !== p.netPayoutAmount) && (
-                      <>
-                        <Row label="Gross Won" value={`₹${Number(p.winningAmount).toLocaleString('en-IN')}`} />
-                        <Row label="Withheld" value={`-₹${Number(p.winningAmount - p.netPayoutAmount).toLocaleString('en-IN')}`} color={C.red} />
-                        <Row label="Net Payout" value={`₹${Number(p.netPayoutAmount).toLocaleString('en-IN')}`} color={C.green} />
-                      </>
-                    )}
-                    {disbursed > 0 && <Row label="Received" value={`₹${Number(disbursed).toLocaleString('en-IN')}`} color={C.navy} />}
-                    {remaining > 0 && p.status !== 'DISBURSED' && (
-                      <Row label="Remaining" value={`₹${Number(remaining).toLocaleString('en-IN')}`} color={C.amber} />
-                    )}
-                    {p.disbursementMode && <Row label="Payment Mode" value={p.disbursementMode} />}
-                    {p.disbursedAt && <Row label="Paid On" value={fmtDate(p.disbursedAt)} />}
-                    {p.notes && <Row label="Notes" value={p.notes} />}
-                  </>
-                );
-              })()}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {detail && (
+        <PayoutDetailModal
+          summary={detail}
+          chitName={chitMap[detail.chitId] ?? '—'}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
