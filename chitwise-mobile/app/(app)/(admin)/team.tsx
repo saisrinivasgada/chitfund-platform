@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, ScrollView, Clipboard,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -591,6 +592,7 @@ export default function AdminTeamScreen() {
 
       {/* ── Create Staff Modal ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Add Staff Member</Text>
@@ -656,6 +658,7 @@ export default function AdminTeamScreen() {
               disabled={isExpired || !cFullName || !cUsername || !cPassword || (!!cPhone && !cPhoneVerified)} />
           </View>
         </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList, Switch,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -389,6 +390,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 
       {/* ── Setup Cash Pickup Modal ─────────────────────────────────────────── */}
       <Modal visible={showSetup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowSetup(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.white }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Setup Cash Pickup</Text>
@@ -542,11 +544,12 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             />
           </ScrollView>
         </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Edit Cash Request Modal ─────────────────────────────────────────── */}
       <Modal visible={!!editTarget} animationType="slide" transparent onRequestClose={() => setEditTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Edit Cash Pickup</Text>
@@ -610,12 +613,12 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               </View>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Void Pickup Modal ───────────────────────────────────────────────── */}
       <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
@@ -631,12 +634,12 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 onPress={() => voidMut.mutate({ id: voidTarget.id, reason: voidReason })} /></View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Assign Staff Modal ─────────────────────────────────────────────── */}
       <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
@@ -679,7 +682,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                 onPress={() => assignMut.mutate({ id: assignTarget.id, staffId: assignWorkerId, notes: assignNotes })} /></View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Audit Trail Modal ────────────────────────────────────────────────── */}

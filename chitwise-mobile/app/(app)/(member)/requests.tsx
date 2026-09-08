@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, FlatList, RefreshControl, Alert, Modal, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Alert, Modal, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyRequests, getMyChits, createCashRequest, updateCashRequest, getCashRequestAuditLog, memberApproveCashRequest, getPaymentBatchById, getChit, getDraws, getMyMemberProfile, getMemberBalance } from '../../../services/api';
@@ -317,7 +317,7 @@ export default function MemberRequestsScreen() {
 
       {/* Create Request Modal */}
       <Modal visible={showCreate} animationType="slide" transparent presentationStyle="overFullScreen">
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 20 }}>Request Cash Pickup</Text>
 
@@ -391,12 +391,12 @@ export default function MemberRequestsScreen() {
               </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Request Modal */}
       <Modal visible={!!editTarget} animationType="slide" transparent presentationStyle="overFullScreen">
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Edit Cash Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
@@ -435,7 +435,7 @@ export default function MemberRequestsScreen() {
               </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Receipt Modal */}

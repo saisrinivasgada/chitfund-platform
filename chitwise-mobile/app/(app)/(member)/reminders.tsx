@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, ActivityIndicator,
-  Animated, Modal, TextInput,
+  Animated, Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -76,7 +76,7 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
     : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
       <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40 }}>
         {/* Handle */}
         <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 4 }}>
@@ -214,7 +214,7 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
         </View>
 
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
