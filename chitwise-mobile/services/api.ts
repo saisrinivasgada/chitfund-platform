@@ -1002,4 +1002,20 @@ export const updateOrgDetails = async (payload: { orgName?: string; businessRegN
   return res.data.data;
 };
 
+// ── Subscription lifecycle (admin self-service) ───────────────────────────────
+export const cancelSubscription = async (): Promise<any> => {
+  const res = await api.post('/billing/cancel');
+  return res.data.data;
+};
+
+export const resumeSubscription = async (): Promise<any> => {
+  const res = await api.post('/billing/resume');
+  return res.data.data;
+};
+
+export const applyDowngrade = async (toPlan: string): Promise<any> => {
+  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
+  return res.data.data;
+};
+
 export default api;

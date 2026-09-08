@@ -7,6 +7,7 @@ import {
   getBillingInfo, getMyTenantLimits, myBillingPayments,
   requestRenewal, requestPlanUpgrade, getPublicPlans,
   listStaff, getChits, getMembersPage,
+  cancelSubscription, resumeSubscription, applyDowngrade,
 } from '../../../services/api';
 import { C, T, GlassCard, LoadingScreen, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -79,9 +80,10 @@ function UsageBar({ label, used, limit }: { label: string; used: number; limit: 
 
 // ── Plan upgrade modal ────────────────────────────────────────────────────────
 function UpgradeModal({
-  visible, onClose, plans, currentPlan,
+  visible, onClose, plans, currentPlan, currentPriceInr, onDowngrade, downgrading,
 }: {
   visible: boolean; onClose: () => void; plans: any[]; currentPlan: string;
+  currentPriceInr?: number; onDowngrade: (plan: string) => void; downgrading: boolean;
 }) {
   const [selected, setSelected] = useState('');
   const qc = useQueryClient();
@@ -97,6 +99,31 @@ function UpgradeModal({
   });
 
   const upgradable = plans.filter((p) => p.plan !== currentPlan?.toUpperCase());
+
+  // A plan priced below the current plan is an instant downgrade (credit returned),
+  // anything above needs a request our team confirms.
+  const selectedPlan = upgradable.find((p) => p.plan === selected);
+  const isDowngrade =
+    !!selectedPlan &&
+    selectedPlan.plan !== 'CUSTOM' &&
+    currentPriceInr != null &&
+    Number(selectedPlan.effectivePriceInr ?? selectedPlan.priceMonthlyInr ?? 0) < Number(currentPriceInr);
+
+  function submit() {
+    if (!selected) return;
+    if (isDowngrade) {
+      Alert.alert(
+        'Downgrade Plan',
+        `Switch to ${selectedPlan?.displayName ?? selected}? This applies immediately and any unused balance is returned as account credit.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Downgrade', style: 'destructive', onPress: () => onDowngrade(selected) },
+        ]
+      );
+    } else {
+      upgradeMut.mutate();
+    }
+  }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -172,15 +199,21 @@ function UpgradeModal({
 
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
           <Button
-            label={upgradeMut.isPending ? 'Requesting…' : 'Request Plan Change'}
-            onPress={() => upgradeMut.mutate()}
-            loading={upgradeMut.isPending}
+            label={
+              isDowngrade
+                ? (downgrading ? 'Downgrading…' : 'Downgrade Plan')
+                : (upgradeMut.isPending ? 'Requesting…' : 'Request Plan Change')
+            }
+            onPress={submit}
+            loading={isDowngrade ? downgrading : upgradeMut.isPending}
             disabled={!selected}
             variant="primary"
             fullWidth
           />
           <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 8 }}>
-            Our team will confirm and process your request within 24 hours.
+            {isDowngrade
+              ? 'Applies immediately — unused balance is returned as account credit.'
+              : 'Our team will confirm and process your request within 24 hours.'}
           </Text>
         </View>
       </SafeAreaView>
@@ -232,6 +265,35 @@ export default function BillingScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
+  const cancelMut = useMutation({
+    mutationFn: cancelSubscription,
+    onSuccess: () => {
+      toast.saved('Cancellation scheduled — access continues until your billing cycle ends');
+      qc.invalidateQueries({ queryKey: ['m-billing-info'] });
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to cancel subscription'),
+  });
+
+  const resumeMut = useMutation({
+    mutationFn: resumeSubscription,
+    onSuccess: () => {
+      toast.saved('Subscription resumed');
+      qc.invalidateQueries({ queryKey: ['m-billing-info'] });
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume subscription'),
+  });
+
+  const downgradeMut = useMutation({
+    mutationFn: (toPlan: string) => applyDowngrade(toPlan),
+    onSuccess: () => {
+      toast.saved('Plan downgraded — unused balance returned as credit');
+      qc.invalidateQueries({ queryKey: ['m-billing-info'] });
+      qc.invalidateQueries({ queryKey: ['m-tenant-limits'] });
+      setShowUpgrade(false);
+    },
+    onError: (e: any) => Alert.alert('Downgrade Failed', e.response?.data?.message ?? 'Could not downgrade plan'),
+  });
+
   async function onRefresh() {
     setRefreshing(true);
     await Promise.all([refetchBilling(), refetchLimits(), refetchPayments()]);
@@ -256,6 +318,7 @@ export default function BillingScreen() {
   const discountActive = billing?.appliedDiscountPct && Number(billing.appliedDiscountPct) > 0;
   const discountExpiry = billing?.promoDiscountUntil ? fmtDate(billing.promoDiscountUntil) : null;
   const isExpired = billing?.planExpiresAt && new Date(billing.planExpiresAt) < new Date();
+  const cancellationScheduled = !!billing?.cancellationRequestedAt;
 
   function durationLabel() {
     if (!billing?.discountDurationType) return null;
@@ -310,6 +373,28 @@ export default function BillingScreen() {
                 Expired on {fmtDate(billing?.planExpiresAt)}. Contact us to renew.
               </Text>
             </View>
+          </View>
+        )}
+
+        {/* Cancellation scheduled banner */}
+        {cancellationScheduled && !isExpired && (
+          <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text style={{ fontSize: 20 }}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>Cancellation Scheduled</Text>
+              <Text style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                Access continues until {billing?.planExpiresAt ? fmtDate(billing.planExpiresAt) : 'plan expiry'}.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => resumeMut.mutate()}
+              disabled={resumeMut.isPending}
+              style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, opacity: resumeMut.isPending ? 0.6 : 1 }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>
+                {resumeMut.isPending ? '…' : 'Resume'}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -371,6 +456,55 @@ export default function BillingScreen() {
               {isExpired ? 'Renew / Change Plan' : 'Change Plan'}
             </Text>
           </TouchableOpacity>
+
+          {/* Cancel / Resume subscription */}
+          <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+            {cancellationScheduled ? (
+              <>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#B45309', marginBottom: 8 }}>
+                  Cancellation scheduled — you have full access until{' '}
+                  {billing?.planExpiresAt ? fmtDate(billing.planExpiresAt) : 'end of billing cycle'}.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => resumeMut.mutate()}
+                  disabled={resumeMut.isPending}
+                  style={{
+                    backgroundColor: C.navy, borderRadius: 10,
+                    paddingVertical: 10, alignItems: 'center', opacity: resumeMut.isPending ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>
+                    {resumeMut.isPending ? 'Resuming…' : 'Resume Subscription'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={() => Alert.alert(
+                    'Cancel Subscription',
+                    `Your organisation keeps full access until ${billing?.planExpiresAt ? fmtDate(billing.planExpiresAt) : 'the end of your billing cycle'}. After that, access ends.`,
+                    [
+                      { text: 'Keep Plan', style: 'cancel' },
+                      { text: 'Cancel Subscription', style: 'destructive', onPress: () => cancelMut.mutate() },
+                    ]
+                  )}
+                  disabled={cancelMut.isPending}
+                  style={{
+                    borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10,
+                    paddingVertical: 10, alignItems: 'center', opacity: cancelMut.isPending ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626' }}>
+                    {cancelMut.isPending ? 'Cancelling…' : 'Cancel Subscription'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
+                  You keep full access until your current billing cycle ends.
+                </Text>
+              </>
+            )}
+          </View>
         </GlassCard>
 
         {/* Usage limits */}
@@ -532,6 +666,9 @@ export default function BillingScreen() {
         onClose={() => setShowUpgrade(false)}
         plans={publicPlans as any[]}
         currentPlan={billing?.plan ?? ''}
+        currentPriceInr={billing?.effectivePriceInr ?? billing?.priceMonthlyInr}
+        onDowngrade={(plan) => downgradeMut.mutate(plan)}
+        downgrading={downgradeMut.isPending}
       />
     </SafeAreaView>
   );
