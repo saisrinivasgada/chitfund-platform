@@ -475,16 +475,16 @@ jobs:
           chmod 600 ~/.ssh/config
 
       # ── Backend deploy ────────────────────────────────────────────────────────
-      - name: Sync docker-compose and update .env
+      - name: Sync docker-compose and fetch secrets
         if: needs.changes.outputs.backend == 'true'
         run: |
           scp -i ~/.ssh/deploy-key.pem \
             docker-compose.prod.yml \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/docker-compose.prod.yml
-          echo "${{ secrets.PROD_ENV }}" | \
-            ssh -i ~/.ssh/deploy-key.pem \
-              ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-              "cat > ${{ env.APP_DIR }}/.env"
+            scripts/fetch-secrets.sh \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/
+          ssh -i ~/.ssh/deploy-key.pem \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "chmod +x ${{ env.APP_DIR }}/fetch-secrets.sh && ${{ env.APP_DIR }}/fetch-secrets.sh"
 
       - name: Pull images and restart services
         if: needs.changes.outputs.backend == 'true'
