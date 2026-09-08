@@ -369,7 +369,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
           {([
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
-            { id: 'accounts', label: accounts.length > 1 ? `Accts (${accounts.length})` : 'Accounts' },
+            { id: 'accounts', label: accounts.length > 1 ? `Accts (${accounts.length})` : 'Accts' },
             ...(role === 'ADMIN' || role === 'MANAGER' || role === 'STAFF' ? [{ id: 'history', label: 'History' }] : []),
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{

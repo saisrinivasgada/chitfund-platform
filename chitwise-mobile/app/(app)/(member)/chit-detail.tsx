@@ -241,6 +241,16 @@ export default function ChitDetailScreen() {
         ))}
       </View>
 
+      {/* Org-held slots notice */}
+      {(chit.orgHeldSpotsCount ?? 0) > 0 && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#EFF6FF', paddingHorizontal: 16, paddingVertical: 8, gap: 6 }}>
+          <Text style={{ fontSize: 11, color: '#1D4ED8' }}>🏦</Text>
+          <Text style={{ fontSize: 11, color: '#1D4ED8', fontWeight: '600' }}>
+            {chit.orgHeldSpotsCount} org-held slot{(chit.orgHeldSpotsCount ?? 0) > 1 ? 's' : ''} — managed by your chit fund organiser
+          </Text>
+        </View>
+      )}
+
       {/* Tab bar — auction chits only */}
       {isAuctionChit && (
         <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>

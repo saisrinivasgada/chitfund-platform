@@ -1,9 +1,9 @@
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
-import { getOrgSettings, getBillingInfo, getMyTenantLimits, listStaff } from '../../../services/api';
+import { getOrgSettings, getBillingInfo, getMyTenantLimits, listStaff, getOrgReservations, realizeOrgPayout } from '../../../services/api';
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -38,11 +38,22 @@ function LimitRow({ label, used, max }: { label: string; used?: number; max?: nu
 
 export default function MyOrgScreen() {
   const router = useRouter();
+  const qc = useQueryClient();
 
   const { data: org, isLoading: orgLoading } = useQuery({ queryKey: ['org-settings'], queryFn: getOrgSettings, staleTime: 120_000 });
   const { data: billing } = useQuery({ queryKey: ['m-billing'], queryFn: getBillingInfo, staleTime: 300_000 });
   const { data: limits } = useQuery({ queryKey: ['tenant-limits'], queryFn: getMyTenantLimits, staleTime: 120_000 });
   const { data: staff } = useQuery({ queryKey: ['org-staff-summary'], queryFn: listStaff, staleTime: 120_000 });
+  const { data: orgSlots = [] } = useQuery({ queryKey: ['org-reservations'], queryFn: getOrgReservations, staleTime: 60_000 });
+
+  const realizeMut = useMutation({
+    mutationFn: ({ chitId, reservationId }: { chitId: string; reservationId: string }) => realizeOrgPayout(chitId, reservationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-reservations'] });
+      Alert.alert('Success', 'Payout realized to treasury');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to realize payout'),
+  });
 
   const planExpiry = (billing as any)?.planExpiresAt;
   const isExpired = planExpiry && new Date(planExpiry) < new Date();
@@ -173,6 +184,81 @@ export default function MyOrgScreen() {
               <View style={{ height: 4 }} />
             </View>
           )}
+
+          {/* Org Holdings */}
+          {(orgSlots as any[]).length > 0 && (() => {
+            const active = (orgSlots as any[]).filter((s: any) => s.status === 'RESERVED');
+            const realized = (orgSlots as any[]).filter((s: any) => s.status === 'PROCESSED');
+            return (
+              <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>ORG HOLDINGS</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400 }}>{(orgSlots as any[]).length} slot{(orgSlots as any[]).length !== 1 ? 's' : ''}</Text>
+                </View>
+                {active.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>ACTIVE · {active.length}</Text>
+                    {active.map((s: any) => {
+                      const date = s.reservationMonth
+                        ? new Date(s.reservationMonth + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+                        : '—';
+                      return (
+                        <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#EEF2F8', borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.navy + '20' }}>
+                          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>D{s.monthNumber}</Text>
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{s.chitName ?? 'Unknown Chit'}</Text>
+                            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 1 }}>
+                              Draw #{s.monthNumber} · {date}{s.payoutAmount ? ` · ₹${Number(s.payoutAmount).toLocaleString('en-IN')}` : ''}
+                            </Text>
+                          </View>
+                          {s.eligibleToRealize ? (
+                            <TouchableOpacity
+                              onPress={() => Alert.alert(
+                                'Realize Payout',
+                                `Realize ₹${Number(s.payoutAmount).toLocaleString('en-IN')} for Draw #${s.monthNumber} to treasury?`,
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  { text: 'Realize', onPress: () => realizeMut.mutate({ chitId: s.chitId, reservationId: s.id }) },
+                                ]
+                              )}
+                              disabled={realizeMut.isPending}
+                              style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                            >
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>
+                                {realizeMut.isPending ? '…' : 'Realize'}
+                              </Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <Text style={{ fontSize: 11, color: C.gray400 }}>Pending</Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </>
+                )}
+                {realized.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8, marginTop: active.length > 0 ? 4 : 0 }}>REALIZED · {realized.length}</Text>
+                    {realized.slice(0, 3).map((s: any) => (
+                      <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 10, padding: 10, marginBottom: 6, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.gray50 }}>
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#9CA3AF', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>D{s.monthNumber}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700 }}>{s.chitName ?? 'Unknown Chit'}</Text>
+                          <Text style={{ fontSize: 11, color: C.green }}>✓ Realized</Text>
+                        </View>
+                        {s.payoutAmount && <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500 }}>₹{Number(s.payoutAmount).toLocaleString('en-IN')}</Text>}
+                      </View>
+                    ))}
+                  </>
+                )}
+                <View style={{ height: 4 }} />
+              </View>
+            );
+          })()}
 
           {/* Quick links */}
           {[

@@ -8,12 +8,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Sends in-app notifications to notification-service so they appear in the bell.
- * Best-effort: failures are logged and never block the payment flow.
+ * Sends notifications to notification-service. Best-effort: failures are logged and never block the calling flow.
  */
 @Component
 @RequiredArgsConstructor
@@ -34,7 +34,7 @@ public class NotificationServiceClient {
             headers.set("X-Internal-Key", internalKey);
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            Map<String, Object> body = new java.util.HashMap<>();
+            Map<String, Object> body = new HashMap<>();
             body.put("recipientId", recipientId.toString());
             body.put("title", title);
             body.put("message", message);
@@ -47,6 +47,27 @@ public class NotificationServiceClient {
                     Void.class);
         } catch (RestClientException e) {
             log.warn("notification-service unreachable for in-app notification to {}: {}", recipientId, e.getMessage());
+        }
+    }
+
+    public void sendPushWithData(UUID userId, String title, String message, Map<String, String> data) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("userId", userId.toString());
+            body.put("title", title);
+            body.put("body", message);
+            if (data != null) body.put("data", data);
+
+            restTemplate.postForObject(
+                    notificationServiceUrl + "/internal/notify/push",
+                    new HttpEntity<>(body, headers),
+                    Void.class);
+        } catch (RestClientException e) {
+            log.warn("notification-service push unreachable for user {}: {}", userId, e.getMessage());
         }
     }
 }

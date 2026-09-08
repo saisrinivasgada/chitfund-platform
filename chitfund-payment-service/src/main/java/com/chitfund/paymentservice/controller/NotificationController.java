@@ -74,8 +74,9 @@ public class NotificationController {
                 "Payment Reminder",
                 msg,
                 null, null, "/member");
-        // Also push to the in-app bell via notification-service
+        // In-app bell + Expo push notification to the member's device
         notificationServiceClient.createInApp(userId, "Payment Reminder", msg, "PAYMENT_REMINDER", "/member");
+        notificationServiceClient.sendPushWithData(userId, "Payment Reminder", msg, Map.of("screen", "reminders"));
         return ResponseEntity.ok(ApiResponse.success(null, "Reminder sent"));
     }
 

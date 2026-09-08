@@ -76,6 +76,13 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
+    public PagedResponse<TicketResponse> listForMember(String tenantId, String userId, int page, int size) {
+        Page<SupportTicket> tickets = ticketRepository.findByTenantIdAndCreatedByOrderByCreatedAtDesc(
+                tenantId, userId, PageRequest.of(page, size));
+        return toPagedResponse(tickets, tenantId);
+    }
+
+    @Transactional(readOnly = true)
     public PagedResponse<TicketResponse> listAll(int page, int size, TicketStatus status) {
         Page<SupportTicket> tickets = status != null
                 ? ticketRepository.findByStatusOrderByCreatedAtDesc(status, PageRequest.of(page, size))

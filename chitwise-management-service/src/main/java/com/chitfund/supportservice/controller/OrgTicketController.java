@@ -32,11 +32,6 @@ public class OrgTicketController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("success", false, "message", "Missing authentication context"));
         }
-        if (!ctx.isAdminOnly()) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("success", false, "message", "Only administrators can contact ChitWise support"));
-        }
-
         String userName = ctx.getUserName();
         if (userName == null) userName = ctx.getUserId();
 
@@ -56,7 +51,9 @@ public class OrgTicketController {
                     .body(Map.of("success", false, "message", "Missing authentication context"));
         }
 
-        PagedResponse<TicketResponse> result = ticketService.listForOrg(ctx.getTenantId(), page, size);
+        PagedResponse<TicketResponse> result = "MEMBER".equals(ctx.getRole())
+                ? ticketService.listForMember(ctx.getTenantId(), ctx.getUserId(), page, size)
+                : ticketService.listForOrg(ctx.getTenantId(), page, size);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
@@ -93,9 +90,10 @@ public class OrgTicketController {
         String userName = ctx.getUserName();
         if (userName == null) userName = ctx.getUserId();
 
+        SenderType senderType = "MEMBER".equals(ctx.getRole()) ? SenderType.ORG_MEMBER : SenderType.ORG_ADMIN;
         TicketMessageResponse message = ticketService.sendMessage(
                 ticketId, ctx.getTenantId(), false,
-                ctx.getUserId(), userName, SenderType.ORG_ADMIN, request);
+                ctx.getUserId(), userName, senderType, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", message));
     }
