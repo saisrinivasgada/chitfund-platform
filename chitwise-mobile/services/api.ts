@@ -1018,4 +1018,44 @@ export const applyDowngrade = async (toPlan: string): Promise<any> => {
   return res.data.data;
 };
 
+// ── Account lockout (admin unlocks staff locked out by failed logins) ─────────
+export const lockUser = async (id: string): Promise<any> => {
+  const res = await api.put(`/users/${id}/lock`);
+  return res.data.data;
+};
+
+export const unlockUser = async (id: string): Promise<any> => {
+  const res = await api.put(`/users/${id}/unlock`);
+  return res.data.data;
+};
+
+// ── Super-admin: tenant subscription lifecycle ────────────────────────────────
+export const superAdminCancelTenant = async (tenantId: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/cancel`);
+  return res.data.data;
+};
+
+// ── Super-admin: per-org discount ─────────────────────────────────────────────
+export const superAdminGetDiscount = async (tenantId: string): Promise<any> => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/discount`);
+  return res.data.data ?? null;
+};
+
+export const superAdminSetDiscount = async (
+  tenantId: string,
+  body: { discountType: string; discountValue: number; reason?: string | null; expiresAt?: string | null },
+): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/discount`, body);
+  return res.data.data;
+};
+
+export const superAdminRemoveDiscount = async (tenantId: string): Promise<void> => {
+  await api.delete(`/super-admin/tenants/${tenantId}/discount`);
+};
+
+export const superAdminRemoveCustomLimits = async (tenantId: string, fallbackPlan = 'BASIC'): Promise<any> => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+  return res.data;
+};
+
 export default api;

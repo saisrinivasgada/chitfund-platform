@@ -25,6 +25,16 @@ import {
   superAdminSetCustomLimits,
   superAdminListCapabilities,
   superAdminListPlans,
+  superAdminSetPlanExpiry,
+  superAdminCancelTenant,
+  superAdminResumeTenant,
+  superAdminGetDiscount,
+  superAdminSetDiscount,
+  superAdminRemoveDiscount,
+  superAdminRemoveCustomLimits,
+  resetMemberPassword,
+  lockUser,
+  unlockUser,
 } from '../../../services/api';
 import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -71,6 +81,11 @@ export default function OrgDetailPage() {
   const [showReactivate, setShowReactivate] = useState(false);
   const [reactivateSlug, setReactivateSlug] = useState('');
   const [showCustomLimits, setShowCustomLimits] = useState(false);
+  const [showSetExpiry, setShowSetExpiry] = useState(false);
+  const [showSetDiscount, setShowSetDiscount] = useState(false);
+  // Credentials surfaced after a password reset — shown once, never re-fetchable.
+  const [resetCreds, setResetCreds] = useState<{ username: string; password: string } | null>(null);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ['sa-org', tenantId],
@@ -113,6 +128,12 @@ export default function OrgDetailPage() {
     queryFn: superAdminListCapabilities,
     staleTime: 300_000,
   });
+  const { data: discount, refetch: refetchDiscount } = useQuery({
+    queryKey: ['sa-org-discount', tenantId],
+    queryFn: () => superAdminGetDiscount(tenantId!),
+    enabled: !!tenantId,
+    staleTime: 60_000,
+  });
 
   const activateMut = useMutation({
     mutationFn: () => superAdminActivateTenant(tenantId!),
@@ -151,7 +172,51 @@ export default function OrgDetailPage() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); refetchLimits(); }
+  const setExpiryMut = useMutation({
+    mutationFn: (expiresAt: string) => superAdminSetPlanExpiry(tenantId!, expiresAt),
+    onSuccess: () => { refetchOrg(); setShowSetExpiry(false); toast.saved('Plan expiry updated'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to set expiry'),
+  });
+  const cancelTenantMut = useMutation({
+    mutationFn: () => superAdminCancelTenant(tenantId!),
+    onSuccess: () => { refetchOrg(); toast.cancelled('Cancellation scheduled — access continues until plan expires'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to schedule cancellation'),
+  });
+  const resumeTenantMut = useMutation({
+    mutationFn: () => superAdminResumeTenant(tenantId!),
+    onSuccess: () => { refetchOrg(); toast.saved('Subscription resumed'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume subscription'),
+  });
+  const setDiscountMut = useMutation({
+    mutationFn: (body: any) => superAdminSetDiscount(tenantId!, body),
+    onSuccess: () => { refetchDiscount(); refetchOrg(); setShowSetDiscount(false); toast.saved('Discount saved'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save discount'),
+  });
+  const removeDiscountMut = useMutation({
+    mutationFn: () => superAdminRemoveDiscount(tenantId!),
+    onSuccess: () => { refetchDiscount(); refetchOrg(); toast.cancelled('Discount removed'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove discount'),
+  });
+  const removeCustomLimitsMut = useMutation({
+    mutationFn: () => superAdminRemoveCustomLimits(tenantId!, 'BASIC'),
+    onSuccess: () => { refetchLimits(); refetchOrg(); setShowPlanMenu(false); toast.saved('Custom limits removed — reverted to BASIC'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove custom limits'),
+  });
+  const resetPwdMut = useMutation({
+    mutationFn: (userId: string) => resetMemberPassword(userId),
+    onSuccess: (res: any) => { setResetCreds({ username: res?.username ?? '—', password: res?.tempPassword ?? '—' }); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to reset password'),
+    onSettled: () => setBusyUserId(null),
+  });
+  const lockMut = useMutation({
+    mutationFn: ({ userId, locked }: { userId: string; locked: boolean }) =>
+      locked ? unlockUser(userId) : lockUser(userId),
+    onSuccess: (_d, v) => { refetchUsers(); toast.saved(v.locked ? 'Account unlocked' : 'Account locked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onSettled: () => setBusyUserId(null),
+  });
+
+  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); refetchLimits(); refetchDiscount(); }
 
   const orgData = org as any;
 
@@ -322,11 +387,114 @@ export default function OrgDetailPage() {
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#D97706' }}>Set Limits</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => setShowSetExpiry(true)}
+            style={{ flex: 1, backgroundColor: '#EFF6FF', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#2563EB' }}>Set Expiry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => setShowAddUser(true)}
             style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ User</Text>
           </TouchableOpacity>
+          {orgData?.status === 'ACTIVE' && (
+            orgData?.cancellationRequestedAt ? (
+              <TouchableOpacity
+                onPress={() => resumeTenantMut.mutate()}
+                disabled={resumeTenantMut.isPending}
+                style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                  {resumeTenantMut.isPending ? 'Resuming…' : 'Resume Sub'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  'Schedule Cancellation',
+                  `Schedule cancellation for ${orgData?.name}? They keep access until the plan expires.`,
+                  [
+                    { text: 'Keep Plan', style: 'cancel' },
+                    { text: 'Schedule', style: 'destructive', onPress: () => cancelTenantMut.mutate() },
+                  ],
+                )}
+                disabled={cancelTenantMut.isPending}
+                style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>
+                  {cancelTenantMut.isPending ? 'Scheduling…' : 'Cancel Sub'}
+                </Text>
+              </TouchableOpacity>
+            )
+          )}
+        </View>
+
+        {/* Cancellation-pending banner */}
+        {orgData?.cancellationRequestedAt && (
+          <View style={{
+            backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 14,
+            padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 10,
+          }}>
+            <Text style={{ fontSize: 20 }}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>Cancellation scheduled</Text>
+              <Text style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                Access continues until {fmtDate(orgData?.planExpiresAt) ?? 'plan expiry'}.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => resumeTenantMut.mutate()}
+              disabled={resumeTenantMut.isPending}
+              style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>
+                {resumeTenantMut.isPending ? '…' : 'Resume'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Org discount */}
+        <View style={{
+          backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16,
+          borderWidth: 1, borderColor: C.gray100,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Org Discount</Text>
+            {discount ? (
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity onPress={() => setShowSetDiscount(true)}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert('Remove Discount', 'Remove this org discount?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeDiscountMut.mutate() },
+                ])}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={() => setShowSetDiscount(true)}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>+ Set</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: discount ? '#059669' : C.gray400, marginTop: 6 }}>
+            {discount
+              ? ((discount as any).discountType === 'FIXED_PAISE'
+                  ? `₹${(Number((discount as any).discountValue) / 100).toLocaleString('en-IN')} off`
+                  : `${Number((discount as any).discountValue)}% off`)
+              : 'None'}
+          </Text>
+          {discount && (discount as any).reason && (
+            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{(discount as any).reason}</Text>
+          )}
+          {discount && (discount as any).expiresAt && (
+            <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+              Expires {fmtDate((discount as any).expiresAt)}
+            </Text>
+          )}
         </View>
 
         {/* Plan usage bars */}
@@ -493,6 +661,11 @@ export default function OrgDetailPage() {
                           <Text style={{ fontSize: 10, fontWeight: '700', color: C.red }}>DISABLED</Text>
                         </View>
                       )}
+                      {u.locked && (
+                        <View style={{ backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706' }}>LOCKED</Text>
+                        </View>
+                      )}
                     </View>
                     <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>@{u.username}</Text>
                     {u.phone && <Text style={{ fontSize: 12, color: C.gray400 }}>{u.phone}</Text>}
@@ -504,6 +677,38 @@ export default function OrgDetailPage() {
                     Joined {fmtDate(u.joinedAt)}
                   </Text>
                 )}
+
+                {/* Per-user actions */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  <TouchableOpacity
+                    onPress={() => Alert.alert(
+                      'Reset Password',
+                      `Reset the password for ${u.fullName}? A temporary password will be generated.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Reset', style: 'destructive', onPress: () => { setBusyUserId(u.userId ?? u.id); resetPwdMut.mutate(u.userId ?? u.id); } },
+                      ],
+                    )}
+                    disabled={busyUserId === (u.userId ?? u.id)}
+                    style={{ flex: 1, backgroundColor: C.gray100, borderRadius: 9, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700 }}>
+                      {busyUserId === (u.userId ?? u.id) && resetPwdMut.isPending ? '…' : 'Reset Password'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setBusyUserId(u.userId ?? u.id); lockMut.mutate({ userId: u.userId ?? u.id, locked: !!u.locked }); }}
+                    disabled={busyUserId === (u.userId ?? u.id)}
+                    style={{
+                      flex: 1, borderRadius: 9, paddingVertical: 8, alignItems: 'center',
+                      backgroundColor: u.locked ? '#D1FAE5' : '#FEE2E2',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: u.locked ? '#059669' : C.red }}>
+                      {busyUserId === (u.userId ?? u.id) && lockMut.isPending ? '…' : u.locked ? 'Unlock' : 'Lock'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           )
@@ -593,6 +798,24 @@ export default function OrgDetailPage() {
                 {planMut.isPending ? <ActivityIndicator size="small" color={PLAN_COLORS[p]?.text} /> : <Text style={{ color: PLAN_COLORS[p]?.text }}>→</Text>}
               </TouchableOpacity>
             ))}
+            {(effectiveLimits as any)?.hasCustomLimits && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  'Remove Custom Limits',
+                  'Remove this org’s custom limits and revert it to the BASIC plan?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Remove', style: 'destructive', onPress: () => removeCustomLimitsMut.mutate() },
+                  ],
+                )}
+                disabled={removeCustomLimitsMut.isPending}
+                style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 14, padding: 16, marginBottom: 10, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.red }}>
+                  {removeCustomLimitsMut.isPending ? 'Removing…' : 'Remove Custom Limits'}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setShowPlanMenu(false)} style={{ alignItems: 'center', paddingTop: 8 }}>
               <Text style={{ color: C.gray400, fontSize: 15 }}>Cancel</Text>
             </TouchableOpacity>
@@ -682,7 +905,220 @@ export default function OrgDetailPage() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* Set plan expiry */}
+      {showSetExpiry && (
+        <SetExpiryModal
+          currentExpiry={orgData?.planExpiresAt}
+          saving={setExpiryMut.isPending}
+          onClose={() => setShowSetExpiry(false)}
+          onSave={(iso) => setExpiryMut.mutate(iso)}
+        />
+      )}
+
+      {/* Set org discount */}
+      {showSetDiscount && (
+        <SetDiscountModal
+          existing={discount as any}
+          saving={setDiscountMut.isPending}
+          onClose={() => setShowSetDiscount(false)}
+          onSave={(body) => setDiscountMut.mutate(body)}
+        />
+      )}
+
+      {/* Credentials after a password reset — shown once */}
+      <Modal visible={!!resetCreds} animationType="fade" transparent onRequestClose={() => setResetCreds(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: C.white, borderRadius: 18, padding: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Password Reset</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 4 }}>
+              Share these credentials with the user — they won't be shown again.
+            </Text>
+            {[
+              { label: 'Username', value: resetCreds?.username },
+              { label: 'Temporary password', value: resetCreds?.password },
+            ].map(({ label, value }) => (
+              <View key={label} style={{ marginTop: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>{label.toUpperCase()}</Text>
+                <Text selectable style={{ fontSize: 16, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 3 }}>
+                  {value}
+                </Text>
+              </View>
+            ))}
+            <TouchableOpacity
+              onPress={() => setResetCreds(null)}
+              style={{ marginTop: 18, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.white }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+// ── Set plan expiry ───────────────────────────────────────────────────────────
+function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
+  currentExpiry?: string; saving: boolean; onClose: () => void; onSave: (iso: string) => void;
+}) {
+  function toInput(d?: string) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
+  function plus30() { return new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10); }
+
+  const [date, setDate] = useState(currentExpiry ? toInput(currentExpiry) : plus30());
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Set Plan Expiry</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <View style={{ padding: 20, gap: 16 }}>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Expiry date (YYYY-MM-DD)</Text>
+            <TextInput
+              value={date}
+              onChangeText={setDate}
+              placeholder="2026-12-31"
+              placeholderTextColor={C.gray400}
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+            {currentExpiry && (
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+                Currently expires {fmtDate(currentExpiry)}
+              </Text>
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[
+              { label: '+30 days', days: 30 },
+              { label: '+90 days', days: 90 },
+              { label: '+1 year', days: 365 },
+            ].map(({ label, days }) => (
+              <TouchableOpacity
+                key={label}
+                onPress={() => setDate(new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10))}
+                style={{ flex: 1, backgroundColor: C.gray100, borderRadius: 10, paddingVertical: 9, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700 }}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            onPress={() => onSave(`${date}T00:00:00`)}
+            disabled={!valid || saving}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Expiry'}</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Set org discount ──────────────────────────────────────────────────────────
+function SetDiscountModal({ existing, saving, onClose, onSave }: {
+  existing?: any; saving: boolean; onClose: () => void; onSave: (body: any) => void;
+}) {
+  const [dType, setDType] = useState<'PERCENTAGE' | 'FIXED_PAISE'>(existing?.discountType ?? 'PERCENTAGE');
+  const [value, setValue] = useState(
+    existing
+      ? (existing.discountType === 'FIXED_PAISE'
+          ? String(Number(existing.discountValue) / 100)
+          : String(existing.discountValue))
+      : '',
+  );
+  const [reason, setReason] = useState(existing?.reason ?? '');
+  const [expiresAt, setExpiresAt] = useState(existing?.expiresAt ? String(existing.expiresAt).slice(0, 10) : '');
+  const valid = Number(value) > 0;
+
+  function save() {
+    // Fixed discounts are stored in paise; percentages are stored as-is.
+    onSave({
+      discountType: dType,
+      discountValue: dType === 'FIXED_PAISE' ? Number(value) * 100 : Number(value),
+      reason: reason.trim() || null,
+      expiresAt: expiresAt ? `${expiresAt}T00:00:00` : null,
+    });
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{existing ? 'Edit' : 'Set'} Discount</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Discount type</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {([['PERCENTAGE', '% Percent'], ['FIXED_PAISE', '₹ Fixed']] as const).map(([val, label]) => (
+                <TouchableOpacity
+                  key={val}
+                  onPress={() => setDType(val)}
+                  style={{
+                    flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: 'center',
+                    borderWidth: 1.5,
+                    borderColor: dType === val ? C.navy : C.gray200,
+                    backgroundColor: dType === val ? C.navy50 : C.white,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: dType === val ? C.navy : C.gray500 }}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>
+              {dType === 'PERCENTAGE' ? 'Percent off' : 'Amount off (₹)'}
+            </Text>
+            <TextInput
+              value={value}
+              onChangeText={setValue}
+              keyboardType="numeric"
+              placeholder={dType === 'PERCENTAGE' ? '20' : '500'}
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+            <TextInput
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Loyalty discount"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Expires on (optional, YYYY-MM-DD)</Text>
+            <TextInput
+              value={expiresAt}
+              onChangeText={setExpiresAt}
+              placeholder="2026-12-31"
+              placeholderTextColor={C.gray400}
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <TouchableOpacity
+            onPress={save}
+            disabled={!valid || saving}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Discount'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
