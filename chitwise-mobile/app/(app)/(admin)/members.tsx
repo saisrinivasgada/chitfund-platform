@@ -85,6 +85,7 @@ export default function AdminMembersScreen() {
   }, [search]);
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [chitStatusFilter, setChitStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
   const [showEditInline, setShowEditInline] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
   const [showPwdInline, setShowPwdInline] = useState(false);
@@ -952,31 +953,54 @@ export default function AdminMembersScreen() {
                 </Card>
 
                 {/* Enrolled Chits */}
-                <Text style={{ ...T.label, marginBottom: 8 }}>ENROLLED CHITS</Text>
-                {(memberChits as any[]).length === 0 ? (
-                  <Text style={{ color: C.gray400, marginBottom: 16 }}>Not enrolled in any chits</Text>
-                ) : (
-                  (memberChits as any[]).map((c: any) => (
-                    <TouchableOpacity key={c.id} activeOpacity={0.75}
-                      onPress={() => {
-                        setShowDetail(false);
-                        setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
-                      }}>
-                      <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
-                            {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
-                          </View>
-                          <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                            <Badge status={c.status} />
-                            <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
-                          </View>
+                {(() => {
+                  const active = (memberChits as any[]).filter((c: any) => c.status === 'ACTIVE');
+                  const completed = (memberChits as any[]).filter((c: any) => c.status === 'COMPLETED');
+                  const displayChits = chitStatusFilter === 'ALL' ? (memberChits as any[]) : chitStatusFilter === 'ACTIVE' ? active : completed;
+                  return (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={T.label}>ENROLLED CHITS</Text>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          {(['ACTIVE', 'COMPLETED', 'ALL'] as const).map((s) => (
+                            <TouchableOpacity key={s} onPress={() => setChitStatusFilter(s)}
+                              style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: chitStatusFilter === s ? C.navy : C.gray100 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: chitStatusFilter === s ? '#fff' : C.gray500 }}>
+                                {s === 'ACTIVE' ? `Active (${active.length})` : s === 'COMPLETED' ? `Done (${completed.length})` : 'All'}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
                         </View>
-                      </Card>
-                    </TouchableOpacity>
-                  ))
-                )}
+                      </View>
+                      {displayChits.length === 0 ? (
+                        <Text style={{ color: C.gray400, marginBottom: 16 }}>
+                          {(memberChits as any[]).length === 0 ? 'Not enrolled in any chits' : `No ${chitStatusFilter.toLowerCase()} chits`}
+                        </Text>
+                      ) : (
+                        displayChits.map((c: any) => (
+                          <TouchableOpacity key={c.id} activeOpacity={0.75}
+                            onPress={() => {
+                              setShowDetail(false);
+                              setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
+                            }}>
+                            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
+                                  {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                  <Badge status={c.status} />
+                                  <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
+                                </View>
+                              </View>
+                            </Card>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* Actions */}
                 <Text style={{ ...T.label, marginBottom: 10, marginTop: 8 }}>ACTIONS</Text>
