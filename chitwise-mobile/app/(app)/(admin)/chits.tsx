@@ -1079,6 +1079,40 @@ export default function AdminChitsScreen() {
             {/* ── INFO TAB ─────────────────────────────────────────────────── */}
             {detailTab === 'info' && selected && (
               <>
+                {/* Draw summary card */}
+                {(() => {
+                  const total = Number(selected.durationMonths ?? selected.totalDraws ?? 0);
+                  const completed = selected.status === 'COMPLETED'
+                    ? total
+                    : Number(selected.winnersAssigned ?? selected.currentDraw ?? 0);
+                  const remaining = Math.max(0, total - completed);
+                  const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+                  const nextDue = selected.startDate && nextDrawNum
+                    ? computeDueDate(selected.startDate, nextDrawNum, selected.monthlyDueDate)
+                    : null;
+                  if (!total) return null;
+                  return (
+                    <Card style={{ marginBottom: 16, backgroundColor: C.navy, padding: 16 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                        {[
+                          { label: 'Total', value: String(total) },
+                          { label: 'Done', value: String(completed), highlight: true },
+                          { label: 'Left', value: String(remaining) },
+                          ...(nextDue && selected.status !== 'COMPLETED' ? [{ label: 'Next Due', value: fmtDate(nextDue) }] : []),
+                        ].map(({ label, value, highlight }) => (
+                          <View key={label} style={{ alignItems: 'center', flex: 1 }}>
+                            <Text style={{ fontSize: highlight ? 22 : 18, fontWeight: '800', color: highlight ? '#D4A017' : C.white }}>{value}</Text>
+                            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{label}</Text>
+                          </View>
+                        ))}
+                      </View>
+                      <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3 }}>
+                        <View style={{ height: 6, borderRadius: 3, backgroundColor: selected.status === 'COMPLETED' ? '#10B981' : '#D4A017', width: `${pct}%` as any }} />
+                      </View>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textAlign: 'right', marginTop: 4 }}>{pct}% complete</Text>
+                    </Card>
+                  );
+                })()}
                 <Card style={{ marginBottom: 16 }}>
                   {[
                     { label: 'Chit Value', value: selected.chitValue ? `₹${Number(selected.chitValue).toLocaleString('en-IN')}` : '—' },
@@ -1087,7 +1121,6 @@ export default function AdminChitsScreen() {
                       ? { label: 'Post-Payout', value: selected.defaultPostPayoutContribution ? `₹${Number(selected.defaultPostPayoutContribution).toLocaleString('en-IN')} / member` : 'Enabled' }
                       : null,
                     { label: 'Duration', value: `${selected.durationMonths ?? '—'} months` },
-                    { label: 'Draw Progress', value: `${selected.status === 'COMPLETED' ? (selected.durationMonths ?? selected.totalDraws ?? '—') : (selected.winnersAssigned ?? selected.currentDraw ?? 0)} / ${selected.durationMonths ?? selected.totalDraws ?? '—'}` },
                     { label: 'Members', value: String(selected.capacity ?? '—') },
                     (selected.orgHeldSpotsCount ?? 0) > 0 ? { label: 'Org Held Slots', value: String(selected.orgHeldSpotsCount) } : null,
                     { label: 'Start Date', value: fmtDate(selected.startDate) },
