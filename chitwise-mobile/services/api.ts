@@ -997,4 +997,9 @@ export const billingRecordRefund = async (paymentId: string, payload: any): Prom
   return res.data.data;
 };
 
+export const updateOrgDetails = async (payload: { orgName?: string; businessRegNumber?: string; address?: string }): Promise<any> => {
+  const res = await api.patch('/users/me/org-details', payload);
+  return res.data.data;
+};
+
 export default api;

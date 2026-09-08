@@ -9,6 +9,7 @@ import {
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
+  getPaymentHistory,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -86,6 +87,7 @@ export default function AdminMembersScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [chitStatusFilter, setChitStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
+  const [payHistChitId, setPayHistChitId] = useState('');
   const [showEditInline, setShowEditInline] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
   const [showPwdInline, setShowPwdInline] = useState(false);
@@ -426,6 +428,14 @@ export default function AdminMembersScreen() {
     staleTime: 60_000,
   });
 
+  // Payment history for selected chit in the Payments section
+  const { data: payHistory = [] } = useQuery({
+    queryKey: ['m-pay-history', selected?.id, payHistChitId],
+    queryFn: () => getPaymentHistory(selected!.id, payHistChitId),
+    enabled: !!selected?.id && !!payHistChitId && showDetail,
+    staleTime: 60_000,
+  });
+
   // Pending cash pickup requests for this member
   const { data: allMemberRequests = [] } = useQuery({
     queryKey: ['m-member-cash-requests', selected?.id],
@@ -451,6 +461,7 @@ export default function AdminMembersScreen() {
     setClUsername('');
     setClEmail('');
     setClTempPassword('');
+    setPayHistChitId('');
     setShowDetail(true);
   }
 
@@ -998,6 +1009,67 @@ export default function AdminMembersScreen() {
                           </TouchableOpacity>
                         ))
                       )}
+                    </>
+                  );
+                })()}
+
+                {/* Payment History */}
+                {(memberChits as any[]).length > 0 && (() => {
+                  const effectiveChitId = payHistChitId || (memberChits as any[])[0]?.id;
+                  if (!effectiveChitId) return null;
+                  const PAY_STATUS_COLOR: Record<string, string> = {
+                    SETTLED: '#16A34A', PARTIALLY_PAID: '#D97706', OUTSTANDING: '#DC2626',
+                    WAIVED: '#9CA3AF', PAYOUT_DEDUCTED: C.navy, SETTLEMENT_CLEARED: '#0D9488',
+                    CREDIT_COVERED: '#16A34A', PARTIAL_CREDIT: '#D97706',
+                  };
+                  return (
+                    <>
+                      <Text style={{ ...T.label, marginBottom: 8, marginTop: 8 }}>PAYMENT HISTORY</Text>
+                      {/* Chit selector */}
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                        <View style={{ flexDirection: 'row', gap: 6, paddingRight: 8 }}>
+                          {(memberChits as any[]).map((c: any) => {
+                            const active = effectiveChitId === c.id;
+                            return (
+                              <TouchableOpacity key={c.id} onPress={() => setPayHistChitId(c.id)}
+                                style={{ backgroundColor: active ? C.navy : C.white, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1.5, borderColor: active ? C.navy : C.gray300 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : C.gray600 }} numberOfLines={1}>
+                                  {c.name ?? c.chitName}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                      {/* Payment rows */}
+                      {(payHistory as any[]).length === 0 ? (
+                        <Text style={{ fontSize: 13, color: C.gray400, marginBottom: 16 }}>No payment records for this chit.</Text>
+                      ) : (
+                        (payHistory as any[]).map((h: any, i: number) => {
+                          const statusColor = PAY_STATUS_COLOR[h.status] ?? C.gray500;
+                          return (
+                            <View key={h.id ?? i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                                  Draw {h.monthNumber ?? h.drawNumber ?? (i + 1)}
+                                </Text>
+                                {h.paymentDate && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(h.paymentDate)}</Text>}
+                              </View>
+                              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                {h.amountPaid != null && (
+                                  <Amount value={h.amountPaid} size="sm" color={C.gray900} />
+                                )}
+                                <View style={{ backgroundColor: statusColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>
+                                    {h.status?.replace(/_/g, ' ')}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })
+                      )}
+                      <View style={{ height: 16 }} />
                     </>
                   );
                 })()}
