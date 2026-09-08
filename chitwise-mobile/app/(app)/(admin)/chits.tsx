@@ -1085,8 +1085,9 @@ export default function AdminChitsScreen() {
                       ? { label: 'Post-Payout', value: selected.defaultPostPayoutContribution ? `₹${Number(selected.defaultPostPayoutContribution).toLocaleString('en-IN')} / member` : 'Enabled' }
                       : null,
                     { label: 'Duration', value: `${selected.durationMonths ?? '—'} months` },
-                    { label: 'Draw Progress', value: `${selected.winnersAssigned ?? selected.currentDraw ?? 0} / ${selected.durationMonths ?? selected.totalDraws ?? '—'}` },
+                    { label: 'Draw Progress', value: `${selected.status === 'COMPLETED' ? (selected.durationMonths ?? selected.totalDraws ?? '—') : (selected.winnersAssigned ?? selected.currentDraw ?? 0)} / ${selected.durationMonths ?? selected.totalDraws ?? '—'}` },
                     { label: 'Members', value: String(selected.capacity ?? '—') },
+                    (selected.orgHeldSpotsCount ?? 0) > 0 ? { label: 'Org Held Slots', value: String(selected.orgHeldSpotsCount) } : null,
                     { label: 'Start Date', value: fmtDate(selected.startDate) },
                     selected.endDate ? { label: 'End Date', value: fmtDate(selected.endDate) } : null,
                     selected.monthlyDueDate ? { label: 'Due Day', value: `${selected.monthlyDueDate}th of month` } : null,

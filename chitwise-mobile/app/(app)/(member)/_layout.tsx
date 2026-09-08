@@ -58,6 +58,7 @@ export default function MemberLayout() {
       <Tabs.Screen name="groups"      options={{ href: null }} />
       <Tabs.Screen name="my-account"  options={{ href: null }} />
       <Tabs.Screen name="chit-detail" options={{ href: null }} />
+      <Tabs.Screen name="support"     options={{ href: null }} />
     </Tabs>
   );
 }

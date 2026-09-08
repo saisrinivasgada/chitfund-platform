@@ -19,6 +19,8 @@ const MONTH_STATUS_COLOR: Record<string, string> = {
   WAIVED:             C.gray400,
   PAYOUT_DEDUCTED:    C.navy,
   SETTLEMENT_CLEARED: C.green,
+  CREDIT_COVERED:     C.green,
+  PARTIAL_CREDIT:     C.amber,
 };
 
 const MONTH_STATUS_LABEL: Record<string, string> = {
@@ -28,6 +30,8 @@ const MONTH_STATUS_LABEL: Record<string, string> = {
   WAIVED:             'Waived',
   PAYOUT_DEDUCTED:    'Payout Deducted',
   SETTLEMENT_CLEARED: 'Cleared',
+  CREDIT_COVERED:     'Credit Covered',
+  PARTIAL_CREDIT:     'Partial Credit',
 };
 
 function fmtCountdown(secs: number) {
@@ -162,7 +166,7 @@ export default function ChitDetailScreen() {
   const winnerByMonth = Object.fromEntries((winners as any[]).map((w: any) => [w.monthNumber, w]));
   const myPayout = (allPayouts as any[]).find((p: any) => p.chitId === chitId);
   const histArr = history as any[];
-  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED', 'PARTIAL_CREDIT'].includes(r.status)).length;
   const totalPaid = histArr.reduce((s, r: any) => s + Number(r.amountPaid ?? 0), 0);
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 
@@ -227,7 +231,7 @@ export default function ChitDetailScreen() {
         {[
           { label: 'Chit Value', value: chit.totalAmount ? `₹${Number(chit.totalAmount).toLocaleString('en-IN')}` : '—' },
           { label: 'Installment', value: chit.installmentAmount ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}` : '—' },
-          { label: 'Duration', value: chit.totalDraws ? `${chit.totalDraws} mo` : '—' },
+          { label: 'Draws', value: chit.totalDraws ? `${chit.status === 'COMPLETED' ? chit.totalDraws : (chit.currentDraw ?? 1)}/${chit.totalDraws}` : '—' },
           { label: 'Members', value: chit.memberCount != null ? String(chit.memberCount) : '—' },
         ].map(({ label, value }, i, arr) => (
           <View key={label} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < arr.length - 1 ? 1 : 0, borderRightColor: 'rgba(255,255,255,0.15)' }}>
@@ -444,7 +448,7 @@ export default function ChitDetailScreen() {
               <View style={{ flex: 1, backgroundColor: C.gray50, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.gray100 }}>
                 <Text style={{ fontSize: 11, color: C.gray400 }}>Months Paid</Text>
                 <Text style={{ fontSize: 20, fontWeight: '800', color: C.gray900, marginTop: 2 }}>
-                  {settledCount}<Text style={{ fontSize: 13, fontWeight: '400', color: C.gray400 }}>/{histArr.length}</Text>
+                  {settledCount}<Text style={{ fontSize: 13, fontWeight: '400', color: C.gray400 }}>/{chit?.totalDraws ?? histArr.length}</Text>
                 </Text>
               </View>
               <View style={{ flex: 1, borderRadius: 14, padding: 14, alignItems: 'center', backgroundColor: outstanding > 0 ? '#FFF5F5' : '#F0FDF4', borderWidth: 1, borderColor: outstanding > 0 ? '#FECACA' : '#BBF7D0' }}>

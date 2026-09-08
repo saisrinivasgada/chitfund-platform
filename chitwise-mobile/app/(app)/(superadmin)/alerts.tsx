@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, Modal } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -47,7 +47,7 @@ function RecordPaymentModal({ visible, tenant, onClose, onDone }: {
       tenantId: tenant?.id,
       amountPaise: Math.round(Number(amount) * 100),
       paymentMethod: method,
-      paymentType: pType,
+      type: pType,
     }),
     onSuccess: () => { toast.saved('Payment recorded'); onDone(); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -71,12 +71,14 @@ function RecordPaymentModal({ visible, tenant, onClose, onDone }: {
 
           <View>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Amount (₹)</Text>
-            <View style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12 }}>
-              <Text
-                style={{ fontSize: 16, color: C.gray900 }}
-                onPress={() => {}}
-              >{amount || '0'}</Text>
-            </View>
+            <TextInput
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }}
+            />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               {['500', '1000', '2000', '5000'].map((v) => (
                 <TouchableOpacity key={v} onPress={() => setAmount(v)}

@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Alert, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  superAdminListTenants, billingListPayments, billingRecordPayment, superAdminUpdatePlan,
-  superAdminSetPlanExpiry,
+  superAdminListTenants, billingListPayments, billingRecordPayment, billingUpgradePreview,
 } from '../../../services/api';
 import { C, fmtDate, Badge } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -28,23 +27,40 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('UPI');
   const [pType, setPType] = useState('RENEWAL');
-  const [plan, setPlan] = useState('');
+  const [plan, setPlan] = useState('BASIC');
+  const [reference, setReference] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState('');
+  const [preview, setPreview] = useState<any>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   const METHODS = ['UPI', 'CASH', 'BANK_TRANSFER'];
   const TYPES   = ['PURCHASE', 'RENEWAL', 'UPGRADE', 'REFUND'];
   const PLANS   = ['BASIC', 'GROWTH', 'ENTERPRISE', 'CUSTOM'];
 
+  useEffect(() => {
+    if (pType !== 'UPGRADE' || !tenantId || !plan) { setPreview(null); return; }
+    setLoadingPreview(true);
+    billingUpgradePreview(tenantId, plan)
+      .then((p: any) => { setPreview(p); setAmount(String(Math.round(p.chargePaise / 100))); })
+      .catch(() => setPreview(null))
+      .finally(() => setLoadingPreview(false));
+  }, [pType, tenantId, plan]);
+
   const mut = useMutation({
     mutationFn: () => billingRecordPayment({
       tenantId,
+      type: pType,
+      toPlan: plan || undefined,
       amountPaise: Math.round(Number(amount) * 100),
       paymentMethod: method,
-      paymentType: pType,
-      ...(plan ? { toPlan: plan } : {}),
+      paymentReference: reference || null,
+      paymentDate,
+      notes: notes || null,
     }),
     onSuccess: () => {
       toast.saved('Payment recorded');
-      setTenantId(''); setTenantSearch(''); setAmount('');
+      setTenantId(''); setTenantSearch(''); setAmount(''); setReference(''); setNotes('');
       onDone();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -131,20 +147,67 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
             ))}
           </View>
 
-          {/* Plan (for upgrade) */}
+          {/* Plan (always shown) */}
+          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>
+            {pType === 'UPGRADE' ? 'Upgrade To' : 'Plan'}
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            {PLANS.map((p) => (
+              <TouchableOpacity key={p} onPress={() => setPlan(p)}
+                style={{ backgroundColor: plan === p ? C.navy : C.gray100, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: plan === p ? '#fff' : C.gray700 }}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Proration preview for UPGRADE */}
           {pType === 'UPGRADE' && (
-            <>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>New Plan</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-                {PLANS.map((p) => (
-                  <TouchableOpacity key={p} onPress={() => setPlan(p)}
-                    style={{ backgroundColor: plan === p ? C.navy : C.gray100, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: plan === p ? '#fff' : C.gray700 }}>{p}</Text>
-                  </TouchableOpacity>
-                ))}
+            loadingPreview ? (
+              <View style={{ backgroundColor: '#EDE9FE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <Text style={{ fontSize: 12, color: '#7C3AED' }}>Loading proration…</Text>
               </View>
+            ) : preview ? (
+              <View style={{ backgroundColor: '#EDE9FE', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED', marginBottom: 8 }}>Proration Breakdown</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, color: '#5B21B6' }}>Days remaining ({preview.daysRemaining}/{preview.daysInPeriod})</Text>
+                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>-₹{(preview.creditPaise/100).toFixed(0)} credit</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#C4B5FD', paddingTop: 6 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#4C1D95' }}>Amount to collect</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#4C1D95' }}>₹{(preview.chargePaise/100).toFixed(0)}</Text>
+                </View>
+              </View>
+            ) : null
+          )}
+
+          {/* Reference (for non-cash) */}
+          {method !== 'CASH' && (
+            <>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reference / UTR</Text>
+              <TextInput
+                value={reference} onChangeText={setReference} placeholder="UTR or transaction ID"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+              />
             </>
           )}
+
+          {/* Payment Date */}
+          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payment Date</Text>
+          <TextInput
+            value={paymentDate} onChangeText={setPaymentDate} placeholder="YYYY-MM-DD"
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+          />
+
+          {/* Notes */}
+          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
+          <TextInput
+            value={notes} onChangeText={setNotes} placeholder="e.g. Negotiated renewal" multiline numberOfLines={2}
+            placeholderTextColor={C.gray400}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, marginBottom: 14 }}
+          />
         </ScrollView>
 
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
@@ -189,7 +252,7 @@ export default function SuperAdminBillingScreen() {
   }
 
   const totalRevenue = (payments as any[])
-    .filter((p: any) => p.paymentType !== 'REFUND')
+    .filter((p: any) => p.type !== 'REFUND')
     .reduce((s, p: any) => s + Number(p.amountPaise ?? 0), 0);
 
   return (
@@ -239,8 +302,8 @@ export default function SuperAdminBillingScreen() {
           </View>
         ) : (
           (payments as any[]).map((p: any, i: number) => {
-            const col = TYPE_COLORS[p.paymentType] ?? C.gray500;
-            const isRefund = p.paymentType === 'REFUND';
+            const col = TYPE_COLORS[p.type] ?? C.gray500;
+            const isRefund = p.type === 'REFUND';
             return (
               <View key={p.id ?? i} style={{
                 backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10,
@@ -254,7 +317,7 @@ export default function SuperAdminBillingScreen() {
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
                       <View style={{ backgroundColor: col + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: col }}>{p.paymentType}</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: col }}>{p.type}</Text>
                       </View>
                       {p.paymentMethod && (
                         <Text style={{ fontSize: 11, color: C.gray400 }}>{p.paymentMethod}</Text>
@@ -264,7 +327,7 @@ export default function SuperAdminBillingScreen() {
                       )}
                     </View>
                     <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>
-                      {fmtDate(p.paidAt ?? p.createdAt)}
+                      {fmtDate(p.paymentDate ?? p.createdAt)}
                     </Text>
                   </View>
                   <Text style={{ fontSize: 16, fontWeight: '800', color: isRefund ? C.red : C.gray900 }}>

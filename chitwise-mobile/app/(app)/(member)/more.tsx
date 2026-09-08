@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { C, T } from '../../../components/ui';
 import { useAuthStore } from '../../../store/authStore';
-import { getConversationUnread } from '../../../services/api';
+import { getMemberConversationUnread } from '../../../services/api';
 
 interface NavItem {
   emoji: string;
@@ -21,7 +21,7 @@ export default function MemberMoreScreen() {
 
   const { data: msgUnread = 0 } = useQuery({
     queryKey: ['m-convUnread'],
-    queryFn: getConversationUnread,
+    queryFn: getMemberConversationUnread,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
@@ -58,6 +58,13 @@ export default function MemberMoreScreen() {
       badge: (msgUnread as number) > 0 ? (msgUnread as number) : undefined,
       accent: C.navy,
     }] : []),
+    {
+      emoji: '🙋',
+      label: 'Support',
+      description: 'Raise a request with your admin',
+      route: '/(app)/(member)/support',
+      accent: '#7C3AED',
+    },
     {
       emoji: '👤',
       label: 'My Account',

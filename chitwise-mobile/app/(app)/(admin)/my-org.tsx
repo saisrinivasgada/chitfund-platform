@@ -3,7 +3,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
-import { getOrgSettings, getBillingInfo, getMyTenantLimits } from '../../../services/api';
+import { getOrgSettings, getBillingInfo, getMyTenantLimits, listStaff } from '../../../services/api';
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -42,6 +42,7 @@ export default function MyOrgScreen() {
   const { data: org, isLoading: orgLoading } = useQuery({ queryKey: ['org-settings'], queryFn: getOrgSettings, staleTime: 120_000 });
   const { data: billing } = useQuery({ queryKey: ['m-billing'], queryFn: getBillingInfo, staleTime: 300_000 });
   const { data: limits } = useQuery({ queryKey: ['tenant-limits'], queryFn: getMyTenantLimits, staleTime: 120_000 });
+  const { data: staff } = useQuery({ queryKey: ['org-staff-summary'], queryFn: listStaff, staleTime: 120_000 });
 
   const planExpiry = (billing as any)?.planExpiresAt;
   const isExpired = planExpiry && new Date(planExpiry) < new Date();
@@ -130,23 +131,72 @@ export default function MyOrgScreen() {
             </View>
           )}
 
-          {/* Quick link to billing */}
-          <TouchableOpacity
-            onPress={() => router.push('/(app)/(admin)/billing' as any)}
-            activeOpacity={0.8}
-            style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: C.gray100, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: '#D97706' + '18', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 20 }}>◎</Text>
+          {/* Team section */}
+          {staff != null && (
+            <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>TEAM</Text>
+                <TouchableOpacity onPress={() => router.push('/(app)/(admin)/team' as any)}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>Manage →</Text>
+                </TouchableOpacity>
               </View>
-              <View>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Plan & Billing</Text>
-                <Text style={{ fontSize: 12, color: C.gray400 }}>Manage subscription & credits</Text>
-              </View>
+              {(staff as any[]).slice(0, 3).map((s: any) => {
+                const roleColor: Record<string, string> = { ADMIN: C.navy, MANAGER: '#7C3AED', STAFF: '#059669', AGENT: '#D97706' };
+                return (
+                  <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                    <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: C.navy + '18', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{(s.fullName || s.username || '?')[0].toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{s.fullName || s.username}</Text>
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>@{s.username}</Text>
+                    </View>
+                    <View style={{ backgroundColor: (roleColor[s.role] ?? C.navy) + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: roleColor[s.role] ?? C.navy }}>{s.role}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+              {(staff as any[]).length > 3 && (
+                <TouchableOpacity onPress={() => router.push('/(app)/(admin)/team' as any)} style={{ paddingVertical: 12, alignItems: 'center', borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>+{(staff as any[]).length - 3} more → View all</Text>
+                </TouchableOpacity>
+              )}
+              {(staff as any[]).length === 0 && (
+                <View style={{ paddingVertical: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  <Text style={{ fontSize: 13, color: C.gray400 }}>No team members yet</Text>
+                  <TouchableOpacity onPress={() => router.push('/(app)/(admin)/team' as any)} style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>Add your first staff member →</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <View style={{ height: 4 }} />
             </View>
-            <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
-          </TouchableOpacity>
+          )}
+
+          {/* Quick links */}
+          {[
+            { icon: '◎', label: 'Plan & Billing', sub: 'Manage subscription & credits', color: '#D97706', path: '/(app)/(admin)/billing' },
+            { icon: '👥', label: 'Team Management', sub: 'Add and manage staff members', color: C.navy, path: '/(app)/(admin)/team' },
+          ].map(({ icon, label, sub, color, path }) => (
+            <TouchableOpacity
+              key={path}
+              onPress={() => router.push(path as any)}
+              activeOpacity={0.8}
+              style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: C.gray100, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: color + '18', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 20 }}>{icon}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{label}</Text>
+                  <Text style={{ fontSize: 12, color: C.gray400 }}>{sub}</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+            </TouchableOpacity>
+          ))}
 
         </ScrollView>
       )}
