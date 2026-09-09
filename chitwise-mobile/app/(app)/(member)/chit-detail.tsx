@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyChits, getMyMemberProfile, getMemberBalance,
   getPaymentHistory, getDraws, getWinners, getPayoutsForMember,
-  listAuctions, getAuction, placeBid, getReservations,
+  listAuctions, getAuction, placeBid, getMyReservations,
 } from '../../../services/api';
 import { C, fmtDate } from '../../../components/ui';
 
@@ -98,19 +98,19 @@ export default function ChitDetailScreen() {
     enabled: !!memberId && !!chitId,
   });
 
-  // Reservation slots for this chit. The endpoint returns the whole schedule,
-  // so we show this member only their own slots in detail and reduce the rest
-  // to an anonymous taken/open outline.
-  const { data: reservations = [] } = useQuery({
+  // Member-scoped view: full detail for this member's own slots, plus an
+  // anonymised outline of the rest. The admin route returns every member's id
+  // and is blocked for MEMBER, so it must not be used here.
+  const { data: myReservations } = useQuery({
     queryKey: ['member-chit-reservations', chitId],
-    queryFn: () => getReservations(chitId!),
+    queryFn: () => getMyReservations(chitId!),
     enabled: !!chitId && !isAuctionChit,
     staleTime: 60_000,
   });
 
-  const allSlots = (reservations as any[]).filter((r: any) => r.status !== 'VOIDED');
-  const mySlots = allSlots
-    .filter((r: any) => memberId && String(r.memberId) === String(memberId))
+  const mySlots = [...(myReservations?.mySlots ?? [])]
+    .sort((a: any, b: any) => (a.monthNumber ?? 0) - (b.monthNumber ?? 0));
+  const outline = [...(myReservations?.outline ?? [])]
     .sort((a: any, b: any) => (a.monthNumber ?? 0) - (b.monthNumber ?? 0));
   const myTotalPayout = mySlots.reduce((s: number, r: any) => s + Number(r.payoutAmount ?? 0), 0);
 
@@ -345,41 +345,39 @@ export default function ChitDetailScreen() {
           })}
 
           {/* Schedule outline — month numbers only, no other members named */}
-          {allSlots.length > 0 && (
+          {outline.length > 0 && (
             <View style={{ marginTop: 4, marginBottom: 6 }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, marginBottom: 6 }}>
                 SCHEDULE OVERVIEW
               </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {[...allSlots]
-                  .sort((a: any, b: any) => (a.monthNumber ?? 0) - (b.monthNumber ?? 0))
-                  .map((s: any) => {
-                    const mine = memberId && String(s.memberId) === String(memberId);
-                    const done = s.status === 'PROCESSED';
-                    const open = !s.memberId && !s.orgHeld;
-                    const bg = mine ? (done ? '#16A34A' : '#D4A017')
-                      : done ? C.gray200
-                      : open ? C.white
-                      : C.gray100;
-                    const fg = mine ? '#fff' : open ? C.gray400 : C.gray500;
-                    return (
-                      <View
-                        key={s.id}
-                        style={{
-                          width: 34, height: 34, borderRadius: 9,
-                          backgroundColor: bg,
-                          borderWidth: open ? 1.5 : 0,
-                          borderColor: C.gray300,
-                          borderStyle: open ? 'dashed' : 'solid',
-                          alignItems: 'center', justifyContent: 'center',
-                        }}
-                      >
-                        <Text style={{ fontSize: 11, fontWeight: mine ? '800' : '600', color: fg }}>
-                          {s.monthNumber ?? '—'}
-                        </Text>
-                      </View>
-                    );
-                  })}
+                {outline.map((s: any, i: number) => {
+                  const mine = !!s.mine;
+                  const done = !!s.processed;
+                  const open = !s.taken;
+                  const bg = mine ? (done ? '#16A34A' : '#D4A017')
+                    : done ? C.gray200
+                    : open ? C.white
+                    : C.gray100;
+                  const fg = mine ? '#fff' : open ? C.gray400 : C.gray500;
+                  return (
+                    <View
+                      key={`${s.monthNumber ?? 'x'}-${i}`}
+                      style={{
+                        width: 34, height: 34, borderRadius: 9,
+                        backgroundColor: bg,
+                        borderWidth: open ? 1.5 : 0,
+                        borderColor: C.gray300,
+                        borderStyle: open ? 'dashed' : 'solid',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: mine ? '800' : '600', color: fg }}>
+                        {s.monthNumber ?? '—'}
+                      </Text>
+                    </View>
+                  );
+                })}
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
                 {[

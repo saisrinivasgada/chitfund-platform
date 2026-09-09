@@ -267,8 +267,14 @@ export const deleteDraw = async (drawId: string) => unwrapObj(await api.delete(`
 export const getDrawPayments = async (drawId: string) => unwrapList(await api.get(`/admin/draws/${drawId}/payments`));
 
 // ── Reservations (Scheduling) ─────────────────────────────────────────────────
+// Full schedule with member names attached — ADMIN/MANAGER/STAFF only.
+// Members must use getMyReservations, which never returns another member's id.
 export const getReservations = async (chitId: string) =>
   unwrapList(await api.get(`/chits/${chitId}/reservations`));
+export const getMyReservations = async (chitId: string): Promise<{ mySlots: any[]; outline: any[] }> => {
+  const d = unwrapObj(await api.get(`/chits/${chitId}/reservations/mine`));
+  return { mySlots: d?.mySlots ?? [], outline: d?.outline ?? [] };
+};
 export const addReservationSlot = async (chitId: string, body: any) =>
   unwrapObj(await api.post(`/chits/${chitId}/reservations`, body));
 export const removeReservationSlot = async (chitId: string, reservationId: string, reason?: string) =>
