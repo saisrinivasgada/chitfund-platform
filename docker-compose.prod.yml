@@ -34,6 +34,7 @@ services:
       REPORTING_SERVICE_URL: http://reporting-service:8087
       MANAGEMENT_SERVICE_URL: http://management-service:8091
       RATE_LIMIT_ENABLED: "true"
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     depends_on:
       user-service:
         condition: service_healthy
