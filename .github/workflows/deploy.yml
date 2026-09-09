@@ -312,7 +312,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [changes, build-summary]
+    # always() so the gating below is the only thing that decides. Without a
+    # status function GitHub applies an implicit success() plus its own
+    # skip-propagation, and this job skipped on every push while running on
+    # every workflow_dispatch — even when change detection had correctly
+    # resolved backend=true. Every real condition is still checked explicitly,
+    # so a failed build-summary still stops the build.
     if: |
+      always() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.build-summary.result == 'success' &&
@@ -321,6 +328,12 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Why this job ran
+        run: |
+          echo "event=${{ github.event_name }} ref=${{ github.ref }}"
+          echo "build-summary=${{ needs.build-summary.result }}"
+          echo "backend=${{ needs.changes.outputs.backend }} frontend=${{ needs.changes.outputs.frontend }}"
+
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
