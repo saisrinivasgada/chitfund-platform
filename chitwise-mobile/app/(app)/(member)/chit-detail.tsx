@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyChits, getMyMemberProfile, getMemberBalance,
   getPaymentHistory, getDraws, getWinners, getPayoutsForMember,
-  listAuctions, getAuction, placeBid,
+  listAuctions, getAuction, placeBid, getReservations,
 } from '../../../services/api';
 import { C, fmtDate } from '../../../components/ui';
 
@@ -97,6 +97,22 @@ export default function ChitDetailScreen() {
     queryFn: () => getMemberBalance(memberId, chitId!),
     enabled: !!memberId && !!chitId,
   });
+
+  // Reservation slots for this chit. The endpoint returns the whole schedule,
+  // so we show this member only their own slots in detail and reduce the rest
+  // to an anonymous taken/open outline.
+  const { data: reservations = [] } = useQuery({
+    queryKey: ['member-chit-reservations', chitId],
+    queryFn: () => getReservations(chitId!),
+    enabled: !!chitId && !isAuctionChit,
+    staleTime: 60_000,
+  });
+
+  const allSlots = (reservations as any[]).filter((r: any) => r.status !== 'VOIDED');
+  const mySlots = allSlots
+    .filter((r: any) => memberId && String(r.memberId) === String(memberId))
+    .sort((a: any, b: any) => (a.monthNumber ?? 0) - (b.monthNumber ?? 0));
+  const myTotalPayout = mySlots.reduce((s: number, r: any) => s + Number(r.payoutAmount ?? 0), 0);
 
   const { data: auctionSessions = [] } = useQuery({
     queryKey: ['member-auctions', chitId],
@@ -248,6 +264,141 @@ export default function ChitDetailScreen() {
           <Text style={{ fontSize: 11, color: '#1D4ED8', fontWeight: '600' }}>
             {chit.orgHeldSpotsCount} org-held slot{(chit.orgHeldSpotsCount ?? 0) > 1 ? 's' : ''} — managed by your chit fund organiser
           </Text>
+        </View>
+      )}
+
+      {/* Your reserved slots + anonymised schedule outline */}
+      {mySlots.length > 0 && (
+        <View style={{ paddingHorizontal: 16, paddingTop: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: C.navy }}>
+              Your Slot{mySlots.length > 1 ? 's' : ''} ({mySlots.length})
+            </Text>
+            {myTotalPayout > 0 && (
+              <Text style={{ fontSize: 11, color: C.gray500 }}>
+                Total payout ₹{myTotalPayout.toLocaleString('en-IN')}
+              </Text>
+            )}
+          </View>
+
+          {mySlots.map((s: any) => {
+            const done = s.status === 'PROCESSED';
+            const monthLabel = s.reservationMonth
+              ? new Date(s.reservationMonth).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+              : '—';
+            return (
+              <View
+                key={s.id}
+                style={{
+                  backgroundColor: done ? '#F0FDF4' : C.white,
+                  borderWidth: 1.5,
+                  borderColor: done ? '#86EFAC' : '#FDE68A',
+                  borderRadius: 14,
+                  padding: 14,
+                  marginBottom: 8,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{
+                      width: 30, height: 30, borderRadius: 9,
+                      backgroundColor: done ? '#16A34A' : '#D4A017',
+                      alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>{s.monthNumber ?? '—'}</Text>
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>{monthLabel}</Text>
+                      <Text style={{ fontSize: 11, color: C.gray500 }}>Draw #{s.monthNumber ?? '—'}</Text>
+                    </View>
+                  </View>
+                  <View style={{
+                    backgroundColor: done ? '#DCFCE7' : '#FEF3C7',
+                    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+                  }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: done ? '#15803D' : '#92400E' }}>
+                      {done ? 'Processed' : 'Scheduled'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+                  <View>
+                    <Text style={{ fontSize: 10, color: C.gray400 }}>
+                      {done ? 'PAYOUT RECEIVED' : 'SCHEDULED PAYOUT'}
+                    </Text>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: done ? '#15803D' : C.navy, marginTop: 1 }}>
+                      ₹{Number(s.payoutAmount ?? 0).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                  {Number(s.postPayoutContribution ?? 0) > 0 && (
+                    <View>
+                      <Text style={{ fontSize: 10, color: C.gray400 }}>INSTALLMENT AFTER</Text>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: C.gray700, marginTop: 1 }}>
+                        ₹{Number(s.postPayoutContribution).toLocaleString('en-IN')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+
+          {/* Schedule outline — month numbers only, no other members named */}
+          {allSlots.length > 0 && (
+            <View style={{ marginTop: 4, marginBottom: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, marginBottom: 6 }}>
+                SCHEDULE OVERVIEW
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[...allSlots]
+                  .sort((a: any, b: any) => (a.monthNumber ?? 0) - (b.monthNumber ?? 0))
+                  .map((s: any) => {
+                    const mine = memberId && String(s.memberId) === String(memberId);
+                    const done = s.status === 'PROCESSED';
+                    const open = !s.memberId && !s.orgHeld;
+                    const bg = mine ? (done ? '#16A34A' : '#D4A017')
+                      : done ? C.gray200
+                      : open ? C.white
+                      : C.gray100;
+                    const fg = mine ? '#fff' : open ? C.gray400 : C.gray500;
+                    return (
+                      <View
+                        key={s.id}
+                        style={{
+                          width: 34, height: 34, borderRadius: 9,
+                          backgroundColor: bg,
+                          borderWidth: open ? 1.5 : 0,
+                          borderColor: C.gray300,
+                          borderStyle: open ? 'dashed' : 'solid',
+                          alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: mine ? '800' : '600', color: fg }}>
+                          {s.monthNumber ?? '—'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+                {[
+                  { c: '#D4A017', t: 'Yours' },
+                  { c: '#16A34A', t: 'Yours · done' },
+                  { c: C.gray100, t: 'Taken' },
+                  { c: C.white,   t: 'Open' },
+                ].map(({ c, t }) => (
+                  <View key={t} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{
+                      width: 10, height: 10, borderRadius: 3, backgroundColor: c,
+                      borderWidth: c === C.white ? 1 : 0, borderColor: C.gray300,
+                    }} />
+                    <Text style={{ fontSize: 10, color: C.gray500 }}>{t}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
       )}
 
