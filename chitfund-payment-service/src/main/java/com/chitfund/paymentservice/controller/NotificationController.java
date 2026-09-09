@@ -9,6 +9,7 @@ import com.chitfund.paymentservice.service.WhatsAppService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -62,8 +63,16 @@ public class NotificationController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    /** Frontend: admin sends a payment reminder to a specific member */
+    /**
+     * Frontend: admin sends a payment reminder to a specific member.
+     *
+     * <p>Role-gated because the body carries a caller-supplied message that is
+     * delivered as an in-app notification and a push to the target's device —
+     * without this, any authenticated user could push arbitrary text to any
+     * userId under the app's own branding.
+     */
     @PostMapping("/reminder/{userId}")
+    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Void>> sendReminder(@PathVariable UUID userId,
                                                           @RequestBody(required = false) Map<String, String> body) {
         String msg = (body != null)
