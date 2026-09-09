@@ -7,7 +7,7 @@ import {
   getBillingInfo, getMyTenantLimits, myBillingPayments,
   requestRenewal, requestPlanUpgrade, getPublicPlans,
   listStaff, getChits, getMembersPage,
-  cancelSubscription, resumeSubscription, applyDowngrade,
+  cancelSubscription, resumeSubscription, applyDowngrade, getMyReferral,
 } from '../../../services/api';
 import { C, T, GlassCard, LoadingScreen, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -247,6 +247,14 @@ export default function BillingScreen() {
     queryFn: getPublicPlans,
     staleTime: 600_000,
   });
+  // Referral credit earned isn't part of billing-info — it comes from /users/me/referral.
+  const { data: referralInfo } = useQuery({
+    queryKey: ['m-referral-info'],
+    queryFn: getMyReferral,
+    staleTime: 300_000,
+  });
+  const referralCredit = Number((referralInfo as any)?.creditBalance ?? 0);
+
   const { data: staffList = [] } = useQuery({ queryKey: ['org-staff-summary'], queryFn: listStaff, staleTime: 120_000 });
   const { data: membersPage } = useQuery({ queryKey: ['members-count'], queryFn: () => getMembersPage({ page: 0, size: 1 }), staleTime: 120_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['chits'], queryFn: () => getChits({ status: 'ACTIVE' }), staleTime: 120_000 });
@@ -657,6 +665,19 @@ export default function BillingScreen() {
               style={{ backgroundColor: '#EFF4FA', borderRadius: 12, padding: 12, alignItems: 'center' }}>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>Share referral code</Text>
             </TouchableOpacity>
+
+            {referralCredit > 0 && (
+              <View style={{
+                marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8,
+                backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#BBF7D0',
+                borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+              }}>
+                <Text style={{ fontSize: 14 }}>✓</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#15803D' }}>
+                  ₹{referralCredit.toLocaleString('en-IN')} referral credit earned
+                </Text>
+              </View>
+            )}
           </GlassCard>
         )}
       </ScrollView>

@@ -117,6 +117,7 @@ export default function AdminLayout() {
       <Tabs.Screen name="my-account" options={{ href: null }} />
       <Tabs.Screen name="support"    options={{ href: null }} />
       <Tabs.Screen name="my-org"     options={{ href: null }} />
+      <Tabs.Screen name="notes"      options={{ href: null }} />
     </Tabs>
     </>
   );

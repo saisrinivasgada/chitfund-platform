@@ -56,6 +56,13 @@ export default function MoreScreen() {
       accent: C.navy,
     },
     {
+      emoji: '📝',
+      label: 'Team Notes',
+      description: 'Shared notes for your team',
+      route: '/(app)/(admin)/notes',
+      accent: '#D97706',
+    },
+    {
       emoji: '✦',
       label: 'Team',
       description: 'Manage staff & managers',

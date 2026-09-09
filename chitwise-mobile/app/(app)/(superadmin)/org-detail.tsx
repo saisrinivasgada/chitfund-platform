@@ -35,6 +35,8 @@ import {
   resetMemberPassword,
   lockUser,
   unlockUser,
+  superAdminAddTenantCredit,
+  superAdminDeductTenantCredit,
 } from '../../../services/api';
 import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -83,6 +85,7 @@ export default function OrgDetailPage() {
   const [showCustomLimits, setShowCustomLimits] = useState(false);
   const [showSetExpiry, setShowSetExpiry] = useState(false);
   const [showSetDiscount, setShowSetDiscount] = useState(false);
+  const [showCredits, setShowCredits] = useState(false);
   // Credentials surfaced after a password reset — shown once, never re-fetchable.
   const [resetCreds, setResetCreds] = useState<{ username: string; password: string } | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -201,6 +204,19 @@ export default function OrgDetailPage() {
     mutationFn: () => superAdminRemoveCustomLimits(tenantId!, 'BASIC'),
     onSuccess: () => { refetchLimits(); refetchOrg(); setShowPlanMenu(false); toast.saved('Custom limits removed — reverted to BASIC'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove custom limits'),
+  });
+  const creditMut = useMutation({
+    mutationFn: ({ mode, amountInr, notes }: { mode: 'ADD' | 'DEDUCT'; amountInr: number; notes?: string }) =>
+      mode === 'ADD'
+        ? superAdminAddTenantCredit(tenantId!, amountInr, notes)
+        : superAdminDeductTenantCredit(tenantId!, amountInr, notes),
+    onSuccess: (_d, vars) => {
+      refetchOrg();
+      qc.invalidateQueries({ queryKey: ['sa-tenants'] });
+      setShowCredits(false);
+      toast.saved(vars.mode === 'ADD' ? 'Credit added' : 'Credit deducted');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update credit'),
   });
   const resetPwdMut = useMutation({
     mutationFn: (userId: string) => resetMemberPassword(userId),
@@ -391,6 +407,12 @@ export default function OrgDetailPage() {
             style={{ flex: 1, backgroundColor: '#EFF6FF', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#2563EB' }}>Set Expiry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowCredits(true)}
+            style={{ flex: 1, backgroundColor: '#F0FDF4', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>Credits</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setShowAddUser(true)}
@@ -926,6 +948,16 @@ export default function OrgDetailPage() {
         />
       )}
 
+      {/* Add / deduct account credit */}
+      {showCredits && (
+        <TenantCreditModal
+          orgName={orgData?.name}
+          saving={creditMut.isPending}
+          onClose={() => setShowCredits(false)}
+          onSubmit={(mode, amountInr, notes) => creditMut.mutate({ mode, amountInr, notes })}
+        />
+      )}
+
       {/* Credentials after a password reset — shown once */}
       <Modal visible={!!resetCreds} animationType="fade" transparent onRequestClose={() => setResetCreds(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
@@ -1014,6 +1046,110 @@ function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
             style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
           >
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Expiry'}</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Add / deduct tenant account credit ────────────────────────────────────────
+function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
+  orgName?: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (mode: 'ADD' | 'DEDUCT', amountInr: number, notes?: string) => void;
+}) {
+  const [mode, setMode] = useState<'ADD' | 'DEDUCT'>('ADD');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const amountNum = Number(amount);
+  const valid = !!amount && !Number.isNaN(amountNum) && amountNum > 0;
+
+  function submit() {
+    if (!valid) return;
+    const trimmed = notes.trim() || undefined;
+    if (mode === 'DEDUCT') {
+      Alert.alert(
+        'Deduct Credit',
+        `Deduct ₹${amountNum.toLocaleString('en-IN')} from ${orgName ?? 'this org'}'s account credit?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Deduct', style: 'destructive', onPress: () => onSubmit('DEDUCT', amountNum, trimmed) },
+        ],
+      );
+    } else {
+      onSubmit('ADD', amountNum, trimmed);
+    }
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Account Credit</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {(['ADD', 'DEDUCT'] as const).map((m) => {
+              const active = mode === m;
+              const tint = m === 'ADD' ? '#15803D' : C.red;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={{
+                    flex: 1, paddingVertical: 11, borderRadius: 12, alignItems: 'center',
+                    backgroundColor: active ? tint : C.white,
+                    borderWidth: 1.5, borderColor: active ? tint : C.gray200,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: active ? C.white : C.gray500 }}>
+                    {m === 'ADD' ? 'Add Credit' : 'Deduct Credit'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Amount (₹)</Text>
+            <TextInput
+              value={amount}
+              onChangeText={setAmount}
+              placeholder="1000"
+              placeholderTextColor={C.gray400}
+              keyboardType="numeric"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Notes (optional)</Text>
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Reason for this adjustment…"
+              placeholderTextColor={C.gray400}
+              multiline
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy, minHeight: 80, textAlignVertical: 'top' }}
+            />
+          </View>
+
+          <TouchableOpacity
+            onPress={submit}
+            disabled={!valid || saving}
+            style={{
+              backgroundColor: mode === 'ADD' ? '#15803D' : C.red,
+              borderRadius: 14, paddingVertical: 14, alignItems: 'center',
+              opacity: !valid || saving ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+              {saving ? 'Saving…' : mode === 'ADD' ? 'Add Credit' : 'Deduct Credit'}
+            </Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

@@ -15,7 +15,7 @@ import {
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
   getSettlementPreview, confirmSettlement, getMemberSettlements, recordSettlementTransaction, getPendingSettlements, getSettlementById,
-  getMemberTotalBalance, getMemberCredit,
+  getMemberTotalBalance, getMemberCredit, voidSettlement, getSettlementTransactions,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -2447,6 +2447,36 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment'),
   });
 
+  // Transaction trail for the settlement open in the detail sheet.
+  const { data: settlementTxns = [] } = useQuery({
+    queryKey: ['m-settlement-txns', detailSettlement?.id],
+    queryFn: () => getSettlementTransactions(detailSettlement.id),
+    enabled: !!detailSettlement?.id,
+  });
+
+  const voidSettlementMut = useMutation({
+    mutationFn: (id: string) => voidSettlement(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-settlement-pending'] });
+      qc.invalidateQueries({ queryKey: ['m-settlement-history'] });
+      qc.invalidateQueries({ queryKey: ['m-members'] });
+      toast.voided('Settlement voided');
+      setDetailSettlement(null);
+    },
+    onError: (e: any) => Alert.alert('Cannot Void', e.response?.data?.message ?? 'Failed to void settlement'),
+  });
+
+  function confirmVoidSettlement(s: any) {
+    Alert.alert(
+      'Void Settlement',
+      'This reverses the settlement and reopens the member\'s balances. Recorded payments against it are not automatically refunded.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Void Settlement', style: 'destructive', onPress: () => voidSettlementMut.mutate(s.id) },
+      ],
+    );
+  }
+
   function resetAll() {
     setStep('pick'); setMemberId(''); setMemberSearch(''); setPreview(null);
     setAdjAmount(''); setAdjReason(''); setNotes('');
@@ -2974,6 +3004,64 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                       );
                     })}
                   </>
+                )}
+
+                {/* Transaction trail */}
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginTop: 6, marginBottom: 10 }}>
+                  Transactions {(settlementTxns as any[]).length > 0 ? `(${(settlementTxns as any[]).length})` : ''}
+                </Text>
+                {(settlementTxns as any[]).length === 0 ? (
+                  <Card>
+                    <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center', paddingVertical: 8 }}>
+                      No payments recorded against this settlement.
+                    </Text>
+                  </Card>
+                ) : (
+                  (settlementTxns as any[]).map((t: any, i: number) => {
+                    const amt = Number(t.amount ?? 0);
+                    const inbound = (t.direction ?? t.type ?? '').toUpperCase().includes('COLLECT');
+                    return (
+                      <Card key={t.id ?? i} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: inbound ? C.green : C.navy }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                              {t.direction ?? t.type ?? (inbound ? 'Collected' : 'Disbursed')}
+                              {t.paymentMode ? ` · ${String(t.paymentMode).replace(/_/g, ' ')}` : ''}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                              {fmtDateTime(t.createdAt ?? t.transactionDate)}
+                              {t.referenceNumber ? ` · Ref ${t.referenceNumber}` : ''}
+                            </Text>
+                            {t.notes && (
+                              <Text style={{ fontSize: 11, color: C.gray500, fontStyle: 'italic', marginTop: 3 }}>
+                                "{t.notes}"
+                              </Text>
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: inbound ? C.green : C.navy, marginLeft: 8 }}>
+                            ₹{Math.abs(amt).toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      </Card>
+                    );
+                  })
+                )}
+
+                {/* Void — only while the settlement is still live */}
+                {s.paymentStatus !== 'VOIDED' && (
+                  <TouchableOpacity
+                    onPress={() => confirmVoidSettlement(s)}
+                    disabled={voidSettlementMut.isPending}
+                    style={{
+                      marginTop: 20, paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+                      borderWidth: 1.5, borderColor: '#FECACA',
+                      opacity: voidSettlementMut.isPending ? 0.6 : 1,
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#DC2626' }}>
+                      {voidSettlementMut.isPending ? 'Voiding…' : 'Void Settlement'}
+                    </Text>
+                  </TouchableOpacity>
                 )}
               </ScrollView>
             );
