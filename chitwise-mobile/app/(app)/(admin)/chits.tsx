@@ -17,6 +17,7 @@ import {
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
+  pauseChit, resumeChit, getDeletedChits,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -437,6 +438,30 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
+  // Pause/resume go through dedicated endpoints, not updateChitStatus: the
+  // backend stamps pausedAt on pause and, on resume, shifts endDate forward by
+  // the months paused. A plain status flip would leave the chit's end date
+  // unchanged, so members would still be held to the original completion date.
+  const pauseMut = useMutation({
+    mutationFn: (id: string) => pauseChit(id),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setSelected((prev: any) => prev ? { ...prev, ...(updated ?? {}), status: 'PAUSED' } : prev);
+      toast.noted('Chit paused');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to pause chit'),
+  });
+
+  const resumeMut = useMutation({
+    mutationFn: (id: string) => resumeChit(id),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setSelected((prev: any) => prev ? { ...prev, ...(updated ?? {}), status: 'ACTIVE' } : prev);
+      toast.saved('Chit resumed — end date shifted by the paused period');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume chit'),
+  });
+
   const enrollMut = useMutation({
     mutationFn: async ({ chitId, memberId, spots }: any) => {
       const count = selected?.chitType === 'LOTTERY' ? Math.max(1, spots ?? 1) : 1;
@@ -855,9 +880,21 @@ export default function AdminChitsScreen() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'name' | 'amount' | 'members'>('name');
 
-  const displayChits = [...(chits as any[])].filter((c) =>
-    statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
-  )
+  // Soft-deleted chits come from a separate endpoint — only fetched when the
+  // Deleted filter is active.
+  const showingDeleted = statusFilter === 'DELETED';
+  const { data: deletedChits = [] } = useQuery({
+    queryKey: ['a-chits-deleted'],
+    queryFn: getDeletedChits,
+    enabled: showingDeleted,
+    staleTime: 60_000,
+  });
+
+  const displayChits = (showingDeleted
+    ? [...(deletedChits as any[])]
+    : [...(chits as any[])].filter((c) =>
+        statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
+      ))
     .sort((a, b) => {
       if (sortBy === 'amount') return Number(b.installmentAmount ?? 0) - Number(a.installmentAmount ?? 0);
       if (sortBy === 'members') return Number(b.enrolledCount ?? b.capacity ?? 0) - Number(a.enrolledCount ?? a.capacity ?? 0);
@@ -909,6 +946,7 @@ export default function AdminChitsScreen() {
                   { label: 'Done', status: 'COMPLETED', count: completed.length, color: C.navy },
                   { label: 'Draft', status: 'DRAFT', count: draft.length, color: C.gray400 },
                   { label: 'Cancelled', status: 'CANCELLED', count: cancelled.length, color: C.amber },
+                  { label: 'Deleted', status: 'DELETED', count: (deletedChits as any[]).length, color: C.red },
                 ].map((s) => {
                   const isActive = statusFilter === s.status;
                   return (
@@ -940,15 +978,30 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         }
-        ListEmptyComponent={<EmptyState title="No chits" message={statusFilter === 'ALL' ? 'Create your first chit.' : `No ${statusFilter.toLowerCase()} chits.`} />}
+        ListEmptyComponent={
+          <EmptyState
+            title={showingDeleted ? 'No deleted chits' : 'No chits'}
+            message={
+              showingDeleted ? 'Deleted chits will appear here.'
+                : statusFilter === 'ALL' ? 'Create your first chit.'
+                : `No ${statusFilter.toLowerCase()} chits.`
+            }
+          />
+        }
         ListFooterComponent={displayChits.length > 0 ? (
           <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>
             {displayChits.length} chit{displayChits.length !== 1 ? 's' : ''}
           </Text>
         ) : null}
         renderItem={({ item: c }) => (
-          <TouchableOpacity onPress={() => openDetail(c)} activeOpacity={0.75}>
-            <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: STATUS_COLOR[c.status] ?? C.gray300 }}>
+          // Deleted chits are read-only — the detail view's actions all assume a
+          // live chit, so the row is inert and dimmed.
+          <TouchableOpacity
+            onPress={() => { if (!showingDeleted) openDetail(c); }}
+            activeOpacity={showingDeleted ? 1 : 0.75}
+            disabled={showingDeleted}
+          >
+            <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: showingDeleted ? C.gray300 : (STATUS_COLOR[c.status] ?? C.gray300), opacity: showingDeleted ? 0.6 : 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }}>{c.name}</Text>
                 <Badge status={c.status} />
@@ -1147,20 +1200,37 @@ export default function AdminChitsScreen() {
                   <>
                     <Text style={{ ...T.label, marginBottom: 10 }}>CHANGE STATUS</Text>
                     <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-                      {(STATUS_NEXT[selected.status] ?? []).map((s) => (
-                        <View key={s} style={{ flex: 1, minWidth: '40%' }}>
-                          <Button
-                            label={`Set ${s}`}
-                            variant={s === 'ACTIVE' ? 'success' : s === 'COMPLETED' ? 'primary' : 'ghost'}
-                            size="sm"
-                            loading={statusMut.isPending}
-                            onPress={() => Alert.alert('Change Status', `Set chit to ${s}?`, [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Confirm', onPress: () => statusMut.mutate({ id: selected.id, status: s, startDate: s === 'ACTIVE' ? (selected.startDate ?? new Date().toISOString().split('T')[0]) : undefined }) },
-                            ])}
-                          />
-                        </View>
-                      ))}
+                      {(STATUS_NEXT[selected.status] ?? []).map((s) => {
+                        // Pausing an active chit and resuming a paused one have
+                        // their own endpoints — see pauseMut/resumeMut above.
+                        const isPause  = selected.status === 'ACTIVE' && s === 'PAUSED';
+                        const isResume = selected.status === 'PAUSED' && s === 'ACTIVE';
+                        const label   = isPause ? 'Pause Chit' : isResume ? 'Resume Chit' : `Set ${s}`;
+                        const busy    = isPause ? pauseMut.isPending : isResume ? resumeMut.isPending : statusMut.isPending;
+                        const prompt  = isPause
+                          ? 'Pause this chit? Collections stop until you resume, and the end date shifts by however long it stays paused.'
+                          : isResume
+                            ? 'Resume this chit? The end date moves forward by the time it was paused.'
+                            : `Set chit to ${s}?`;
+                        return (
+                          <View key={s} style={{ flex: 1, minWidth: '40%' }}>
+                            <Button
+                              label={label}
+                              variant={s === 'ACTIVE' ? 'success' : s === 'COMPLETED' ? 'primary' : 'ghost'}
+                              size="sm"
+                              loading={busy}
+                              onPress={() => Alert.alert(isPause ? 'Pause Chit' : isResume ? 'Resume Chit' : 'Change Status', prompt, [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Confirm', onPress: () => {
+                                  if (isPause)       pauseMut.mutate(selected.id);
+                                  else if (isResume) resumeMut.mutate(selected.id);
+                                  else statusMut.mutate({ id: selected.id, status: s, startDate: s === 'ACTIVE' ? (selected.startDate ?? new Date().toISOString().split('T')[0]) : undefined });
+                                } },
+                              ])}
+                            />
+                          </View>
+                        );
+                      })}
                     </View>
                   </>
                 )}

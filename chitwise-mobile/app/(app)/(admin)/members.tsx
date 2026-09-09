@@ -9,7 +9,7 @@ import {
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
-  getPaymentHistory,
+  getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -165,8 +165,21 @@ export default function AdminMembersScreen() {
     getNextPageParam: (lastPage: any) => lastPage.last ? undefined : (lastPage.number + 1),
     initialPageParam: 0,
   });
-  const members = membersInfinite?.pages.flatMap((p: any) => p.content) ?? [];
-  const totalElements = membersInfinite?.pages[0]?.totalElements ?? 0;
+  const pagedMembers = membersInfinite?.pages.flatMap((p: any) => p.content) ?? [];
+
+  // Soft-deleted members come from their own endpoint, outside the paged list.
+  const showingDeleted = statusFilter === 'Deleted';
+  const { data: deletedMembers = [] } = useQuery({
+    queryKey: ['m-members-deleted'],
+    queryFn: getDeletedMembers,
+    enabled: showingDeleted,
+    staleTime: 60_000,
+  });
+
+  const members = showingDeleted ? (deletedMembers as any[]) : pagedMembers;
+  const totalElements = showingDeleted
+    ? (deletedMembers as any[]).length
+    : (membersInfinite?.pages[0]?.totalElements ?? 0);
 
   const createMutation = useMutation({
     mutationFn: () => createMember({
@@ -438,6 +451,20 @@ export default function AdminMembersScreen() {
     staleTime: 60_000,
   });
 
+  // Promised-payment-date editor: which record is open, and its draft value.
+  const [promiseRecordId, setPromiseRecordId] = useState<string | null>(null);
+  const [promiseDate, setPromiseDate] = useState('');
+  const promiseMut = useMutation({
+    mutationFn: ({ recordId, date }: { recordId: string; date: string }) =>
+      setPromisedPaymentDate(recordId, date),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pay-history', selected?.id, payHistChitId] });
+      setPromiseRecordId(null); setPromiseDate('');
+      toast.noted('Promised date saved');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save promised date'),
+  });
+
   // Pending cash pickup requests for this member
   const { data: allMemberRequests = [] } = useQuery({
     queryKey: ['m-member-cash-requests', selected?.id],
@@ -514,11 +541,12 @@ export default function AdminMembersScreen() {
           style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white, marginBottom: 10 }} />
         {/* Status filter tabs */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[null, 'Active', 'Inactive', 'Blacklisted'].map((f) => {
+          {[null, 'Active', 'Inactive', 'Blacklisted', 'Deleted'].map((f) => {
             const label = f ?? 'All';
             const active = statusFilter === f;
             const statusKey = f === 'Blacklisted' ? 'BLACKLISTED' : f?.toUpperCase();
             const count = f === null ? (allMembers as any[]).length
+              : f === 'Deleted' ? (deletedMembers as any[]).length
               : (allMembers as any[]).filter((m) => m.status === statusKey).length;
             return (
               <TouchableOpacity key={label} onPress={() => setStatusFilter(f)}
@@ -537,15 +565,30 @@ export default function AdminMembersScreen() {
       <FlatList style={{ flex: 1 }} data={members} keyExtractor={(m: any) => m.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: 32 }}
-        onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+        onEndReached={() => { if (!showingDeleted && hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
         onEndReachedThreshold={0.5}
-        ListEmptyComponent={<EmptyState title="No members" message={search ? 'Try a different search' : 'No members yet'} />}
-        ListFooterComponent={isFetchingNextPage ? (
+        ListEmptyComponent={
+          <EmptyState
+            title={showingDeleted ? 'No deleted members' : 'No members'}
+            message={
+              showingDeleted ? 'Deleted members will appear here.'
+                : search ? 'Try a different search'
+                : 'No members yet'
+            }
+          />
+        }
+        ListFooterComponent={isFetchingNextPage && !showingDeleted ? (
           <ActivityIndicator color={C.navy} style={{ marginVertical: 16 }} />
         ) : null}
         renderItem={({ item: m }) => (
-          <TouchableOpacity onPress={() => openDetail(m)} activeOpacity={0.7}>
-            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: m.status === 'ACTIVE' ? C.green : C.gray300 }}>
+          // Deleted members are read-only — the detail sheet's actions all assume
+          // a live member record.
+          <TouchableOpacity
+            onPress={() => { if (!showingDeleted) openDetail(m); }}
+            activeOpacity={showingDeleted ? 1 : 0.7}
+            disabled={showingDeleted}
+          >
+            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: showingDeleted ? C.gray300 : (m.status === 'ACTIVE' ? C.green : C.gray300), opacity: showingDeleted ? 0.6 : 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy50, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>{(m.fullName ?? '?')[0].toUpperCase()}</Text>
@@ -1049,24 +1092,73 @@ export default function AdminMembersScreen() {
                       ) : (
                         (payHistory as any[]).map((h: any, i: number) => {
                           const statusColor = PAY_STATUS_COLOR[h.status] ?? C.gray500;
+                          // Only unpaid records can carry a promise to pay.
+                          const canPromise = h.status === 'OUTSTANDING' || h.status === 'PARTIALLY_PAID';
+                          const editing = promiseRecordId === h.id;
                           return (
-                            <View key={h.id ?? i} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                                  Draw {h.monthNumber ?? h.drawNumber ?? (i + 1)}
-                                </Text>
-                                {h.paymentDate && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(h.paymentDate)}</Text>}
-                              </View>
-                              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                                {h.amountPaid != null && (
-                                  <Amount value={h.amountPaid} size="sm" color={C.gray900} />
-                                )}
-                                <View style={{ backgroundColor: statusColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                  <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>
-                                    {h.status?.replace(/_/g, ' ')}
+                            <View key={h.id ?? i} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                                    Draw {h.monthNumber ?? h.drawNumber ?? (i + 1)}
                                   </Text>
+                                  {h.paymentDate && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(h.paymentDate)}</Text>}
+                                  {h.promisedPaymentDate && (
+                                    <Text style={{ fontSize: 11, color: C.amber, marginTop: 2, fontWeight: '600' }}>
+                                      Promised {fmtDate(h.promisedPaymentDate)}
+                                    </Text>
+                                  )}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                  {h.amountPaid != null && (
+                                    <Amount value={h.amountPaid} size="sm" color={C.gray900} />
+                                  )}
+                                  <View style={{ backgroundColor: statusColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                    <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>
+                                      {h.status?.replace(/_/g, ' ')}
+                                    </Text>
+                                  </View>
+                                  {canPromise && h.id && (
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        if (editing) { setPromiseRecordId(null); setPromiseDate(''); }
+                                        else {
+                                          setPromiseRecordId(h.id);
+                                          setPromiseDate(h.promisedPaymentDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
+                                        }
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>
+                                        {editing ? 'Cancel' : h.promisedPaymentDate ? 'Change promise' : 'Promise date'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
                                 </View>
                               </View>
+                              {editing && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                                  <TextInput
+                                    value={promiseDate}
+                                    onChangeText={setPromiseDate}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor={C.gray400}
+                                    autoCapitalize="none"
+                                    style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: C.gray900 }}
+                                  />
+                                  <TouchableOpacity
+                                    disabled={!/^\d{4}-\d{2}-\d{2}$/.test(promiseDate) || promiseMut.isPending}
+                                    onPress={() => promiseMut.mutate({ recordId: h.id, date: promiseDate })}
+                                    style={{
+                                      backgroundColor: /^\d{4}-\d{2}-\d{2}$/.test(promiseDate) ? C.navy : C.gray300,
+                                      borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9,
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                                      {promiseMut.isPending ? '…' : 'Save'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
                             </View>
                           );
                         })

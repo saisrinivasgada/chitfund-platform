@@ -1080,4 +1080,80 @@ export const superAdminRemoveCustomLimits = async (tenantId: string, fallbackPla
   return res.data;
 };
 
+// ── Chit lifecycle ────────────────────────────────────────────────────────────
+export const pauseChit = async (id: string): Promise<any> => {
+  const res = await api.post(`/chits/${id}/pause`);
+  return res.data.data;
+};
+
+export const resumeChit = async (id: string): Promise<any> => {
+  const res = await api.post(`/chits/${id}/resume`);
+  return res.data.data;
+};
+
+// ── Soft-deleted records ──────────────────────────────────────────────────────
+export const getDeletedChits = async (): Promise<any[]> => {
+  try { return unwrapList(await api.get('/chits/deleted')); } catch { return []; }
+};
+
+export const getDeletedMembers = async (): Promise<any[]> => {
+  try { return unwrapList(await api.get('/members/deleted')); } catch { return []; }
+};
+
+// Distinct from setReminderPromisedDate — this sets the date on the payment
+// record itself, not on a reminder.
+export const setPromisedPaymentDate = async (recordId: string, promisedPaymentDate: string): Promise<any> => {
+  const res = await api.patch(`/payments/records/${recordId}/promised-date`, { promisedPaymentDate });
+  return res.data.data;
+};
+
+// ── Team notes ────────────────────────────────────────────────────────────────
+// Shared org noticeboard for admins/managers — not per-member notes. Each note
+// carries `own` so the UI can tell whether the caller may edit it.
+export const getTeamNotes = async (): Promise<any[]> => {
+  const res = await api.get('/members/notes');
+  return res.data.data ?? [];
+};
+
+export const createTeamNote = async (body: { text: string; visibility: string }): Promise<any> => {
+  const res = await api.post('/members/notes', body);
+  return res.data.data;
+};
+
+export const updateTeamNote = async (id: string, body: { text: string; visibility: string }): Promise<any> => {
+  const res = await api.put(`/members/notes/${id}`, body);
+  return res.data.data;
+};
+
+export const deleteTeamNote = async (id: string): Promise<void> => {
+  await api.delete(`/members/notes/${id}`);
+};
+
+// ── Settlement ────────────────────────────────────────────────────────────────
+export const voidSettlement = async (settlementId: string): Promise<any> => {
+  const res = await api.post(`/settlement/${settlementId}/void`);
+  return res.data.data;
+};
+
+export const getSettlementTransactions = async (settlementId: string): Promise<any[]> => {
+  try { return unwrapList(await api.get(`/settlement/${settlementId}/transactions`)); } catch { return []; }
+};
+
+// ── Referral ──────────────────────────────────────────────────────────────────
+export const getMyReferral = async (): Promise<any> => {
+  const res = await api.get('/users/me/referral');
+  return res.data.data;
+};
+
+// ── Super-admin: tenant credits ───────────────────────────────────────────────
+export const superAdminAddTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
+  return res.data.data;
+};
+
+export const superAdminDeductTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
+  return res.data.data;
+};
+
 export default api;
