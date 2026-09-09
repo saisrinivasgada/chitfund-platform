@@ -1156,4 +1156,10 @@ export const superAdminDeductTenantCredit = async (tenantId: string, amountInr: 
   return res.data.data;
 };
 
+// Soft delete — the chit is hidden from lists but still readable via /chits/deleted.
+export const deleteChit = async (id: string): Promise<any> => {
+  const res = await api.delete(`/chits/${id}`);
+  return res.data.data;
+};
+
 export default api;

@@ -17,7 +17,7 @@ import {
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
-  pauseChit, resumeChit, getDeletedChits,
+  pauseChit, resumeChit, getDeletedChits, deleteChit,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -153,6 +153,8 @@ export default function AdminChitsScreen() {
   const params = useLocalSearchParams<{ openChitId?: string; openTab?: string; openAdd?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  // Typed confirmation for chit deletion — mirrors the web DELETE guard.
+  const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('info');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -460,6 +462,19 @@ export default function AdminChitsScreen() {
       toast.saved('Chit resumed — end date shifted by the paused period');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume chit'),
+  });
+
+  // Soft delete — hides the chit from lists; still readable under the Deleted filter.
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteChit(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setShowDetail(false);
+      setSelected(null);
+      setConfirmDeleteText('');
+      toast.deleted('Chit deleted');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete chit'),
   });
 
   const enrollMut = useMutation({
@@ -1234,6 +1249,44 @@ export default function AdminChitsScreen() {
                     </View>
                   </>
                 )}
+
+                {/* Danger zone — soft delete, gated behind typing DELETE */}
+                <Text style={{ ...T.label, marginBottom: 8, color: C.red }}>DANGER ZONE</Text>
+                <Card style={{ borderWidth: 1, borderColor: '#FECACA', marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Delete this chit fund</Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 4, lineHeight: 17 }}>
+                    Hides "{selected.name}" from all lists. It stays viewable under the Deleted
+                    filter. Type DELETE below to confirm.
+                  </Text>
+                  <TextInput
+                    value={confirmDeleteText}
+                    onChangeText={setConfirmDeleteText}
+                    placeholder="DELETE"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    placeholderTextColor={C.gray400}
+                    style={{
+                      borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
+                      paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
+                      color: C.gray900, marginTop: 12, marginBottom: 10,
+                    }}
+                  />
+                  <Button
+                    label="Delete Chit Fund"
+                    variant="danger"
+                    size="sm"
+                    loading={deleteMut.isPending}
+                    disabled={confirmDeleteText.trim() !== 'DELETE'}
+                    onPress={() => Alert.alert(
+                      'Delete Chit Fund',
+                      `Delete "${selected.name}"? It will be hidden from all lists.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deleteMut.mutate(selected.id) },
+                      ]
+                    )}
+                  />
+                </Card>
               </>
             )}
 
