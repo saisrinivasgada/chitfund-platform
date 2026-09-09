@@ -404,10 +404,12 @@ export const getPaginatedAuditLogs = async (params: any = {}) =>
  *
  * There is no `/requests/all` route — this used to call one and the catch
  * swallowed the 404, so callers silently rendered an empty list. The real
- * endpoint is `/requests/active` (PENDING + ASSIGNED, no query params), so
- * status/member filtering happens here.
+ * endpoint is `/requests/active`, which takes no query params, so status and
+ * member filtering happens here.
  *
- * Note: `/active` excludes PICKED_UP, so asking for it returns nothing.
+ * `/active` returns everything still in flight: PENDING, SCHEDULED, ASSIGNED,
+ * PICKED_UP and PARTIALLY_COLLECTED. Its Javadoc used to claim only the first
+ * two, which is why an earlier note here wrongly said PICKED_UP was missing.
  */
 export const getAllCashRequests = async (params: any = {}) => {
   const rows = unwrapList(await api.get('/payments/requests/active'));
