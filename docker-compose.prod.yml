@@ -50,6 +50,16 @@ services:
         condition: service_healthy
       reporting-service:
         condition: service_healthy
+    # Without this, 'compose up --wait' considers the gateway healthy as soon as
+    # the container is running. It is the only entry point to every service, so a
+    # gateway that starts but cannot serve passes the deploy and surfaces as a 502
+    # in production instead — which is exactly what happened on 2026-09-09.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -216,8 +226,17 @@ services:
     image: redis:7-alpine
     container_name: chitwise-redis
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # Bound to loopback: this Redis has no password, so publishing it on all
+    # interfaces leaves only the security group between it and the internet.
+    # Containers reach it over the compose network, not the host port.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -239,10 +258,16 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    # TODO: bind to 127.0.0.1 once nginx's upstream for hub.thechitwise.com is
+    # confirmed to use loopback. The security group already blocks 8091, so this
+    # is defence in depth and not worth risking the hub portal on an assumption.
     ports:
       - "8091:8091"
     depends_on:
-      - redis
+      # Now that redis reports health, wait for it to actually accept
+      # connections rather than merely exist.
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
       interval: 30s
