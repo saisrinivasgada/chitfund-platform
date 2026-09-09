@@ -492,7 +492,12 @@ jobs:
           ssh -i ~/.ssh/deploy-key.pem \
             ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
           set -e
-          source /app/.env
+          # Read just the two values needed below. Sourcing the whole file made
+          # bash interpret every secret, so one value containing a space, '#' or
+          # a quote failed the deploy before it started.
+          getsecret() { sed -n "s/^$1=//p" /app/.env | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
+          DB_HOST=$(getsecret DB_HOST)
+          DB_PASSWORD=$(getsecret DB_PASSWORD)
           # Clear any failed Flyway migrations so services can start cleanly
           for db in chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting chitwise_management; do
             mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
