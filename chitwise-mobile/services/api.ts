@@ -175,8 +175,6 @@ export const changeStaffRole = async (id: string, role: string) =>
   unwrapObj(await api.patch(`/users/staff/${id}/role`, { role }));
 export const resetMemberPassword = async (userId: string) =>
   unwrapObj(await api.post(`/users/${userId}/reset-password`));
-export const adminSetPassword = async (userId: string, newPassword: string) =>
-  unwrapObj(await api.post(`/admin/users/${userId}/set-password`, { newPassword }));
 export const getUserById = async (userId: string) =>
   unwrapObj(await api.get(`/users/${userId}`));
 export const resendSetupLink = async (userId: string) =>
@@ -395,8 +393,27 @@ export const getAuditLogs = async (params: any = {}) => {
 };
 export const getPaginatedAuditLogs = async (params: any = {}) =>
   unwrapList(await api.get('/audit/logs', { params }));
+/**
+ * Cash requests for admin/manager views.
+ *
+ * There is no `/requests/all` route — this used to call one and the catch
+ * swallowed the 404, so callers silently rendered an empty list. The real
+ * endpoint is `/requests/active` (PENDING + ASSIGNED, no query params), so
+ * status/member filtering happens here.
+ *
+ * Note: `/active` excludes PICKED_UP, so asking for it returns nothing.
+ */
 export const getAllCashRequests = async (params: any = {}) => {
-  try { return unwrapList(await api.get('/payments/requests/all', { params })); } catch { return []; }
+  const rows = unwrapList(await api.get('/payments/requests/active'));
+  const wanted = params.status
+    ? String(params.status).split(',').map((s: string) => s.trim()).filter(Boolean)
+    : null;
+  return rows.filter((r: any) => {
+    if (wanted && !wanted.includes(r.status)) return false;
+    if (params.memberId && r.memberId !== params.memberId) return false;
+    if (params.chitId && r.chitId !== params.chitId) return false;
+    return true;
+  });
 };
 export const getEntityAuditHistory = async (entityType: string, entityId: string) => {
   try { return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`)); } catch { return []; }
@@ -507,14 +524,16 @@ export const superAdminSetCustomLimits = async (tenantId: string, data: any) =>
 export const superAdminGetAdminCredentials = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/credentials`));
 // Promotions
+// PromotionController is mapped at /superadmin (no hyphen), unlike the
+// /super-admin tenant endpoints — these 404 if the hyphen creeps back in.
 export const superAdminListPromotions = async () =>
-  unwrapList(await api.get('/super-admin/promotions'));
+  unwrapList(await api.get('/superadmin/promotions'));
 export const superAdminCreatePromotion = async (body: any) =>
-  unwrapObj(await api.post('/super-admin/promotions', body));
+  unwrapObj(await api.post('/superadmin/promotions', body));
 export const superAdminUpdatePromotion = async (code: string, body: any) =>
-  unwrapObj(await api.put(`/super-admin/promotions/${code}`, body));
+  unwrapObj(await api.put(`/superadmin/promotions/${code}`, body));
 export const superAdminDeletePromotion = async (code: string) =>
-  api.delete(`/super-admin/promotions/${code}`);
+  api.delete(`/superadmin/promotions/${code}`);
 // Plans
 export const superAdminListPlans = async () =>
   unwrapList(await api.get('/super-admin/plans'));
@@ -706,8 +725,11 @@ export const createInvitation = async (chitId: string, body: {
 export const closeInvitation = async (chitId: string, invId: string): Promise<any> =>
   unwrapObj(await api.patch(`/chits/${chitId}/invitations/${invId}/close`));
 
-export const getInvitationResponses = async (chitId: string, invId: string): Promise<any[]> =>
-  unwrapList(await api.get(`/chits/${chitId}/invitations/${invId}/responses`));
+// There is no `/responses` sub-route — the invitation detail embeds them.
+export const getInvitationResponses = async (chitId: string, invId: string): Promise<any[]> => {
+  const inv = unwrapObj(await api.get(`/chits/${chitId}/invitations/${invId}`));
+  return inv?.responses ?? [];
+};
 
 export const overrideInvitationResponse = async (chitId: string, invId: string, responseId: string, body: {
   approvedSpots?: number;
