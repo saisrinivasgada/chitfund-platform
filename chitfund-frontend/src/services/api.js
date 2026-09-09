@@ -671,9 +671,17 @@ export const recordWinner = async ({ chitId, ...body }) => {
 };
 
 // ─── Reservations ──────────────────────────────────────────────────────────
+// Full schedule with each slot's memberId — ADMIN/MANAGER/STAFF only.
+// Members must use getMyReservations, which never returns another member's id.
 export const getReservations = async (chitId) => {
   const res = await api.get(`/chits/${chitId}/reservations`);
   return res.data.data ?? [];
+};
+
+export const getMyReservations = async (chitId) => {
+  const res = await api.get(`/chits/${chitId}/reservations/mine`);
+  const d = res.data.data ?? {};
+  return { mySlots: d.mySlots ?? [], outline: d.outline ?? [] };
 };
 
 export const addReservationSlot = async ({ chitId, ...body }) => {
