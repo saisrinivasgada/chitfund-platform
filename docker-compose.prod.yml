@@ -229,15 +229,15 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitwise_management
       MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
-      MAIL_HOST: ${MAIL_HOST:smtp.gmail.com}
-      MAIL_PORT: ${MAIL_PORT:587}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       FRONTEND_URL: https://thechitwise.com
       HUB_URL: https://hub.thechitwise.com
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
-      REDIS_URL: ${REDIS_URL:redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "8091:8091"
     depends_on:
