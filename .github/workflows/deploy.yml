@@ -519,8 +519,16 @@ jobs:
           cd /app
           docker compose -f docker-compose.prod.yml pull
           docker compose -f docker-compose.prod.yml up -d --wait || {
-            echo "=== DEPLOY FAILED — container logs ==="
+            echo "=== DEPLOY FAILED ==="
             docker compose -f docker-compose.prod.yml ps
+            # Print logs for whatever is not running or not healthy. The handler
+            # promised logs but only ever printed 'ps', so failures had to be
+            # diagnosed by guesswork.
+            for c in $(docker ps -a --format '{{.Names}} {{.Status}}' \
+                       | grep -Ev 'Up .*\(healthy\)' | awk '{print $1}'); do
+              echo "--- logs: $c ---"
+              docker logs --tail 60 "$c" 2>&1 | tail -40
+            done
             exit 1
           }
           docker compose -f docker-compose.prod.yml ps

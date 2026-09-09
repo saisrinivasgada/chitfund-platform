@@ -86,6 +86,13 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    # The mail indicator opens a real SMTP connection, so an unreachable or
+    # unauthenticated relay reports DOWN and marks the container unhealthy
+    # while the service itself is fine. user-service disables it for the
+    # same reason.
+    mail:
+      enabled: false
 
 logging:
   level:
