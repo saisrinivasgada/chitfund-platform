@@ -128,7 +128,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-user-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-user-service -am test-compile -q --no-transfer-progress
 
   build-member:
     name: "member-service"
@@ -144,7 +144,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-member-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-member-service -am test-compile -q --no-transfer-progress
 
   build-chit:
     name: "chit-service"
@@ -160,7 +160,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-chit-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-chit-service -am test-compile -q --no-transfer-progress
 
   build-payment:
     name: "payment-service"
@@ -176,7 +176,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payment-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-payment-service -am test-compile -q --no-transfer-progress
 
   build-payout:
     name: "payout-service"
@@ -192,7 +192,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payout-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-payout-service -am test-compile -q --no-transfer-progress
 
   build-notification:
     name: "notification-service"
@@ -208,7 +208,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-notification-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-notification-service -am test-compile -q --no-transfer-progress
 
   build-gateway:
     name: "api-gateway"
@@ -224,7 +224,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-api-gateway -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-api-gateway -am test-compile -q --no-transfer-progress
 
   build-audit:
     name: "audit-service"
@@ -240,7 +240,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-audit-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-audit-service -am test-compile -q --no-transfer-progress
 
   build-reporting:
     name: "reporting-service"
@@ -256,7 +256,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile
-        run: mvn -pl chitfund-common,chitfund-reporting-service -am compile -q --no-transfer-progress
+        run: mvn -pl chitfund-common,chitfund-reporting-service -am test-compile -q --no-transfer-progress
 
   build-management:
     name: "management-service"

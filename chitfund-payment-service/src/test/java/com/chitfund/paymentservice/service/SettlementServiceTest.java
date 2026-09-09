@@ -84,7 +84,7 @@ class SettlementServiceTest {
         dto.setStatus("ACTIVE");
         dto.setChitValue(BigDecimal.valueOf((long) installmentAmt * durationMonths));
         dto.setInstallmentAmount(BigDecimal.valueOf(installmentAmt));
-        dto.setTotalMembers(durationMonths);
+        dto.setCapacity(durationMonths);
         dto.setDurationMonths(durationMonths);
         dto.setPostPayoutContributionEnabled(postPayoutEnabled);
         dto.setDefaultPostPayoutContribution(postPayoutDefault != null ? BigDecimal.valueOf(postPayoutDefault) : null);
