@@ -498,8 +498,20 @@ jobs:
           getsecret() { sed -n "s/^$1=//p" /app/.env | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
           DB_HOST=$(getsecret DB_HOST)
           DB_PASSWORD=$(getsecret DB_PASSWORD)
+          DBS="chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting chitwise_management"
+          # Each service owns a schema and Flyway builds its tables, but nothing
+          # created the schema itself — so a newly added service starts against a
+          # database that does not exist and never turns healthy. That is how
+          # chitwise_management failed. Doing it here keeps the deploy
+          # reproducible if the environment is ever rebuilt.
+          for db in $DBS; do
+            if ! mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" \
+                 -e "CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"; then
+              echo "WARN: could not ensure database '$db' exists — check the chitfund user's CREATE privilege"
+            fi
+          done
           # Clear any failed Flyway migrations so services can start cleanly
-          for db in chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting chitwise_management; do
+          for db in $DBS; do
             mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
               -e "DELETE FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true
           done
