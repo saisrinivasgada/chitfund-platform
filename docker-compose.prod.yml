@@ -258,9 +258,9 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-    # TODO: bind to 127.0.0.1 once nginx's upstream for hub.thechitwise.com is
-    # confirmed to use loopback. The security group already blocks 8091, so this
-    # is defence in depth and not worth risking the hub portal on an assumption.
+    # Published on all interfaces deliberately — do not "harden" this to
+    # 127.0.0.1 without asking. External access is already blocked by the
+    # security group, which only opens 80, 443, 8080 and 22.
     ports:
       - "8091:8091"
     depends_on:

@@ -116,6 +116,13 @@ public class NotificationController {
      * payment-service doesn't own member data. Calling user-service synchronously adds
      * latency and a failure point for what is a best-effort notification. The admin
      * is already on the member's detail page — the phone is already on screen.
+     *
+     * <p>Before enabling WhatsApp in production (whatsapp.enabled is false today,
+     * so this is currently inert): the recipient comes from the request body, so
+     * the path userId does not constrain who is messaged and tenant-scoping it —
+     * as sendReminder does — would not help. An admin could message any number,
+     * at per-message cost. Verifying the phone against the member record would
+     * close that, at the price of the cross-service call this comment avoids.
      */
     @PostMapping("/whatsapp/{userId}")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
