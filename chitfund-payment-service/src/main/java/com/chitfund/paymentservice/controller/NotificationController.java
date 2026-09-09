@@ -1,7 +1,11 @@
 package com.chitfund.paymentservice.controller;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.client.NotificationServiceClient;
+import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.dto.request.CreateNotifRequest;
 import com.chitfund.paymentservice.dto.response.NotificationResponse;
 import com.chitfund.paymentservice.service.NotificationService;
@@ -25,6 +29,7 @@ public class NotificationController {
     private final NotificationService notificationService;
     private final WhatsAppService whatsAppService;
     private final NotificationServiceClient notificationServiceClient;
+    private final UserServiceClient userServiceClient;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -70,11 +75,23 @@ public class NotificationController {
      * delivered as an in-app notification and a push to the target's device —
      * without this, any authenticated user could push arbitrary text to any
      * userId under the app's own branding.
+     *
+     * <p>Also tenant-scoped: the role gate alone would still let an admin of one
+     * org push a notification to a member of another. Fails closed if the tenant
+     * cannot be resolved, since falling open would defeat the check.
      */
     @PostMapping("/reminder/{userId}")
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Void>> sendReminder(@PathVariable UUID userId,
                                                           @RequestBody(required = false) Map<String, String> body) {
+        String callerTenant = TenantContext.get();
+        String targetTenant = userServiceClient.getUserTenantId(userId);
+        if (callerTenant == null || callerTenant.isBlank()
+                || targetTenant == null || targetTenant.isBlank()
+                || !callerTenant.equals(targetTenant)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "That user is not in your organisation.");
+        }
         String msg = (body != null)
                 ? body.getOrDefault("message", "You have outstanding payments. Please clear your dues.")
                 : "You have outstanding payments. Please clear your dues.";

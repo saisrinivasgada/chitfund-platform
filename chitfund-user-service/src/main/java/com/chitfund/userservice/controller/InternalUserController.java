@@ -40,6 +40,22 @@ public class InternalUserController {
                 .orElse(ResponseEntity.ok(Map.of("name", "")));
     }
 
+    /**
+     * Which tenant a user belongs to, so callers can refuse to act on users
+     * outside their own org. Returns an empty string when the user is unknown
+     * or has no tenant, which callers must treat as "do not proceed".
+     */
+    @GetMapping("/{userId}/tenant")
+    public ResponseEntity<Map<String, String>> getUserTenant(
+            @PathVariable UUID userId,
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        return userRepository.findById(userId)
+                .map(u -> ResponseEntity.ok(Map.of("tenantId",
+                        u.getTenantId() != null ? u.getTenantId() : "")))
+                .orElse(ResponseEntity.ok(Map.of("tenantId", "")));
+    }
+
     @GetMapping("/ids-by-role")
     public ResponseEntity<List<String>> getUserIdsByRole(
             @RequestParam String role,

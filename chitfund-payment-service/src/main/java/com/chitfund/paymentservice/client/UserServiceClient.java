@@ -71,4 +71,33 @@ public class UserServiceClient {
             return "";
         }
     }
+
+    /**
+     * The tenant a user belongs to, for refusing cross-org actions.
+     *
+     * <p>Returns empty when the user is unknown or user-service is unreachable.
+     * Unlike {@link #getUserName}, callers must fail closed on an empty result —
+     * falling open here would defeat the check.
+     */
+    @SuppressWarnings("unchecked")
+    public String getUserTenantId(UUID userId) {
+        if (userId == null) return "";
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    userServiceUrl + "/internal/users/" + userId + "/tenant",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+
+            Map<String, Object> body = response.getBody();
+            return body != null && body.get("tenantId") != null ? (String) body.get("tenantId") : "";
+
+        } catch (RestClientException e) {
+            log.warn("user-service unreachable for tenant lookup userId={}: {}", userId, e.getMessage());
+            return "";
+        }
+    }
 }
