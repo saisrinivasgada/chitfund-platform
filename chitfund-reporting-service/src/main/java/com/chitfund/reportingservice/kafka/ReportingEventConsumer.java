@@ -4,12 +4,15 @@ import com.chitfund.common.event.*;
 import com.chitfund.reportingservice.dto.ingest.CollectionSnapshotEvent;
 import com.chitfund.reportingservice.dto.ingest.MemberPaymentEvent;
 import com.chitfund.reportingservice.dto.ingest.PayoutEvent;
+import com.chitfund.reportingservice.domain.EventInbox;
+import com.chitfund.reportingservice.repository.EventInboxRepository;
 import com.chitfund.reportingservice.service.ReportIngestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -22,11 +25,25 @@ public class ReportingEventConsumer {
 
     private final ReportIngestService ingestService;
     private final ObjectMapper objectMapper;
+    private final EventInboxRepository inboxRepository;
 
     @SqsListener(SqsQueues.REPORTING_EVENTS)
+    @Transactional
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            if (envelope.eventId() != null && inboxRepository.existsById(envelope.eventId())) {
+                log.info("Ignoring already-processed reporting event {}", envelope.eventId());
+                return;
+            }
+            if (envelope.eventId() != null) {
+                // Insert before side effects. A handler failure rolls this row back;
+                // a concurrent duplicate collides on the primary key and retries.
+                inboxRepository.saveAndFlush(EventInbox.builder()
+                        .eventId(envelope.eventId())
+                        .eventType(envelope.eventType())
+                        .build());
+            }
             switch (envelope.eventType()) {
                 case SqsQueues.EVT_MONTH_OPENED ->
                     onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));

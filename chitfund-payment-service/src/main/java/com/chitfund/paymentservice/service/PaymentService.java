@@ -50,8 +50,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -149,7 +147,7 @@ public class PaymentService {
                     request.getAmount(), allocations.size(), workerId);
             creditWallet(batch, workerId, allocations);
             PaymentCompletedEvent completedEvent = buildCompletedEvent(batch, workerId);
-            publishAfterCommit(() -> eventPublisher.publish(completedEvent));
+            eventPublisher.publish(completedEvent);
             return toBatchResponse(batch, allocations);
         }
 
@@ -166,7 +164,7 @@ public class PaymentService {
                 Instant.now(),
                 TenantContext.get()
         );
-        publishAfterCommit(() -> eventPublisher.publish(collectedEvent));
+        eventPublisher.publish(collectedEvent);
 
         return toBatchResponse(batch, List.of());
     }
@@ -235,7 +233,7 @@ public class PaymentService {
                         request.getAmount().toPlainString()),
                 "PAYMENT", batch.getId(), "/member");
         PaymentCompletedEvent recordedEvent = buildCompletedEvent(batch, adminId);
-        publishAfterCommit(() -> eventPublisher.publish(recordedEvent));
+        eventPublisher.publish(recordedEvent);
 
         return toBatchResponse(batch, allocations);
     }
@@ -287,7 +285,7 @@ public class PaymentService {
                         batch.getTotalAmount().toPlainString()),
                 "PAYMENT", batchId, "/member");
         PaymentCompletedEvent remitEvent = buildCompletedEvent(batch, adminId);
-        publishAfterCommit(() -> eventPublisher.publish(remitEvent));
+        eventPublisher.publish(remitEvent);
 
         return toBatchResponse(batch, allocations);
     }
@@ -892,19 +890,6 @@ public class PaymentService {
      * Computes a "fat event" with the member's full payment summary at this point in time.
      * reporting-service uses these totals directly — no cross-service call needed.
      */
-    private void publishAfterCommit(Runnable publish) {
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    try { publish.run(); }
-                    catch (Exception e) { log.error("Post-commit event publish failed: {}", e.getMessage()); }
-                }
-            });
-        } else {
-            publish.run();
-        }
-    }
-
     private PaymentCompletedEvent buildCompletedEvent(PaymentBatch batch, UUID actorId) {
         List<PaymentRecord> all = paymentRecordRepository
                 .findByMemberIdAndChitIdOrderByMonthNumberAsc(batch.getMemberId(), batch.getChitId());

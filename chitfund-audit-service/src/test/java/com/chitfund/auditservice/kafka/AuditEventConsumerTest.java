@@ -1,7 +1,7 @@
-package com.chitfund.reportingservice.kafka;
+package com.chitfund.auditservice.kafka;
 
-import com.chitfund.reportingservice.service.ReportIngestService;
-import com.chitfund.reportingservice.repository.EventInboxRepository;
+import com.chitfund.auditservice.repository.EventInboxRepository;
+import com.chitfund.auditservice.service.AuditService;
 import com.chitfund.common.event.SqsEventEnvelope;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -11,13 +11,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class ReportingEventConsumerTest {
+class AuditEventConsumerTest {
 
     @Test
     void malformedMessageFailsSoSqsCanRetryIt() {
-        ReportingEventConsumer consumer = new ReportingEventConsumer(
-                mock(ReportIngestService.class), new ObjectMapper(),
-                mock(EventInboxRepository.class));
+        AuditEventConsumer consumer = new AuditEventConsumer(
+                mock(AuditService.class), new ObjectMapper(), mock(EventInboxRepository.class));
 
         assertThatThrownBy(() -> consumer.onEvent("not-json"))
                 .isInstanceOf(IllegalStateException.class)
@@ -25,17 +24,17 @@ class ReportingEventConsumerTest {
     }
 
     @Test
-    void duplicateEventIdIsAcknowledgedWithoutRepeatingSideEffects() throws Exception {
-        ReportIngestService ingest = mock(ReportIngestService.class);
+    void duplicateEventIdIsAcknowledgedWithoutWritingAnotherAuditLog() throws Exception {
+        AuditService audit = mock(AuditService.class);
         EventInboxRepository inbox = mock(EventInboxRepository.class);
         ObjectMapper mapper = new ObjectMapper();
         when(inbox.existsById("event-1")).thenReturn(true);
-        ReportingEventConsumer consumer = new ReportingEventConsumer(ingest, mapper, inbox);
+        AuditEventConsumer consumer = new AuditEventConsumer(audit, mapper, inbox);
         String raw = mapper.writeValueAsString(
                 new SqsEventEnvelope("event-1", "PAYMENT_COMPLETED", "{}"));
 
         consumer.onEvent(raw);
 
-        verifyNoInteractions(ingest);
+        verifyNoInteractions(audit);
     }
 }
