@@ -67,8 +67,14 @@ public class CashRequestService {
     private String tenantId() {
         String tid = TenantContext.get();
         if (tid == null || tid.isBlank()) {
+            // The status must be passed explicitly: BusinessException's two-argument
+            // constructor hardcodes 400 regardless of the error code, so a plain
+            // UNAUTHORIZED would surface as a Bad Request and the clients — which
+            // key their refresh-then-login handling on 401 — would show a generic
+            // error instead of returning the user to sign-in.
             throw new BusinessException(ErrorCode.UNAUTHORIZED,
-                    "Your session does not identify an organisation. Please sign in again.");
+                    "Your session does not identify an organisation. Please sign in again.",
+                    org.springframework.http.HttpStatus.UNAUTHORIZED);
         }
         return tid;
     }

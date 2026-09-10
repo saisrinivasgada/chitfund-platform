@@ -100,6 +100,57 @@ def db():
         c.close()
 
 
+JWT_SECRET = os.getenv(
+    "TEST_JWT_SECRET", "test-only-jwt-secret-not-for-production-min-32-chars")
+
+
+@pytest.fixture(scope="session")
+def token():
+    """
+    Mints scoped JWTs for the test stack.
+
+    Going through /auth/login would need seeded users, password hashes and the
+    OTP path, none of which is what these tests are about. Signing directly with
+    the stack's own secret produces a token the services genuinely accept, so
+    authorization is still exercised for real — a wrong role or tenant is
+    rejected exactly as it would be in production.
+
+    Only ever valid against the disposable stack: the secret is a test literal
+    and the fixtures refuse to run off-loopback.
+
+    Claim shape mirrors JwtTokenProvider.generateScopedToken.
+    """
+    jwt = pytest.importorskip(
+        "jwt", reason="pip install pyjwt to run the authenticated tests")
+    import datetime as _dt
+
+    def mint(role: str, *, tenant: str = TENANT_A, user_id: str | None = None,
+             member_id: str | None = None, expired: bool = False) -> str:
+        now = _dt.datetime.now(_dt.timezone.utc)
+        claims = {
+            "sub": user_id or "00000000-0000-0000-0000-0000000000aa",
+            "username": f"test-{role.lower()}",
+            "role": role,
+            "iat": now,
+            # A deliberately expired token lets the negative tests prove
+            # expiry is enforced rather than assumed.
+            "exp": now - _dt.timedelta(minutes=5) if expired
+                   else now + _dt.timedelta(hours=2),
+        }
+        if tenant:
+            claims.update({
+                "tenantId": tenant,
+                "tenantSlug": "test-org",
+                "tenantPlan": "ENTERPRISE",   # avoids plan-limit rejections
+                "tenantStatus": "ACTIVE",
+            })
+        if member_id:
+            claims["memberId"] = member_id
+        return jwt.encode(claims, JWT_SECRET, algorithm="HS256")
+
+    return mint
+
+
 @pytest.fixture(scope="session")
 def api():
     """Thin HTTP helper. Keeps the tests about money rather than about requests."""
@@ -119,6 +170,13 @@ def api():
 
         def get(self, url, **kw):
             return requests.get(url, timeout=20, **kw)
+
+        def as_role(self, method: str, url: str, jwt: str, **kw):
+            """Authenticated call. The service validates this token for real."""
+            headers = kw.pop("headers", {})
+            headers.setdefault("Authorization", f"Bearer {jwt}")
+            headers.setdefault("Content-Type", "application/json")
+            return requests.request(method, url, headers=headers, timeout=20, **kw)
 
     return Api()
 
