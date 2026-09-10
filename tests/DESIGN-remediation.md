@@ -27,7 +27,51 @@ commit *before* each edit against `HEAD`. **All six differ**, so every one would
 V27 is the clearest illustration of the loop your policy closes: a migration failed in production,
 the failure row was deleted by the deploy, and the file was edited so the retry would pass.
 
-### 1.2 Blocked: which of these production actually executed
+### 1.2 RESOLVED — production and the repository already agree
+
+Production `flyway_schema_history` was read (read-only, schema metadata only). Result, with the
+checksum tool first validated against seven never-edited migrations (7/7 exact):
+
+**All 35 payment-service migrations in production match the current committed files exactly.
+Zero mismatches. Nothing in production that is absent from the repository.**
+
+That includes all six "edited" migrations — V10, V15, V16, V26, V27 and V131 all carry the *current*
+file's checksum in production.
+
+### 1.2a This invalidates my own proposal in §1.3
+
+I proposed restoring "original committed contents" for any migration present in production history.
+**That would create divergence rather than remove it**, for two reasons:
+
+1. **Production already matches HEAD.** There is nothing to reconcile.
+2. **Git history does not reach back to what production ran.** V10's earliest commit is
+   `7a3f2a8` (2026-09-04), but production installed V10 on **2026-07-07**. The repository history was
+   squashed or rewritten at some point, so git's "original" is not production's original. Restoring
+   it would replace a file that matches production with one that does not.
+
+**Revised recommendation: change nothing in the migration files.** The invariant your policy is
+protecting — repository content equals what production executed — currently holds.
+
+### 1.2b Unexplained, and worth noting rather than papering over
+
+I cannot explain *how* production's V10 row, installed 2026-07-07, carries the checksum of a file I
+edited on 2026-09-10. Flyway does not update checksums without an explicit repair, and I found no
+repair call. Possible explanations, none verified:
+
+- the deploy re-ran the migration after the history DELETE removed a failed row, and `installed_on`
+  is not what I assume it is;
+- something outside the deploy pipeline has run `flyway repair`;
+- the checksums are being written by a path I have not found.
+
+This matters because it is the same class of invisible mutation as the history DELETE. I would not
+enable `validate-on-migrate` until it is understood — if checksums can change silently, validation
+will pass while the underlying problem persists.
+
+**Suggested next step:** capture `flyway_schema_history` for payment-service now, deploy an unrelated
+change, and capture it again. If any checksum or `installed_on` moves, something is rewriting
+history and that is the real finding.
+
+### 1.2c (superseded) Original blocked note
 
 Your rule keys on presence in production `flyway_schema_history`. I cannot read it — SSH is blocked
 by a safety classifier in this session — and you instructed me not to guess.
@@ -48,19 +92,25 @@ ssh -i chitfund-key.pem ec2-user@3.21.196.51 \
 With that output I can complete the audit and state, per migration, whether the original must be
 restored.
 
-### 1.3 Proposed action, pending that evidence
+### 1.3 Revised action
 
-| Case | Action |
-|---|---|
-| Version present in prod history | **Restore original committed contents.** Fix behaviour in a new forward-only migration (`V36+` payment, `V152+` user) |
-| Version absent from prod history | May be corrected in place before release |
+| Migration | Production state | Action |
+|---|---|---|
+| V10, V26 (mine) | checksum matches current file | **none** — do not restore |
+| V15, V16, V27, V131 | checksum matches current file | **none** — do not restore |
+| management V9 | never installed (see §1.4) | none — deletion was correct |
 
-For my two: restore `V10` and `V26` to their pre-`36fc250` contents, then add **`V36__make_tenant_id_idempotent.sql`** doing the guarded work. Net schema result identical; history immutable.
+No migration file changes. Production and the repository are consistent.
 
-For V15/V16/V27/V131: same rule. If prod ran them, the edits are already permanent facts — restoring the files makes the *repository* honest again, and a forward migration reconciles any behavioural difference.
+**Still worth doing**, since consistency today is luck rather than design:
 
-**Guard against recurrence:** a CI step that recomputes each migration's checksum against a committed
-manifest and fails on change. Cheap, and turns this from a recurring practice into a blocked action.
+1. **Checksum manifest in CI** — commit the expected checksum per migration and fail the build if a
+   committed migration's content changes. This is the guard that makes the current state an
+   invariant instead of a coincidence.
+2. **Do not enable `validate-on-migrate` yet** — see §1.2b. If something is silently rewriting
+   checksums, validation would pass while hiding it.
+3. **Resolve §1.2b first.** An unexplained mutation of migration history is the same class of
+   problem as the DELETE, and arguably worse because nothing in the repository references it.
 
 ### 1.4 Management-service V9 — evidence it never ran in production
 
