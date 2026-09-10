@@ -2407,13 +2407,15 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   });
 
   const confirmMut = useMutation({
-    mutationFn: () => {
+    mutationFn: (idempotencyKey: string) => {
       const chitItems = (preview?.chitItems ?? []).map((ci: any) => ({
         chitId: ci.chitId,
         mode: ci.currentMode ?? undefined,
       }));
       const adj = adjAmount ? Number(adjAmount) : null;
-      return confirmSettlement(memberId, chitItems, notes || undefined, adj, adjReason || undefined);
+      return confirmSettlement(
+        memberId, chitItems, notes || undefined, adj, adjReason || undefined, idempotencyKey,
+      );
     },
     onSuccess: (settlement) => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
@@ -2840,7 +2842,13 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
               `Settle ${selectedMember?.fullName}?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive. This cannot be undone.`,
               [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Confirm', style: 'destructive', onPress: () => confirmMut.mutate() },
+                {
+                  text: 'Confirm',
+                  style: 'destructive',
+                  onPress: () => confirmMut.mutate(
+                    `mob-settle-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                  ),
+                },
               ]
             )}
           />

@@ -11,6 +11,9 @@ import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
+import com.chitfund.paymentservice.domain.enums.SettlementPaymentStatus;
+import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
 import com.chitfund.paymentservice.dto.response.SettlementChitPreviewResponse;
@@ -19,6 +22,7 @@ import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
 import com.chitfund.paymentservice.repository.PaymentRecordRepository;
 import com.chitfund.paymentservice.repository.SettlementRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +35,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -40,6 +45,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -84,11 +90,17 @@ class SettlementServiceTest {
 
     @BeforeEach
     void stubCreditBalance() {
+        TenantContext.set("tenant-test");
         // Mockito returns null for an unstubbed BigDecimal, and buildPreviewResponse
         // subtracts the credit balance unguarded (SettlementService.java:901), so an
         // unstubbed call surfaces as an NPE inside BigDecimal rather than a clear
         // failure. Default to zero credit; tests that care override it.
         when(memberCreditService.getBalance(any(UUID.class))).thenReturn(BigDecimal.ZERO);
+    }
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
     }
 
     // Shared test identifiers
@@ -588,7 +600,7 @@ class SettlementServiceTest {
                 .thenReturn(Collections.emptyList());
 
         // Settlement: 10,000 unpaid dues + 2 × 10,000 future = 30,000
-        when(settlementRepository.save(any(Settlement.class))).thenAnswer(inv -> {
+        when(settlementRepository.saveAndFlush(any(Settlement.class))).thenAnswer(inv -> {
             Settlement s = inv.getArgument(0);
             s.setId(UUID.randomUUID()); // simulate DB-generated ID
             if (s.getChitItems() != null) {
@@ -605,7 +617,7 @@ class SettlementServiceTest {
         req.setChitItems(List.of(itemReq));
         req.setNotes("Exit settlement");
 
-        settlementService.confirm(req, ADMIN_ID);
+        settlementService.confirm(req, ADMIN_ID, "settle-key");
 
         // Verify the OUTSTANDING record was marked SETTLEMENT_CLEARED
         ArgumentCaptor<PaymentRecord> recordCaptor = ArgumentCaptor.forClass(PaymentRecord.class);
@@ -629,8 +641,10 @@ class SettlementServiceTest {
 
         // Verify Settlement entity was saved with the correct net amount (30,000 owed).
         ArgumentCaptor<Settlement> settlementCaptor = ArgumentCaptor.forClass(Settlement.class);
-        verify(settlementRepository).save(settlementCaptor.capture());
+        verify(settlementRepository).saveAndFlush(settlementCaptor.capture());
         assertThat(settlementCaptor.getValue().getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(30_000));
+        assertThat(settlementCaptor.getValue().getIdempotencyKey()).isEqualTo("settle-key");
+        assertThat(settlementCaptor.getValue().getIdempotencyRequestHash()).hasSize(64);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -664,7 +678,7 @@ class SettlementServiceTest {
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
-        when(settlementRepository.save(any(Settlement.class))).thenAnswer(inv -> {
+        when(settlementRepository.saveAndFlush(any(Settlement.class))).thenAnswer(inv -> {
             Settlement s = inv.getArgument(0);
             s.setId(UUID.randomUUID());
             return s;
@@ -680,5 +694,102 @@ class SettlementServiceTest {
 
         // Net = 0 → no wallet entry
         verify(adminWalletService, never()).addEntry(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Completed settlement blocks a second confirmation")
+    void completedSettlementBlocksSecondConfirmation() {
+        when(settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNot(
+                MEMBER_ID, "tenant-test", SettlementPaymentStatus.VOIDED)).thenReturn(true);
+
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, "retry-key"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getHttpStatus().value()).isEqualTo(409));
+
+        verify(settlementRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(chitServiceClient, payoutServiceClient);
+    }
+
+    @Test
+    @DisplayName("Same idempotency key and payload returns the original settlement")
+    void idempotentRetryReturnsOriginalSettlement() {
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        String hash = IdempotencyFingerprint.of(
+                MEMBER_ID, List.of(CHIT_A_ID + ":FAIR"), null, BigDecimal.ZERO, null);
+        UUID settlementId = UUID.randomUUID();
+        Settlement prior = Settlement.builder()
+                .id(settlementId)
+                .tenantId("tenant-test")
+                .memberId(MEMBER_ID)
+                .settledBy(ADMIN_ID)
+                .settledAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
+                .totalOwed(BigDecimal.ZERO)
+                .totalRefunded(BigDecimal.ZERO)
+                .netAmount(BigDecimal.ZERO)
+                .paymentStatus(SettlementPaymentStatus.BALANCED)
+                .collectedAmount(BigDecimal.ZERO)
+                .disbursedAmount(BigDecimal.ZERO)
+                .idempotencyKey("retry-key")
+                .idempotencyRequestHash(hash)
+                .build();
+        when(settlementRepository.findByTenantIdAndIdempotencyKey("tenant-test", "retry-key"))
+                .thenReturn(java.util.Optional.of(prior));
+
+        var response = settlementService.confirm(req, ADMIN_ID, " retry-key ");
+
+        assertThat(response.getId()).isEqualTo(settlementId);
+        verify(settlementRepository, never()).existsByMemberIdAndTenantIdAndPaymentStatusNot(any(), any(), any());
+        verify(settlementRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(chitServiceClient, payoutServiceClient);
+    }
+
+    @Test
+    @DisplayName("Reusing an idempotency key for different settlement data is rejected")
+    void idempotencyKeyReuseWithDifferentPayloadIsRejected() {
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        Settlement prior = Settlement.builder()
+                .id(UUID.randomUUID())
+                .tenantId("tenant-test")
+                .memberId(MEMBER_ID)
+                .idempotencyRequestHash("different-request-hash")
+                .build();
+        when(settlementRepository.findByTenantIdAndIdempotencyKey("tenant-test", "retry-key"))
+                .thenReturn(java.util.Optional.of(prior));
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, "retry-key"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getHttpStatus().value()).isEqualTo(409));
+
+        verify(settlementRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("Duplicate chit rows in one confirmation are rejected")
+    void duplicateChitRowsAreRejected() {
+        ConfirmSettlementRequest req = new ConfirmSettlementRequest();
+        req.setMemberId(MEMBER_ID);
+        ConfirmSettlementRequest.ChitItemRequest first = new ConfirmSettlementRequest.ChitItemRequest();
+        first.setChitId(CHIT_A_ID);
+        ConfirmSettlementRequest.ChitItemRequest duplicate = new ConfirmSettlementRequest.ChitItemRequest();
+        duplicate.setChitId(CHIT_A_ID);
+        req.setChitItems(List.of(first, duplicate));
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("only appear once");
+
+        verifyNoInteractions(settlementRepository, chitServiceClient, payoutServiceClient);
+    }
+
+    private ConfirmSettlementRequest confirmationRequest(UUID chitId) {
+        ConfirmSettlementRequest req = new ConfirmSettlementRequest();
+        req.setMemberId(MEMBER_ID);
+        ConfirmSettlementRequest.ChitItemRequest item = new ConfirmSettlementRequest.ChitItemRequest();
+        item.setChitId(chitId);
+        req.setChitItems(List.of(item));
+        return req;
     }
 }

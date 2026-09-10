@@ -787,7 +787,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
 
   // ── Confirm mutation ───────────────────────────────────────────────────
   const confirmMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: ({ idempotencyKey }) => {
       const chitItemsPayload = includedItems.map((item) => ({
         chitId: item.chitId,
         mode: item.settlementCase === 'CASE_C' ? (modes[item.chitId] ?? 'FAIR') : null,
@@ -798,6 +798,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         notes: notes || null,
         adjustmentAmount: parsedAdjustment !== 0 ? parsedAdjustment : null,
         adjustmentReason: parsedAdjustment !== 0 ? (adjustmentReason || null) : null,
+        idempotencyKey,
       });
     },
     onSuccess: (settlement) => {
@@ -2272,7 +2273,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
           title="Confirm Settlement"
           description={`Settle ${selectedMember?.fullName} across ${includedItems.length} chit${includedItems.length !== 1 ? 's' : ''}. This action cannot be undone.`}
           actionLabel="Yes, Confirm Settlement"
-          onConfirm={() => confirmMutation.mutate()}
+          onConfirm={() => confirmMutation.mutate({ idempotencyKey: crypto.randomUUID() })}
           onClose={() => setShowConfirm(false)}
           loading={confirmMutation.isPending}
         >

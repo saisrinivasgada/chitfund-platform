@@ -436,11 +436,14 @@ export const getSettlementPreview = async (memberId: string, chitIds?: string[])
 export const confirmSettlement = async (
   memberId: string, chitItems: any[], notes?: string,
   adjustmentAmount?: number | null, adjustmentReason?: string | null,
+  idempotencyKey?: string,
 ) =>
   unwrapObj(await api.post('/settlement/confirm', {
     memberId, chitItems, notes: notes ?? null,
     adjustmentAmount: adjustmentAmount ?? null,
     adjustmentReason: adjustmentReason ?? null,
+  }, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {},
   }));
 export const recordSettlementTransaction = async (
   settlementId: string, amount: number, mode: string,

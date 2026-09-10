@@ -1,11 +1,10 @@
 """
 Settlement confirmation under concurrency — risk R5 in the plan.
 
-SettlementService.confirm guards against a duplicate by calling
-existsByMemberIdAndTenantIdAndPaymentStatusNotIn and throwing if a live
-settlement is found (SettlementService.java:161). That is a read followed by a
-write with no lock and no unique constraint behind it, so two confirmations for
-the same member can both pass the check before either has inserted.
+SettlementService.confirm now treats every non-VOIDED settlement as live, and
+V37 adds a unique (tenant, member, active_slot) database constraint. The service
+check gives a useful response in the ordinary case; the database constraint is
+the final authority when concurrent requests race on different pods.
 
 A duplicate settlement is not a cosmetic problem: each one clears the member's
 outstanding records and posts its own treasury movement, so the same debt would
@@ -60,29 +59,11 @@ def _confirm(api, m):
 
 
 class TestDuplicateSettlement:
-    """
-    Findings, stated at the level they were actually demonstrated.
-
-    Proven: a member can end up with more than one settlement row, both
-    sequentially and concurrently. The guard does not stop it because BALANCED
-    sits in the terminal list, so a completed settlement is treated as no
-    settlement at all.
-
-    Not proven: that this moves money twice. In every scenario reachable from
-    here the second settlement computes a net of zero, so nothing is refunded or
-    collected again. Constructing a non-zero case needs a chit that exists in
-    chit-service with enrollments and a payout, which this fixture does not
-    build. Whether the duplicate can carry real money is therefore open — and is
-    the question worth answering before deciding how hard to fix it.
-    """
+    """Regression coverage for sequential and concurrent confirmation."""
 
     @pytest.mark.xfail(
-        reason="Confirmed defect: a second confirm succeeds for a member who "
-               "already has a settlement. BALANCED is listed as terminal "
-               "(SettlementService.java:156-163), so a completed settlement does "
-               "not block a new one. Left failing rather than asserting the "
-               "broken behaviour, because whether re-settlement should be allowed "
-               "at all is a product decision.",
+        reason="Fix implemented in SettlementService and V37; keep this as a "
+               "pending live-stack check until V37 is applied to disposable MySQL.",
         strict=False)
     def test_sequential_second_confirm_is_refused(self, api, db, settleable_member):
         first = _confirm(api, settleable_member)
@@ -93,10 +74,8 @@ class TestDuplicateSettlement:
         assert len(_settlements(db, settleable_member["member_id"])) == 1
 
     @pytest.mark.xfail(
-        reason="R5 confirmed: the guard is a read-then-write with no lock and no "
-               "unique constraint, so two concurrent confirms both pass it and "
-               "two settlement rows are created. Money movement not demonstrated "
-               "— the second computes zero in every scenario reachable here.",
+        reason="V37 supplies the concurrency constraint, but this machine has no "
+               "Docker/MySQL runtime to apply it and prove the two-request race.",
         strict=False)
     def test_concurrent_confirms_create_at_most_one_settlement(self, api, db, settleable_member):
         with ThreadPoolExecutor(max_workers=2) as ex:

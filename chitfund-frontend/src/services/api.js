@@ -1180,12 +1180,13 @@ export const getSettlementPreview = async ({ memberId, chitIds }) => {
   return res.data.data;
 };
 
-export const confirmSettlement = async ({ memberId, chitItems, notes, adjustmentAmount, adjustmentReason }) => {
+export const confirmSettlement = async ({ memberId, chitItems, notes, adjustmentAmount, adjustmentReason, idempotencyKey }) => {
+  const headers = idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {};
   const res = await api.post('/settlement/confirm', {
     memberId, chitItems, notes: notes ?? null,
     adjustmentAmount: adjustmentAmount ?? null,
     adjustmentReason: adjustmentReason ?? null,
-  });
+  }, { headers });
   return res.data.data;
 };
 

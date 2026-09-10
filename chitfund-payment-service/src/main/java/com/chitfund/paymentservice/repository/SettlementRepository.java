@@ -21,8 +21,12 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
     // All settlements for a member within a tenant, newest first — paginated
     Page<Settlement> findByMemberIdAndTenantIdOrderBySettledAtDesc(UUID memberId, String tenantId, Pageable pageable);
 
-    // True if the member has any active settlement in this tenant
-    boolean existsByMemberIdAndTenantIdAndPaymentStatusNotIn(UUID memberId, String tenantId, List<SettlementPaymentStatus> terminalStatuses);
+    // A completed settlement is still live. Only an explicitly VOIDED settlement
+    // permits another confirmation for the same tenant/member.
+    boolean existsByMemberIdAndTenantIdAndPaymentStatusNot(
+            UUID memberId, String tenantId, SettlementPaymentStatus excludedStatus);
+
+    Optional<Settlement> findByTenantIdAndIdempotencyKey(String tenantId, String idempotencyKey);
 
     /**
      * Loads a Settlement with a database-level pessimistic write lock.
@@ -60,4 +64,3 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             @Param("terminalStatuses") List<SettlementPaymentStatus> terminalStatuses,
             Pageable pageable);
 }
-

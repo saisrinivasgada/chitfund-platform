@@ -66,9 +66,10 @@ public class SettlementController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<SettlementResponse>> confirm(
             @Valid @RequestBody ConfirmSettlementRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        SettlementResponse response = settlementService.confirm(request, adminId);
+        SettlementResponse response = settlementService.confirm(request, adminId, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response, "Settlement confirmed"));
     }
 

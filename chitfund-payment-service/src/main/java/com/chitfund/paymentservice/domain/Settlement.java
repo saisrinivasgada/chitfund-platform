@@ -26,6 +26,10 @@ import java.util.UUID;
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 @Entity
 @Table(name = "settlements",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_settlement_tenant_idempotency",
+                        columnNames = {"tenant_id", "idempotency_key"})
+        },
         indexes = {
                 @Index(name = "idx_settlement_member", columnList = "member_id"),
                 @Index(name = "idx_settlement_settled_at", columnList = "settled_at")
@@ -112,6 +116,14 @@ public class Settlement {
 
     @Column(name = "voided_by", columnDefinition = "varchar(36)")
     private UUID voidedBy;
+
+    /** Client-generated key that makes a retried confirmation return this row. */
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    /** SHA-256 of the financial request fields; prevents a key being reused for different data. */
+    @Column(name = "idempotency_request_hash", length = 64)
+    private String idempotencyRequestHash;
 
     @OneToMany(mappedBy = "settlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

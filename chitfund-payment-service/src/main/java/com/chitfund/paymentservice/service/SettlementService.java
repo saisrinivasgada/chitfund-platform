@@ -36,12 +36,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -148,18 +151,48 @@ public class SettlementService {
      */
     @Transactional
     public SettlementResponse confirm(ConfirmSettlementRequest request, UUID adminId) {
+        return confirm(request, adminId, null);
+    }
+
+    @Transactional
+    public SettlementResponse confirm(ConfirmSettlementRequest request, UUID adminId, String rawIdempotencyKey) {
         planExpiryChecker.assertNotExpired();
         UUID memberId = request.getMemberId();
 
         String tenantId = TenantContext.get();
-        // VOIDED is terminal — a voided settlement must allow re-settlement
-        List<SettlementPaymentStatus> terminalStatuses = List.of(
-                SettlementPaymentStatus.FULLY_COLLECTED,
-                SettlementPaymentStatus.FULLY_DISBURSED,
-                SettlementPaymentStatus.BALANCED,
-                SettlementPaymentStatus.VOIDED);
-        if (settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNotIn(memberId, tenantId, terminalStatuses)) {
-            throw new BusinessException(ErrorCode.SETTLEMENT_ALREADY_EXISTS);
+        String idempotencyKey = normalizeIdempotencyKey(rawIdempotencyKey);
+        validateDistinctChits(request);
+        String requestHash = settlementRequestHash(request);
+
+        // Retry check must precede the live-settlement guard: the same request/key
+        // returns the original result, while a reused key with changed money inputs
+        // is rejected as a conflict.
+        if (idempotencyKey != null) {
+            var existing = settlementRepository.findByTenantIdAndIdempotencyKey(tenantId, idempotencyKey);
+            if (existing.isPresent()) {
+                Settlement prior = existing.get();
+                if (prior.getIdempotencyRequestHash() == null
+                        || !prior.getIdempotencyRequestHash().equals(requestHash)) {
+                    throw new BusinessException(
+                            ErrorCode.CONCURRENT_MODIFICATION,
+                            "Idempotency key was already used with different settlement details",
+                            HttpStatus.CONFLICT);
+                }
+                log.info("Idempotent settlement retry detected for tenant={} key={}; returning settlement {}",
+                        tenantId, idempotencyKey, prior.getId());
+                return toSettlementResponse(prior);
+            }
+        }
+
+        // Completion does not make a settlement disappear: FULLY_COLLECTED,
+        // FULLY_DISBURSED and BALANCED must all block another confirmation.
+        // Only an explicitly VOIDED row allows the member to be settled again.
+        if (settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNot(
+                memberId, tenantId, SettlementPaymentStatus.VOIDED)) {
+            throw new BusinessException(
+                    ErrorCode.SETTLEMENT_ALREADY_EXISTS,
+                    "This member has already been settled. Void the existing settlement before creating another.",
+                    HttpStatus.CONFLICT);
         }
 
         List<SettlementChitItem> chitItems = new ArrayList<>();
@@ -263,13 +296,17 @@ public class SettlementService {
                 .paymentStatus(initialPaymentStatus)
                 .collectedAmount(BigDecimal.ZERO)
                 .disbursedAmount(BigDecimal.ZERO)
+                .idempotencyKey(idempotencyKey)
+                .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
                 .build();
         // Link items to settlement
         for (SettlementChitItem item : chitItems) {
             item.setSettlement(settlement);
         }
         settlement.setChitItems(chitItems);
-        Settlement saved = settlementRepository.save(settlement);
+        // Flush before any external side effect. The database owns the final race
+        // decision through its unique tenant/member live-settlement constraint.
+        Settlement saved = settlementRepository.saveAndFlush(settlement);
 
         log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, credit ₹{}, paymentStatus={}",
                 memberId, adminId, totalOwed, totalRefunded, netAmount, creditBalance, initialPaymentStatus);
@@ -285,6 +322,44 @@ public class SettlementService {
         memberServiceClient.deactivateMember(memberId);
 
         return toSettlementResponse(saved);
+    }
+
+    private String normalizeIdempotencyKey(String key) {
+        if (key == null || key.isBlank()) return null;
+        String normalized = key.trim();
+        if (normalized.length() > 64) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "X-Idempotency-Key must be at most 64 characters");
+        }
+        return normalized;
+    }
+
+    private void validateDistinctChits(ConfirmSettlementRequest request) {
+        Set<UUID> seen = new HashSet<>();
+        boolean duplicate = request.getChitItems().stream()
+                .map(ConfirmSettlementRequest.ChitItemRequest::getChitId)
+                .anyMatch(chitId -> !seen.add(chitId));
+        if (duplicate) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "A chit may only appear once in a settlement request");
+        }
+    }
+
+    private String settlementRequestHash(ConfirmSettlementRequest request) {
+        // Item order is presentation detail, not financial meaning, so sort the
+        // canonical forms. A null CASE_C mode has the same meaning as FAIR.
+        List<String> canonicalItems = request.getChitItems().stream()
+                .map(item -> item.getChitId() + ":"
+                        + (item.getMode() != null ? item.getMode() : SettlementMode.FAIR))
+                .sorted()
+                .toList();
+        BigDecimal adjustment = request.getAdjustmentAmount() != null
+                ? request.getAdjustmentAmount() : BigDecimal.ZERO;
+        return IdempotencyFingerprint.of(
+                request.getMemberId(), canonicalItems, request.getNotes(),
+                adjustment, request.getAdjustmentReason());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
