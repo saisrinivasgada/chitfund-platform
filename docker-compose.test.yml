@@ -1,0 +1,190 @@
+# Disposable stack for financial-correctness testing.
+#
+# Deliberately NOT docker-compose.prod.yml with different values — this is a
+# separate file so a mistake here can never reach production, and so the reset
+# script can drop every schema without a second thought.
+#
+# Ports are offset by +1000 from prod (gateway 9080, MySQL 4306) so this can run
+# alongside anything already listening locally, and so a misconfigured client
+# cannot silently talk to the wrong stack.
+#
+#   docker compose -f docker-compose.test.yml up -d --wait
+#   ./scripts/test-reset.sh
+#
+# Only the services that move money are here. notification, audit, reporting and
+# management are not required to prove a calculation, and every extra container
+# is another thing that can fail for reasons unrelated to the test.
+
+name: chitwise-test
+
+x-test-db: &test-db
+  DB_HOST: mysql-test
+  DB_PORT: 3306
+  DB_USERNAME: root
+  DB_PASSWORD: testpassword
+
+x-test-common: &test-common
+  JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
+  INTERNAL_SERVICE_KEY: test-internal-service-key
+  SPRING_PROFILES_ACTIVE: test
+  # Point event publishing at nowhere. Delivery failure must not fail a payment,
+  # and testing that it degrades cleanly is itself a Phase 6 case.
+  AWS_REGION: us-east-2
+  # payment-service pulls in Spring Cloud AWS. With no credentials the SDK falls
+  # through its provider chain to EC2 instance metadata, which does not exist on
+  # a laptop — so give it dummies and switch the metadata lookup off rather than
+  # let it stall or fail during context refresh.
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_EC2_METADATA_DISABLED: "true"
+
+services:
+
+  mysql-test:
+    image: mysql:8.0
+    container_name: chitwise-test-mysql
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --sql-mode=STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION
+    environment:
+      MYSQL_ROOT_PASSWORD: testpassword
+      # Schemas are created by test-reset.sh so it can drop and recreate them
+      # between runs without restarting the container.
+      MYSQL_DATABASE: chitfund_user
+    ports:
+      - "127.0.0.1:4306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ptestpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    tmpfs:
+      # In-memory storage: a reset is instant and nothing survives a teardown,
+      # which is the point of a disposable stack.
+      - /var/lib/mysql
+    networks: [chitwise-test]
+
+  user-service:
+    build:
+      context: .
+      dockerfile: chitfund-user-service/Dockerfile
+    container_name: chitwise-test-user
+    environment:
+      <<: [*test-common, *test-db]
+      DB_NAME: chitfund_user
+    ports:
+      - "127.0.0.1:9081:8081"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  chit-service:
+    build:
+      context: .
+      dockerfile: chitfund-chit-service/Dockerfile
+    container_name: chitwise-test-chit
+    environment:
+      <<: [*test-common, *test-db]
+      DB_NAME: chitfund_chit
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      NOTIFICATION_SERVICE_URL: http://localhost:9999
+      AUDIT_SERVICE_URL: http://localhost:9999
+    ports:
+      - "127.0.0.1:9082:8082"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: chitfund-payment-service/Dockerfile
+    container_name: chitwise-test-payment
+    environment:
+      <<: [*test-common, *test-db]
+      DB_NAME: chitfund_payment
+      CHIT_SERVICE_URL: http://chit-service:8082
+      MEMBER_SERVICE_URL: http://member-service:8083
+      PAYOUT_SERVICE_URL: http://payout-service:8085
+      NOTIFICATION_SERVICE_URL: http://localhost:9999
+      AUDIT_SERVICE_URL: http://localhost:9999
+    ports:
+      - "127.0.0.1:9084:8084"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  payout-service:
+    build:
+      context: .
+      dockerfile: chitfund-payout-service/Dockerfile
+    container_name: chitwise-test-payout
+    environment:
+      <<: [*test-common, *test-db]
+      DB_NAME: chitfund_payout
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      CHIT_SERVICE_URL: http://chit-service:8082
+      NOTIFICATION_SERVICE_URL: http://localhost:9999
+      AUDIT_SERVICE_URL: http://localhost:9999
+    ports:
+      - "127.0.0.1:9085:8085"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  member-service:
+    build:
+      context: .
+      dockerfile: chitfund-member-service/Dockerfile
+    container_name: chitwise-test-member
+    environment:
+      <<: [*test-common, *test-db]
+      DB_NAME: chitfund_member
+      USER_SERVICE_URL: http://user-service:8081
+      NOTIFICATION_SERVICE_URL: http://localhost:9999
+      AUDIT_SERVICE_URL: http://localhost:9999
+    ports:
+      - "127.0.0.1:9083:8083"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+networks:
+  chitwise-test:
+    driver: bridge
