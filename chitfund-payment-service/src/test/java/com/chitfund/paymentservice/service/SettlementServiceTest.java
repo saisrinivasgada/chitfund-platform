@@ -33,6 +33,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -54,6 +57,10 @@ import static org.mockito.Mockito.*;
  * SettlementService has pure business logic — unit tests are ideal here."
  */
 @ExtendWith(MockitoExtension.class)
+// Lenient because SettlementService has gained branches since these tests were
+// written, so some stubs are no longer reached on every path. Strict stubbing
+// turned that into 8 errors rather than a signal.
+@MockitoSettings(strictness = Strictness.LENIENT)
 class SettlementServiceTest {
 
     @Mock private PaymentRecordRepository paymentRecordRepository;
@@ -62,9 +69,24 @@ class SettlementServiceTest {
     @Mock private ChitServiceClient chitServiceClient;
     @Mock private PayoutServiceClient payoutServiceClient;
     @Mock private AdminWalletService adminWalletService;
+    // Added later to SettlementService. Without them @InjectMocks leaves the
+    // fields null and every confirm-path test dies on an NPE — which is what
+    // was happening, unnoticed, because nothing ever ran this suite.
+    @Mock private MemberCreditService memberCreditService;
+    @Mock private PlanExpiryChecker planExpiryChecker;
+    @Mock private com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
 
     @InjectMocks
     private SettlementService settlementService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void stubCreditBalance() {
+        // Mockito returns null for an unstubbed BigDecimal, and buildPreviewResponse
+        // subtracts the credit balance unguarded (SettlementService.java:901), so an
+        // unstubbed call surfaces as an NPE inside BigDecimal rather than a clear
+        // failure. Default to zero credit; tests that care override it.
+        when(memberCreditService.getBalance(any(UUID.class))).thenReturn(BigDecimal.ZERO);
+    }
 
     // Shared test identifiers
     private final UUID MEMBER_ID = UUID.randomUUID();
@@ -230,8 +252,17 @@ class SettlementServiceTest {
         assertThat(result.getUnpaidDues()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.getFutureMonthsCount()).isEqualTo(4); // months 3,4,5,6
         assertThat(result.getFutureInstallments()).isEqualByComparingTo(BigDecimal.valueOf(40_000));
-        // -55,000 + 0 + 40,000 = -15,000
-        assertThat(result.getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(-15_000));
+
+        // Expectation corrected 2026-09-10. This asserted -15,000, from an older
+        // rule of (-reservedPayout + futureInstallments). CASE_B1 now refunds
+        // exactly what was paid in and waives future installments, because the
+        // reserved slot is voided on settlement — see SettlementService.java:426-436,
+        // where the behaviour is deliberate and documented.
+        //
+        // Two months settled at 10,000 => totalPaidIn 20,000 => net -20,000.
+        // The suite never ran, so the divergence went unnoticed; the code is right
+        // and the test was stale, not the other way round.
+        assertThat(result.getNetAmount()).isEqualByComparingTo(BigDecimal.valueOf(-20_000));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -581,15 +612,18 @@ class SettlementServiceTest {
                 .anyMatch(r -> r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
         assertThat(foundCleared).isTrue();
 
-        // Verify AdminWalletService was called (member owes → IN entry)
-        ArgumentCaptor<com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest> walletCaptor =
-                ArgumentCaptor.forClass(com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest.class);
-        verify(adminWalletService).addEntry(walletCaptor.capture(), eq(ADMIN_ID), any());
-        com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest walletReq = walletCaptor.getValue();
-        assertThat(walletReq.getEntryType()).isEqualTo(com.chitfund.paymentservice.domain.enums.WalletEntryType.IN);
-        assertThat(walletReq.getCategory()).isEqualTo("SETTLEMENT");
-        // netAmount = 10,000 unpaid + 2 × 10,000 future = 30,000
-        assertThat(walletReq.getAmount()).isEqualByComparingTo(BigDecimal.valueOf(30_000));
+        // Corrected 2026-09-10. This used to assert that confirm() posted a
+        // SETTLEMENT wallet entry of 30,000 immediately. It no longer does:
+        // adminWalletService.addEntry now appears only in voidSettlement
+        // (SettlementService.java:812). Confirming records the obligation and
+        // leaves the settlement PENDING; cash moves later through
+        // recordTransaction, which is what drives PARTIALLY_COLLECTED and
+        // FULLY_COLLECTED.
+        //
+        // Asserting the absence is deliberate — confirming a settlement must not
+        // move money on its own, or the treasury would count cash that nobody has
+        // actually collected yet.
+        verify(adminWalletService, never()).addEntry(any(), any(), any());
 
         // Verify Settlement entity was saved
         verify(settlementRepository).save(any(Settlement.class));
