@@ -132,13 +132,44 @@ def dividend_per_spot(disc, comm, total_spots: int, *, allow_remainder=False) ->
 
 
 def dividend_remainder(disc, comm, total_spots: int) -> Decimal:
-    """The unallocated shortfall described above. Should be asserted explicitly."""
+    """The shortfall left by rounding the per-spot dividend down."""
     disc, comm = money(disc), money(comm)
     if total_spots <= 0:
         return ZERO
     distributable = disc - comm
     per_spot = (distributable / Decimal(total_spots)).quantize(CENTS, rounding=ROUND_DOWN)
     return distributable - (per_spot * total_spots)
+
+
+def dividends_for_members(disc, comm, member_spots: Sequence[int]) -> list:
+    """
+    Per-member dividend once the rounding shortfall has been redistributed.
+
+    Resolved 2026-09-10 (A1): the stranded paise belong to the members, not the
+    fund, so they are handed out one per member — largest remainder — until they
+    run out. `member_spots` must already be in the same stable order the service
+    uses (member id ascending).
+
+    Guarantees `sum(result) == discount - commission` whenever the shortfall is
+    no larger than one paisa per member, which is the only case rounding down can
+    produce.
+    """
+    disc, comm = money(disc), money(comm)
+    total_spots = sum(member_spots)
+    if total_spots <= 0:
+        return [ZERO for _ in member_spots]
+
+    distributable = disc - comm
+    per_spot = (distributable / Decimal(total_spots)).quantize(CENTS, rounding=ROUND_DOWN)
+
+    amounts = [per_spot * s for s in member_spots]
+    shortfall = distributable - sum(amounts, ZERO)
+    spare_paise = int((shortfall / CENTS).to_integral_value())
+    # One paisa each, capped at the member count — a bigger gap means the inputs
+    # disagree, and inventing a discount would be worse than leaving it.
+    for i in range(min(spare_paise, len(amounts))):
+        amounts[i] += CENTS
+    return amounts
 
 
 def net_due_after_dividend(gross_installment, per_spot_dividend, spots: int) -> Decimal:

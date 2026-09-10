@@ -173,7 +173,7 @@ public class AdminDrawController {
         drawService.applyAuctionDividend(
                 request.getChitId(), request.getMonthNumber(),
                 request.getGrossInstallmentAmount(), request.getDividendPerSpot(),
-                memberSpots, tenantId);
+                memberSpots, tenantId, request.getDistributableDiscount());
         return ResponseEntity.ok().build();
     }
 

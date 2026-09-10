@@ -74,6 +74,35 @@ check("CALC-A03b", "remainder is 0.01 (ambiguity A1)",
 expect_raises("CALC-A03c", "unacknowledged remainder raises AmbiguousRule",
               m.AmbiguousRule, m.dividend_per_spot, "10000", "0", 3)
 
+# A1 resolved: the stranded paise go to members, so the dividends must sum to
+# exactly the distributable amount. 10000/3 -> 3333.34, 3333.33, 3333.33.
+_d = m.dividends_for_members("10000", "0", [1, 1, 1])
+check("CALC-A06a", "remainder redistributed to members",
+      [Decimal("3333.34"), Decimal("3333.33"), Decimal("3333.33")], _d)
+check("CALC-A06b", "dividends sum to the distributable total",
+      Decimal("10000.00"), sum(_d, Decimal("0.00")))
+
+# 100.00 over 7 spots -> 14.28 each = 99.96; 4 paise spread one each.
+_d7 = m.dividends_for_members("100", "0", [1] * 7)
+check("CALC-A06c", "four spare paise land on four members",
+      Decimal("100.00"), sum(_d7, Decimal("0.00")))
+check("CALC-A06d", "nobody receives more than one spare paisa",
+      4, sum(1 for x in _d7 if x == Decimal("14.29")))
+
+# Exact division adds nothing.
+check("CALC-A06e", "exact division needs no redistribution",
+      Decimal("18000.00"), sum(m.dividends_for_members("20000", "2000", [1] * 12), Decimal("0.00")))
+
+# Multi-spot members scale by spots before the spare paisa is added.
+# 10000/3 spots -> 3333.33 per spot. Member A holds 2 spots: 6666.66, plus the
+# single spare paisa -> 6666.67. Member B holds 1: 3333.33. Total 10000.00.
+_dm = m.dividends_for_members("10000", "0", [2, 1])
+check("CALC-A06f", "two-spot member gets 2 x perSpot plus the spare paisa",
+      Decimal("6666.67"), _dm[0])
+check("CALC-A06g", "one-spot member gets perSpot", Decimal("3333.33"), _dm[1])
+check("CALC-A06h", "multi-spot split still sums exactly",
+      Decimal("10000.00"), sum(_dm, Decimal("0.00")))
+
 # Commission capped at discount: FIXED 30000 against a 20000 discount.
 check("CALC-A05", "fixed commission capped at discount",
       Decimal("20000.00"), m.commission("20000", CT.FIXED, "30000"))

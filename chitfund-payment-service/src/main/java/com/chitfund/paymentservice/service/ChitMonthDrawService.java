@@ -184,6 +184,22 @@ public class ChitMonthDrawService {
                                      BigDecimal dividendPerSpot,
                                      List<MemberSpotEntry> memberSpots,
                                      String tenantId) {
+        applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
+                dividendPerSpot, memberSpots, tenantId, null);
+    }
+
+    /**
+     * @param distributableDiscount total discount available to members after
+     *        commission. Optional — when null, no rounding remainder is spread
+     *        and behaviour matches the pre-2026-09-10 contract.
+     */
+    @Transactional
+    public void applyAuctionDividend(UUID chitId, Integer monthNumber,
+                                     BigDecimal grossInstallmentAmount,
+                                     BigDecimal dividendPerSpot,
+                                     List<MemberSpotEntry> memberSpots,
+                                     String tenantId,
+                                     BigDecimal distributableDiscount) {
         ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
                         chitId + "/" + monthNumber));
@@ -193,11 +209,30 @@ public class ChitMonthDrawService {
                     "Draw is not in AWAITING_AUCTION state. Current: " + draw.getStatus());
         }
 
-        List<PaymentRecord> records = memberSpots.stream().map(ms -> {
+        // dividendPerSpot is rounded down, so spots x perSpot can fall a few paise
+        // short of what was actually distributable. Those paise belong to the
+        // members, not to the fund, so hand them out one at a time — largest
+        // remainder, ordered by member id so the same auction always produces the
+        // same allocation.
+        //
+        // distributableDiscount is optional: when it is absent (an older caller)
+        // there is no remainder to spread and behaviour is unchanged.
+        long spareePaise = remainderPaise(dividendPerSpot, memberSpots, distributableDiscount);
+
+        List<MemberSpotEntry> ordered = memberSpots.stream()
+                .sorted(java.util.Comparator.comparing(ms -> ms.memberId().toString()))
+                .toList();
+
+        List<PaymentRecord> records = new java.util.ArrayList<>();
+        for (MemberSpotEntry ms : ordered) {
             BigDecimal dividend = dividendPerSpot.multiply(BigDecimal.valueOf(ms.spots()));
+            if (spareePaise > 0) {
+                dividend = dividend.add(new BigDecimal("0.01"));
+                spareePaise--;
+            }
             BigDecimal gross = grossInstallmentAmount.multiply(BigDecimal.valueOf(ms.spots()));
             BigDecimal netDue = gross.subtract(dividend).max(BigDecimal.ZERO);
-            return PaymentRecord.builder()
+            records.add(PaymentRecord.builder()
                     .tenantId(tenantId)
                     .chitId(chitId)
                     .memberId(ms.memberId())
@@ -208,8 +243,8 @@ public class ChitMonthDrawService {
                     .amountDue(netDue)
                     .amountPaid(BigDecimal.ZERO)
                     .status(PaymentRecordStatus.OUTSTANDING)
-                    .build();
-        }).toList();
+                    .build());
+        }
 
         paymentRecordRepository.saveAll(records);
 
@@ -230,6 +265,32 @@ public class ChitMonthDrawService {
     }
 
     public record MemberSpotEntry(UUID memberId, int spots) {}
+
+    /**
+     * How many paise the rounded-down per-spot dividend failed to distribute.
+     *
+     * <p>Returns 0 when the caller did not supply the distributable total, so an
+     * older chit-service keeps today's behaviour rather than silently changing
+     * what members owe. Also returns 0 if the figure looks wrong (negative, or
+     * larger than one paisa per spot), because a bad input should leave dues
+     * alone rather than inflate a discount.
+     */
+    private long remainderPaise(BigDecimal dividendPerSpot,
+                                List<MemberSpotEntry> memberSpots,
+                                BigDecimal distributableDiscount) {
+        if (distributableDiscount == null || dividendPerSpot == null) return 0;
+        long totalSpots = memberSpots.stream().mapToLong(MemberSpotEntry::spots).sum();
+        if (totalSpots <= 0) return 0;
+
+        BigDecimal allocated = dividendPerSpot.multiply(BigDecimal.valueOf(totalSpots));
+        BigDecimal shortfall = distributableDiscount.subtract(allocated);
+        if (shortfall.signum() <= 0) return 0;
+
+        long paise = shortfall.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        // At most one spare paisa per member; anything more means the inputs
+        // disagree and we should not be inventing a discount.
+        return Math.min(paise, memberSpots.size());
+    }
 
     /**
      * Reverses the effects of applyAuctionDividend — resets draw back to AWAITING_AUCTION

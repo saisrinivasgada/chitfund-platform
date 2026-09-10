@@ -18,6 +18,13 @@ public class ApplyAuctionDividendRequest {
     @NotNull @DecimalMin("0.01") private BigDecimal grossInstallmentAmount;
     @NotNull @DecimalMin("0.00") private BigDecimal dividendPerSpot;
 
+    /**
+     * Total discount available to members after commission. Optional — an older
+     * chit-service will not send it, and its absence means no rounding remainder
+     * is redistributed, matching the previous behaviour.
+     */
+    @DecimalMin("0.00") private BigDecimal distributableDiscount;
+
     @NotNull private List<MemberSpot> memberSpots;
 
     @Data

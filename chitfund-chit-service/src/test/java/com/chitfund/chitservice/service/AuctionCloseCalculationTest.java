@@ -152,8 +152,20 @@ class AuctionCloseCalculationTest {
         ArgumentCaptor<BigDecimal> dividend = ArgumentCaptor.forClass(BigDecimal.class);
         verify(paymentServiceClient).applyAuctionDividend(
                 eq(chitId), anyInt(), any(BigDecimal.class), dividend.capture(),
-                anyList(), anyString());
+                anyList(), anyString(), any());
         return dividend.getValue();
+    }
+
+    /**
+     * The distributable total sent alongside the per-spot dividend. payment-service
+     * needs it to redistribute the paise that rounding down would otherwise strand.
+     */
+    private BigDecimal capturedDistributable() {
+        ArgumentCaptor<BigDecimal> distributable = ArgumentCaptor.forClass(BigDecimal.class);
+        verify(paymentServiceClient).applyAuctionDividend(
+                eq(chitId), anyInt(), any(BigDecimal.class), any(BigDecimal.class),
+                anyList(), anyString(), distributable.capture());
+        return distributable.getValue();
     }
 
     // ── commission ───────────────────────────────────────────────────────────
@@ -237,36 +249,48 @@ class AuctionCloseCalculationTest {
     }
 
     /**
-     * A1 — the rounding remainder.
+     * A1 — the rounding remainder must reach the members.
      *
-     * <p>Because the dividend rounds DOWN and only the per-spot figure is stored,
-     * {@code discount != commission + (dividendPerSpot x spots)}. The shortfall
-     * is real money that is never allocated to anyone and never recorded.
+     * <p>The per-spot dividend rounds DOWN, so spots x perSpot can fall short of
+     * what was actually distributable — ₹0.01 here, up to (spots-1) x ₹0.01 in
+     * general. Those paise belong to the members, so chit-service now sends the
+     * distributable total and payment-service hands the shortfall out one paisa
+     * at a time.
      *
-     * <p>This test asserts the shortfall exists and pins its size, so the
-     * behaviour is visible and cannot change unnoticed. It deliberately does not
-     * claim the behaviour is correct — who should receive it is unresolved.
+     * <p>This asserts the total is sent and is large enough to cover the gap. The
+     * distribution itself is payment-service's job and is tested there.
      */
     @Test
-    @DisplayName("A1: rounding leaves an unallocated remainder that nothing records")
-    void dividendRemainderIsUnallocated() {
+    @DisplayName("A1: the distributable total is sent so stranded paise can reach members")
+    void sendsDistributableTotalForRemainder() {
         AuctionSession s = openSession("110000", null, null);   // discount 10,000
         arrange(s, chit("1000"), 3);
 
         service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
 
-        BigDecimal discount = s.getDiscountAmount();                 // 10000
-        BigDecimal commission = s.getCommissionAmount();             // 0
-        BigDecimal perSpot = s.getDividendPerSpot();                 // 3333.33
+        BigDecimal perSpot = s.getDividendPerSpot();                       // 3333.33
         BigDecimal distributed = perSpot.multiply(BigDecimal.valueOf(3));  // 9999.99
+        BigDecimal distributable = capturedDistributable();                // 10000.00
 
-        BigDecimal remainder = discount.subtract(commission).subtract(distributed);
+        assertThat(distributable).isEqualByComparingTo("10000.00");
 
-        assertThat(remainder).isEqualByComparingTo("0.01");
-        assertThat(distributed).isLessThan(discount.subtract(commission));
+        // The gap payment-service is expected to close.
+        assertThat(distributable.subtract(distributed)).isEqualByComparingTo("0.01");
 
-        // Nothing on the session accounts for it — there is no remainder field.
-        assertThat(discount).isNotEqualByComparingTo(commission.add(distributed));
+        // Without the total, payment-service could not know a gap existed at all.
+        assertThat(distributable).isGreaterThan(distributed);
+    }
+
+    @Test
+    @DisplayName("an evenly-divisible auction leaves no gap to redistribute")
+    void noRemainderWhenDivisionIsExact() {
+        AuctionSession s = openSession("120000", "PERCENTAGE", "10");
+        arrange(s, chit("1000"), 12);
+
+        service.closeAuction(chitId, auctionId, offlineClose("100000"), UUID.randomUUID());
+
+        BigDecimal distributed = s.getDividendPerSpot().multiply(BigDecimal.valueOf(12));
+        assertThat(capturedDistributable()).isEqualByComparingTo(distributed);
     }
 
     @Test

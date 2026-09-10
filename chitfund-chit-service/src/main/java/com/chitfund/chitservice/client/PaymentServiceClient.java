@@ -35,19 +35,37 @@ public class PaymentServiceClient {
                                      BigDecimal dividendPerSpot,
                                      List<MemberSpot> memberSpots,
                                      String tenantId) {
+        applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
+                dividendPerSpot, memberSpots, tenantId, null);
+    }
+
+    /**
+     * @param distributableDiscount discount left for members after commission.
+     *        payment-service uses it to hand out the paise that rounding the
+     *        per-spot dividend down would otherwise strand. Safe to omit.
+     */
+    public void applyAuctionDividend(UUID chitId, Integer monthNumber,
+                                     BigDecimal grossInstallmentAmount,
+                                     BigDecimal dividendPerSpot,
+                                     List<MemberSpot> memberSpots,
+                                     String tenantId,
+                                     BigDecimal distributableDiscount) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("X-Internal-Key", internalKey);
             headers.set("X-Tenant-ID", tenantId);
 
-            Map<String, Object> body = Map.of(
-                    "chitId", chitId.toString(),
-                    "monthNumber", monthNumber,
-                    "grossInstallmentAmount", grossInstallmentAmount,
-                    "dividendPerSpot", dividendPerSpot,
-                    "memberSpots", memberSpots
-            );
+            // HashMap, not Map.of — distributableDiscount may be null.
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("chitId", chitId.toString());
+            body.put("monthNumber", monthNumber);
+            body.put("grossInstallmentAmount", grossInstallmentAmount);
+            body.put("dividendPerSpot", dividendPerSpot);
+            body.put("memberSpots", memberSpots);
+            if (distributableDiscount != null) {
+                body.put("distributableDiscount", distributableDiscount);
+            }
 
             restTemplate.exchange(
                     paymentServiceUrl + "/admin/draws/internal/apply-auction-dividend",
