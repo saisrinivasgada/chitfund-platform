@@ -4,17 +4,23 @@ import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.SubmitProspectContactRequest;
 import com.chitfund.userservice.dto.request.SubmitSupportTicketRequest;
+import com.chitfund.userservice.dto.response.ContactRequestMessageResponse;
 import com.chitfund.userservice.dto.response.ContactRequestResponse;
 import com.chitfund.userservice.service.ContactRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -55,10 +61,52 @@ public class ContactController {
         return ResponseEntity.ok(ApiResponse.success(contactRequestService.listAll()));
     }
 
+    /** Paginated + filterable list — powers the Helpdesk list page. */
+    @GetMapping("/api/super-admin/contact-requests/search")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Page<ContactRequestResponse>>> search(
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        LocalDateTime from = fromDate != null ? fromDate.atStartOfDay() : null;
+        LocalDateTime to = toDate != null ? LocalDateTime.of(toDate, LocalTime.MAX) : null;
+        PageRequest pr = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        return ResponseEntity.ok(ApiResponse.success(
+                contactRequestService.search(type, status, from, to, pr)));
+    }
+
+    @GetMapping("/api/super-admin/contact-requests/{id}")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<ContactRequestResponse>> getOne(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(contactRequestService.getOne(id)));
+    }
+
     @GetMapping("/api/super-admin/contact-requests/count-new")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Long>>> countNew() {
         return ResponseEntity.ok(ApiResponse.success(Map.of("count", contactRequestService.countNew())));
+    }
+
+    // ── In-app reply thread (super admin ↔ requester context) ────────────────
+
+    @GetMapping("/api/super-admin/contact-requests/{id}/messages")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<List<ContactRequestMessageResponse>>> listMessages(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(contactRequestService.listMessages(id)));
+    }
+
+    @PostMapping("/api/super-admin/contact-requests/{id}/messages")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<ContactRequestMessageResponse>> addMessage(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal User user) {
+        String senderName = user.getFullName() != null ? user.getFullName() : user.getUsername();
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
+                contactRequestService.addMessage(id, senderName, body.get("content"))));
     }
 
     @PatchMapping("/api/super-admin/contact-requests/{id}/status")

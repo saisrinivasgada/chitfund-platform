@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -28,6 +29,9 @@ import java.util.UUID;
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
+
+    @Value("${app.cookie.secure:true}")
+    private boolean cookieSecure;
 
     private final AuthService authService;
     private final RateLimiterService rateLimiter;
@@ -333,8 +337,8 @@ public class AuthController {
         if (refreshToken == null) return;
         ResponseCookie cookie = ResponseCookie.from("refresh_token", refreshToken)
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
+                .secure(cookieSecure)
+                .sameSite(cookieSecure ? "Strict" : "Lax")
                 .path("/api/auth")
                 .maxAge(Duration.ofDays(30))
                 .build();
@@ -344,8 +348,8 @@ public class AuthController {
     private void clearRefreshCookie(HttpServletResponse response) {
         ResponseCookie cookie = ResponseCookie.from("refresh_token", "")
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
+                .secure(cookieSecure)
+                .sameSite(cookieSecure ? "Strict" : "Lax")
                 .path("/api/auth")
                 .maxAge(Duration.ZERO)
                 .build();

@@ -30,8 +30,8 @@ const STATUS_COLORS = {
 
 const DELETE_WINDOW_MS = 5 * 60 * 1000;
 
-function NewTicketForm({ onSuccess, onCancel }) {
-  const [type, setType] = useState('GENERAL');
+function NewTicketForm({ onSuccess, onCancel, initialType = 'GENERAL' }) {
+  const [type, setType] = useState(initialType);
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
   const [done, setDone] = useState(false);
@@ -290,7 +290,7 @@ function TicketChat({ ticket, onBack, currentUserId }) {
   );
 }
 
-export default function ContactChitWiseModal({ onClose, currentUserId }) {
+export default function ContactChitWiseModal({ onClose, currentUserId, initialType }) {
   const [tab, setTab] = useState('new');
   const [openTicket, setOpenTicket] = useState(null);
 
@@ -353,6 +353,7 @@ export default function ContactChitWiseModal({ onClose, currentUserId }) {
                 <NewTicketForm
                   onSuccess={handleNewTicketSuccess}
                   onCancel={onClose}
+                  initialType={initialType ?? 'GENERAL'}
                 />
               ) : (
                 <TicketList

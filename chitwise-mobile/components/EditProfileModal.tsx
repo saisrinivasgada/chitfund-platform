@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Modal, TouchableOpacity, TextInput,
+  View, Text, ScrollView, Modal, TouchableOpacity, TextInput, ActivityIndicator,
   Alert, KeyboardAvoidingView, Platform, ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuthStore, StoredAccount } from '../store/authStore';
-import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices } from '../services/api';
+import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
@@ -57,7 +57,11 @@ function passwordStrength(pw: string) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
+
+export default function EditProfileModal({ visible, onClose, initialTab = 'profile' }: {
+  visible: boolean; onClose: () => void; initialTab?: ProfileTab;
+}) {
   const { user, logout, accounts, switchToAccount, removeAccount, logoutFromAccount, logoutAll } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
@@ -71,7 +75,7 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const { data: me } = useQuery({ queryKey: ['edit-profile-me'], queryFn: getMe, enabled: visible });
   const { data: memberMe } = useQuery({ queryKey: ['edit-profile-member-me'], queryFn: getMyMemberProfile, enabled: visible && role === 'MEMBER' });
 
-  const [tab, setTab] = useState<'profile' | 'security' | 'history' | 'accounts'>('profile');
+  const [tab, setTab] = useState<ProfileTab>(initialTab);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   // Phone OTP state
@@ -96,6 +100,11 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   const [mEmail,     setMEmail]     = useState('');
   const [mAddress,   setMAddress]   = useState('');
   const [mCity,      setMCity]      = useState('');
+
+  // Username availability
+  const [usernameAvail, setUsernameAvail] = useState<boolean | null>(null);
+  const [usernameChecking, setUsernameChecking] = useState(false);
+  const usernameDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Security fields
   const [curPwd,     setCurPwd]     = useState('');
@@ -192,9 +201,32 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
   }
 
   // Pre-fill when data loads
+  const handleUsernameChange = useCallback((t: string) => {
+    const cleaned = t.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    setUsername(cleaned);
+    setUsernameAvail(null);
+    if (usernameDebounce.current) clearTimeout(usernameDebounce.current);
+    if (!cleaned || cleaned === (me?.username ?? '')) { setUsernameChecking(false); return; }
+    setUsernameChecking(true);
+    usernameDebounce.current = setTimeout(async () => {
+      try {
+        const res = await checkUsernameAvailability(cleaned);
+        setUsernameAvail(res.available);
+      } catch { setUsernameAvail(null); }
+      finally { setUsernameChecking(false); }
+    }, 350);
+  }, [me?.username]);
+
+  // Tab resets only when the modal opens — not when the queries below resolve,
+  // otherwise a tab the user picked gets yanked back mid-interaction.
+  useEffect(() => {
+    if (visible) setTab(initialTab);
+  }, [visible, initialTab]);
+
   useEffect(() => {
     if (!visible) return;
-    setTab('profile');
+    setUsernameAvail(null);
+    setUsernameChecking(false);
     if (me) {
       setFullName(me.fullName ?? '');
       setUsername(me.username ?? '');
@@ -342,37 +374,60 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
         </View>
 
         {/* Tab switcher */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}
-        >
+        <View style={{ flexDirection: 'row', marginHorizontal: 16, marginTop: 12, marginBottom: 4, backgroundColor: C.gray100 ?? C.gray50, borderRadius: 12, padding: 4 }}>
           {([
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
-            { id: 'accounts', label: `Accounts${accounts.length > 1 ? ` (${accounts.length})` : ''}` },
-            ...(role === 'ADMIN' ? [{ id: 'history', label: 'My Changes' }] : []),
+            { id: 'accounts', label: accounts.length > 1 ? `Accts (${accounts.length})` : 'Accts' },
+            { id: 'history', label: 'History' },
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{
-              paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
+              flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: 'center',
               backgroundColor: tab === id ? C.white : 'transparent',
             }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: tab === id ? C.navy : C.gray400, whiteSpace: 'nowrap' } as any}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: tab === id ? C.navy : C.gray400 } as any} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 {label}
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
             {/* ── Profile tab ─────────────────────────────────────────────── */}
             {tab === 'profile' && (
               <>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>LOGIN ACCOUNT</Text>
                 <Field label="Full Name" value={fullName} onChangeText={setFullName} placeholder="Sai Srinivas" />
-                <Field label="Username" value={username} onChangeText={(t) => setUsername(t.toLowerCase().replace(/[^a-z0-9_.]/g, ''))} placeholder="sai_srinivas" autoCapitalize="none" hint="Letters, numbers, _ and . only" />
+                {/* Username with live availability check */}
+                <View style={{ marginBottom: 14 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Username</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TextInput
+                      value={username}
+                      onChangeText={handleUsernameChange}
+                      placeholder="sai_srinivas"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholderTextColor={C.gray400}
+                      style={{
+                        flex: 1, borderWidth: 1.5, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900,
+                        borderColor: usernameAvail === false ? '#EF4444' : usernameAvail === true ? '#16A34A' : C.gray300,
+                      }}
+                    />
+                    {usernameChecking ? (
+                      <ActivityIndicator size="small" color={C.navy} />
+                    ) : usernameAvail === true ? (
+                      <Text style={{ fontSize: 18, color: '#16A34A' }}>✓</Text>
+                    ) : usernameAvail === false ? (
+                      <Text style={{ fontSize: 18, color: '#EF4444' }}>✗</Text>
+                    ) : null}
+                  </View>
+                  <Text style={{ fontSize: 11, color: usernameAvail === false ? '#EF4444' : usernameAvail === true ? '#16A34A' : C.gray400, marginTop: 4 }}>
+                    {usernameAvail === false ? 'Username already taken' : usernameAvail === true ? 'Username available' : 'Letters, numbers, _ and . only'}
+                  </Text>
+                </View>
                 <Field label="Email" value={email} onChangeText={setEmail} placeholder="sai@example.com" keyboardType="email-address" autoCapitalize="none" />
                 <View style={{ marginBottom: 14 }}>
                   <PhoneInput
@@ -732,8 +787,8 @@ export default function EditProfileModal({ visible, onClose }: { visible: boolea
                       onClose();
                     }
                   }}
-                  disabled={profileMut.isPending || sendOtpMut.isPending}
-                  style={{ backgroundColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center', opacity: (profileMut.isPending || sendOtpMut.isPending) ? 0.6 : 1 }}>
+                  disabled={profileMut.isPending || sendOtpMut.isPending || usernameAvail === false || usernameChecking}
+                  style={{ backgroundColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center', opacity: (profileMut.isPending || sendOtpMut.isPending || usernameAvail === false || usernameChecking) ? 0.6 : 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: C.white }}>
                     {profileMut.isPending ? 'Saving…' : sendOtpMut.isPending ? 'Sending OTP…' : 'Save Changes'}
                   </Text>

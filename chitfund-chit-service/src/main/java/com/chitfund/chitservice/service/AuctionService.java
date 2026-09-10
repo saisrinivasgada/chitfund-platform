@@ -303,10 +303,13 @@ public class AuctionService {
         // Trigger payment record creation in payment-service
         // TenantContext may be null when called from scheduler (no JWT) — fall back to chit's tenantId
         String tenantId = TenantContext.get() != null ? TenantContext.get() : chit.getTenantId();
+        // Pass the distributable total as well as the per-spot figure: rounding
+        // the latter down strands a few paise, and payment-service needs the
+        // total to hand them back to members rather than leave them with the fund.
         paymentServiceClient.applyAuctionDividend(
                 chitId, session.getMonthNumber(),
                 grossInstallment, dividendPerSpot,
-                memberSpots, tenantId);
+                memberSpots, tenantId, distributableDiscount);
 
         log.info("Auction closed: id={} chit={} month={} mode={} winner={} scheduledPayout={} wonAmount={} discount={} commission={} distributable={} totalSpots={} dividendPerSpot={} closedBy={}",
                 auctionId, chitId, session.getMonthNumber(), session.getAuctionMode(),

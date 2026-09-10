@@ -258,6 +258,7 @@ public class AuthService {
                 .role(request.getRole())
                 .tenantId(tenantId)
                 .mustChangePassword(isTempPassword)
+                .hasAppAccess(request.getRole() != Role.MEMBER)
                 .createdBy(createdBy)
                 .updatedBy(createdBy)
                 .build();
@@ -304,6 +305,7 @@ public class AuthService {
                 .phoneCountryCode(countryCode)
                 .passwordHash(passwordEncoder.encode(tempPassword))
                 .role(Role.MEMBER)
+                .hasAppAccess(false)
                 .mustChangePassword(true)
                 .build();
         userRepository.save(user);

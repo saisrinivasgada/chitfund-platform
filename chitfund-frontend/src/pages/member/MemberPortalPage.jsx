@@ -121,7 +121,7 @@ function ChitCard({ memberId, chit, compact = false }) {
   });
 
   const outstanding = Number(balance?.totalOutstanding ?? 0);
-  const settled     = history.filter(r => ['SETTLED','WAIVED','PAYOUT_DEDUCTED','SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const settled     = history.filter(r => ['SETTLED','WAIVED','PAYOUT_DEDUCTED','SETTLEMENT_CLEARED','CREDIT_COVERED'].includes(r.status)).length;
   const total       = history.length;
   const overdue     = history.filter(r => r.overdue).length;
   const pct         = total > 0 ? Math.round((settled / total) * 100) : 0;

@@ -31,6 +31,9 @@ public class OtpService {
     @Value("${app.sms.enabled:false}")
     private boolean smsEnabled;
 
+    @Value("${app.otp.cooldown.enabled:true}")
+    private boolean cooldownEnabled;
+
     @Transactional
     public void sendOtp(String phone, String countryCode, String purpose, String userId) {
         LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
@@ -41,7 +44,7 @@ public class OtpService {
                     "Too many OTP requests today. Please try again tomorrow or contact help@thechitwise.com.");
         }
 
-        if (todayCount > 0) {
+        if (cooldownEnabled && todayCount > 0) {
             otpRepo.findTopByPhoneAndPurposeOrderByCreatedAtDesc(phone, purpose).ifPresent(last -> {
                 long requiredWaitSeconds = todayCount * 60L; // 1 min after 1st, 2 min after 2nd, …
                 long secondsElapsed = ChronoUnit.SECONDS.between(last.getCreatedAt(), LocalDateTime.now());

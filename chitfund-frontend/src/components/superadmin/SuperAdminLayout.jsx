@@ -18,7 +18,7 @@ const NAV = [
   { label: 'Plans',      to: '/superadmin/plans' },
   { label: 'Billing',    to: '/superadmin/billing' },
   { label: 'Promotions', to: '/superadmin/promotions' },
-  { label: 'Contacts',   to: '/superadmin/contacts', contactBadge: true },
+  { label: 'Helpdesk',   to: '/superadmin/helpdesk', contactBadge: true },
   { label: 'Alerts',     to: '/superadmin/alerts', badge: true },
 ];
 

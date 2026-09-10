@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { View, Text, Modal, ScrollView, TouchableOpacity } from 'react-native';
+import { useRef, useState } from 'react';
+import { Animated, View, Text, Modal, ScrollView, TouchableOpacity } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyNotifications, markNotificationRead, markAllNotificationsRead, getMembers, getChits } from '../services/api';
@@ -69,81 +70,141 @@ function NotifCard({
   if (cName) chips.push({ label: cName,                                       color: C.navy,    bg: C.navy50  });
   if (wName) chips.push({ label: `👷 ${wName}`,                              color: '#92400E', bg: '#FEF3C7' });
 
+  // Animation for dismiss (X button or swipe)
+  const opacity    = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipeRef   = useRef<Swipeable>(null);
+  const [swiped, setSwiped] = useState(false);
+
+  function animateDismiss() {
+    Animated.parallel([
+      Animated.timing(opacity,    { toValue: 0, duration: 220, useNativeDriver: true }),
+      Animated.timing(translateX, { toValue: 40, duration: 220, useNativeDriver: true }),
+    ]).start(() => onDismiss(n.id));
+  }
+
+  function handleDeletePress() {
+    swipeRef.current?.close();
+    animateDismiss();
+  }
+
+  // Red delete action revealed on left-swipe
+  const renderRightActions = (_: any, dragX: Animated.AnimatedInterpolation<number>) => {
+    const scale = dragX.interpolate({
+      inputRange: [-80, -40],
+      outputRange: [1, 0.85],
+      extrapolate: 'clamp',
+    });
+    return (
+      <TouchableOpacity
+        onPress={handleDeletePress}
+        activeOpacity={0.8}
+        style={{
+          width: 72, marginBottom: 8, borderRadius: 14,
+          backgroundColor: '#EF4444',
+          alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        <Animated.Text style={{ fontSize: 20, color: '#fff', transform: [{ scale }] }}>🗑</Animated.Text>
+        <Animated.Text style={{ fontSize: 10, color: '#fff', fontWeight: '600', marginTop: 2, transform: [{ scale }] }}>
+          Remove
+        </Animated.Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <TouchableOpacity
-      activeOpacity={0.82}
-      onPress={() => { if (isUnread) onRead(n.id); }}
-      style={{
-        marginBottom: 8, borderRadius: 14, padding: 14,
-        flexDirection: 'row', gap: 12,
-        backgroundColor: isUnread ? '#EFF6FF' : C.white,
-        borderWidth: 1.5,
-        borderColor: isUnread ? '#BFDBFE' : C.gray200,
+    <Swipeable
+      ref={swipeRef}
+      renderRightActions={renderRightActions}
+      rightThreshold={40}
+      overshootRight={false}
+      onSwipeableOpen={() => {
+        if (swiped) {
+          // Second swipe deletes immediately (iPhone-style)
+          animateDismiss();
+        } else {
+          setSwiped(true);
+        }
       }}
     >
-      {/* Icon circle */}
-      <View style={{
-        width: 42, height: 42, borderRadius: 21,
-        backgroundColor: bg, alignItems: 'center', justifyContent: 'center',
-        flexShrink: 0, marginTop: 1,
-      }}>
-        <Text style={{ fontSize: isUnread ? 20 : 18 }}>{emoji}</Text>
-      </View>
-
-      {/* Body */}
-      <View style={{ flex: 1 }}>
-        {/* Title row + dismiss */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
-          <Text
-            style={{ fontSize: 14, fontWeight: isUnread ? '700' : '500', color: C.gray900, flex: 1, marginRight: 6, lineHeight: 20 }}
-            numberOfLines={3}
-          >
-            {n.title ?? n.message}
-          </Text>
-          <TouchableOpacity
-            onPress={() => onDismiss(n.id)}
-            hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
-            style={{ paddingTop: 1 }}
-          >
-            <Text style={{ fontSize: 20, color: C.gray300, lineHeight: 20, fontWeight: '300' }}>×</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Separate message body if title and message differ */}
-        {n.title && n.message && n.title !== n.message && (
-          <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 8, lineHeight: 18 }}>
-            {n.message}
-          </Text>
-        )}
-
-        {/* Detail chips */}
-        {chips.length > 0 && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6, marginBottom: 6 }}>
-            {chips.map((chip, i) => (
-              <View key={i} style={{
-                backgroundColor: chip.bg, borderRadius: 6,
-                paddingHorizontal: 8, paddingVertical: 3,
-              }}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: chip.color }}>{chip.label}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Time + unread dot */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
-          {isUnread && (
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6' }} />
-          )}
-          <Text style={{
-            fontSize: 11, fontWeight: isUnread ? '600' : '400',
-            color: isUnread ? '#3B82F6' : C.gray400,
+      <Animated.View style={{ opacity, transform: [{ translateX }], marginBottom: 8 }}>
+        <TouchableOpacity
+          activeOpacity={0.82}
+          onPress={() => { if (isUnread) onRead(n.id); }}
+          style={{
+            borderRadius: 14, padding: 14,
+            flexDirection: 'row', gap: 12,
+            backgroundColor: isUnread ? '#EFF6FF' : C.white,
+            borderWidth: 1.5,
+            borderColor: isUnread ? '#BFDBFE' : C.gray200,
+          }}
+        >
+          {/* Icon circle */}
+          <View style={{
+            width: 42, height: 42, borderRadius: 21,
+            backgroundColor: bg, alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0, marginTop: 1,
           }}>
-            {time}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+            <Text style={{ fontSize: isUnread ? 20 : 18 }}>{emoji}</Text>
+          </View>
+
+          {/* Body */}
+          <View style={{ flex: 1 }}>
+            {/* Title row + dismiss X */}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 3 }}>
+              <Text
+                style={{ fontSize: 14, fontWeight: isUnread ? '700' : '500', color: C.gray900, flex: 1, marginRight: 6, lineHeight: 20 }}
+                numberOfLines={3}
+              >
+                {n.title ?? n.message}
+              </Text>
+              <TouchableOpacity
+                onPress={animateDismiss}
+                hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                style={{ paddingTop: 1 }}
+              >
+                <Text style={{ fontSize: 20, color: C.gray300, lineHeight: 20, fontWeight: '300' }}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Separate message body if title and message differ */}
+            {n.title && n.message && n.title !== n.message && (
+              <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 8, lineHeight: 18 }}>
+                {n.message}
+              </Text>
+            )}
+
+            {/* Detail chips */}
+            {chips.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6, marginBottom: 6 }}>
+                {chips.map((chip, i) => (
+                  <View key={i} style={{
+                    backgroundColor: chip.bg, borderRadius: 6,
+                    paddingHorizontal: 8, paddingVertical: 3,
+                  }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: chip.color }}>{chip.label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Time + unread dot */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+              {isUnread && (
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#3B82F6' }} />
+              )}
+              <Text style={{
+                fontSize: 11, fontWeight: isUnread ? '600' : '400',
+                color: isUnread ? '#3B82F6' : C.gray400,
+              }}>
+                {time}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    </Swipeable>
   );
 }
 

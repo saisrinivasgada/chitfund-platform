@@ -25,20 +25,20 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [displayName, setDisplayName] = useState(plan?.displayName ?? '');
   const [tagline,     setTagline]     = useState(plan?.tagline ?? '');
   const [priceStr,    setPriceStr]    = useState(String(plan ? (Number(plan.priceMonthlyInr ?? 0) / 100) : ''));
-  const [maxMembers,  setMaxMembers]  = useState(String(plan?.limits?.maxMembers ?? -1));
-  const [maxChits,    setMaxChits]    = useState(String(plan?.limits?.maxChits ?? -1));
-  const [maxStaff,    setMaxStaff]    = useState(String(plan?.limits?.maxStaff ?? -1));
-  const [maxManagers, setMaxManagers] = useState(String(plan?.limits?.maxManagers ?? -1));
+  const [discountPct, setDiscountPct] = useState(String(plan?.globalDiscountPct ?? ''));
+  const [maxMembers,  setMaxMembers]  = useState(String(plan?.maxMembers ?? 20));
+  const [maxChits,    setMaxChits]    = useState(String(plan?.maxActiveChits ?? 1));
+  const [maxStaff,    setMaxStaff]    = useState(String(plan?.maxStaff ?? 0));
   const [featuresStr,         setFeaturesStr]         = useState((plan?.features ?? []).join('\n'));
   const [enabledCapabilities, setEnabledCapabilities] = useState<string[]>(plan?.enabledCapabilities ?? []);
-  const [isActive,            setIsActive]            = useState<boolean>(plan?.active ?? true);
+  const [isActive,            setIsActive]            = useState<boolean>(plan?.isActive ?? true);
   const [newCapLabel, setNewCapLabel] = useState('');
   const [showAddCap, setShowAddCap] = useState(false);
   const [addingCap, setAddingCap] = useState(false);
 
   const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
 
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const { data: capDefsQuery = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
   const capDefs = capDefsQuery as any[];
 
@@ -60,7 +60,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
     setAddingCap(true);
     try {
       const created = await superAdminAddCapability(label);
-      queryClient.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
+      qc.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
       toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
@@ -72,17 +72,15 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const mut = useMutation({
     mutationFn: () => {
       const body = {
-        displayName, tagline,
+        displayName, tagline: tagline || null,
         priceMonthlyInr: Math.round(Number(priceStr) * 100),
-        limits: {
-          maxMembers: Number(maxMembers),
-          maxChits:   Number(maxChits),
-          maxStaff:   Number(maxStaff),
-          maxManagers: Number(maxManagers),
-        },
+        globalDiscountPct: discountPct ? Number(discountPct) : null,
+        maxActiveChits: Number(maxChits),
+        maxMembers: Number(maxMembers),
+        maxStaff: Number(maxStaff),
         features: featuresStr.split('\n').map((f: string) => f.trim()).filter(Boolean),
         enabledCapabilities,
-        active: isActive,
+        isActive,
       };
       return isEdit
         ? superAdminUpdatePlan2(plan.plan, body)
@@ -133,13 +131,18 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }} />
           </View>
 
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Discount %</Text>
+            <TextInput value={discountPct} onChangeText={setDiscountPct} keyboardType="decimal-pad" placeholder="0 (no discount)"
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+          </View>
+
           <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginTop: 4 }}>LIMITS (−1 = unlimited)</Text>
 
           {[
             { label: 'Max Members',  val: maxMembers,  set: setMaxMembers },
             { label: 'Max Chits',    val: maxChits,    set: setMaxChits },
             { label: 'Max Staff',    val: maxStaff,    set: setMaxStaff },
-            { label: 'Max Managers', val: maxManagers, set: setMaxManagers },
           ].map((f) => (
             <View key={f.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Text style={{ flex: 1, fontSize: 13, color: C.gray700 }}>{f.label}</Text>
@@ -230,6 +233,8 @@ export default function PlansScreen() {
   const [editing, setEditing] = useState<any>(null);
   const [creating, setCreating] = useState(false);
 
+  const qcMain = useQueryClient();
+
   const { data: plans = [], refetch } = useQuery({
     queryKey: ['sa-plans'],
     queryFn: superAdminListPlans,
@@ -240,6 +245,45 @@ export default function PlansScreen() {
     setRefreshing(true);
     await refetch();
     setRefreshing(false);
+  }
+
+  async function handleMakeLive(plan: any) {
+    try {
+      await superAdminUpdatePlan2(plan.plan, { isPublic: true, isActive: true });
+      toast.saved(`${plan.displayName} is now live`);
+      qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
+    } catch (e: any) {
+      toast.cancelled(e.response?.data?.message ?? 'Failed to publish');
+    }
+  }
+
+  async function handleTakeOffline(plan: any) {
+    try {
+      await superAdminUpdatePlan2(plan.plan, { isPublic: false });
+      toast.saved(`${plan.displayName} taken offline`);
+      qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
+    } catch (e: any) {
+      toast.cancelled(e.response?.data?.message ?? 'Failed to update');
+    }
+  }
+
+  async function handleDeactivate(plan: any) {
+    Alert.alert(
+      'Deactivate Plan',
+      `Deactivate "${plan.displayName}"? Existing orgs keep it but it won't appear anywhere.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Deactivate', style: 'destructive', onPress: async () => {
+          try {
+            await superAdminUpdatePlan2(plan.plan, { isActive: false });
+            toast.saved('Plan deactivated');
+            qcMain.invalidateQueries({ queryKey: ['sa-plans'] });
+          } catch (e: any) {
+            toast.cancelled('Failed to deactivate');
+          }
+        }},
+      ]
+    );
   }
 
   return (
@@ -277,42 +321,52 @@ export default function PlansScreen() {
             <View key={p.plan} style={{
               backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
-              opacity: p.active ? 1 : 0.55,
+              opacity: p.isActive === false ? 0.55 : 1,
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
-                <View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>{p.displayName ?? p.plan}</Text>
-                    {!p.active && (
+                    {p.isPublic && p.isActive ? (
+                      <View style={{ backgroundColor: '#D1FAE5', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>● LIVE</Text>
+                      </View>
+                    ) : p.isActive === false ? (
                       <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
                         <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500 }}>INACTIVE</Text>
+                      </View>
+                    ) : (
+                      <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500 }}>DRAFT</Text>
                       </View>
                     )}
                   </View>
                   {p.tagline && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{p.tagline}</Text>}
                 </View>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
-                  {fmtPaise(p.priceMonthlyInr)}<Text style={{ fontSize: 11, color: C.gray400 }}>/mo</Text>
-                </Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.navy }}>
+                    {fmtPaise(p.effectivePriceInr ?? p.priceMonthlyInr)}<Text style={{ fontSize: 11, color: C.gray400 }}>/mo</Text>
+                  </Text>
+                  {p.globalDiscountPct ? (
+                    <Text style={{ fontSize: 11, color: '#059669', fontWeight: '600' }}>{p.globalDiscountPct}% off</Text>
+                  ) : null}
+                </View>
               </View>
 
               {/* Limits */}
-              {p.limits && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                  {[
-                    { label: 'Members',  v: p.limits.maxMembers },
-                    { label: 'Chits',    v: p.limits.maxChits },
-                    { label: 'Staff',    v: p.limits.maxStaff },
-                    { label: 'Managers', v: p.limits.maxManagers },
-                  ].map(({ label, v }) => (
-                    <View key={label} style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: C.navy }}>
-                        {v === -1 ? '∞' : v} {label}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {[
+                  { label: 'Members', v: p.maxMembers },
+                  { label: 'Chits',   v: p.maxActiveChits },
+                  { label: 'Staff',   v: p.maxStaff },
+                ].map(({ label, v }) => v != null ? (
+                  <View key={label} style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: C.navy }}>
+                      {v === -1 ? '∞' : v} {label}
+                    </Text>
+                  </View>
+                ) : null)}
+              </View>
 
               {/* Features */}
               {(p.features ?? []).slice(0, 3).map((f: string, i: number) => (
@@ -322,12 +376,40 @@ export default function PlansScreen() {
                 <Text style={{ fontSize: 12, color: C.gray400 }}>+{(p.features ?? []).length - 3} more features</Text>
               )}
 
-              <TouchableOpacity
-                onPress={() => setEditing(p)}
-                style={{ marginTop: 12, backgroundColor: C.navy50, borderRadius: 10, padding: 10, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Edit Plan</Text>
-              </TouchableOpacity>
+              {/* Actions */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => setEditing(p)}
+                  style={{ flex: 1, backgroundColor: C.navy50, borderRadius: 10, padding: 10, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Edit</Text>
+                </TouchableOpacity>
+                {p.isActive !== false && (
+                  p.isPublic ? (
+                    <TouchableOpacity
+                      onPress={() => handleTakeOffline(p)}
+                      style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 10, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Stop Live</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => handleMakeLive(p)}
+                      style={{ flex: 1, backgroundColor: '#D1FAE5', borderRadius: 10, padding: 10, alignItems: 'center' }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#059669' }}>Make Live</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+                {p.isActive !== false && (
+                  <TouchableOpacity
+                    onPress={() => handleDeactivate(p)}
+                    style={{ backgroundColor: C.gray100, borderRadius: 10, paddingHorizontal: 14, padding: 10, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray500 }}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           ))
         )}

@@ -2,17 +2,20 @@ import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, Linking } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
 import {
   getTodaysDraws, getTodaysPaymentBatches, getTodaysPayouts,
   getPendingRemittance, getPendingPayouts, getWalletBalance,
   getMembers, getChits, getActiveCashRequests, getAdminSupportContact,
+  getMyAssignedRequests, listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
 
@@ -27,25 +30,48 @@ export default function ManagerDashboardScreen() {
   const { data: pendingRemit = [],  isLoading: l3, refetch: r3 } = useQuery({ queryKey: ['pending-remit'],  queryFn: getPendingRemittance });
   const { data: pendingPayouts = [],isLoading: l4, refetch: r4 } = useQuery({ queryKey: ['pending-payouts'],queryFn: getPendingPayouts });
   const { data: cashRequests = [],  isLoading: l5, refetch: r5 } = useQuery({ queryKey: ['cash-requests'],  queryFn: getActiveCashRequests });
+  // Pickups assigned to this manager personally — drives the Cash In Hand stat.
+  const { data: myTasks = [] } = useQuery({ queryKey: ['manager-pickups'], queryFn: getMyAssignedRequests, refetchInterval: 60_000 });
+  const { data: todayPayouts = [], refetch: r6 } = useQuery({ queryKey: ['today-payouts'], queryFn: getTodaysPayouts });
   const { data: walletBal }                                        = useQuery({ queryKey: ['wallet-balance'],queryFn: getWalletBalance });
   const { data: members = [] }                                     = useQuery({ queryKey: ['members'],       queryFn: getMembers });
   const { data: chits = [] }                                       = useQuery({ queryKey: ['chits'],         queryFn: getChits });
+  const { data: staff = [] }                                       = useQuery({ queryKey: ['staff'],         queryFn: listStaff, staleTime: 120_000 });
 
   const isLoading = l1 || l2 || l3 || l4 || l5;
-  function onRefresh() { r1(); r2(); r3(); r4(); r5(); }
+  function onRefresh() { r1(); r2(); r3(); r4(); r5(); r6(); }
 
+  // Payment-service stores memberId as the member's userId on some rows, so index
+  // by both ids to keep name lookups working across endpoints.
   const memberMap: Record<string, string> = {};
-  (members as any[]).forEach((m: any) => { memberMap[m.id] = m.fullName ?? m.name ?? '—'; });
+  (members as any[]).forEach((m: any) => {
+    const name = m.fullName ?? m.name ?? '—';
+    memberMap[m.id] = name;
+    if (m.userId) memberMap[m.userId] = name;
+  });
   const chitMap: Record<string, string> = {};
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
+  const staffMap: Record<string, string> = {};
+  (staff as any[]).forEach((s: any) => { staffMap[s.id] = s.fullName ?? s.username ?? 'Staff'; });
 
   const activeChits     = (chits as any[]).filter((c: any) => c.status === 'ACTIVE').length;
   const activeMembers   = (members as any[]).filter((m: any) => m.status === 'ACTIVE').length;
   const pendingPickups  = (cashRequests as any[]).filter((r: any) => r.status === 'PENDING').length;
   const assignedPickups = (cashRequests as any[]).filter((r: any) => r.status === 'ASSIGNED').length;
 
-  const todayCollected = (todayBatches as any[]).reduce((sum: number, b: any) => sum + (b.amount ?? b.totalAmount ?? 0), 0);
+  // Only completed batches count as collected — pending and voided ones would
+  // otherwise inflate the figure (web filters the same way).
+  const completedToday = (todayBatches as any[]).filter((b: any) => b.status === 'COMPLETED');
+  const todayCollected = completedToday.reduce((sum: number, b: any) => sum + (b.amount ?? b.totalAmount ?? 0), 0);
   const treasuryBalance = (walletBal as any)?.totalBalance ?? (walletBal as any)?.cashBalance ?? 0;
+
+  const myOpenPickups = (myTasks as any[]).filter(
+    (t: any) => t.status === 'PICKED_UP' || t.status === 'PARTIALLY_COLLECTED'
+  );
+  const cashInHand = myOpenPickups.reduce(
+    (sum: number, t: any) => sum + Number(t.collectedAmount ?? t.requestedAmount ?? 0), 0
+  );
+  const myAssignedCount = (myTasks as any[]).filter((t: any) => t.status === 'ASSIGNED').length;
 
   if (isLoading) return <LoadingScreen />;
 
@@ -98,6 +124,39 @@ export default function ManagerDashboardScreen() {
           </View>
         </View>
 
+        {/* My own cash pickups — manager can be assigned collections too */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => router.push('/(app)/(manager)/pickups' as any)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 14,
+            backgroundColor: cashInHand > 0 ? '#FFFBEB' : C.white,
+            borderRadius: 16, padding: 16, marginBottom: 20,
+            borderWidth: 1.5, borderColor: cashInHand > 0 ? C.amber : C.gray200,
+          }}
+        >
+          <View style={{
+            width: 46, height: 46, borderRadius: 14,
+            backgroundColor: (cashInHand > 0 ? C.amber : C.navy) + '18',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Text style={{ fontSize: 22 }}>✋</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: cashInHand > 0 ? C.amber : C.gray400 }}>
+              CASH IN HAND
+            </Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', marginTop: 2, color: cashInHand > 0 ? C.amber : C.gray900 }}>
+              ₹{Number(cashInHand).toLocaleString('en-IN')}
+            </Text>
+            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
+              {cashInHand > 0 ? 'Pending handover to admin' : 'Nothing collected yet'}
+              {myAssignedCount > 0 ? ` · ${myAssignedCount} to collect` : ''}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
+        </TouchableOpacity>
+
         {/* Action items that need attention */}
         <SectionHeader title="Needs Attention" />
 
@@ -121,6 +180,69 @@ export default function ManagerDashboardScreen() {
             <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Unassigned Pickups</Text>
           </Card>
         </View>
+
+        {/* Today's collections — completed payments recorded today */}
+        <View style={{ marginBottom: 20 }}>
+          <SectionHeader title={`Today's Collections (${completedToday.length})`} />
+          {completedToday.length === 0 ? (
+            <Card>
+              <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>
+                No payments completed today yet
+              </Text>
+            </Card>
+          ) : (
+            <>
+              {completedToday.slice(0, 6).map((b: any) => (
+                <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                        {memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>
+                        {chitMap[b.chitId] ?? '—'} · {(b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
+                        {b.collectedBy && staffMap[b.collectedBy] ? ` · ${staffMap[b.collectedBy]}` : ''}
+                      </Text>
+                    </View>
+                    <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.green} />
+                  </View>
+                </Card>
+              ))}
+              {completedToday.length > 6 && (
+                <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
+                  +{completedToday.length - 6} more
+                </Text>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* Today's payouts — disbursements made today */}
+        {(todayPayouts as any[]).length > 0 && (
+          <View style={{ marginBottom: 20 }}>
+            <SectionHeader title={`Today's Payouts (${(todayPayouts as any[]).length})`} />
+            {(todayPayouts as any[]).slice(0, 5).map((p: any) => (
+              <Card key={p.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.navy }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                      {memberMap[p.memberId ?? p.winnerId] ?? '—'}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>
+                      {chitMap[p.chitId] ?? '—'} · Draw #{p.monthNumber ?? p.drawNumber ?? '—'}
+                    </Text>
+                  </View>
+                  <Amount value={p.netPayoutAmount ?? p.payoutAmount ?? 0} size="sm" color={C.navy} />
+                </View>
+              </Card>
+            ))}
+            {(todayPayouts as any[]).length > 5 && (
+              <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
+                +{(todayPayouts as any[]).length - 5} more
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Today's draws */}
         {(todayDraws as any[]).length > 0 && (
@@ -180,6 +302,7 @@ export default function ManagerDashboardScreen() {
                     </Text>
                     <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>
                       {chitMap[b.chitId] ?? b.chitName ?? '—'}
+                      {b.collectedBy && staffMap[b.collectedBy] ? ` · Collected by ${staffMap[b.collectedBy]}` : ''}
                     </Text>
                   </View>
                   <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />

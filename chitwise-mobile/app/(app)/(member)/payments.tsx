@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
-import { getMyPaymentBatches } from '../../../services/api';
+import { getMyPaymentBatches, getPaymentBatchById, getChit, getDraws } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -34,9 +34,124 @@ function parseTs(s: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+const BATCH_STATUS: Record<string, { label: string; bg: string; text: string }> = {
+  COMPLETED:           { label: 'Paid',       bg: '#DCFCE7', text: '#15803D' },
+  AWAITING_REMITTANCE: { label: 'Processing', bg: '#FEF3C7', text: '#B45309' },
+  VOIDED:              { label: 'Voided',     bg: '#FEE2E2', text: '#DC2626' },
+};
+
+/** Draw numbers this batch was allocated against, e.g. "Draw #3, #4". */
+function drawLabel(b: any): string | null {
+  const nums = (b.allocations ?? [])
+    .map((a: any) => a.monthNumber)
+    .filter((n: any) => n != null)
+    .sort((x: number, y: number) => x - y);
+  if (nums.length === 0) return null;
+  return `Draw ${nums.map((n: number) => `#${n}`).join(', ')}`;
+}
+
+function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: () => void }) {
+  const { data: batch, isLoading } = useQuery({
+    queryKey: ['batch', batchId],
+    queryFn: () => getPaymentBatchById(batchId),
+    enabled: !!batchId,
+  });
+  const { data: chit } = useQuery({
+    queryKey: ['chit', batch?.chitId],
+    queryFn: () => getChit(batch.chitId),
+    enabled: !!batch?.chitId,
+  });
+  const { data: draws = [] } = useQuery({
+    queryKey: ['draws', batch?.chitId],
+    queryFn: () => getDraws(batch.chitId),
+    enabled: !!batch?.chitId,
+  });
+
+  const status = batch ? (BATCH_STATUS[batch.status] ?? { label: batch.status, bg: C.gray100, text: C.gray700 }) : null;
+
+  const rows = batch ? ([
+    chit?.name && { label: 'Chit Fund', value: chit.name },
+    batch.allocations?.length > 0 && {
+      label: 'Draw(s)',
+      value: (() => {
+        const byMonth = Object.fromEntries((draws as any[]).map((d: any) => [d.monthNumber, d]));
+        return batch.allocations
+          .map((a: any) => {
+            const dd = byMonth[a.monthNumber]?.drawDate ? new Date(byMonth[a.monthNumber].drawDate) : null;
+            const month = dd ? dd.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : null;
+            return month ? `Draw #${a.monthNumber} · ${month}` : `Draw #${a.monthNumber}`;
+          })
+          .join('\n');
+      })(),
+    },
+    batch.paymentMode && { label: 'Mode', value: String(batch.paymentMode).replace(/_/g, ' ') },
+    batch.collectorName && { label: 'Collected by', value: batch.collectorName },
+    batch.referenceNumber && { label: 'Reference', value: batch.referenceNumber },
+    (batch.remittedAt || batch.collectedAt || batch.createdAt) && {
+      label: 'Date',
+      value: fmtDate(batch.remittedAt ?? batch.collectedAt ?? batch.createdAt),
+    },
+    batch.notes && { label: 'Notes', value: batch.notes },
+  ].filter(Boolean) as { label: string; value: string }[]) : [];
+
+  return (
+    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+        <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payment Receipt</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isLoading ? (
+            <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>Loading…</Text>
+          ) : !batch ? (
+            <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>Receipt not available</Text>
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ backgroundColor: '#F0F4FA', borderRadius: 14, padding: 16, marginBottom: 16, alignItems: 'center' }}>
+                <Text style={{ fontSize: 11, color: C.gray500, fontWeight: '600', letterSpacing: 0.8, marginBottom: 4 }}>
+                  AMOUNT PAID
+                </Text>
+                <Text style={{ fontSize: 32, fontWeight: '800', color: C.navy }}>
+                  ₹{Number(batch.totalAmount ?? 0).toLocaleString('en-IN')}
+                </Text>
+                {status && (
+                  <View style={{ marginTop: 8, backgroundColor: status.bg, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: status.text }}>{status.label}</Text>
+                  </View>
+                )}
+              </View>
+
+              {rows.map((row) => (
+                <View
+                  key={row.label}
+                  style={{
+                    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+                    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, color: C.gray500, fontWeight: '500' }}>{row.label}</Text>
+                  <Text style={{ fontSize: 13, color: C.gray900, fontWeight: '600', textAlign: 'right', flex: 1, marginLeft: 16 }}>
+                    {row.value}
+                  </Text>
+                </View>
+              ))}
+              <View style={{ height: 16 }} />
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function MemberPaymentsScreen() {
   const [dateFilter, setDateFilter] = useState<'today' | '7d' | '30d' | 'all'>('all');
   const [modeFilter, setModeFilter] = useState<string>('ALL');
+  const [receiptId, setReceiptId] = useState<string | null>(null);
 
   const { data: batches = [], isLoading, refetch } = useQuery({
     queryKey: ['my-payment-batches'],
@@ -129,49 +244,63 @@ export default function MemberPaymentsScreen() {
         }
         renderItem={({ item: b }) => {
           const isVoided = b.status === 'VOIDED';
+          const status = BATCH_STATUS[b.status];
+          const draws = drawLabel(b);
           return (
-            <Card style={{ marginBottom: 10, opacity: isVoided ? 0.55 : 1, borderLeftWidth: 4, borderLeftColor: isVoided ? C.gray300 : C.navy }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    {(() => {
-                      const badge = MODE_BADGE[b.paymentMode];
-                      return badge ? (
-                        <View style={{ backgroundColor: badge.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: badge.text }}>{badge.label}</Text>
+            <TouchableOpacity activeOpacity={0.85} onPress={() => setReceiptId(b.id)}>
+              <Card style={{ marginBottom: 10, opacity: isVoided ? 0.55 : 1, borderLeftWidth: 4, borderLeftColor: isVoided ? C.gray300 : C.navy }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      {(() => {
+                        const badge = MODE_BADGE[b.paymentMode];
+                        return badge ? (
+                          <View style={{ backgroundColor: badge.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: badge.text }}>{badge.label}</Text>
+                          </View>
+                        ) : (
+                          <View style={{ backgroundColor: C.gray200, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray700 }}>{b.paymentMode ?? 'Payment'}</Text>
+                          </View>
+                        );
+                      })()}
+                      {status && (
+                        <View style={{ backgroundColor: status.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: status.text }}>{status.label}</Text>
                         </View>
-                      ) : (
-                        <View style={{ backgroundColor: C.gray200, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray700 }}>{b.paymentMode ?? 'Payment'}</Text>
-                        </View>
-                      );
-                    })()}
-                    {isVoided && (
-                      <View style={{ backgroundColor: C.red + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.red }}>VOIDED</Text>
-                      </View>
+                      )}
+                    </View>
+                    {b.chitName && (
+                      <Text style={{ fontSize: 12, color: C.navy, marginBottom: 3 }}>{b.chitName}</Text>
+                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={{ fontSize: 12, color: C.gray400 }}>
+                        {fmtDate(b.collectedAt ?? b.createdAt)}
+                      </Text>
+                      {draws && (
+                        <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600' }}>· {draws}</Text>
+                      )}
+                    </View>
+                    {b.collectorName && (
+                      <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>Collected by: {b.collectorName}</Text>
                     )}
                   </View>
-                  {b.chitName && (
-                    <Text style={{ fontSize: 12, color: C.navy, marginBottom: 3 }}>{b.chitName}</Text>
-                  )}
-                  <Text style={{ fontSize: 12, color: C.gray400 }}>
-                    {fmtDate(b.collectedAt ?? b.createdAt)}
-                  </Text>
-                  {b.collectorName && (
-                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>Collected by: {b.collectorName}</Text>
-                  )}
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Amount
+                      value={Number(b.totalAmount ?? 0)}
+                      size="md"
+                      color={isVoided ? C.gray400 : C.gray900}
+                    />
+                    <Text style={{ fontSize: 16, color: C.gray300, marginTop: 4 }}>›</Text>
+                  </View>
                 </View>
-                <Amount
-                  value={Number(b.totalAmount ?? 0)}
-                  size="md"
-                  color={isVoided ? C.gray400 : C.gray900}
-                />
-              </View>
-            </Card>
+              </Card>
+            </TouchableOpacity>
           );
         }}
       />
+
+      {receiptId && <PaymentReceiptModal batchId={receiptId} onClose={() => setReceiptId(null)} />}
     </SafeAreaView>
   );
 }

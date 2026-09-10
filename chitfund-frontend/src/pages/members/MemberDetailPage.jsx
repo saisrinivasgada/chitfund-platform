@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit,
@@ -8,7 +8,8 @@ import {
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests, lockUser, unlockUser,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
   getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
-  adminUpdateUserPhone, startConversation,
+  adminUpdateUserPhone,
+  sendReminder, getRemindersForMember, getReminderForAdmin, removeReminder,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
@@ -24,7 +25,7 @@ import {
   ArrowLeft, Edit2, User, FileText, History, AlertTriangle,
   UserPlus, ShieldCheck, KeyRound, Eye, Copy, Check, BellRing, Trash2,
   ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Wallet, MessageCircle, HandCoins,
-  Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight, Banknote,
+  Layers, ExternalLink, ClipboardList, TrendingUp, TrendingDown, ArrowRight,
   Lock, LockOpen,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
@@ -708,6 +709,8 @@ const CHIT_STATUS_STYLE = {
   DRAFT:     { text: '#9CA3AF', bg: '#F9FAFB', border: '#E5E7EB', label: 'Draft' },
 };
 
+// Kept temporarily while the newer paginated ChitsTab settles; not rendered directly.
+// eslint-disable-next-line no-unused-vars
 function EnrolledChitsSection({ memberId }) {
   const navigate = useNavigate();
   const { hidden } = useHiddenAmounts();
@@ -799,6 +802,8 @@ const CHIT_STATUS_COLOR = {
   PENDING:   { text: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
 };
 
+// Kept temporarily as the detailed balance implementation backing future tab work.
+// eslint-disable-next-line no-unused-vars
 function BalancesSection({ memberId }) {
   const [expanded, setExpanded] = useState({});
 
@@ -1608,6 +1613,756 @@ function SettlementHistorySection({ memberId }) {
   );
 }
 
+// ─── Reminder Modal ───────────────────────────────────────────────────────────
+
+const REPEAT_OPTIONS = [
+  { label: 'No repeat', value: '' },
+  { label: 'Every 15 min', value: '15' },
+  { label: 'Every 30 min', value: '30' },
+  { label: 'Every hour', value: '60' },
+  { label: 'Every 3 hours', value: '180' },
+  { label: 'Once daily (pick a time)', value: 'daily' },
+];
+
+function ReminderModal({ memberId, onClose }) {
+  const toast = useToastContext();
+  const qc = useQueryClient();
+  const [message, setMessage] = useState('');
+  const [repeatInterval, setRepeatInterval] = useState('');
+  const [dailyTime, setDailyTime] = useState('09:00');
+  // { [chitId]: { ...chit, customAmount: string } }
+  const [selectedChits, setSelectedChits] = useState({});
+
+  const { data: chits = [] } = useQuery({
+    queryKey: ['chitsForMember', memberId],
+    queryFn: () => getChitsForMember(memberId),
+    enabled: !!memberId,
+  });
+
+  // Fetch outstanding balance for each chit in parallel
+  const balanceResults = useQueries({
+    queries: chits.map((c) => ({
+      queryKey: ['reminder-balance', memberId, c.id],
+      queryFn: () => getMemberBalance({ memberId, chitId: c.id }),
+      enabled: !!memberId,
+      staleTime: 30_000,
+    })),
+  });
+  const outstandingMap = Object.fromEntries(
+    chits.map((c, i) => [
+      c.id,
+      balanceResults[i]?.data?.totalOutstanding != null
+        ? Number(balanceResults[i].data.totalOutstanding)
+        : null,
+    ])
+  );
+
+  const total = Object.values(selectedChits).reduce(
+    (sum, c) => sum + (parseFloat(c.customAmount) || 0), 0
+  );
+
+  const mutation = useMutation({
+    mutationFn: () => sendReminder({
+      memberProfileId: memberId,
+      chits: Object.values(selectedChits).map((c) => ({
+        chitId: c.id,
+        chitName: c.name,
+        cycleNo: c.currentCycle,
+        installmentAmount: parseFloat(c.customAmount) || c.installmentAmount,
+      })),
+      message: message.trim(),
+      repeatIntervalMinutes: repeatInterval && repeatInterval !== 'daily' ? Number(repeatInterval) : (repeatInterval === 'daily' ? 1440 : null),
+      reminderTime: repeatInterval === 'daily' ? dailyTime : null,
+    }),
+    onSuccess: () => {
+      toast.success('Reminder sent');
+      qc.invalidateQueries({ queryKey: ['member-reminders', memberId] });
+      onClose();
+    },
+    onError: () => toast.error('Failed to send reminder'),
+  });
+
+  function toggleChit(chit) {
+    setSelectedChits((prev) => {
+      const next = { ...prev };
+      if (next[chit.id]) {
+        delete next[chit.id];
+      } else {
+        const outstanding = outstandingMap[chit.id];
+        next[chit.id] = {
+          ...chit,
+          customAmount: outstanding != null ? String(outstanding) : String(chit.installmentAmount ?? ''),
+        };
+      }
+      return next;
+    });
+  }
+
+  function setCustomAmount(chitId, value) {
+    setSelectedChits((prev) => ({
+      ...prev,
+      [chitId]: { ...prev[chitId], customAmount: value },
+    }));
+  }
+
+  return (
+    <Modal title="Send Reminder" onClose={onClose} size="md">
+      <div className="space-y-4">
+        {chits.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-2">Select chits to include</p>
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {chits.map((chit) => {
+                const checked = !!selectedChits[chit.id];
+                const outstanding = outstandingMap[chit.id];
+                return (
+                  <div key={chit.id} className={`rounded-lg border transition-colors ${
+                    checked ? 'border-[#1E3A5F] bg-[#EEF2F8]' : 'border-gray-200'
+                  }`}>
+                    <button
+                      onClick={() => toggleChit(chit)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left cursor-pointer"
+                    >
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        checked ? 'border-[#1E3A5F] bg-[#1E3A5F]' : 'border-gray-300'
+                      }`}>
+                        {checked && <Check size={10} className="text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm font-medium text-gray-900 block truncate">{chit.name}</span>
+                        <span className="text-xs text-gray-500">
+                          {outstanding != null
+                            ? `₹${outstanding.toLocaleString('en-IN')} unpaid`
+                            : chit.installmentAmount
+                              ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')} / month`
+                              : ''}
+                        </span>
+                      </div>
+                    </button>
+                    {checked && (
+                      <div className="px-3 pb-2.5 flex items-center gap-2">
+                        <span className="text-xs text-gray-500 flex-shrink-0">Amount to remind</span>
+                        <div className="relative flex-1">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">₹</span>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedChits[chit.id]?.customAmount ?? ''}
+                            onChange={(e) => setCustomAmount(chit.id, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full pl-6 pr-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {total > 0 && (
+              <div className="mt-2 flex justify-between items-center px-1 py-1.5 border-t border-gray-100">
+                <span className="text-sm font-semibold text-gray-700">Total to remind</span>
+                <span className="text-sm font-bold text-[#1E3A5F]">₹{total.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Message <span className="text-red-500">*</span></label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Write a message for the member's notification..."
+            rows={3}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Auto-repeat on member's phone</label>
+          <select
+            value={repeatInterval}
+            onChange={(e) => setRepeatInterval(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none"
+          >
+            {REPEAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          {repeatInterval === 'daily' && (
+            <div className="mt-2 flex items-center gap-3">
+              <label className="text-sm text-gray-600 flex-shrink-0">Notify at</label>
+              <input
+                type="time"
+                value={dailyTime}
+                onChange={(e) => setDailyTime(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+              <span className="text-xs text-gray-400">member's local time</span>
+            </div>
+          )}
+
+          {repeatInterval && (
+            <p className="text-xs text-gray-400 mt-2">
+              {repeatInterval === 'daily'
+                ? `Member's app will notify them every day at ${dailyTime} until they set a payment date.`
+                : `Member's app will notify them every ${REPEAT_OPTIONS.find(o => o.value === repeatInterval)?.label.toLowerCase()} until they set a payment date.`}
+              Notifications stop when member commits to a payment date.
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Cancel</button>
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || !message.trim()}
+            className="px-5 py-2 text-sm font-semibold text-white rounded-lg cursor-pointer disabled:opacity-60"
+            style={{ backgroundColor: '#1E3A5F' }}
+          >
+            {mutation.isPending ? 'Sending…' : 'Send Reminder'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Chits Tab ───────────────────────────────────────────────────────────────
+
+const CHITS_PER_PAGE = 5;
+
+function ChitsTab({ memberId }) {
+  const { hidden } = useHiddenAmounts();
+  const [page, setPage] = useState(0);
+  const [expandedId, setExpandedId] = useState(null);
+
+  const { data: allChits = [], isLoading } = useQuery({
+    queryKey: ['chitsForMember', memberId],
+    queryFn: () => getChitsForMember(memberId),
+    enabled: !!memberId,
+  });
+
+  // Client-side pagination
+  const totalPages = Math.ceil(allChits.length / CHITS_PER_PAGE);
+  const chits = allChits.slice(page * CHITS_PER_PAGE, (page + 1) * CHITS_PER_PAGE);
+
+  // Fetch balances for all chits upfront
+  const balanceResults = useQueries({
+    queries: allChits.map((c) => ({
+      queryKey: ['memberBalance', memberId, c.id],
+      queryFn: () => getMemberBalance({ memberId, chitId: c.id }),
+      enabled: !!memberId,
+      staleTime: 60_000,
+    })),
+  });
+  const balanceMap = Object.fromEntries(
+    allChits.map((c, i) => [c.id, balanceResults[i]?.data])
+  );
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-16 border-b border-gray-100 last:border-0 animate-pulse bg-gray-50" />
+        ))}
+      </div>
+    );
+  }
+
+  if (allChits.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-14 text-center">
+        <Layers size={32} className="text-gray-200 mx-auto mb-2" />
+        <p className="text-sm text-gray-400">Not enrolled in any chits</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <Layers size={18} className="text-[#1E3A5F]" />
+          <h3 className="font-semibold text-gray-900">Enrolled Chits</h3>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{allChits.length}</span>
+        </div>
+      </div>
+
+      <div>
+        {chits.map((chit) => {
+          const sc = CHIT_STATUS_COLOR[chit.status] ?? CHIT_STATUS_COLOR.ACTIVE;
+          const balance = balanceMap[chit.id];
+          const outstanding = Number(balance?.totalOutstanding ?? 0);
+          const isExpanded = expandedId === chit.id;
+
+          return (
+            <div key={chit.id} className="border-b border-gray-100 last:border-0">
+              {/* Row — click anywhere to expand draws; chit name Link navigates to detail */}
+              <div
+                onClick={() => setExpandedId(isExpanded ? null : chit.id)}
+                className="flex items-center gap-3 px-5 py-3.5 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0"
+                  style={{ color: sc.text, backgroundColor: sc.bg, borderColor: sc.border }}
+                >
+                  {chit.status}
+                </span>
+                {/* Chit name — plain text so row click expands draws */}
+                <span className="flex-1 text-sm font-medium text-gray-800 truncate">{chit.name}</span>
+                {/* Icon-only link to chit detail — stopPropagation so row expand doesn't also fire */}
+                <Link
+                  to={`/chits/${chit.id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-shrink-0 text-gray-300 hover:text-[#1E3A5F] transition-colors"
+                  title="Open chit detail"
+                >
+                  <ExternalLink size={14} />
+                </Link>
+                {/* Balance */}
+                {balance === undefined ? (
+                  <span className="text-xs text-gray-400 flex-shrink-0">…</span>
+                ) : outstanding > 0 ? (
+                  <span className="text-sm font-semibold text-red-600 flex-shrink-0">
+                    {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due
+                  </span>
+                ) : (
+                  <span className="text-sm font-medium text-green-600 flex-shrink-0">Clear</span>
+                )}
+                {isExpanded
+                  ? <ChevronUp size={15} className="text-gray-400 flex-shrink-0" />
+                  : <ChevronDown size={15} className="text-gray-400 flex-shrink-0" />}
+              </div>
+
+              {/* Expanded: draw-by-draw history (same as BalancesSection) */}
+              {isExpanded && (
+                <ChitDrawsExpanded memberId={memberId} chit={chit} balance={balance} hidden={hidden} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
+          <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="text-sm text-[#1E3A5F] disabled:opacity-40 cursor-pointer">← Prev</button>
+          <span className="text-xs text-gray-400">{page + 1} / {totalPages}</span>
+          <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="text-sm text-[#1E3A5F] disabled:opacity-40 cursor-pointer">Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChitDrawsExpanded({ memberId, chit, balance, hidden }) {
+  const { data: history = [], isLoading } = useQuery({
+    queryKey: ['paymentHistory', memberId, chit.id],
+    queryFn: () => getPaymentHistory({ memberId, chitId: chit.id }),
+    enabled: !!memberId && !!chit.id,
+  });
+
+  const outstanding = Number(balance?.totalOutstanding ?? 0);
+  const totalDue = history.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
+  const totalPaid = history.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
+
+  const cycleColors = {
+    SETTLED:            { text: '#16A34A', bg: '#F0FDF4' },
+    PARTIALLY_PAID:     { text: '#D97706', bg: '#FFFBEB' },
+    OUTSTANDING:        { text: '#DC2626', bg: '#FFF5F5' },
+    WAIVED:             { text: '#9CA3AF', bg: '#F9FAFB' },
+    PAYOUT_DEDUCTED:    { text: '#1E3A5F', bg: '#EEF2F8' },
+    SETTLEMENT_CLEARED: { text: '#16A34A', bg: '#F0FDF4' },
+  };
+  const cycleStatusLabel = {
+    SETTLED:            'Settled',
+    PARTIALLY_PAID:     'Partial',
+    OUTSTANDING:        'Outstanding',
+    WAIVED:             'Waived',
+    PAYOUT_DEDUCTED:    'Payout Deducted',
+    SETTLEMENT_CLEARED: 'Settlement Cleared',
+  };
+
+  return (
+    <div className="px-5 pb-4 pt-2 bg-white">
+      {isLoading ? (
+        <p className="text-xs text-gray-400 py-3 text-center">Loading…</p>
+      ) : history.length === 0 ? (
+        <p className="text-xs text-gray-400 py-3 text-center">No payment records found.</p>
+      ) : (
+        <>
+          <div className="space-y-1.5 mt-1">
+            {history.map((r) => {
+              const cycleOutstanding = Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0);
+              const pct = r.amountDue > 0 ? Math.round((r.amountPaid / r.amountDue) * 100) : 0;
+              const cc = cycleColors[r.status] ?? cycleColors.OUTSTANDING;
+              return (
+                <div key={r.id} className="flex items-center gap-3 py-1.5">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                    style={{ backgroundColor: '#1E3A5F' }}
+                  >
+                    {r.monthNumber}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-xs font-medium text-gray-700">Draw {r.monthNumber}</span>
+                      <span className="text-xs font-medium px-1.5 py-0.5 rounded-full" style={{ color: cc.text, backgroundColor: cc.bg }}>
+                        {cycleStatusLabel[r.status] ?? r.status?.replace(/_/g, ' ')}
+                      </span>
+                      {r.overdue && (
+                        <span className="text-xs text-red-500 flex items-center gap-0.5">
+                          <AlertTriangle size={10} /> Overdue
+                        </span>
+                      )}
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1">
+                      <div
+                        className="h-1 rounded-full"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: pct === 100 ? '#16A34A' : r.overdue ? '#DC2626' : '#1E3A5F',
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0 min-w-[5rem]">
+                    <p className="text-xs font-semibold text-gray-800">
+                      {hidden ? '••••••' : `₹${Number(r.amountPaid).toLocaleString('en-IN')}`}
+                      <span className="text-gray-400 font-normal"> / {hidden ? '••••••' : `₹${Number(r.amountDue).toLocaleString('en-IN')}`}</span>
+                    </p>
+                    {cycleOutstanding > 0 && (r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID') && (
+                      <p className="text-xs text-red-500">{hidden ? '••••••' : `₹${cycleOutstanding.toLocaleString('en-IN')}`} pending</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 pt-2 border-t border-gray-100 flex justify-between items-center">
+            <span className="text-xs font-semibold text-gray-500">Chit Total</span>
+            <div className="text-right">
+              <span className="text-sm font-semibold text-gray-800">
+                {hidden ? '••••••' : `₹${totalPaid.toLocaleString('en-IN')}`}
+                <span className="text-gray-400 font-normal text-xs"> paid of {hidden ? '••••••' : `₹${totalDue.toLocaleString('en-IN')}`}</span>
+              </span>
+              {outstanding > 0 && (
+                <p className="text-xs text-red-600 font-semibold">{hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} outstanding</p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Reminders Tab ───────────────────────────────────────────────────────────
+
+function RemindersTab({ memberId, onNewReminder }) {
+  const toast = useToastContext();
+  const qc = useQueryClient();
+  const [page, setPage] = useState(0);
+  const [expandedId, setExpandedId] = useState(null); // "detail" expand
+  const [sendAgainId, setSendAgainId] = useState(null);
+  const [sendAgainInterval, setSendAgainInterval] = useState('');
+  const [sendAgainTime, setSendAgainTime] = useState('09:00');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['member-reminders', memberId, page],
+    queryFn: () => getRemindersForMember(memberId, { page, size: 10 }),
+    enabled: !!memberId,
+    staleTime: 30_000,
+  });
+
+  const { data: detail } = useQuery({
+    queryKey: ['reminder-detail', expandedId],
+    queryFn: () => getReminderForAdmin(expandedId),
+    enabled: !!expandedId,
+    staleTime: 30_000,
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: (reminderId) => removeReminder(reminderId),
+    onSuccess: () => {
+      toast.success('Reminder cancelled');
+      qc.invalidateQueries({ queryKey: ['member-reminders', memberId] });
+    },
+    onError: () => toast.error('Failed to cancel reminder'),
+  });
+
+  const sendAgainMut = useMutation({
+    mutationFn: (r) => {
+      let chits = [];
+      try { chits = JSON.parse(r.chitDetails ?? '[]'); } catch { /* Ignore malformed legacy metadata. */ }
+      return sendReminder({
+        memberProfileId: memberId,
+        chits: chits.map((c) => ({
+          chitId: c.chitId,
+          chitName: c.chitName,
+          cycleNo: c.cycleNo,
+          installmentAmount: c.installmentAmount,
+        })),
+        message: r.message,
+        repeatIntervalMinutes: sendAgainInterval && sendAgainInterval !== 'daily'
+          ? Number(sendAgainInterval)
+          : sendAgainInterval === 'daily' ? 1440 : null,
+        reminderTime: sendAgainInterval === 'daily' ? sendAgainTime : null,
+      });
+    },
+    onSuccess: () => {
+      toast.success('Reminder sent again');
+      qc.invalidateQueries({ queryKey: ['member-reminders', memberId] });
+      setSendAgainId(null);
+    },
+    onError: () => toast.error('Failed to send reminder'),
+  });
+
+  const rows = data?.content ?? [];
+  const totalPages = data?.totalPages ?? 0;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <BellRing size={18} className="text-[#1E3A5F]" />
+          <h3 className="font-semibold text-gray-900">Reminders</h3>
+          {(data?.totalElements ?? 0) > 0 && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+              {data.totalElements}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onNewReminder}
+          className="flex items-center gap-1.5 text-xs font-semibold text-white px-3 py-1.5 rounded-lg cursor-pointer"
+          style={{ backgroundColor: '#1E3A5F' }}
+        >
+          <BellRing size={13} /> New Reminder
+        </button>
+      </div>
+
+      {/* Body */}
+      {isLoading ? (
+        <div className="px-6 py-10 text-center text-sm text-gray-400">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="px-6 py-12 text-center">
+          <BellRing size={32} className="text-gray-200 mx-auto mb-2" />
+          <p className="text-sm text-gray-400 mb-3">No reminders sent yet</p>
+          <button
+            onClick={onNewReminder}
+            className="text-sm font-semibold text-[#1E3A5F] underline cursor-pointer"
+          >
+            Send first reminder
+          </button>
+        </div>
+      ) : (
+        <div>
+          {rows.map((r) => {
+            const dot = r.readAt
+              ? { color: 'bg-green-500', label: 'Read' }
+              : r.seenAt
+                ? { color: 'bg-yellow-400', label: 'Seen' }
+                : { color: 'bg-gray-300', label: 'Sent' };
+            let chits = [];
+            try { chits = JSON.parse(r.chitDetails ?? '[]'); } catch { /* Ignore malformed legacy metadata. */ }
+            const isExpanded = expandedId === r.id;
+            const isSendAgain = sendAgainId === r.id;
+
+            return (
+              <div key={r.id} className="border-b border-gray-100 last:border-0">
+                {/* Main row */}
+                <div className="flex items-start gap-3 px-6 py-4">
+                  {/* Status dot — click to expand detail */}
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                    className="mt-1.5 flex-shrink-0 cursor-pointer"
+                    title={dot.label}
+                  >
+                    <div className={`w-2.5 h-2.5 rounded-full ${dot.color}`} />
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <button
+                        onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                        className="text-left cursor-pointer"
+                      >
+                        <span className="text-sm font-semibold text-gray-900 block">
+                          {chits.length > 0 ? chits.map((c) => c.chitName).join(', ') : 'Reminder'}
+                        </span>
+                      </button>
+                      <span className="text-[11px] text-gray-400 flex-shrink-0">
+                        {new Date(r.sentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                      {r.totalAmount > 0 && (
+                        <span className="text-xs text-gray-500">₹{Number(r.totalAmount).toLocaleString('en-IN')}</span>
+                      )}
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                        r.readAt ? 'bg-green-100 text-green-700'
+                          : r.seenAt ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}>{dot.label}</span>
+                      {r.promisedDate && (
+                        <span className="text-xs text-[#1E3A5F] font-medium">
+                          Promised: {new Date(r.promisedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Inline actions */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={() => {
+                        if (isSendAgain) {
+                          setSendAgainId(null);
+                        } else {
+                          setSendAgainId(r.id);
+                          setExpandedId(null);
+                          if (r.repeatIntervalMinutes === 1440) {
+                            setSendAgainInterval('daily');
+                            setSendAgainTime(r.reminderTime ?? '09:00');
+                          } else {
+                            setSendAgainInterval(r.repeatIntervalMinutes ? String(r.repeatIntervalMinutes) : '');
+                          }
+                        }
+                      }}
+                      className="text-xs font-semibold text-[#1E3A5F] px-2.5 py-1.5 rounded-lg border border-[#C7D5E8] hover:bg-[#EEF2F8] transition-colors cursor-pointer"
+                    >
+                      {isSendAgain ? 'Close' : 'Send Again'}
+                    </button>
+                    <button
+                      onClick={() => cancelMut.mutate(r.id)}
+                      disabled={cancelMut.isPending}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-40"
+                      title="Cancel reminder"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Send Again inline panel */}
+                {isSendAgain && (
+                  <div className="mx-6 mb-4 p-4 bg-[#F8F9FC] rounded-lg border border-[#C7D5E8] space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Set frequency for re-send</p>
+                    <select
+                      value={sendAgainInterval}
+                      onChange={(e) => setSendAgainInterval(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none bg-white"
+                    >
+                      {REPEAT_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    {sendAgainInterval === 'daily' && (
+                      <div className="flex items-center gap-3">
+                        <label className="text-sm text-gray-600 flex-shrink-0">Notify at</label>
+                        <input
+                          type="time"
+                          value={sendAgainTime}
+                          onChange={(e) => setSendAgainTime(e.target.value)}
+                          className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none bg-white"
+                        />
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => setSendAgainId(null)}
+                        className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => sendAgainMut.mutate(r)}
+                        disabled={sendAgainMut.isPending}
+                        className="px-4 py-1.5 text-sm font-semibold text-white rounded-lg cursor-pointer disabled:opacity-60"
+                        style={{ backgroundColor: '#1E3A5F' }}
+                      >
+                        {sendAgainMut.isPending ? 'Sending…' : 'Confirm & Send'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Audit detail expand */}
+                {isExpanded && detail && detail.id === r.id && (
+                  <div className="mx-6 mb-4 mt-1 border border-gray-100 rounded-lg p-4 bg-gray-50 text-sm space-y-3">
+                    {detail.message && (
+                      <p className="text-gray-700 italic">"{detail.message}"</p>
+                    )}
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Audit Trail</p>
+                      <AuditEvent icon="📤" label="Sent" ts={detail.sentAt} />
+                      <AuditEvent icon="👁" label="Seen (notification opened)" ts={detail.seenAt} empty="Not yet seen" />
+                      <AuditEvent icon="📖" label="Read (opened in app)" ts={detail.readAt} empty="Not yet read" />
+                      {(() => {
+                        let history = [];
+                        try { history = JSON.parse(detail.promisedDateHistory ?? '[]'); } catch { /* Ignore malformed legacy metadata. */ }
+                        return history.map((h, i) => (
+                          <AuditEvent
+                            key={i}
+                            icon="📅"
+                            label={`${i === history.length - 1 ? 'Promise set' : 'Promise updated'} → ${new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                            ts={h.setAt}
+                          />
+                        ));
+                      })()}
+                    </div>
+                    {(() => {
+                      let dc = [];
+                      try { dc = JSON.parse(detail.chitDetails ?? '[]'); } catch { /* Ignore malformed legacy metadata. */ }
+                      return dc.length > 0 ? (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Included Chits</p>
+                          {dc.map((c, i) => (
+                            <div key={i} className="flex justify-between text-xs text-gray-600 py-1 border-b border-gray-100 last:border-0">
+                              <span>{c.chitName}{c.cycleNo ? ` · Cycle ${c.cycleNo}` : ''}</span>
+                              {c.installmentAmount && <span className="font-semibold">₹{Number(c.installmentAmount).toLocaleString('en-IN')}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
+          <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="text-sm text-[#1E3A5F] disabled:opacity-40 cursor-pointer">← Prev</button>
+          <span className="text-xs text-gray-400">{page + 1} / {totalPages}</span>
+          <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="text-sm text-[#1E3A5F] disabled:opacity-40 cursor-pointer">Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuditEvent({ icon, label, ts, empty }) {
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <span className="flex-shrink-0">{icon}</span>
+      <span className="text-gray-600 flex-1">{label}</span>
+      {ts ? (
+        <span className="text-gray-400 flex-shrink-0">{new Date(ts).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+      ) : (
+        <span className="text-gray-300 flex-shrink-0">{empty ?? '—'}</span>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function MemberDetailPage() {
   const { id } = useParams();
@@ -1622,6 +2377,11 @@ export default function MemberDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showProfileHistory, setShowProfileHistory] = useState(false);
   const [showReferralEdit, setShowReferralEdit] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const VALID_TABS = ['Personal', 'Enrolled Chits', 'Payments', 'Reminders'];
+  const activeTab = VALID_TABS.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'Personal';
+  const setActiveTab = (tab) => setSearchParams((prev) => { prev.set('tab', tab); return prev; }, { replace: true });
   const [refSearch, setRefSearch] = useState('');
   const [refId, setRefId] = useState('');
   const [idCopied, setIdCopied] = useState(false);
@@ -1900,12 +2660,16 @@ export default function MemberDetailPage() {
             {member?.userId && (
               <Button
                 variant="secondary"
-                onClick={() => startConversation({ memberId: member.userId, memberName: member.fullName })
-                  .then(() => {
-                    // Open the messages panel — dispatch a custom event the sidebar picks up
-                    window.dispatchEvent(new CustomEvent('open-messages-panel'));
-                  })
-                  .catch(() => {})}
+                onClick={() => {
+                  // Check if a conversation already exists in the cache; if not, open in draft mode
+                  // (conversation is created lazily on first message send, not on button click)
+                  const cached = qc.getQueryData(['conversations']);
+                  const existing = (cached?.items ?? []).find(
+                    (c) => c.memberId === member.userId
+                  );
+                  const conversation = existing ?? { memberId: member.userId, memberName: member.fullName };
+                  window.dispatchEvent(new CustomEvent('open-messages-panel', { detail: { conversation } }));
+                }}
               >
                 <MessageCircle size={15} /> Message
               </Button>
@@ -1920,7 +2684,7 @@ export default function MemberDetailPage() {
               userAccount={userAccount}
               onCreateLogin={() => setShowCreateLogin(true)}
               onResetPassword={() => setShowReset(true)}
-              onReminder={() => reminderMutation.mutate()}
+              onReminder={() => setShowReminderModal(true)}
               onWhatsApp={() => whatsappMutation.mutate()}
               onDelete={() => setShowDeleteConfirm(true)}
               onHistory={() => setShowProfileHistory(true)}
@@ -1935,179 +2699,177 @@ export default function MemberDetailPage() {
         )}
       </div>
 
-      {/* Info Cards */}
-      <div>
-        {/* Personal Info */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <User size={18} className="text-[#1E3A5F]" />
-            <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Personal Information
-            </h3>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 gap-1">
-            <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0">Member ID</span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-900 font-mono break-all">{member.id}</span>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(member.id).then(() => {
-                    setIdCopied(true);
-                    setTimeout(() => setIdCopied(false), 2000);
-                  });
-                }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors flex-shrink-0"
-                title="Copy member ID"
-              >
-                {idCopied ? <><Check size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <Copy size={13} />}
-              </button>
-            </div>
-          </div>
-          <InfoRow label="Full Name" value={member.fullName} />
-          <InfoRow label="Phone" value={member.phone ? phoneDisplay : null} />
-          <InfoRow label="Email" value={member.email} />
-          <InfoRow label="Address" value={member.address} />
-          <InfoRow label="City" value={member.city} />
-          <InfoRow label="Joined" value={member.createdAt ? new Date(member.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
-          <InfoRow label="Aadhaar Last 4" value={member.aadhaarLast4 ? `xxxx-xxxx-${member.aadhaarLast4}` : null} />
-          <InfoRow label="PAN Number" value={member.panNumber} />
-          <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 last:border-0 gap-1">
-            <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0 pt-0.5">Referred By</span>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                {member.referredById ? (
-                  <Link to={`/members/${member.referredById}`} className="text-sm font-medium text-[#1E3A5F] hover:underline">
-                    {member.referredByName || member.referredByFullName || `Member #${String(member.referredById).slice(0,8)}`}
-                  </Link>
-                ) : (
-                  <NA />
-                )}
-                {!isDeleted && (
-                  <button
-                    type="button"
-                    onClick={() => { setShowReferralEdit(v => !v); setRefSearch(''); setRefId(''); }}
-                    className="text-xs font-semibold text-[#1E3A5F] underline cursor-pointer hover:text-[#2E5090] ml-1"
-                  >
-                    {showReferralEdit ? 'Cancel' : (member.referredById ? 'Change' : 'Add')}
-                  </button>
-                )}
-              </div>
-
-              {showReferralEdit && (
-                <div className="mt-2 p-3 bg-[#EEF2F8] rounded-lg border border-[#C7D5E8] space-y-2">
-                  {refId ? (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-[#C7D5E8]">
-                      <span className="text-sm font-medium text-[#1E3A5F] flex-1">{refSearch}</span>
-                      <button type="button" onClick={() => { setRefId(''); setRefSearch(''); }}
-                        className="text-gray-400 hover:text-gray-600 cursor-pointer text-lg leading-none">×</button>
-                    </div>
-                  ) : (
-                    <>
-                      <Input
-                        autoFocus
-                        value={refSearch}
-                        onChange={(e) => { setRefSearch(e.target.value); setRefId(''); }}
-                        placeholder="Search member by name…"
-                      />
-                      {refSearch && (
-                        <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white divide-y divide-gray-100 shadow-sm">
-                          {member.referredById && (
-                            <button type="button"
-                              className="w-full text-left px-3 py-2.5 text-xs italic text-gray-400 hover:bg-gray-50 cursor-pointer"
-                              onClick={() => { setRefId('NONE'); setRefSearch('— Remove referral —'); }}>
-                              — Remove referral —
-                            </button>
-                          )}
-                          {allMembersForRef
-                            .filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase()))
-                            .slice(0, 6)
-                            .map((m) => (
-                              <button key={m.id} type="button"
-                                className="w-full text-left px-3 py-2.5 hover:bg-[#EEF2F8] cursor-pointer"
-                                onClick={() => { setRefId(m.id); setRefSearch(m.fullName); }}>
-                                <span className="text-sm font-medium text-gray-800">{m.fullName}</span>
-                                {m.phone && <span className="text-xs text-gray-400 ml-2">{m.phone}</span>}
-                              </button>
-                            ))}
-                          {allMembersForRef.filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase())).length === 0 && (
-                            <p className="px-3 py-2.5 text-xs text-gray-400 italic">No members found</p>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
-                  <div className="flex gap-2 pt-0.5">
-                    <Button variant="secondary" size="sm"
-                      onClick={() => { setShowReferralEdit(false); setRefSearch(''); setRefId(''); }}>
-                      Cancel
-                    </Button>
-                    <Button size="sm"
-                      disabled={!refId || changeRefMutation.isPending}
-                      loading={changeRefMutation.isPending}
-                      onClick={() => changeRefMutation.mutate({ referredById: refId === 'NONE' ? null : refId })}>
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
+      {/* ── Tab bar ───────────────────────────────────────────────────── */}
+      <div className="border-b border-gray-200">
+        <nav className="flex gap-0 overflow-x-auto">
+          {['Personal', 'Enrolled Chits', 'Payments', 'Reminders'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === tab
+                  ? 'border-[#1E3A5F] text-[#1E3A5F]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      {/* Notes */}
-      {member.notes && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-3">
-            <FileText size={18} className="text-[#1E3A5F]" />
-            <h3 className="font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>Notes</h3>
+      {/* ── Tab: Personal ─────────────────────────────────────────────── */}
+      {activeTab === 'Personal' && (
+        <div className="space-y-4 pt-2">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <User size={18} className="text-[#1E3A5F]" />
+              <h3 className="font-semibold text-gray-900">Personal Information</h3>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 gap-1">
+              <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0">Member ID</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-900 font-mono break-all">{member.id}</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(member.id).then(() => {
+                      setIdCopied(true);
+                      setTimeout(() => setIdCopied(false), 2000);
+                    });
+                  }}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#1E3A5F] transition-colors flex-shrink-0"
+                  title="Copy member ID"
+                >
+                  {idCopied ? <><Check size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <Copy size={13} />}
+                </button>
+              </div>
+            </div>
+            <InfoRow label="Full Name" value={member.fullName} />
+            <InfoRow label="Phone" value={member.phone ? phoneDisplay : null} />
+            <InfoRow label="Email" value={member.email} />
+            <InfoRow label="Address" value={member.address} />
+            <InfoRow label="City" value={member.city} />
+            <InfoRow label="Joined" value={member.createdAt ? new Date(member.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null} />
+            <InfoRow label="Aadhaar Last 4" value={member.aadhaarLast4 ? `xxxx-xxxx-${member.aadhaarLast4}` : null} />
+            <InfoRow label="PAN Number" value={member.panNumber} />
+            <div className="flex flex-col sm:flex-row sm:items-start py-3 border-b border-gray-50 last:border-0 gap-1">
+              <span className="text-sm text-gray-500 sm:w-40 flex-shrink-0 pt-0.5">Referred By</span>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  {member.referredById ? (
+                    <Link to={`/members/${member.referredById}`} className="text-sm font-medium text-[#1E3A5F] hover:underline">
+                      {member.referredByName || member.referredByFullName || `Member #${String(member.referredById).slice(0,8)}`}
+                    </Link>
+                  ) : (
+                    <NA />
+                  )}
+                  {!isDeleted && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowReferralEdit(v => !v); setRefSearch(''); setRefId(''); }}
+                      className="text-xs font-semibold text-[#1E3A5F] underline cursor-pointer hover:text-[#2E5090] ml-1"
+                    >
+                      {showReferralEdit ? 'Cancel' : (member.referredById ? 'Change' : 'Add')}
+                    </button>
+                  )}
+                </div>
+                {showReferralEdit && (
+                  <div className="mt-2 p-3 bg-[#EEF2F8] rounded-lg border border-[#C7D5E8] space-y-2">
+                    {refId ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-[#C7D5E8]">
+                        <span className="text-sm font-medium text-[#1E3A5F] flex-1">{refSearch}</span>
+                        <button type="button" onClick={() => { setRefId(''); setRefSearch(''); }}
+                          className="text-gray-400 hover:text-gray-600 cursor-pointer text-lg leading-none">×</button>
+                      </div>
+                    ) : (
+                      <>
+                        <Input
+                          autoFocus
+                          value={refSearch}
+                          onChange={(e) => { setRefSearch(e.target.value); setRefId(''); }}
+                          placeholder="Search member by name…"
+                        />
+                        {refSearch && (
+                          <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white divide-y divide-gray-100 shadow-sm">
+                            {member.referredById && (
+                              <button type="button"
+                                className="w-full text-left px-3 py-2.5 text-xs italic text-gray-400 hover:bg-gray-50 cursor-pointer"
+                                onClick={() => { setRefId('NONE'); setRefSearch('— Remove referral —'); }}>
+                                — Remove referral —
+                              </button>
+                            )}
+                            {allMembersForRef
+                              .filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase()))
+                              .slice(0, 6)
+                              .map((m) => (
+                                <button key={m.id} type="button"
+                                  className="w-full text-left px-3 py-2.5 hover:bg-[#EEF2F8] cursor-pointer"
+                                  onClick={() => { setRefId(m.id); setRefSearch(m.fullName); }}>
+                                  <span className="text-sm font-medium text-gray-800">{m.fullName}</span>
+                                  {m.phone && <span className="text-xs text-gray-400 ml-2">{m.phone}</span>}
+                                </button>
+                              ))}
+                            {allMembersForRef.filter((m) => m.id !== id && (m.fullName ?? '').toLowerCase().includes(refSearch.toLowerCase())).length === 0 && (
+                              <p className="px-3 py-2.5 text-xs text-gray-400 italic">No members found</p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div className="flex gap-2 pt-0.5">
+                      <Button variant="secondary" size="sm"
+                        onClick={() => { setShowReferralEdit(false); setRefSearch(''); setRefId(''); }}>
+                        Cancel
+                      </Button>
+                      <Button size="sm"
+                        disabled={!refId || changeRefMutation.isPending}
+                        loading={changeRefMutation.isPending}
+                        onClick={() => changeRefMutation.mutate({ referredById: refId === 'NONE' ? null : refId })}>
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <p className="text-sm text-gray-600 whitespace-pre-wrap">{member.notes}</p>
+          {member.notes && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText size={18} className="text-[#1E3A5F]" />
+                <h3 className="font-semibold text-gray-900">Notes</h3>
+              </div>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">{member.notes}</p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Enrolled Chits */}
-      <EnrolledChitsSection memberId={id} />
-
-      {/* Balances */}
-      <BalancesSection memberId={id} />
-
-      {/* Credit Balance Card */}
-      {!isDeleted && creditBalance > 0 && (
-        <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100">
-              <Banknote size={18} className="text-emerald-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Credit Balance</p>
-              <p className="text-2xl font-bold text-emerald-700 mt-0.5">
-                {hidden ? '••••••' : `₹${creditBalance.toLocaleString('en-IN')}`}
-              </p>
-              <p className="text-xs text-emerald-600 mt-0.5">
-                Will auto-apply to any outstanding dues when next payment is recorded.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate(`/payments?memberId=${id}`)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-white border border-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-50 transition-colors cursor-pointer"
-            >
-              Apply <ArrowRight size={12} />
-            </button>
-          </div>
+      {/* ── Tab: Chits ────────────────────────────────────────────────── */}
+      {activeTab === 'Enrolled Chits' && (
+        <div className="pt-2">
+          <ChitsTab memberId={id} />
         </div>
       )}
 
-      {/* Pending Settlement Quick-Action Card */}
-      <PendingSettlementCard memberId={id} />
+      {/* ── Tab: Payments ─────────────────────────────────────────────── */}
+      {activeTab === 'Payments' && (
+        <div className="space-y-6 pt-2">
+          <PendingSettlementCard memberId={id} />
+          <SettlementHistorySection memberId={id} />
+          <PaymentHistorySection memberId={id} />
+        </div>
+      )}
 
-      {/* Settlement History + payment collection */}
-      <SettlementHistorySection memberId={id} />
-
-      {/* Payment History */}
-      <PaymentHistorySection memberId={id} />
+      {/* ── Tab: Reminders ────────────────────────────────────────────── */}
+      {activeTab === 'Reminders' && (
+        <div className="pt-2">
+          <RemindersTab
+            memberId={id}
+            onNewReminder={() => setShowReminderModal(true)}
+          />
+        </div>
+      )}
 
       {/* Modals + Panels */}
       {showEdit && <EditMemberPanel member={member} onClose={() => setShowEdit(false)} />}
@@ -2128,6 +2890,9 @@ export default function MemberDetailPage() {
           onConfirm={() => deleteMutation.mutate()}
           onClose={() => setShowDeleteConfirm(false)}
         />
+      )}
+      {showReminderModal && (
+        <ReminderModal memberId={id} onClose={() => setShowReminderModal(false)} />
       )}
     </div>
   );

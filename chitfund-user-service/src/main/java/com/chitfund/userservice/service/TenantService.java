@@ -157,6 +157,9 @@ public class TenantService {
                 .role(role)
                 .memberId(memberId)
                 .analyticsEnabled(caps.contains("full_analytics"))
+                .chatEnabled(caps.contains("live_chat"))
+                .adminPhone(t.getContactPhone())
+                .adminEmail(t.getContactEmail())
                 .build();
     }
 
@@ -647,6 +650,7 @@ public class TenantService {
                 .enabledCapabilities(caps)
                 .analyticsEnabled(caps.contains("full_analytics"))
                 .prioritySupport(caps.contains("priority_support"))
+                .chatEnabled(caps.contains("live_chat"))
                 .allowedChitTypes(c.getAllowedChitTypes())
                 .priceMonthlyInr(c.getPriceMonthlyInr())
                 .notes(c.getNotes())

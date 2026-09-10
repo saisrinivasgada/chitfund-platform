@@ -27,6 +27,9 @@ export function AuthProvider({ children }) {
   const [tenantStatus, setTenantStatus] = useState(() => localStorage.getItem('tenantStatus') ?? 'ACTIVE');
   const [planExpiresAt, setPlanExpiresAt] = useState(() => localStorage.getItem('planExpiresAt') ?? null);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') !== 'false');
+  const [chatEnabled, setChatEnabled] = useState(() => localStorage.getItem('chatEnabled') === 'true');
+  const [adminPhone, setAdminPhone] = useState(() => localStorage.getItem('adminPhone') ?? null);
+  const [adminEmail, setAdminEmail] = useState(() => localStorage.getItem('adminEmail') ?? null);
   // True while restoring session from HttpOnly refresh cookie on page load
   const [isRestoring, setIsRestoring] = useState(() => !!localStorage.getItem('user'));
 
@@ -35,7 +38,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     clearAuthToken();
-    ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+    ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','adminPhone','adminEmail']
       .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     sessionStorage.removeItem('token'); // clear proxy session token if any
     setToken(null);
@@ -47,6 +50,9 @@ export function AuthProvider({ children }) {
     setTenantStatus('ACTIVE');
     setPlanExpiresAt(null);
     setAnalyticsEnabled(true);
+    setChatEnabled(true);
+    setAdminPhone(null);
+    setAdminEmail(null);
     setIsProxySession(false);
     if (idleTimer.current) clearTimeout(idleTimer.current);
   }, []);
@@ -164,6 +170,18 @@ export function AuthProvider({ children }) {
       store.setItem('analyticsEnabled', String(tenantData.analyticsEnabled));
       setAnalyticsEnabled(tenantData.analyticsEnabled);
     }
+    if (tenantData.chatEnabled !== undefined) {
+      store.setItem('chatEnabled', String(tenantData.chatEnabled));
+      setChatEnabled(tenantData.chatEnabled);
+    }
+    if (tenantData.adminPhone !== undefined) {
+      if (tenantData.adminPhone) { store.setItem('adminPhone', tenantData.adminPhone); setAdminPhone(tenantData.adminPhone); }
+      else { store.removeItem('adminPhone'); setAdminPhone(null); }
+    }
+    if (tenantData.adminEmail !== undefined) {
+      if (tenantData.adminEmail) { store.setItem('adminEmail', tenantData.adminEmail); setAdminEmail(tenantData.adminEmail); }
+      else { store.removeItem('adminEmail'); setAdminEmail(null); }
+    }
     setIsProxySession(proxy);
     setToken(tokenValue);
     setUser(normalized);
@@ -179,7 +197,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled,
+      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, adminPhone, adminEmail,
       login, logout, updateUser,
       isAuthenticated: !!token,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',

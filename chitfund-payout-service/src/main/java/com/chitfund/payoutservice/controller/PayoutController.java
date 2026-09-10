@@ -57,8 +57,19 @@ public class PayoutController {
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MEMBER')")
-    public ResponseEntity<ApiResponse<PayoutResponse>> getPayout(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(payoutService.getById(id)));
+    public ResponseEntity<ApiResponse<PayoutResponse>> getPayout(
+            @PathVariable UUID id, Authentication auth) {
+        PayoutResponse payout = payoutService.getById(id);
+        // A member may only read their own payout. Without this, anyone holding
+        // a payout id could read another member's winning amount, deductions and
+        // disbursements — /member/{memberId} below already guards the same data.
+        boolean isMember = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"));
+        if (isMember && payout.getMemberId() != null
+                && !payout.getMemberId().toString().equals(MemberContext.get())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Access denied");
+        }
+        return ResponseEntity.ok(ApiResponse.success(payout));
     }
 
     /**

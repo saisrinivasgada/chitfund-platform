@@ -36,6 +36,10 @@ public class ExpoPushService {
      * Silently skips if the user has no tokens.
      */
     public void sendToUser(UUID userId, String title, String body) {
+        sendToUserWithData(userId, title, body, null);
+    }
+
+    public void sendToUserWithData(UUID userId, String title, String body, Map<String, String> data) {
         List<String> tokens = pushTokenRepository.findByUserId(userId)
                 .stream()
                 .map(t -> t.getToken())
@@ -45,26 +49,28 @@ public class ExpoPushService {
         if (tokens.isEmpty()) return;
 
         for (String token : tokens) {
-            sendPush(token, title, body);
+            sendPush(token, title, body, data);
         }
     }
 
-    private void sendPush(String token, String title, String body) {
+    private void sendPush(String token, String title, String body, Map<String, String> data) {
         try {
-            Map<String, Object> payload = Map.of(
-                    "to",    token,
-                    "title", title,
-                    "body",  body,
-                    "sound", "default",
-                    "priority", "high"
-            );
+            java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
+            payload.put("to", token);
+            payload.put("title", title);
+            payload.put("body", body);
+            payload.put("sound", "default");
+            payload.put("priority", "high");
+            if (data != null && !data.isEmpty()) {
+                payload.put("data", data);
+            }
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Accept", "application/json");
             headers.set("Accept-Encoding", "gzip, deflate");
 
-            HttpEntity<Map<String, Object>> req = new HttpEntity<>(payload, headers);
+            HttpEntity<java.util.HashMap<String, Object>> req = new HttpEntity<>(payload, headers);
             ResponseEntity<String> resp = restTemplate.postForEntity(EXPO_PUSH_URL, req, String.class);
 
             log.info("Expo push sent to token=...{} status={}", token.substring(Math.max(0, token.length() - 8)), resp.getStatusCode());

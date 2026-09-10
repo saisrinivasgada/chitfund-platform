@@ -19,6 +19,9 @@ public interface CashPaymentRequestRepository extends JpaRepository<CashPaymentR
     @Query("SELECT r FROM CashPaymentRequest r WHERE r.id = :id AND r.tenantId = :tenantId")
     Optional<CashPaymentRequest> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
+    /** Scoped single-row read. Use instead of findById so one org cannot read another's request. */
+    Optional<CashPaymentRequest> findByIdAndTenantId(UUID id, String tenantId);
+
     // ── Tenant-scoped queries (use for all public/admin endpoints) ───────────────
     List<CashPaymentRequest> findByTenantIdAndStatusOrderByRequestedAtAsc(String tenantId, CashRequestStatus status);
 

@@ -112,8 +112,12 @@ export default function AdminLayout() {
       <Tabs.Screen name="team"     options={{ href: null }} />
       <Tabs.Screen name="billing"  options={{ href: null }} />
       <Tabs.Screen name="roles"    options={{ href: null }} />
-      <Tabs.Screen name="messages" options={{ href: null }} />
-      <Tabs.Screen name="groups"   options={{ href: null }} />
+      <Tabs.Screen name="messages"   options={{ href: null }} />
+      <Tabs.Screen name="groups"     options={{ href: null }} />
+      <Tabs.Screen name="my-account" options={{ href: null }} />
+      <Tabs.Screen name="support"    options={{ href: null }} />
+      <Tabs.Screen name="my-org"     options={{ href: null }} />
+      <Tabs.Screen name="notes"      options={{ href: null }} />
     </Tabs>
     </>
   );

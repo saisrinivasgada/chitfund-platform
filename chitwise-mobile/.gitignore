@@ -9,3 +9,11 @@ expo-env.d.ts
 .env
 .env.local
 .env.*.local
+
+# Generated native dirs (EAS builds use managed workflow)
+ios/
+android/
+dist/
+.expo/prebuild/
+.expo/web/
+.mcp.json

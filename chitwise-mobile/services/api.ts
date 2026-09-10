@@ -175,8 +175,6 @@ export const changeStaffRole = async (id: string, role: string) =>
   unwrapObj(await api.patch(`/users/staff/${id}/role`, { role }));
 export const resetMemberPassword = async (userId: string) =>
   unwrapObj(await api.post(`/users/${userId}/reset-password`));
-export const adminSetPassword = async (userId: string, newPassword: string) =>
-  unwrapObj(await api.post(`/admin/users/${userId}/set-password`, { newPassword }));
 export const getUserById = async (userId: string) =>
   unwrapObj(await api.get(`/users/${userId}`));
 export const resendSetupLink = async (userId: string) =>
@@ -269,8 +267,14 @@ export const deleteDraw = async (drawId: string) => unwrapObj(await api.delete(`
 export const getDrawPayments = async (drawId: string) => unwrapList(await api.get(`/admin/draws/${drawId}/payments`));
 
 // ── Reservations (Scheduling) ─────────────────────────────────────────────────
+// Full schedule with member names attached — ADMIN/MANAGER/STAFF only.
+// Members must use getMyReservations, which never returns another member's id.
 export const getReservations = async (chitId: string) =>
   unwrapList(await api.get(`/chits/${chitId}/reservations`));
+export const getMyReservations = async (chitId: string): Promise<{ mySlots: any[]; outline: any[] }> => {
+  const d = unwrapObj(await api.get(`/chits/${chitId}/reservations/mine`));
+  return { mySlots: d?.mySlots ?? [], outline: d?.outline ?? [] };
+};
 export const addReservationSlot = async (chitId: string, body: any) =>
   unwrapObj(await api.post(`/chits/${chitId}/reservations`, body));
 export const removeReservationSlot = async (chitId: string, reservationId: string, reason?: string) =>
@@ -395,8 +399,29 @@ export const getAuditLogs = async (params: any = {}) => {
 };
 export const getPaginatedAuditLogs = async (params: any = {}) =>
   unwrapList(await api.get('/audit/logs', { params }));
+/**
+ * Cash requests for admin/manager views.
+ *
+ * There is no `/requests/all` route — this used to call one and the catch
+ * swallowed the 404, so callers silently rendered an empty list. The real
+ * endpoint is `/requests/active`, which takes no query params, so status and
+ * member filtering happens here.
+ *
+ * `/active` returns everything still in flight: PENDING, SCHEDULED, ASSIGNED,
+ * PICKED_UP and PARTIALLY_COLLECTED. Its Javadoc used to claim only the first
+ * two, which is why an earlier note here wrongly said PICKED_UP was missing.
+ */
 export const getAllCashRequests = async (params: any = {}) => {
-  try { return unwrapList(await api.get('/payments/requests/all', { params })); } catch { return []; }
+  const rows = unwrapList(await api.get('/payments/requests/active'));
+  const wanted = params.status
+    ? String(params.status).split(',').map((s: string) => s.trim()).filter(Boolean)
+    : null;
+  return rows.filter((r: any) => {
+    if (wanted && !wanted.includes(r.status)) return false;
+    if (params.memberId && r.memberId !== params.memberId) return false;
+    if (params.chitId && r.chitId !== params.chitId) return false;
+    return true;
+  });
 };
 export const getEntityAuditHistory = async (entityType: string, entityId: string) => {
   try { return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`)); } catch { return []; }
@@ -507,14 +532,16 @@ export const superAdminSetCustomLimits = async (tenantId: string, data: any) =>
 export const superAdminGetAdminCredentials = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/credentials`));
 // Promotions
+// PromotionController is mapped at /superadmin (no hyphen), unlike the
+// /super-admin tenant endpoints — these 404 if the hyphen creeps back in.
 export const superAdminListPromotions = async () =>
-  unwrapList(await api.get('/super-admin/promotions'));
+  unwrapList(await api.get('/superadmin/promotions'));
 export const superAdminCreatePromotion = async (body: any) =>
-  unwrapObj(await api.post('/super-admin/promotions', body));
+  unwrapObj(await api.post('/superadmin/promotions', body));
 export const superAdminUpdatePromotion = async (code: string, body: any) =>
-  unwrapObj(await api.put(`/super-admin/promotions/${code}`, body));
+  unwrapObj(await api.put(`/superadmin/promotions/${code}`, body));
 export const superAdminDeletePromotion = async (code: string) =>
-  api.delete(`/super-admin/promotions/${code}`);
+  api.delete(`/superadmin/promotions/${code}`);
 // Plans
 export const superAdminListPlans = async () =>
   unwrapList(await api.get('/super-admin/plans'));
@@ -664,6 +691,11 @@ export const markTicketRead = async (ticketId: string): Promise<void> => {
   await api.put(`/tickets/${ticketId}/read`);
 };
 
+// ─── Org Settings ─────────────────────────────────────────────────────────────
+export const getOrgSettings = async (): Promise<any> => {
+  try { return unwrapObj(await api.get('/users/me/org-settings')); } catch { return null; }
+};
+
 // ─── Admin Support Contact (for members/staff/managers to contact admin) ──────
 export const getAdminSupportContact = async (): Promise<{ supportPhoneNumber: string } | null> => {
   const res = await api.get('/users/tenant/support-contact');
@@ -701,8 +733,11 @@ export const createInvitation = async (chitId: string, body: {
 export const closeInvitation = async (chitId: string, invId: string): Promise<any> =>
   unwrapObj(await api.patch(`/chits/${chitId}/invitations/${invId}/close`));
 
-export const getInvitationResponses = async (chitId: string, invId: string): Promise<any[]> =>
-  unwrapList(await api.get(`/chits/${chitId}/invitations/${invId}/responses`));
+// There is no `/responses` sub-route — the invitation detail embeds them.
+export const getInvitationResponses = async (chitId: string, invId: string): Promise<any[]> => {
+  const inv = unwrapObj(await api.get(`/chits/${chitId}/invitations/${invId}`));
+  return inv?.responses ?? [];
+};
 
 export const overrideInvitationResponse = async (chitId: string, invId: string, responseId: string, body: {
   approvedSpots?: number;
@@ -776,27 +811,27 @@ export const voidAuction = async (params: { chitId: string; auctionId: string })
 
 export const listConversations = async ({ page = 0, size = 30 } = {}): Promise<any> => {
   const res = await api.get('/conversations', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const startConversation = async (body: { memberId: string; memberName: string }): Promise<any> => {
   const res = await api.post('/conversations', body);
-  return res.data.data;
+  return res.data;
 };
 
 export const getMyConversation = async (): Promise<any> => {
   const res = await api.get('/conversations/mine');
-  return res.data.data;
+  return res.data;
 };
 
 export const getConversationUnread = async (): Promise<number> => {
   const res = await api.get('/conversations/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getMemberConversationUnread = async (): Promise<number> => {
   const res = await api.get('/conversations/mine/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getChatMessages = async (
@@ -806,7 +841,7 @@ export const getChatMessages = async (
   const params: any = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/conversations/${conversationId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendChatMessage = async (
@@ -815,7 +850,7 @@ export const sendChatMessage = async (
   clientMessageId?: string
 ): Promise<any> => {
   const res = await api.post(`/conversations/${conversationId}/messages`, { content, clientMessageId });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteChatMessage = async (conversationId: string, messageId: string): Promise<void> => {
@@ -828,24 +863,29 @@ export const markConversationRead = async (conversationId: string): Promise<void
 
 // ─── Group Chat (Phase 3) ──────────────────────────────────────────────────────
 
-export const createGroup = async (body: { name: string; description?: string; memberIds?: string[] }): Promise<any> => {
+export const createGroup = async (body: {
+  name: string;
+  description?: string;
+  memberIds: string[];
+  members: { userId: string; userName: string; role: string }[];
+}): Promise<any> => {
   const res = await api.post('/groups', body);
-  return res.data.data;
+  return res.data;
 };
 
 export const listGroups = async ({ page = 0, size = 20 } = {}): Promise<any> => {
   const res = await api.get('/groups', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const getGroupMembers = async (groupId: string): Promise<any[]> => {
   const res = await api.get(`/groups/${groupId}/members`);
-  return res.data.data ?? [];
+  return res.data ?? [];
 };
 
 export const addGroupMember = async (groupId: string, body: { userId: string; userName: string; role?: string }): Promise<any> => {
   const res = await api.post(`/groups/${groupId}/members`, body);
-  return res.data.data;
+  return res.data;
 };
 
 export const removeGroupMember = async (groupId: string, userId: string): Promise<void> => {
@@ -856,16 +896,278 @@ export const getGroupMessages = async (groupId: string, { cursor, limit = 50 }: 
   const params: any = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/groups/${groupId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendGroupMessage = async (groupId: string, content: string, clientMessageId: string): Promise<any> => {
   const res = await api.post(`/groups/${groupId}/messages`, { content, clientMessageId });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteGroupMessage = async (groupId: string, messageId: string): Promise<void> => {
   await api.put(`/groups/${groupId}/messages/${messageId}/delete`);
+};
+
+// ── Reminders ─────────────────────────────────────────────────────────────────
+
+export const getMyReminders = async ({ filter = 'all', page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get('/reminders/mine', { params: { filter, page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const getMyReminder = async (reminderId: string): Promise<any> => {
+  const res = await api.get(`/reminders/${reminderId}`);
+  return res.data.data ?? res.data;
+};
+
+export const markReminderSeen = async (reminderId: string): Promise<void> => {
+  await api.put(`/reminders/${reminderId}/seen`);
+};
+
+export const setReminderPromisedDate = async (reminderId: string, promisedDate: string): Promise<any> => {
+  const res = await api.put(`/reminders/${reminderId}/promised-date`, { promisedDate });
+  return res.data.data ?? res.data;
+};
+
+export const removeReminder = async (reminderId: string): Promise<void> => {
+  await api.delete(`/reminders/${reminderId}`);
+};
+
+export const getRemindersForMember = async (memberProfileId: string, { page = 0, size = 20 } = {}): Promise<any> => {
+  const res = await api.get(`/reminders/member/${memberProfileId}`, { params: { page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const sendReminder = async ({ memberProfileId, chits, message, repeatIntervalMinutes, reminderTime }: {
+  memberProfileId: string;
+  chits: { chitId: string; amount: number }[];
+  message?: string;
+  repeatIntervalMinutes?: number | null;
+  reminderTime?: string | null;
+}): Promise<any> => {
+  const res = await api.post('/reminders', { memberProfileId, chits, message, repeatIntervalMinutes: repeatIntervalMinutes || null, reminderTime: reminderTime || null });
+  return res.data.data ?? res.data;
+};
+
+export const superAdminChitUsageSummary = async (): Promise<any[]> => {
+  const res = await api.get('/super-admin/chits/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const superAdminMemberUsageSummary = async (): Promise<any[]> => {
+  const res = await api.get('/super-admin/members/usage-summary');
+  return res.data.data ?? [];
+};
+
+export const superAdminResumeTenant = async (tenantId: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/resume`);
+  return res.data.data;
+};
+
+export const billingRecordUpgrade = async (payload: any): Promise<any> => {
+  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
+  return res.data.data;
+};
+
+export const superAdminSetPromotionVisibility = async (id: string, isPublic: boolean): Promise<any> => {
+  const res = await api.patch(`/superadmin/promotions/${id}/visibility`, { isPublic });
+  return res.data.data;
+};
+
+export const superAdminDeactivatePromotion = async (id: string): Promise<any> => {
+  const res = await api.delete(`/superadmin/promotions/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListReferralCredits = async (status?: string): Promise<any[]> => {
+  const params = status ? { status } : {};
+  const res = await api.get('/superadmin/promotions/referral-credits', { params });
+  return res.data.data ?? [];
+};
+
+export const superAdminSearchContactRequests = async ({ type, status, fromDate, toDate, page = 0, size = 20 }: { type?: string; status?: string; fromDate?: string; toDate?: string; page?: number; size?: number } = {}): Promise<any> => {
+  const params: any = { page, size };
+  if (type) params.type = type;
+  if (status) params.status = status;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const res = await api.get('/super-admin/contact-requests/search', { params });
+  return res.data.data;
+};
+
+export const superAdminGetContactRequest = async (id: string): Promise<any> => {
+  const res = await api.get(`/super-admin/contact-requests/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListContactMessages = async (id: string): Promise<any[]> => {
+  const res = await api.get(`/super-admin/contact-requests/${id}/messages`);
+  return res.data.data ?? [];
+};
+
+export const superAdminSendContactMessage = async (id: string, content: string): Promise<any> => {
+  const res = await api.post(`/super-admin/contact-requests/${id}/messages`, { content });
+  return res.data.data;
+};
+
+export const superAdminUpdateContactStatus = async (id: string, status: string, holdUntil?: string): Promise<any> => {
+  const body: any = { status };
+  if (holdUntil) body.holdUntil = holdUntil;
+  const res = await api.patch(`/super-admin/contact-requests/${id}/status`, body);
+  return res.data.data;
+};
+
+export const billingGetPayment = async (paymentId: string): Promise<any> => {
+  const res = await api.get(`/super-admin/billing/payments/${paymentId}`);
+  return res.data.data;
+};
+
+export const billingRecordRefund = async (paymentId: string, payload: any): Promise<any> => {
+  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
+  return res.data.data;
+};
+
+export const updateOrgDetails = async (payload: { orgName?: string; businessRegNumber?: string; address?: string }): Promise<any> => {
+  const res = await api.patch('/users/me/org-details', payload);
+  return res.data.data;
+};
+
+// ── Subscription lifecycle (admin self-service) ───────────────────────────────
+export const cancelSubscription = async (): Promise<any> => {
+  const res = await api.post('/billing/cancel');
+  return res.data.data;
+};
+
+export const resumeSubscription = async (): Promise<any> => {
+  const res = await api.post('/billing/resume');
+  return res.data.data;
+};
+
+export const applyDowngrade = async (toPlan: string): Promise<any> => {
+  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
+  return res.data.data;
+};
+
+// ── Account lockout (admin unlocks staff locked out by failed logins) ─────────
+export const lockUser = async (id: string): Promise<any> => {
+  const res = await api.put(`/users/${id}/lock`);
+  return res.data.data;
+};
+
+export const unlockUser = async (id: string): Promise<any> => {
+  const res = await api.put(`/users/${id}/unlock`);
+  return res.data.data;
+};
+
+// ── Super-admin: tenant subscription lifecycle ────────────────────────────────
+export const superAdminCancelTenant = async (tenantId: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/cancel`);
+  return res.data.data;
+};
+
+// ── Super-admin: per-org discount ─────────────────────────────────────────────
+export const superAdminGetDiscount = async (tenantId: string): Promise<any> => {
+  const res = await api.get(`/super-admin/tenants/${tenantId}/discount`);
+  return res.data.data ?? null;
+};
+
+export const superAdminSetDiscount = async (
+  tenantId: string,
+  body: { discountType: string; discountValue: number; reason?: string | null; expiresAt?: string | null },
+): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/discount`, body);
+  return res.data.data;
+};
+
+export const superAdminRemoveDiscount = async (tenantId: string): Promise<void> => {
+  await api.delete(`/super-admin/tenants/${tenantId}/discount`);
+};
+
+export const superAdminRemoveCustomLimits = async (tenantId: string, fallbackPlan = 'BASIC'): Promise<any> => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+  return res.data;
+};
+
+// ── Chit lifecycle ────────────────────────────────────────────────────────────
+export const pauseChit = async (id: string): Promise<any> => {
+  const res = await api.post(`/chits/${id}/pause`);
+  return res.data.data;
+};
+
+export const resumeChit = async (id: string): Promise<any> => {
+  const res = await api.post(`/chits/${id}/resume`);
+  return res.data.data;
+};
+
+// ── Soft-deleted records ──────────────────────────────────────────────────────
+export const getDeletedChits = async (): Promise<any[]> => {
+  try { return unwrapList(await api.get('/chits/deleted')); } catch { return []; }
+};
+
+export const getDeletedMembers = async (): Promise<any[]> => {
+  try { return unwrapList(await api.get('/members/deleted')); } catch { return []; }
+};
+
+// Distinct from setReminderPromisedDate — this sets the date on the payment
+// record itself, not on a reminder.
+export const setPromisedPaymentDate = async (recordId: string, promisedPaymentDate: string): Promise<any> => {
+  const res = await api.patch(`/payments/records/${recordId}/promised-date`, { promisedPaymentDate });
+  return res.data.data;
+};
+
+// ── Team notes ────────────────────────────────────────────────────────────────
+// Shared org noticeboard for admins/managers — not per-member notes. Each note
+// carries `own` so the UI can tell whether the caller may edit it.
+export const getTeamNotes = async (): Promise<any[]> => {
+  const res = await api.get('/members/notes');
+  return res.data.data ?? [];
+};
+
+export const createTeamNote = async (body: { text: string; visibility: string }): Promise<any> => {
+  const res = await api.post('/members/notes', body);
+  return res.data.data;
+};
+
+export const updateTeamNote = async (id: string, body: { text: string; visibility: string }): Promise<any> => {
+  const res = await api.put(`/members/notes/${id}`, body);
+  return res.data.data;
+};
+
+export const deleteTeamNote = async (id: string): Promise<void> => {
+  await api.delete(`/members/notes/${id}`);
+};
+
+// ── Settlement ────────────────────────────────────────────────────────────────
+export const voidSettlement = async (settlementId: string): Promise<any> => {
+  const res = await api.post(`/settlement/${settlementId}/void`);
+  return res.data.data;
+};
+
+export const getSettlementTransactions = async (settlementId: string): Promise<any[]> => {
+  try { return unwrapList(await api.get(`/settlement/${settlementId}/transactions`)); } catch { return []; }
+};
+
+// ── Referral ──────────────────────────────────────────────────────────────────
+export const getMyReferral = async (): Promise<any> => {
+  const res = await api.get('/users/me/referral');
+  return res.data.data;
+};
+
+// ── Super-admin: tenant credits ───────────────────────────────────────────────
+export const superAdminAddTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
+  return res.data.data;
+};
+
+export const superAdminDeductTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
+  return res.data.data;
+};
+
+// Soft delete — the chit is hidden from lists but still readable via /chits/deleted.
+export const deleteChit = async (id: string): Promise<any> => {
+  const res = await api.delete(`/chits/${id}`);
+  return res.data.data;
 };
 
 export default api;

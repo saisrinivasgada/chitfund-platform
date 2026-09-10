@@ -71,7 +71,11 @@ public class CashRequestController {
     }
 
     /**
-     * Admin/Manager: all active requests (PENDING + ASSIGNED) — dashboard view.
+     * Admin/Manager: every request still in flight — dashboard view.
+     *
+     * <p>PENDING, SCHEDULED, ASSIGNED, PICKED_UP and PARTIALLY_COLLECTED. The
+     * doc previously said "PENDING + ASSIGNED", which led a caller to believe
+     * collected-but-unremitted requests were unavailable here.
      */
     @GetMapping("/active")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")

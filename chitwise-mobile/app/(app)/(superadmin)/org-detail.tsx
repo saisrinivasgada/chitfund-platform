@@ -21,6 +21,22 @@ import {
   superAdminListUpgradeRequests,
   superAdminClearRenewalRequest,
   billingRecordPayment,
+  superAdminGetEffectiveLimits,
+  superAdminSetCustomLimits,
+  superAdminListCapabilities,
+  superAdminListPlans,
+  superAdminSetPlanExpiry,
+  superAdminCancelTenant,
+  superAdminResumeTenant,
+  superAdminGetDiscount,
+  superAdminSetDiscount,
+  superAdminRemoveDiscount,
+  superAdminRemoveCustomLimits,
+  resetMemberPassword,
+  lockUser,
+  unlockUser,
+  superAdminAddTenantCredit,
+  superAdminDeductTenantCredit,
 } from '../../../services/api';
 import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -66,6 +82,13 @@ export default function OrgDetailPage() {
   const [showRecordPayment, setShowRecordPayment] = useState(false);
   const [showReactivate, setShowReactivate] = useState(false);
   const [reactivateSlug, setReactivateSlug] = useState('');
+  const [showCustomLimits, setShowCustomLimits] = useState(false);
+  const [showSetExpiry, setShowSetExpiry] = useState(false);
+  const [showSetDiscount, setShowSetDiscount] = useState(false);
+  const [showCredits, setShowCredits] = useState(false);
+  // Credentials surfaced after a password reset — shown once, never re-fetchable.
+  const [resetCreds, setResetCreds] = useState<{ username: string; password: string } | null>(null);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const { data: org, isLoading: orgLoading, refetch: refetchOrg } = useQuery({
     queryKey: ['sa-org', tenantId],
@@ -90,6 +113,28 @@ export default function OrgDetailPage() {
   const { data: allUpgrades = [], refetch: refetchUpgrades } = useQuery({
     queryKey: ['sa-upgrades'],
     queryFn: superAdminListUpgradeRequests,
+    staleTime: 60_000,
+  });
+  const { data: effectiveLimits, refetch: refetchLimits } = useQuery({
+    queryKey: ['sa-org-limits', tenantId],
+    queryFn: () => superAdminGetEffectiveLimits(tenantId!),
+    enabled: !!tenantId,
+    staleTime: 60_000,
+  });
+  const { data: plans = [] } = useQuery({
+    queryKey: ['sa-plans'],
+    queryFn: superAdminListPlans,
+    staleTime: 300_000,
+  });
+  const { data: capDefs = [] } = useQuery({
+    queryKey: ['super-capabilities'],
+    queryFn: superAdminListCapabilities,
+    staleTime: 300_000,
+  });
+  const { data: discount, refetch: refetchDiscount } = useQuery({
+    queryKey: ['sa-org-discount', tenantId],
+    queryFn: () => superAdminGetDiscount(tenantId!),
+    enabled: !!tenantId,
     staleTime: 60_000,
   });
 
@@ -125,12 +170,69 @@ export default function OrgDetailPage() {
   });
   const recordPaymentMut = useMutation({
     mutationFn: ({ amount, method, pType }: { amount: string; method: string; pType: string }) =>
-      billingRecordPayment({ tenantId: tenantId!, amountPaise: Math.round(Number(amount) * 100), paymentMethod: method, paymentType: pType }),
+      billingRecordPayment({ tenantId: tenantId!, amountPaise: Math.round(Number(amount) * 100), paymentMethod: method, type: pType }),
     onSuccess: () => { setShowRecordPayment(false); refetchOrg(); toast.saved('Payment recorded'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); }
+  const setExpiryMut = useMutation({
+    mutationFn: (expiresAt: string) => superAdminSetPlanExpiry(tenantId!, expiresAt),
+    onSuccess: () => { refetchOrg(); setShowSetExpiry(false); toast.saved('Plan expiry updated'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to set expiry'),
+  });
+  const cancelTenantMut = useMutation({
+    mutationFn: () => superAdminCancelTenant(tenantId!),
+    onSuccess: () => { refetchOrg(); toast.cancelled('Cancellation scheduled — access continues until plan expires'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to schedule cancellation'),
+  });
+  const resumeTenantMut = useMutation({
+    mutationFn: () => superAdminResumeTenant(tenantId!),
+    onSuccess: () => { refetchOrg(); toast.saved('Subscription resumed'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume subscription'),
+  });
+  const setDiscountMut = useMutation({
+    mutationFn: (body: any) => superAdminSetDiscount(tenantId!, body),
+    onSuccess: () => { refetchDiscount(); refetchOrg(); setShowSetDiscount(false); toast.saved('Discount saved'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save discount'),
+  });
+  const removeDiscountMut = useMutation({
+    mutationFn: () => superAdminRemoveDiscount(tenantId!),
+    onSuccess: () => { refetchDiscount(); refetchOrg(); toast.cancelled('Discount removed'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove discount'),
+  });
+  const removeCustomLimitsMut = useMutation({
+    mutationFn: () => superAdminRemoveCustomLimits(tenantId!, 'BASIC'),
+    onSuccess: () => { refetchLimits(); refetchOrg(); setShowPlanMenu(false); toast.saved('Custom limits removed — reverted to BASIC'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove custom limits'),
+  });
+  const creditMut = useMutation({
+    mutationFn: ({ mode, amountInr, notes }: { mode: 'ADD' | 'DEDUCT'; amountInr: number; notes?: string }) =>
+      mode === 'ADD'
+        ? superAdminAddTenantCredit(tenantId!, amountInr, notes)
+        : superAdminDeductTenantCredit(tenantId!, amountInr, notes),
+    onSuccess: (_d, vars) => {
+      refetchOrg();
+      qc.invalidateQueries({ queryKey: ['sa-tenants'] });
+      setShowCredits(false);
+      toast.saved(vars.mode === 'ADD' ? 'Credit added' : 'Credit deducted');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update credit'),
+  });
+  const resetPwdMut = useMutation({
+    mutationFn: (userId: string) => resetMemberPassword(userId),
+    onSuccess: (res: any) => { setResetCreds({ username: res?.username ?? '—', password: res?.tempPassword ?? '—' }); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to reset password'),
+    onSettled: () => setBusyUserId(null),
+  });
+  const lockMut = useMutation({
+    mutationFn: ({ userId, locked }: { userId: string; locked: boolean }) =>
+      locked ? unlockUser(userId) : lockUser(userId),
+    onSuccess: (_d, v) => { refetchUsers(); toast.saved(v.locked ? 'Account unlocked' : 'Account locked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+    onSettled: () => setBusyUserId(null),
+  });
+
+  function onRefresh() { refetchOrg(); refetchUsers(); refetchChits(); refetchRenewals(); refetchUpgrades(); refetchLimits(); refetchDiscount(); }
 
   const orgData = org as any;
 
@@ -295,12 +397,165 @@ export default function OrgDetailPage() {
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Change Plan</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => setShowCustomLimits(true)}
+            style={{ flex: 1, backgroundColor: '#FEF3C7', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#D97706' }}>Set Limits</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowSetExpiry(true)}
+            style={{ flex: 1, backgroundColor: '#EFF6FF', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#2563EB' }}>Set Expiry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowCredits(true)}
+            style={{ flex: 1, backgroundColor: '#F0FDF4', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>Credits</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => setShowAddUser(true)}
             style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>+ User</Text>
           </TouchableOpacity>
+          {orgData?.status === 'ACTIVE' && (
+            orgData?.cancellationRequestedAt ? (
+              <TouchableOpacity
+                onPress={() => resumeTenantMut.mutate()}
+                disabled={resumeTenantMut.isPending}
+                style={{ flex: 1, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                  {resumeTenantMut.isPending ? 'Resuming…' : 'Resume Sub'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  'Schedule Cancellation',
+                  `Schedule cancellation for ${orgData?.name}? They keep access until the plan expires.`,
+                  [
+                    { text: 'Keep Plan', style: 'cancel' },
+                    { text: 'Schedule', style: 'destructive', onPress: () => cancelTenantMut.mutate() },
+                  ],
+                )}
+                disabled={cancelTenantMut.isPending}
+                style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>
+                  {cancelTenantMut.isPending ? 'Scheduling…' : 'Cancel Sub'}
+                </Text>
+              </TouchableOpacity>
+            )
+          )}
         </View>
+
+        {/* Cancellation-pending banner */}
+        {orgData?.cancellationRequestedAt && (
+          <View style={{
+            backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 14,
+            padding: 14, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 10,
+          }}>
+            <Text style={{ fontSize: 20 }}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>Cancellation scheduled</Text>
+              <Text style={{ fontSize: 12, color: '#B45309', marginTop: 2 }}>
+                Access continues until {fmtDate(orgData?.planExpiresAt) ?? 'plan expiry'}.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => resumeTenantMut.mutate()}
+              disabled={resumeTenantMut.isPending}
+              style={{ backgroundColor: C.navy, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>
+                {resumeTenantMut.isPending ? '…' : 'Resume'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Org discount */}
+        <View style={{
+          backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16,
+          borderWidth: 1, borderColor: C.gray100,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Org Discount</Text>
+            {discount ? (
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity onPress={() => setShowSetDiscount(true)}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => Alert.alert('Remove Discount', 'Remove this org discount?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeDiscountMut.mutate() },
+                ])}>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.red }}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={() => setShowSetDiscount(true)}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>+ Set</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: discount ? '#059669' : C.gray400, marginTop: 6 }}>
+            {discount
+              ? ((discount as any).discountType === 'FIXED_PAISE'
+                  ? `₹${(Number((discount as any).discountValue) / 100).toLocaleString('en-IN')} off`
+                  : `${Number((discount as any).discountValue)}% off`)
+              : 'None'}
+          </Text>
+          {discount && (discount as any).reason && (
+            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{(discount as any).reason}</Text>
+          )}
+          {discount && (discount as any).expiresAt && (
+            <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+              Expires {fmtDate((discount as any).expiresAt)}
+            </Text>
+          )}
+        </View>
+
+        {/* Plan usage bars */}
+        {effectiveLimits && (
+          <View style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Plan Usage</Text>
+              {(effectiveLimits as any).hasCustomLimits && (
+                <View style={{ backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706' }}>CUSTOM LIMITS</Text>
+                </View>
+              )}
+            </View>
+            {[
+              { label: 'Active Chits', used: (effectiveLimits as any).activeChitsCount ?? 0, max: (effectiveLimits as any).maxActiveChits },
+              { label: 'Members',      used: (effectiveLimits as any).memberCount ?? 0,      max: (effectiveLimits as any).maxMembers },
+              { label: 'Staff',        used: (effectiveLimits as any).staffCount ?? 0,       max: (effectiveLimits as any).maxStaff },
+            ].map(({ label, used, max }) => {
+              const unlimited = max === -1 || max == null;
+              const pct = unlimited ? 0 : Math.min(100, Math.round((used / Math.max(max, 1)) * 100));
+              const over = !unlimited && used >= max;
+              return (
+                <View key={label} style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500 }}>{label}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: over ? C.red : C.gray700 }}>
+                      {used} / {unlimited ? '∞' : max}
+                    </Text>
+                  </View>
+                  {!unlimited && (
+                    <View style={{ height: 6, backgroundColor: C.gray100, borderRadius: 3 }}>
+                      <View style={{ height: 6, width: `${pct}%` as any, backgroundColor: over ? C.red : pct > 80 ? '#D97706' : '#059669', borderRadius: 3 }} />
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* Alerts for this org */}
         {orgAlerts.length > 0 && (
@@ -428,6 +683,11 @@ export default function OrgDetailPage() {
                           <Text style={{ fontSize: 10, fontWeight: '700', color: C.red }}>DISABLED</Text>
                         </View>
                       )}
+                      {u.locked && (
+                        <View style={{ backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: '#D97706' }}>LOCKED</Text>
+                        </View>
+                      )}
                     </View>
                     <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>@{u.username}</Text>
                     {u.phone && <Text style={{ fontSize: 12, color: C.gray400 }}>{u.phone}</Text>}
@@ -439,6 +699,38 @@ export default function OrgDetailPage() {
                     Joined {fmtDate(u.joinedAt)}
                   </Text>
                 )}
+
+                {/* Per-user actions */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  <TouchableOpacity
+                    onPress={() => Alert.alert(
+                      'Reset Password',
+                      `Reset the password for ${u.fullName}? A temporary password will be generated.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Reset', style: 'destructive', onPress: () => { setBusyUserId(u.userId ?? u.id); resetPwdMut.mutate(u.userId ?? u.id); } },
+                      ],
+                    )}
+                    disabled={busyUserId === (u.userId ?? u.id)}
+                    style={{ flex: 1, backgroundColor: C.gray100, borderRadius: 9, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700 }}>
+                      {busyUserId === (u.userId ?? u.id) && resetPwdMut.isPending ? '…' : 'Reset Password'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setBusyUserId(u.userId ?? u.id); lockMut.mutate({ userId: u.userId ?? u.id, locked: !!u.locked }); }}
+                    disabled={busyUserId === (u.userId ?? u.id)}
+                    style={{
+                      flex: 1, borderRadius: 9, paddingVertical: 8, alignItems: 'center',
+                      backgroundColor: u.locked ? '#D1FAE5' : '#FEE2E2',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: u.locked ? '#059669' : C.red }}>
+                      {busyUserId === (u.userId ?? u.id) && lockMut.isPending ? '…' : u.locked ? 'Unlock' : 'Lock'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           )
@@ -528,6 +820,24 @@ export default function OrgDetailPage() {
                 {planMut.isPending ? <ActivityIndicator size="small" color={PLAN_COLORS[p]?.text} /> : <Text style={{ color: PLAN_COLORS[p]?.text }}>→</Text>}
               </TouchableOpacity>
             ))}
+            {(effectiveLimits as any)?.hasCustomLimits && (
+              <TouchableOpacity
+                onPress={() => Alert.alert(
+                  'Remove Custom Limits',
+                  'Remove this org’s custom limits and revert it to the BASIC plan?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Remove', style: 'destructive', onPress: () => removeCustomLimitsMut.mutate() },
+                  ],
+                )}
+                disabled={removeCustomLimitsMut.isPending}
+                style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 14, padding: 16, marginBottom: 10, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.red }}>
+                  {removeCustomLimitsMut.isPending ? 'Removing…' : 'Remove Custom Limits'}
+                </Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setShowPlanMenu(false)} style={{ alignItems: 'center', paddingTop: 8 }}>
               <Text style={{ color: C.gray400, fontSize: 15 }}>Cancel</Text>
             </TouchableOpacity>
@@ -564,6 +874,18 @@ export default function OrgDetailPage() {
         onRecord={(amount, method, pType) => recordPaymentMut.mutate({ amount, method, pType })}
         loading={recordPaymentMut.isPending}
       />
+
+      {/* Custom limits modal */}
+      {showCustomLimits && (
+        <SetCustomLimitsModal
+          tenantId={tenantId!}
+          existing={effectiveLimits as any}
+          plans={plans as any[]}
+          capDefs={capDefs as any[]}
+          onClose={() => setShowCustomLimits(false)}
+          onSaved={() => { setShowCustomLimits(false); refetchOrg(); refetchLimits(); toast.saved('Custom limits saved'); }}
+        />
+      )}
 
       {/* Reactivate modal */}
       <Modal visible={showReactivate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowReactivate(false)}>
@@ -605,7 +927,334 @@ export default function OrgDetailPage() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* Set plan expiry */}
+      {showSetExpiry && (
+        <SetExpiryModal
+          currentExpiry={orgData?.planExpiresAt}
+          saving={setExpiryMut.isPending}
+          onClose={() => setShowSetExpiry(false)}
+          onSave={(iso) => setExpiryMut.mutate(iso)}
+        />
+      )}
+
+      {/* Set org discount */}
+      {showSetDiscount && (
+        <SetDiscountModal
+          existing={discount as any}
+          saving={setDiscountMut.isPending}
+          onClose={() => setShowSetDiscount(false)}
+          onSave={(body) => setDiscountMut.mutate(body)}
+        />
+      )}
+
+      {/* Add / deduct account credit */}
+      {showCredits && (
+        <TenantCreditModal
+          orgName={orgData?.name}
+          saving={creditMut.isPending}
+          onClose={() => setShowCredits(false)}
+          onSubmit={(mode, amountInr, notes) => creditMut.mutate({ mode, amountInr, notes })}
+        />
+      )}
+
+      {/* Credentials after a password reset — shown once */}
+      <Modal visible={!!resetCreds} animationType="fade" transparent onRequestClose={() => setResetCreds(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: C.white, borderRadius: 18, padding: 20 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Password Reset</Text>
+            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 4 }}>
+              Share these credentials with the user — they won't be shown again.
+            </Text>
+            {[
+              { label: 'Username', value: resetCreds?.username },
+              { label: 'Temporary password', value: resetCreds?.password },
+            ].map(({ label, value }) => (
+              <View key={label} style={{ marginTop: 14, backgroundColor: C.gray50, borderRadius: 12, padding: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400 }}>{label.toUpperCase()}</Text>
+                <Text selectable style={{ fontSize: 16, fontWeight: '700', color: C.navy, fontFamily: 'monospace', marginTop: 3 }}>
+                  {value}
+                </Text>
+              </View>
+            ))}
+            <TouchableOpacity
+              onPress={() => setResetCreds(null)}
+              style={{ marginTop: 18, backgroundColor: C.navy, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.white }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+// ── Set plan expiry ───────────────────────────────────────────────────────────
+function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
+  currentExpiry?: string; saving: boolean; onClose: () => void; onSave: (iso: string) => void;
+}) {
+  function toInput(d?: string) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
+  function plus30() { return new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10); }
+
+  const [date, setDate] = useState(currentExpiry ? toInput(currentExpiry) : plus30());
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Set Plan Expiry</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <View style={{ padding: 20, gap: 16 }}>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Expiry date (YYYY-MM-DD)</Text>
+            <TextInput
+              value={date}
+              onChangeText={setDate}
+              placeholder="2026-12-31"
+              placeholderTextColor={C.gray400}
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+            {currentExpiry && (
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+                Currently expires {fmtDate(currentExpiry)}
+              </Text>
+            )}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[
+              { label: '+30 days', days: 30 },
+              { label: '+90 days', days: 90 },
+              { label: '+1 year', days: 365 },
+            ].map(({ label, days }) => (
+              <TouchableOpacity
+                key={label}
+                onPress={() => setDate(new Date(Date.now() + days * 86400_000).toISOString().slice(0, 10))}
+                style={{ flex: 1, backgroundColor: C.gray100, borderRadius: 10, paddingVertical: 9, alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700 }}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity
+            onPress={() => onSave(`${date}T00:00:00`)}
+            disabled={!valid || saving}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Expiry'}</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Add / deduct tenant account credit ────────────────────────────────────────
+function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
+  orgName?: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (mode: 'ADD' | 'DEDUCT', amountInr: number, notes?: string) => void;
+}) {
+  const [mode, setMode] = useState<'ADD' | 'DEDUCT'>('ADD');
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const amountNum = Number(amount);
+  const valid = !!amount && !Number.isNaN(amountNum) && amountNum > 0;
+
+  function submit() {
+    if (!valid) return;
+    const trimmed = notes.trim() || undefined;
+    if (mode === 'DEDUCT') {
+      Alert.alert(
+        'Deduct Credit',
+        `Deduct ₹${amountNum.toLocaleString('en-IN')} from ${orgName ?? 'this org'}'s account credit?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Deduct', style: 'destructive', onPress: () => onSubmit('DEDUCT', amountNum, trimmed) },
+        ],
+      );
+    } else {
+      onSubmit('ADD', amountNum, trimmed);
+    }
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Account Credit</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <View style={{ padding: 20, gap: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {(['ADD', 'DEDUCT'] as const).map((m) => {
+              const active = mode === m;
+              const tint = m === 'ADD' ? '#15803D' : C.red;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={{
+                    flex: 1, paddingVertical: 11, borderRadius: 12, alignItems: 'center',
+                    backgroundColor: active ? tint : C.white,
+                    borderWidth: 1.5, borderColor: active ? tint : C.gray200,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: active ? C.white : C.gray500 }}>
+                    {m === 'ADD' ? 'Add Credit' : 'Deduct Credit'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Amount (₹)</Text>
+            <TextInput
+              value={amount}
+              onChangeText={setAmount}
+              placeholder="1000"
+              placeholderTextColor={C.gray400}
+              keyboardType="numeric"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Notes (optional)</Text>
+            <TextInput
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Reason for this adjustment…"
+              placeholderTextColor={C.gray400}
+              multiline
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy, minHeight: 80, textAlignVertical: 'top' }}
+            />
+          </View>
+
+          <TouchableOpacity
+            onPress={submit}
+            disabled={!valid || saving}
+            style={{
+              backgroundColor: mode === 'ADD' ? '#15803D' : C.red,
+              borderRadius: 14, paddingVertical: 14, alignItems: 'center',
+              opacity: !valid || saving ? 0.5 : 1,
+            }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>
+              {saving ? 'Saving…' : mode === 'ADD' ? 'Add Credit' : 'Deduct Credit'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Set org discount ──────────────────────────────────────────────────────────
+function SetDiscountModal({ existing, saving, onClose, onSave }: {
+  existing?: any; saving: boolean; onClose: () => void; onSave: (body: any) => void;
+}) {
+  const [dType, setDType] = useState<'PERCENTAGE' | 'FIXED_PAISE'>(existing?.discountType ?? 'PERCENTAGE');
+  const [value, setValue] = useState(
+    existing
+      ? (existing.discountType === 'FIXED_PAISE'
+          ? String(Number(existing.discountValue) / 100)
+          : String(existing.discountValue))
+      : '',
+  );
+  const [reason, setReason] = useState(existing?.reason ?? '');
+  const [expiresAt, setExpiresAt] = useState(existing?.expiresAt ? String(existing.expiresAt).slice(0, 10) : '');
+  const valid = Number(value) > 0;
+
+  function save() {
+    // Fixed discounts are stored in paise; percentages are stored as-is.
+    onSave({
+      discountType: dType,
+      discountValue: dType === 'FIXED_PAISE' ? Number(value) * 100 : Number(value),
+      reason: reason.trim() || null,
+      expiresAt: expiresAt ? `${expiresAt}T00:00:00` : null,
+    });
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{existing ? 'Edit' : 'Set'} Discount</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Discount type</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {([['PERCENTAGE', '% Percent'], ['FIXED_PAISE', '₹ Fixed']] as const).map(([val, label]) => (
+                <TouchableOpacity
+                  key={val}
+                  onPress={() => setDType(val)}
+                  style={{
+                    flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: 'center',
+                    borderWidth: 1.5,
+                    borderColor: dType === val ? C.navy : C.gray200,
+                    backgroundColor: dType === val ? C.navy50 : C.white,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: dType === val ? C.navy : C.gray500 }}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>
+              {dType === 'PERCENTAGE' ? 'Percent off' : 'Amount off (₹)'}
+            </Text>
+            <TextInput
+              value={value}
+              onChangeText={setValue}
+              keyboardType="numeric"
+              placeholder={dType === 'PERCENTAGE' ? '20' : '500'}
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+            <TextInput
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Loyalty discount"
+              placeholderTextColor={C.gray400}
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Expires on (optional, YYYY-MM-DD)</Text>
+            <TextInput
+              value={expiresAt}
+              onChangeText={setExpiresAt}
+              placeholder="2026-12-31"
+              placeholderTextColor={C.gray400}
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.navy }}
+            />
+          </View>
+          <TouchableOpacity
+            onPress={save}
+            disabled={!valid || saving}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Discount'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -756,6 +1405,131 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
             disabled={!fullName || !phone}
             fullWidth
             size="lg"
+          />
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ── Set Custom Limits Modal ───────────────────────────────────────────────────
+function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onSaved }: {
+  tenantId: string;
+  existing: any;
+  plans: any[];
+  capDefs: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const CHIT_TYPES = ['RESERVATION', 'LOTTERY', 'AUCTION'];
+  const existingAllowedTypes = existing?.allowedChitTypes
+    ? existing.allowedChitTypes.split(',').map((s: string) => s.trim()).filter((t: string) => CHIT_TYPES.includes(t))
+    : ['RESERVATION'];
+
+  const [maxChits,    setMaxChits]    = useState(String(existing?.maxActiveChits ?? 5));
+  const [maxMembers,  setMaxMembers]  = useState(String(existing?.maxMembers ?? 100));
+  const [maxStaff,    setMaxStaff]    = useState(String(existing?.maxStaff ?? 3));
+  const [allowedTypes, setAllowedTypes] = useState<string[]>(existingAllowedTypes);
+  const [enabledCaps, setEnabledCaps]   = useState<string[]>(existing?.enabledCapabilities ?? []);
+  const [priceStr,    setPriceStr]    = useState(existing?.priceMonthlyInr ? String(existing.priceMonthlyInr / 100) : '0');
+  const [notes,       setNotes]       = useState(existing?.notes ?? '');
+
+  const mut = useMutation({
+    mutationFn: () => superAdminSetCustomLimits(tenantId, {
+      maxActiveChits: Number(maxChits),
+      maxMembers:     Number(maxMembers),
+      maxStaff:       Number(maxStaff),
+      allowedChitTypes: allowedTypes.join(','),
+      enabledCapabilities: enabledCaps,
+      priceMonthlyInr: Math.round(Number(priceStr) * 100),
+      notes: notes || null,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-org-limits', tenantId] }); onSaved(); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save'),
+  });
+
+  function toggleType(t: string) {
+    setAllowedTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  }
+  function toggleCap(key: string) {
+    setEnabledCaps(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  }
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Set Custom Limits</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+          {/* Numeric limits */}
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8 }}>LIMITS (−1 = unlimited)</Text>
+          {[
+            { label: 'Max Active Chits', val: maxChits,   set: setMaxChits },
+            { label: 'Max Members',      val: maxMembers, set: setMaxMembers },
+            { label: 'Max Staff',        val: maxStaff,   set: setMaxStaff },
+          ].map(({ label, val, set }) => (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={{ flex: 1, fontSize: 13, color: C.gray700 }}>{label}</Text>
+              <TextInput
+                value={val} onChangeText={set} keyboardType="numeric"
+                style={{ width: 80, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 15, color: C.gray900, textAlign: 'center' }}
+              />
+            </View>
+          ))}
+
+          {/* Allowed chit types */}
+          <View>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>ALLOWED CHIT TYPES</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {CHIT_TYPES.map(t => (
+                <TouchableOpacity key={t} onPress={() => toggleType(t)}
+                  style={{ flex: 1, backgroundColor: allowedTypes.includes(t) ? '#FEF3C7' : C.gray100, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1.5, borderColor: allowedTypes.includes(t) ? '#D97706' : C.gray200 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: allowedTypes.includes(t) ? '#D97706' : C.gray500 }}>{t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Capabilities */}
+          {capDefs.length > 0 && (
+            <View>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginBottom: 8 }}>CAPABILITIES</Text>
+              {capDefs.map((cap: any) => (
+                <TouchableOpacity key={cap.key} onPress={() => toggleCap(cap.key)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: enabledCaps.includes(cap.key) ? '#F0FDF4' : C.gray50, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
+                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: enabledCaps.includes(cap.key) ? '#059669' : C.gray300, alignItems: 'center', justifyContent: 'center' }}>
+                    {enabledCaps.includes(cap.key) && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Monthly price */}
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Monthly Price (₹)</Text>
+            <TextInput value={priceStr} onChangeText={setPriceStr} keyboardType="decimal-pad" placeholder="0"
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 16, color: C.gray900 }} />
+          </View>
+
+          {/* Notes */}
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (internal)</Text>
+            <TextInput value={notes} onChangeText={setNotes} multiline numberOfLines={2} placeholder="e.g. Negotiated pricing"
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60 }} />
+          </View>
+        </ScrollView>
+        <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+          <Button
+            label={mut.isPending ? 'Saving…' : 'Save Custom Limits'}
+            onPress={() => mut.mutate()}
+            loading={mut.isPending}
+            disabled={allowedTypes.length === 0}
+            fullWidth size="lg"
           />
         </View>
       </SafeAreaView>

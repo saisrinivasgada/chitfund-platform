@@ -1,0 +1,50 @@
+appId: ${APP_ID}
+name: Admin Chits — List
+---
+- launchApp
+- waitForAnimationToEnd
+
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${ADMIN_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${ADMIN_PASSWORD}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Verify your identity"
+          commands:
+            - waitForAnimationToEnd
+            - runScript: helpers/read_otp.js
+            - tapOn:
+                text: "123456"
+            - inputText: ${output.otp}
+            - tapOn:
+                text: "Verify & Sign In"
+            - waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        text: "Select Organisation"
+    commands:
+      - tapOn:
+          index: 0
+          text: "›"
+      - waitForAnimationToEnd
+
+- tapOn:
+    point: "50%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Chits"
+- waitForAnimationToEnd

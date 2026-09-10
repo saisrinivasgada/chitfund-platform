@@ -2272,12 +2272,14 @@ function SkipDrawModal({ chitId, chit, enrollments, draws, onClose }) {
 }
 
 const STATUS_ROW = {
-  SETTLED:             { bg: 'bg-green-50',  dot: 'bg-green-500',  text: 'Settled'          },
-  PARTIALLY_PAID:      { bg: 'bg-amber-50',  dot: 'bg-amber-400',  text: 'Partial'          },
-  OUTSTANDING:         { bg: 'bg-red-50',    dot: 'bg-red-400',    text: 'Outstanding'      },
-  WAIVED:              { bg: 'bg-gray-50',   dot: 'bg-gray-300',   text: 'Waived'           },
-  PAYOUT_DEDUCTED:     { bg: 'bg-[#EEF2F8]', dot: 'bg-[#1E3A5F]',  text: 'Paid at Payout'   },
-  SETTLEMENT_CLEARED:  { bg: 'bg-teal-50',   dot: 'bg-teal-500',   text: 'In Settlement'    },
+  SETTLED:             { bg: 'bg-green-50',    dot: 'bg-green-500',    text: 'Settled'               },
+  PARTIALLY_PAID:      { bg: 'bg-amber-50',    dot: 'bg-amber-400',    text: 'Partial'               },
+  OUTSTANDING:         { bg: 'bg-red-50',      dot: 'bg-red-400',      text: 'Outstanding'           },
+  WAIVED:              { bg: 'bg-gray-50',     dot: 'bg-gray-300',     text: 'Waived'                },
+  PAYOUT_DEDUCTED:     { bg: 'bg-[#EEF2F8]',  dot: 'bg-[#1E3A5F]',   text: 'Paid at Payout'        },
+  SETTLEMENT_CLEARED:  { bg: 'bg-teal-50',     dot: 'bg-teal-500',     text: 'In Settlement'         },
+  CREDIT_COVERED:      { bg: 'bg-emerald-50',  dot: 'bg-emerald-500',  text: 'Credit Covered'        },
+  PARTIAL_CREDIT:      { bg: 'bg-cyan-50',     dot: 'bg-cyan-500',     text: 'Partial Credit'        },
 };
 
 function PaymentStatusBadge({ status, overdue }) {
@@ -2289,6 +2291,8 @@ function PaymentStatusBadge({ status, overdue }) {
       : status === 'WAIVED'              ? 'bg-gray-100 text-gray-500'
       : status === 'PAYOUT_DEDUCTED'     ? 'bg-[#EEF2F8] text-[#1E3A5F]'
       : status === 'SETTLEMENT_CLEARED'  ? 'bg-teal-100 text-teal-700'
+      : status === 'CREDIT_COVERED'      ? 'bg-emerald-100 text-emerald-700'
+      : status === 'PARTIAL_CREDIT'      ? 'bg-cyan-100 text-cyan-700'
       : 'bg-red-100 text-red-600'}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
       {style.text}
@@ -2377,7 +2381,7 @@ function PaymentHistoryModal({ member, chitId, onCollect, onClose, initialTab = 
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {history.map((r) => {
-                      const canCollect = r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID';
+                      const canCollect = r.status === 'OUTSTANDING' || r.status === 'PARTIALLY_PAID' || r.status === 'PARTIAL_CREDIT';
                       return (
                         <tr key={r.id} className={`${STATUS_ROW[r.status]?.bg ?? ''} hover:brightness-[0.98]`}>
                           <td className="px-4 py-2.5 font-medium text-gray-800">Draw {r.monthNumber}</td>
@@ -2590,7 +2594,7 @@ function DrawPaymentRows({ draw, chit, reservations, memberMap, onCollect, onVie
           {payments.map((p) => {
             const member = memberMap[p.memberId];
             const style  = STATUS_ROW[p.status] ?? STATUS_ROW.OUTSTANDING;
-            const canCollect   = p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID';
+            const canCollect   = p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID' || p.status === 'PARTIAL_CREDIT';
             // PAYOUT_DEDUCTED has amountPaid > 0 but no batch — hide the Transactions link
             const hasPaidSomething = Number(p.amountPaid) > 0 && p.status !== 'PAYOUT_DEDUCTED';
             return (
@@ -5068,9 +5072,15 @@ function InvitationsTab({ chitId, chit }) {
       : '';
     const html = `<!DOCTYPE html><html><head><title>Payout Plan</title></head><body>
 <div style="font-family:Arial,sans-serif;padding:40px;max-width:700px;margin:auto">
-  <div style="display:flex;align-items:center;margin-bottom:24px">
-    <div style="background:#1E3A5F;color:white;padding:8px 16px;border-radius:6px;font-weight:bold;font-size:18px">ChitWise</div>
-    <div style="margin-left:16px;font-size:14px;color:#6B7280">${tenantName ?? ''}</div>
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #1E3A5F;padding-bottom:14px;margin-bottom:24px">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="21" fill="none" viewBox="0 0 48 46"><path fill="#863bff" d="M25.946 44.938c-.664.845-2.021.375-2.021-.698V33.937a2.26 2.26 0 0 0-2.262-2.262H10.287c-.92 0-1.456-1.04-.92-1.788l7.48-10.471c1.07-1.497 0-3.578-1.842-3.578H1.237c-.92 0-1.456-1.04-.92-1.788L10.013.474c.214-.297.556-.474.92-.474h28.894c.92 0 1.456 1.04.92 1.788l-7.48 10.471c-1.07 1.498 0 3.579 1.842 3.579h11.377c.943 0 1.473 1.088.89 1.83L25.947 44.94z"/></svg>
+        <span style="font-size:20px;font-weight:900;color:#1E3A5F;letter-spacing:-0.5px">ChitWise</span>
+      </div>
+      ${tenantName ? `<div style="font-size:17px;font-weight:800;color:#1E3A5F">${tenantName}</div>` : ''}
+    </div>
+    <div style="text-align:right;font-size:10px;color:#888">Payout Schedule</div>
   </div>
   <h2 style="color:#1E3A5F;margin:0 0 16px">${chit.name ?? ''} — Payout Schedule</h2>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0;font-size:13px">

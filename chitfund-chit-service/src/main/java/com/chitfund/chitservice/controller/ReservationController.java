@@ -7,10 +7,12 @@ import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.dto.request.ReservationSlotRequest;
 import com.chitfund.chitservice.dto.request.SwapSlotsRequest;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
+import com.chitfund.chitservice.dto.response.MyReservationsResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.chitservice.service.PlanLimitChecker;
+import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -43,13 +45,72 @@ public class ReservationController {
     private final AuditClient auditClient;
     private final PlanLimitChecker planLimitChecker;
 
+    /**
+     * Full schedule, including which member holds each slot.
+     *
+     * <p>Staff-only: the response names every member against their month, so
+     * members must use {@code /mine} instead.
+     */
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('STAFF')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> list(@PathVariable UUID chitId) {
         chitService.findById(chitId); // validates existence
         List<MonthReservationResponse> list = reservationRepository
                 .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
                 .stream().map(chitMapper::toReservationResponse).collect(Collectors.toList());
         return ResponseEntity.ok(ApiResponse.success(list));
+    }
+
+    /**
+     * The caller's own slots in this chit, plus an anonymised outline of the
+     * rest of the schedule so they can see which months are still open without
+     * learning who holds the others.
+     */
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<MyReservationsResponse>> listMine(@PathVariable UUID chitId) {
+        String memberIdStr = MemberContext.get();
+        if (memberIdStr == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Member context not found");
+        }
+        UUID memberId = UUID.fromString(memberIdStr);
+        chitService.findById(chitId); // validates existence
+
+        List<MonthReservation> slots = reservationRepository
+                .findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
+                .stream()
+                .filter(r -> r.getStatus() != ReservationStatus.VOIDED)
+                .toList();
+
+        List<MyReservationsResponse.MySlot> mine = slots.stream()
+                .filter(r -> r.getMemberId() != null && r.getMemberId().equals(memberId))
+                .map(r -> MyReservationsResponse.MySlot.builder()
+                        .id(r.getId())
+                        .monthNumber(r.getMonthNumber())
+                        .reservationMonth(r.getReservationMonth())
+                        .payoutAmount(r.getPayoutAmount())
+                        .postPayoutContribution(r.getPostPayoutContribution())
+                        .status(r.getStatus() != null ? r.getStatus().name() : null)
+                        .build())
+                .toList();
+
+        List<MyReservationsResponse.OutlineEntry> outline = slots.stream()
+                .map(r -> {
+                    boolean isMine = r.getMemberId() != null && r.getMemberId().equals(memberId);
+                    boolean orgHeld = r.isOrgHeld();
+                    return MyReservationsResponse.OutlineEntry.builder()
+                            .monthNumber(r.getMonthNumber())
+                            .reservationMonth(r.getReservationMonth())
+                            .mine(isMine)
+                            .taken(r.getMemberId() != null || orgHeld)
+                            .orgHeld(orgHeld)
+                            .processed(r.getStatus() == ReservationStatus.PROCESSED)
+                            .build();
+                })
+                .toList();
+
+        return ResponseEntity.ok(ApiResponse.success(
+                MyReservationsResponse.builder().mySlots(mine).outline(outline).build()));
     }
 
     @PostMapping

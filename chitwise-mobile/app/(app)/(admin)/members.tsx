@@ -8,7 +8,8 @@ import {
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
   getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
   sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
-  adminUpdateUserPhone, startConversation,
+  adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
+  getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -72,19 +73,23 @@ export default function AdminMembersScreen() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
   const router = useRouter();
-  const params = useLocalSearchParams<{ filter?: string }>();
+  const params = useLocalSearchParams<{ filter?: string; openAdd?: string }>();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(params.filter ?? null);
   const [selected, setSelected] = useState<any>(null);
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   useEffect(() => { setStatusFilter(params.filter ?? null); }, [params.filter]);
+  // Dashboard "Add Member" quick action opens the create form directly
+  useEffect(() => { if (params.openAdd === '1') setShowCreate(true); }, [params.openAdd]);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [chitStatusFilter, setChitStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
+  const [payHistChitId, setPayHistChitId] = useState('');
   const [showEditInline, setShowEditInline] = useState(false);
   const [tempPassword, setTempPassword] = useState('');
   const [showPwdInline, setShowPwdInline] = useState(false);
@@ -160,8 +165,21 @@ export default function AdminMembersScreen() {
     getNextPageParam: (lastPage: any) => lastPage.last ? undefined : (lastPage.number + 1),
     initialPageParam: 0,
   });
-  const members = membersInfinite?.pages.flatMap((p: any) => p.content) ?? [];
-  const totalElements = membersInfinite?.pages[0]?.totalElements ?? 0;
+  const pagedMembers = membersInfinite?.pages.flatMap((p: any) => p.content) ?? [];
+
+  // Soft-deleted members come from their own endpoint, outside the paged list.
+  const showingDeleted = statusFilter === 'Deleted';
+  const { data: deletedMembers = [] } = useQuery({
+    queryKey: ['m-members-deleted'],
+    queryFn: getDeletedMembers,
+    enabled: showingDeleted,
+    staleTime: 60_000,
+  });
+
+  const members = showingDeleted ? (deletedMembers as any[]) : pagedMembers;
+  const totalElements = showingDeleted
+    ? (deletedMembers as any[]).length
+    : (membersInfinite?.pages[0]?.totalElements ?? 0);
 
   const createMutation = useMutation({
     mutationFn: () => createMember({
@@ -352,6 +370,41 @@ export default function AdminMembersScreen() {
     enabled: !!selected?.id && showDetail,
     staleTime: 60_000,
   });
+
+  // Scheduled reminders for member
+  const [showCreateReminder, setShowCreateReminder] = useState(false);
+  const [reminderMessage, setReminderMessage] = useState('');
+  const [reminderFreqMin, setReminderFreqMin] = useState<number | null>(null);
+  const { data: memberRemindersPage, refetch: refetchReminders } = useQuery({
+    queryKey: ['m-member-reminders', selected?.id],
+    queryFn: () => getRemindersForMember(selected!.id),
+    enabled: !!selected?.id && showDetail,
+    staleTime: 30_000,
+  });
+  const memberReminders: any[] = (memberRemindersPage as any)?.content ?? [];
+
+  const cancelReminderMutation = useMutation({
+    mutationFn: (reminderId: string) => removeReminder(reminderId),
+    onSuccess: () => { refetchReminders(); toast.noted('Reminder cancelled'); },
+    onError: () => Alert.alert('Error', 'Failed to cancel reminder'),
+  });
+
+  const createReminderMutation = useMutation({
+    mutationFn: () => sendReminder({
+      memberProfileId: selected!.id,
+      chits: [],
+      message: reminderMessage.trim() || undefined,
+      repeatIntervalMinutes: reminderFreqMin,
+    }),
+    onSuccess: () => {
+      refetchReminders();
+      setShowCreateReminder(false);
+      setReminderMessage('');
+      setReminderFreqMin(null);
+      toast.noted('Reminder sent');
+    },
+    onError: (e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Failed to send reminder'),
+  });
   const SETTLEMENT_TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
   const pendingSettlements = ((memberSettlementsPage as any)?.content ?? []).filter(
     (s: any) => !SETTLEMENT_TERMINAL.has(s.paymentStatus)
@@ -390,6 +443,28 @@ export default function AdminMembersScreen() {
     staleTime: 60_000,
   });
 
+  // Payment history for selected chit in the Payments section
+  const { data: payHistory = [] } = useQuery({
+    queryKey: ['m-pay-history', selected?.id, payHistChitId],
+    queryFn: () => getPaymentHistory(selected!.id, payHistChitId),
+    enabled: !!selected?.id && !!payHistChitId && showDetail,
+    staleTime: 60_000,
+  });
+
+  // Promised-payment-date editor: which record is open, and its draft value.
+  const [promiseRecordId, setPromiseRecordId] = useState<string | null>(null);
+  const [promiseDate, setPromiseDate] = useState('');
+  const promiseMut = useMutation({
+    mutationFn: ({ recordId, date }: { recordId: string; date: string }) =>
+      setPromisedPaymentDate(recordId, date),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-pay-history', selected?.id, payHistChitId] });
+      setPromiseRecordId(null); setPromiseDate('');
+      toast.noted('Promised date saved');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save promised date'),
+  });
+
   // Pending cash pickup requests for this member
   const { data: allMemberRequests = [] } = useQuery({
     queryKey: ['m-member-cash-requests', selected?.id],
@@ -415,6 +490,7 @@ export default function AdminMembersScreen() {
     setClUsername('');
     setClEmail('');
     setClTempPassword('');
+    setPayHistChitId('');
     setShowDetail(true);
   }
 
@@ -465,11 +541,12 @@ export default function AdminMembersScreen() {
           style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white, marginBottom: 10 }} />
         {/* Status filter tabs */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          {[null, 'Active', 'Inactive', 'Blacklisted'].map((f) => {
+          {[null, 'Active', 'Inactive', 'Blacklisted', 'Deleted'].map((f) => {
             const label = f ?? 'All';
             const active = statusFilter === f;
             const statusKey = f === 'Blacklisted' ? 'BLACKLISTED' : f?.toUpperCase();
             const count = f === null ? (allMembers as any[]).length
+              : f === 'Deleted' ? (deletedMembers as any[]).length
               : (allMembers as any[]).filter((m) => m.status === statusKey).length;
             return (
               <TouchableOpacity key={label} onPress={() => setStatusFilter(f)}
@@ -488,15 +565,30 @@ export default function AdminMembersScreen() {
       <FlatList style={{ flex: 1 }} data={members} keyExtractor={(m: any) => m.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: 32 }}
-        onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+        onEndReached={() => { if (!showingDeleted && hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
         onEndReachedThreshold={0.5}
-        ListEmptyComponent={<EmptyState title="No members" message={search ? 'Try a different search' : 'No members yet'} />}
-        ListFooterComponent={isFetchingNextPage ? (
+        ListEmptyComponent={
+          <EmptyState
+            title={showingDeleted ? 'No deleted members' : 'No members'}
+            message={
+              showingDeleted ? 'Deleted members will appear here.'
+                : search ? 'Try a different search'
+                : 'No members yet'
+            }
+          />
+        }
+        ListFooterComponent={isFetchingNextPage && !showingDeleted ? (
           <ActivityIndicator color={C.navy} style={{ marginVertical: 16 }} />
         ) : null}
         renderItem={({ item: m }) => (
-          <TouchableOpacity onPress={() => openDetail(m)} activeOpacity={0.7}>
-            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: m.status === 'ACTIVE' ? C.green : C.gray300 }}>
+          // Deleted members are read-only — the detail sheet's actions all assume
+          // a live member record.
+          <TouchableOpacity
+            onPress={() => { if (!showingDeleted) openDetail(m); }}
+            activeOpacity={showingDeleted ? 1 : 0.7}
+            disabled={showingDeleted}
+          >
+            <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: showingDeleted ? C.gray300 : (m.status === 'ACTIVE' ? C.green : C.gray300), opacity: showingDeleted ? 0.6 : 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy50, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>{(m.fullName ?? '?')[0].toUpperCase()}</Text>
@@ -565,12 +657,16 @@ export default function AdminMembersScreen() {
               {selected?.userId && (
                 <TouchableOpacity
                   onPress={() => {
-                    startConversation({ memberId: selected.userId, memberName: selected.fullName })
-                      .then(() => {
-                        setShowDetail(false);
-                        setTimeout(() => router.push('/(app)/(admin)/messages'), 300);
-                      })
-                      .catch(() => {});
+                    // Open in draft mode — conversation is created lazily on first message send
+                    const cached = (qc.getQueryData<any>(['m-conversations'])?.items ?? []);
+                    const existing = cached.find((c: any) => c.memberId === selected.userId);
+                    setShowDetail(false);
+                    setTimeout(() => router.push({
+                      pathname: '/(app)/(admin)/messages',
+                      params: existing
+                        ? { conversationId: existing.id, memberName: selected.fullName }
+                        : { draftMemberId: selected.userId, memberName: selected.fullName },
+                    } as any), 300);
                   }}
                   style={{ padding: 8, backgroundColor: '#EFF4FA', borderRadius: 8 }}
                 >
@@ -913,31 +1009,164 @@ export default function AdminMembersScreen() {
                 </Card>
 
                 {/* Enrolled Chits */}
-                <Text style={{ ...T.label, marginBottom: 8 }}>ENROLLED CHITS</Text>
-                {(memberChits as any[]).length === 0 ? (
-                  <Text style={{ color: C.gray400, marginBottom: 16 }}>Not enrolled in any chits</Text>
-                ) : (
-                  (memberChits as any[]).map((c: any) => (
-                    <TouchableOpacity key={c.id} activeOpacity={0.75}
-                      onPress={() => {
-                        setShowDetail(false);
-                        setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
-                      }}>
-                      <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
-                            {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
-                          </View>
-                          <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                            <Badge status={c.status} />
-                            <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
-                          </View>
+                {(() => {
+                  const active = (memberChits as any[]).filter((c: any) => c.status === 'ACTIVE');
+                  const completed = (memberChits as any[]).filter((c: any) => c.status === 'COMPLETED');
+                  const displayChits = chitStatusFilter === 'ALL' ? (memberChits as any[]) : chitStatusFilter === 'ACTIVE' ? active : completed;
+                  return (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={T.label}>ENROLLED CHITS</Text>
+                        <View style={{ flexDirection: 'row', gap: 4 }}>
+                          {(['ACTIVE', 'COMPLETED', 'ALL'] as const).map((s) => (
+                            <TouchableOpacity key={s} onPress={() => setChitStatusFilter(s)}
+                              style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: chitStatusFilter === s ? C.navy : C.gray100 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: chitStatusFilter === s ? '#fff' : C.gray500 }}>
+                                {s === 'ACTIVE' ? `Active (${active.length})` : s === 'COMPLETED' ? `Done (${completed.length})` : 'All'}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
                         </View>
-                      </Card>
-                    </TouchableOpacity>
-                  ))
-                )}
+                      </View>
+                      {displayChits.length === 0 ? (
+                        <Text style={{ color: C.gray400, marginBottom: 16 }}>
+                          {(memberChits as any[]).length === 0 ? 'Not enrolled in any chits' : `No ${chitStatusFilter.toLowerCase()} chits`}
+                        </Text>
+                      ) : (
+                        displayChits.map((c: any) => (
+                          <TouchableOpacity key={c.id} activeOpacity={0.75}
+                            onPress={() => {
+                              setShowDetail(false);
+                              setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
+                            }}>
+                            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
+                                  {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                  <Badge status={c.status} />
+                                  <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
+                                </View>
+                              </View>
+                            </Card>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </>
+                  );
+                })()}
+
+                {/* Payment History */}
+                {(memberChits as any[]).length > 0 && (() => {
+                  const effectiveChitId = payHistChitId || (memberChits as any[])[0]?.id;
+                  if (!effectiveChitId) return null;
+                  const PAY_STATUS_COLOR: Record<string, string> = {
+                    SETTLED: '#16A34A', PARTIALLY_PAID: '#D97706', OUTSTANDING: '#DC2626',
+                    WAIVED: '#9CA3AF', PAYOUT_DEDUCTED: C.navy, SETTLEMENT_CLEARED: '#0D9488',
+                    CREDIT_COVERED: '#16A34A', PARTIAL_CREDIT: '#D97706',
+                  };
+                  return (
+                    <>
+                      <Text style={{ ...T.label, marginBottom: 8, marginTop: 8 }}>PAYMENT HISTORY</Text>
+                      {/* Chit selector */}
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                        <View style={{ flexDirection: 'row', gap: 6, paddingRight: 8 }}>
+                          {(memberChits as any[]).map((c: any) => {
+                            const active = effectiveChitId === c.id;
+                            return (
+                              <TouchableOpacity key={c.id} onPress={() => setPayHistChitId(c.id)}
+                                style={{ backgroundColor: active ? C.navy : C.white, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1.5, borderColor: active ? C.navy : C.gray300 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : C.gray600 }} numberOfLines={1}>
+                                  {c.name ?? c.chitName}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                      {/* Payment rows */}
+                      {(payHistory as any[]).length === 0 ? (
+                        <Text style={{ fontSize: 13, color: C.gray400, marginBottom: 16 }}>No payment records for this chit.</Text>
+                      ) : (
+                        (payHistory as any[]).map((h: any, i: number) => {
+                          const statusColor = PAY_STATUS_COLOR[h.status] ?? C.gray500;
+                          // Only unpaid records can carry a promise to pay.
+                          const canPromise = h.status === 'OUTSTANDING' || h.status === 'PARTIALLY_PAID';
+                          const editing = promiseRecordId === h.id;
+                          return (
+                            <View key={h.id ?? i} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                                    Draw {h.monthNumber ?? h.drawNumber ?? (i + 1)}
+                                  </Text>
+                                  {h.paymentDate && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(h.paymentDate)}</Text>}
+                                  {h.promisedPaymentDate && (
+                                    <Text style={{ fontSize: 11, color: C.amber, marginTop: 2, fontWeight: '600' }}>
+                                      Promised {fmtDate(h.promisedPaymentDate)}
+                                    </Text>
+                                  )}
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                                  {h.amountPaid != null && (
+                                    <Amount value={h.amountPaid} size="sm" color={C.gray900} />
+                                  )}
+                                  <View style={{ backgroundColor: statusColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                    <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>
+                                      {h.status?.replace(/_/g, ' ')}
+                                    </Text>
+                                  </View>
+                                  {canPromise && h.id && (
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        if (editing) { setPromiseRecordId(null); setPromiseDate(''); }
+                                        else {
+                                          setPromiseRecordId(h.id);
+                                          setPromiseDate(h.promisedPaymentDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
+                                        }
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>
+                                        {editing ? 'Cancel' : h.promisedPaymentDate ? 'Change promise' : 'Promise date'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              </View>
+                              {editing && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                                  <TextInput
+                                    value={promiseDate}
+                                    onChangeText={setPromiseDate}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor={C.gray400}
+                                    autoCapitalize="none"
+                                    style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, color: C.gray900 }}
+                                  />
+                                  <TouchableOpacity
+                                    disabled={!/^\d{4}-\d{2}-\d{2}$/.test(promiseDate) || promiseMut.isPending}
+                                    onPress={() => promiseMut.mutate({ recordId: h.id, date: promiseDate })}
+                                    style={{
+                                      backgroundColor: /^\d{4}-\d{2}-\d{2}$/.test(promiseDate) ? C.navy : C.gray300,
+                                      borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9,
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.white }}>
+                                      {promiseMut.isPending ? '…' : 'Save'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })
+                      )}
+                      <View style={{ height: 16 }} />
+                    </>
+                  );
+                })()}
 
                 {/* Actions */}
                 <Text style={{ ...T.label, marginBottom: 10, marginTop: 8 }}>ACTIONS</Text>
@@ -1208,11 +1437,62 @@ export default function AdminMembersScreen() {
                   )}
                 </View>
 
-                {/* Reminders */}
-                {selected?.hasAppAccess && (
-                  <View style={{ marginTop: 16, gap: 10 }}>
+                {/* Reminders — show for all members, gate push-only actions on app access */}
+                <View style={{ marginTop: 16, gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>REMINDERS</Text>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => setShowCreateReminder(true)}
+                      style={{ backgroundColor: C.navy50, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>+ New</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Scheduled reminders list */}
+                  {memberReminders.length > 0 && (
+                    <View style={{ gap: 8 }}>
+                      {memberReminders.map((r: any) => {
+                        const freqLabel = r.repeatIntervalMinutes
+                          ? r.repeatIntervalMinutes >= 1440
+                            ? `Every ${Math.round(r.repeatIntervalMinutes / 1440)}d`
+                            : r.repeatIntervalMinutes >= 60
+                              ? `Every ${Math.round(r.repeatIntervalMinutes / 60)}h`
+                              : `Every ${r.repeatIntervalMinutes}m`
+                          : 'One-time';
+                        const chitNames = (r.chits ?? []).map((c: any) => c.chitName ?? c.chitId).join(', ') || 'General';
+                        return (
+                          <View key={r.id} style={{ backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.gray200, flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>{freqLabel}</Text>
+                                <Text style={{ fontSize: 11, color: C.gray400 }}>· {chitNames}</Text>
+                              </View>
+                              {r.message ? (
+                                <Text style={{ fontSize: 12, color: C.gray600 ?? C.gray500, fontStyle: 'italic' }} numberOfLines={2}>"{r.message}"</Text>
+                              ) : null}
+                              {r.totalAmount > 0 && (
+                                <Text style={{ fontSize: 11, color: C.red, marginTop: 2 }}>₹{Number(r.totalAmount).toLocaleString('en-IN')} due</Text>
+                              )}
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => Alert.alert('Cancel Reminder', 'Remove this scheduled reminder?', [
+                                { text: 'Keep', style: 'cancel' },
+                                { text: 'Cancel Reminder', style: 'destructive', onPress: () => cancelReminderMutation.mutate(r.id) },
+                              ])}
+                              style={{ padding: 6 }}
+                            >
+                              <Text style={{ fontSize: 16, color: C.red }}>🗑</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Quick send buttons — push requires app access, WhatsApp requires phone */}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {selected?.hasAppAccess && (
                       <TouchableOpacity
                         onPress={() => Alert.alert('Send Reminder', `Send a push notification payment reminder to ${selected.fullName}?`, [
                           { text: 'Cancel', style: 'cancel' },
@@ -1222,9 +1502,11 @@ export default function AdminMembersScreen() {
                         style={{ flex: 1, backgroundColor: C.navy50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.navy + '40', opacity: reminderMutation.isPending ? 0.5 : 1 }}
                       >
                         <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
-                          {reminderMutation.isPending ? 'Sending…' : '🔔 Push Reminder'}
+                          {reminderMutation.isPending ? 'Sending…' : '🔔 Push Now'}
                         </Text>
                       </TouchableOpacity>
+                    )}
+                    {selected?.phone && (
                       <TouchableOpacity
                         onPress={() => Alert.alert('WhatsApp Reminder', `Send a WhatsApp payment reminder to ${selected.fullName}?`, [
                           { text: 'Cancel', style: 'cancel' },
@@ -1237,23 +1519,83 @@ export default function AdminMembersScreen() {
                           {whatsappMutation.isPending ? 'Sending…' : '💬 WhatsApp'}
                         </Text>
                       </TouchableOpacity>
-                    </View>
-                    {(memberUser as any)?.mustChangePassword === false && (
-                      <TouchableOpacity
-                        onPress={() => Alert.alert('Resend Setup Link', `Resend the account setup link to ${selected.fullName}?`, [
-                          { text: 'Cancel', style: 'cancel' },
-                          { text: 'Resend', onPress: () => resendSetupMutation.mutate() },
-                        ])}
-                        disabled={resendSetupMutation.isPending}
-                        style={{ backgroundColor: C.gray50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.gray200, opacity: resendSetupMutation.isPending ? 0.5 : 1 }}
-                      >
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray600 ?? C.gray500 }}>
-                          {resendSetupMutation.isPending ? 'Sending…' : '🔗 Resend Setup Link'}
-                        </Text>
-                      </TouchableOpacity>
                     )}
                   </View>
-                )}
+                  {selected?.hasAppAccess && (memberUser as any)?.mustChangePassword === false && (
+                    <TouchableOpacity
+                      onPress={() => Alert.alert('Resend Setup Link', `Resend the account setup link to ${selected.fullName}?`, [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Resend', onPress: () => resendSetupMutation.mutate() },
+                      ])}
+                      disabled={resendSetupMutation.isPending}
+                      style={{ backgroundColor: C.gray50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.gray200, opacity: resendSetupMutation.isPending ? 0.5 : 1 }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray600 ?? C.gray500 }}>
+                        {resendSetupMutation.isPending ? 'Sending…' : '🔗 Resend Setup Link'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Create Reminder Sheet */}
+                <Modal visible={showCreateReminder} transparent animationType="slide" onRequestClose={() => setShowCreateReminder(false)}>
+                  <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => setShowCreateReminder(false)}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+                      <TouchableOpacity activeOpacity={1}>
+                        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+                          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
+                          </View>
+                          <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 16 }}>Schedule Reminder</Text>
+
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Message *</Text>
+                          <TextInput
+                            value={reminderMessage}
+                            onChangeText={setReminderMessage}
+                            placeholder="e.g. Please pay your monthly installment"
+                            placeholderTextColor={C.gray400}
+                            multiline
+                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
+                          />
+
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 8 }}>Repeat Frequency</Text>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+                            {[
+                              { label: 'Once', value: null },
+                              { label: 'Daily', value: 1440 },
+                              { label: 'Weekly', value: 10080 },
+                              { label: 'Monthly', value: 43200 },
+                            ].map((opt) => (
+                              <TouchableOpacity
+                                key={String(opt.value)}
+                                onPress={() => setReminderFreqMin(opt.value)}
+                                style={{
+                                  paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1,
+                                  borderColor: reminderFreqMin === opt.value ? C.navy : C.gray200,
+                                  backgroundColor: reminderFreqMin === opt.value ? C.navy : '#fff',
+                                }}
+                              >
+                                <Text style={{ fontSize: 13, fontWeight: '600', color: reminderFreqMin === opt.value ? '#fff' : C.gray600 ?? C.gray500 }}>
+                                  {opt.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+
+                          <TouchableOpacity
+                            onPress={() => createReminderMutation.mutate()}
+                            disabled={!reminderMessage.trim() || createReminderMutation.isPending}
+                            style={{ backgroundColor: !reminderMessage.trim() || createReminderMutation.isPending ? C.gray200 : C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center' }}
+                          >
+                            {createReminderMutation.isPending
+                              ? <ActivityIndicator color="#fff" />
+                              : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Send Reminder</Text>}
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    </KeyboardAvoidingView>
+                  </TouchableOpacity>
+                </Modal>
 
                 {/* Settle + Delete — bottom of detail */}
                 <View style={{ marginTop: 24, gap: 10, paddingBottom: 8 }}>

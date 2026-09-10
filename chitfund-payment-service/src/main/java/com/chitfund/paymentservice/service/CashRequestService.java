@@ -51,9 +51,32 @@ public class CashRequestService {
     private final PaymentEventPublisher eventPublisher;
     private final PlanExpiryChecker planExpiryChecker;
 
+    /**
+     * The caller's organisation, taken from the JWT.
+     *
+     * <p>This used to fall back to a hardcoded org id when the context was empty.
+     * That silently filed one organisation's cash requests under another's books
+     * whenever the context went missing, and read their data back the same way —
+     * a guess is far worse than a refusal for money records.
+     *
+     * <p>Every route into this service is an authenticated controller endpoint;
+     * there are no schedulers or internal callers, so an absent context means the
+     * token was missing or malformed. UNAUTHORIZED surfaces as a 401, which both
+     * clients already handle by refreshing and then returning to login.
+     */
     private String tenantId() {
         String tid = TenantContext.get();
-        return tid != null ? tid : "10000000-0000-0000-0000-000000000001";
+        if (tid == null || tid.isBlank()) {
+            // The status must be passed explicitly: BusinessException's two-argument
+            // constructor hardcodes 400 regardless of the error code, so a plain
+            // UNAUTHORIZED would surface as a Bad Request and the clients — which
+            // key their refresh-then-login handling on 401 — would show a generic
+            // error instead of returning the user to sign-in.
+            throw new BusinessException(ErrorCode.UNAUTHORIZED,
+                    "Your session does not identify an organisation. Please sign in again.",
+                    org.springframework.http.HttpStatus.UNAUTHORIZED);
+        }
+        return tid;
     }
 
     // ─── Audit helper ────────────────────────────────────────────────────────
@@ -723,8 +746,17 @@ public class CashRequestService {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    /**
+     * Resolves a request within the caller's tenant.
+     *
+     * <p>This was a bare findById, so an admin or manager could act on another
+     * org's request by passing its id — assignStaff, rescheduleRequest,
+     * cancelByStaff, cancelRequest and updateRequest all resolve the row through
+     * here, making those cross-tenant writes. Scoping the helper fixes every
+     * caller at once and leaves no unscoped lookup to reach for by mistake.
+     */
     private CashPaymentRequest findOrThrow(UUID id) {
-        return requestRepository.findById(id)
+        return requestRepository.findByIdAndTenantId(id, tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
     }
 

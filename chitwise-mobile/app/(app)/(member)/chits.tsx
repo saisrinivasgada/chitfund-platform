@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput } from 'react-native';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Modal, ScrollView, TextInput, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { getMyChits, getMyMemberProfile, getMemberBalance, getPaymentHistory, getDraws, getWinners, getPayoutsForMember, listAuctions, getAuction, placeBid } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, Divider, fmtDate } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -13,6 +14,8 @@ const MONTH_STATUS_COLOR: Record<string, string> = {
   WAIVED:              C.gray400,
   PAYOUT_DEDUCTED:     C.navy,
   SETTLEMENT_CLEARED:  C.green,
+  CREDIT_COVERED:      C.green,
+  PARTIAL_CREDIT:      C.amber,
 };
 
 const MONTH_STATUS_LABEL: Record<string, string> = {
@@ -22,6 +25,8 @@ const MONTH_STATUS_LABEL: Record<string, string> = {
   WAIVED:              'Waived',
   PAYOUT_DEDUCTED:     'Payout Deducted',
   SETTLEMENT_CLEARED:  'Cleared',
+  CREDIT_COVERED:      'Credit Covered',
+  PARTIAL_CREDIT:      'Partial Credit',
 };
 
 function ChitBalance({ memberId, chitId }: { memberId: string; chitId: string }) {
@@ -163,7 +168,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
   const winnerByMonth = Object.fromEntries((winners as any[]).map((w: any) => [w.monthNumber, w]));
   const myPayout = (allPayouts as any[]).find((p: any) => p.chitId === chit.id);
   const histArr = history as any[];
-  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const settledCount = histArr.filter((r: any) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED', 'PARTIAL_CREDIT'].includes(r.status)).length;
   const totalPaid = histArr.reduce((s, r: any) => s + Number(r.amountPaid ?? 0), 0);
   const outstanding = histArr.reduce((s, r: any) => s + Math.max(0, Number(r.amountDue ?? 0) - Number(r.amountPaid ?? 0)), 0);
 
@@ -602,7 +607,8 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
 }
 
 export default function MemberChitsScreen() {
-  const [selected, setSelected] = useState<any>(null);
+  const router = useRouter();
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
 
   const { data: chits = [], isLoading: chitsLoading, refetch } = useQuery({
     queryKey: ['member-chits'],
@@ -616,11 +622,24 @@ export default function MemberChitsScreen() {
 
   const memberId = memberProfile?.id;
   const isLoading = chitsLoading;
+  const allChits = chits as any[];
+  const filteredChits = statusFilter === 'ALL'
+    ? allChits
+    : allChits.filter((c: any) => c.status === statusFilter);
+
+  const activeCount = allChits.filter((c: any) => c.status === 'ACTIVE').length;
+  const completedCount = allChits.filter((c: any) => c.status === 'COMPLETED').length;
+
+  const filterTabs: { key: 'ALL' | 'ACTIVE' | 'COMPLETED'; label: string }[] = [
+    { key: 'ACTIVE', label: `Active (${activeCount})` },
+    { key: 'COMPLETED', label: `Completed (${completedCount})` },
+    { key: 'ALL', label: 'All' },
+  ];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
-        data={chits as any[]}
+        data={filteredChits}
         keyExtractor={(c: any) => c.id}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
@@ -630,16 +649,31 @@ export default function MemberChitsScreen() {
               <Text style={T.h1}>My Chit Funds</Text>
               <ProfileAvatarButton size={34} />
             </View>
-            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-              {(chits as any[]).filter((c: any) => c.status === 'ACTIVE').length} active · tap to see details
-            </Text>
+            {/* Status filter tabs */}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+              {filterTabs.map(({ key, label }) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setStatusFilter(key)}
+                  style={{
+                    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+                    backgroundColor: statusFilter === key ? C.navy : C.white,
+                    borderWidth: 1, borderColor: statusFilter === key ? C.navy : C.gray200,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: statusFilter === key ? C.white : C.gray500 }}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         }
         ListEmptyComponent={
           <EmptyState title="No chit funds" message="You haven't been enrolled in any chit funds yet." />
         }
         renderItem={({ item: c }) => (
-          <TouchableOpacity activeOpacity={0.85} onPress={() => setSelected(c)}>
+          <TouchableOpacity activeOpacity={0.85} onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: c.id } } as any)}>
             <Card style={{ marginBottom: 14 }}>
               {/* Chit name + status */}
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -664,9 +698,9 @@ export default function MemberChitsScreen() {
                   <Amount value={c.installmentAmount ?? 0} size="sm" />
                 </View>
                 <View>
-                  <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2, textTransform: 'uppercase' }}>Draw</Text>
+                  <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2, textTransform: 'uppercase' }}>Draws</Text>
                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                    {c.currentDraw ?? 1} / {c.totalDraws ?? '?'}
+                    {c.status === 'COMPLETED' ? c.totalDraws : (c.currentDraw ?? 1)} / {c.totalDraws ?? '?'}
                   </Text>
                 </View>
                 {c.totalAmount && (
@@ -707,9 +741,6 @@ export default function MemberChitsScreen() {
         )}
       />
 
-      {selected && memberId && (
-        <ChitDetailModal chit={selected} memberId={memberId} onClose={() => setSelected(null)} />
-      )}
     </SafeAreaView>
   );
 }

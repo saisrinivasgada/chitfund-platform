@@ -1,0 +1,50 @@
+appId: ${APP_ID}
+name: Member Home — View chits and payments
+---
+- launchApp
+- waitForAnimationToEnd
+
+# Login as member if needed
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${MEMBER_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${MEMBER_PASSWORD}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Select Organisation"
+          commands:
+            - tapOn:
+                index: 0
+                text: "›"
+            - waitForAnimationToEnd
+
+# Home screen visible
+- extendedWaitUntil:
+    visible:
+      text: "Home"
+    timeout: 10000
+
+# Navigate to My Chits (2nd tab, 37% from left)
+- tapOn:
+    point: "37%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "My Chit Funds"
+
+# Navigate to Reminders (3rd tab, 62% from left)
+- tapOn:
+    point: "62%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Reminders"

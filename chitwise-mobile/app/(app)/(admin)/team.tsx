@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, ScrollView, Clipboard,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +9,7 @@ import { useRouter } from 'expo-router';
 import {
   listStaff, createStaff, activateStaff, deactivateStaff, changeStaffRole,
   resetMemberPassword, getUserById, getStaffRequests, getBatchesByCollector, getMembers,
+  adminUpdateUserPhone, unlockUser,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, EmptyState, LoadingScreen, ListLoadingScreen, PhoneInput, Amount } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -50,6 +52,11 @@ export default function AdminTeamScreen() {
   const [tempPassword, setTempPassword] = useState('');
   const [pwdCopied, setPwdCopied] = useState(false);
   const [showPwdInline, setShowPwdInline] = useState(false);
+  // Phone edit (inline, mirrors web's EditPhoneModal)
+  const [showPhoneInline, setShowPhoneInline] = useState(false);
+  const [ePhone, setEPhone] = useState('');
+  const [ePhoneCode, setEPhoneCode] = useState('+91');
+  const [ePhoneVerified, setEPhoneVerified] = useState(false);
 
   // Create form
   const [cFullName, setCFullName] = useState('');
@@ -97,6 +104,10 @@ export default function AdminTeamScreen() {
 
   const pendingPickups = (workerRequests as any[]).filter(
     (r) => r.status === 'ASSIGNED' || r.status === 'PICKED_UP',
+  );
+  // Completed / cancelled pickups — the physical-collection audit trail.
+  const requestHistory = (workerRequests as any[]).filter(
+    (r) => r.status === 'COLLECTED' || r.status === 'CANCELLED',
   );
   const pendingBatches = (collectorBatches as any[]).filter(
     (b) => b.status === 'AWAITING_REMITTANCE',
@@ -150,6 +161,29 @@ export default function AdminTeamScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
+  const phoneMut = useMutation({
+    mutationFn: () => adminUpdateUserPhone({ userId: selected!.id, phone: ePhone, countryCode: ePhoneCode }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['m-team-user-status', selected?.id] });
+      setSelected((prev: any) => prev ? { ...prev, phone: ePhone, phoneCountryCode: ePhoneCode } : prev);
+      setShowPhoneInline(false);
+      setEPhoneVerified(false);
+      toast.saved('Phone number updated');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update phone'),
+  });
+
+  const unlockMut = useMutation({
+    mutationFn: (id: string) => unlockUser(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['m-team-user-status', selected?.id] });
+      toast.saved('Account unlocked');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to unlock'),
+  });
+
   const resetPwdMut = useMutation({
     mutationFn: (userId: string) => resetMemberPassword(userId),
     onSuccess: (data: any) => {
@@ -173,6 +207,10 @@ export default function AdminTeamScreen() {
     setShowPwdInline(false);
     setPwdCopied(false);
     setShowRoleInline(false);
+    setShowPhoneInline(false);
+    setEPhone(s.phone ?? '');
+    setEPhoneCode(s.phoneCountryCode ?? '+91');
+    setEPhoneVerified(false);
     setShowDetail(true);
   }
 
@@ -278,6 +316,35 @@ export default function AdminTeamScreen() {
           {selected && (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
 
+              {/* ── Locked account banner ── */}
+              {selectedUser?.locked && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 12,
+                  backgroundColor: '#FFFBEB', borderRadius: 14, padding: 14, marginBottom: 16,
+                  borderWidth: 1.5, borderColor: '#FDE68A',
+                }}>
+                  <Text style={{ fontSize: 22 }}>🔒</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>Account is locked</Text>
+                    <Text style={{ fontSize: 12, color: '#92400E', marginTop: 2 }}>
+                      Locked after {selectedUser?.failedLoginAttempts ?? 5} failed login attempts. They can't sign in until unlocked.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    disabled={unlockMut.isPending}
+                    onPress={() => Alert.alert('Unlock Account', `Unlock ${selected.fullName ?? selected.username}'s account?`, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Unlock', onPress: () => unlockMut.mutate(selected.id) },
+                    ])}
+                    style={{ backgroundColor: C.amber, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, opacity: unlockMut.isPending ? 0.6 : 1 }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.white }}>
+                      {unlockMut.isPending ? '…' : 'Unlock'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* ── Live status cards (workers / managers only) ── */}
               {isCollector && (
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
@@ -380,7 +447,6 @@ export default function AdminTeamScreen() {
                   </View>
                 </View>
                 {[
-                  selected.phone && { label: 'Phone', value: selected.phone },
                   selected.email && { label: 'Email', value: selected.email },
                   { label: 'Status', value: selected.enabled === false ? 'Inactive' : 'Active' },
                 ].filter(Boolean).map((row: any) => (
@@ -389,6 +455,65 @@ export default function AdminTeamScreen() {
                     <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{row.value}</Text>
                   </View>
                 ))}
+
+                {/* Phone — editable */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ fontSize: 13, color: C.gray500, width: 60 }}>Phone</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: selected.phone ? C.gray900 : C.gray400, flex: 1 }}>
+                    {selected.phone
+                      ? `${selected.phoneCountryCode && selected.phoneCountryCode !== '+91' ? selected.phoneCountryCode + ' ' : ''}${selected.phone}`
+                      : 'Not set'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowPhoneInline((v) => !v)}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                      {showPhoneInline ? 'Close' : selected.phone ? 'Edit' : 'Add'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {showPhoneInline && (
+                  <View style={{ marginTop: 8, backgroundColor: C.gray50, borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: C.gray200 }}>
+                    <AdminPhoneOtpInput
+                      label="New Phone"
+                      phone={ePhone}
+                      countryCode={ePhoneCode}
+                      originalPhone={selected.phone ?? ''}
+                      onPhoneChange={(v) => { setEPhone(v); setEPhoneVerified(false); }}
+                      onCountryChange={(cc) => { setEPhoneCode(cc); setEPhoneVerified(false); }}
+                      onVerified={setEPhoneVerified}
+                    />
+                    <View style={{ marginTop: 10 }}>
+                      <Button
+                        label={phoneMut.isPending ? 'Saving…' : 'Save Phone Number'}
+                        variant="primary"
+                        fullWidth
+                        loading={phoneMut.isPending}
+                        disabled={!ePhone || !ePhoneVerified || ePhone === selected.phone}
+                        onPress={() => phoneMut.mutate()}
+                      />
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
+                      Verify the new number with an OTP before saving.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Audit trail */}
+                <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+                  {selectedUser?.lastLoginAt && (
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>Last login: {fmtDate(selectedUser.lastLoginAt)}</Text>
+                  )}
+                  {(selectedUser?.createdAt ?? selected.createdAt) && (
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                      Created: {fmtDate(selectedUser?.createdAt ?? selected.createdAt)}
+                    </Text>
+                  )}
+                  {selectedUser?.updatedAt && selectedUser.updatedAt !== selectedUser.createdAt && (
+                    <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>
+                      Last changed: {fmtDate(selectedUser.updatedAt)}
+                    </Text>
+                  )}
+                </View>
               </Card>
 
               {/* ── Password Management ── */}
@@ -565,6 +690,88 @@ export default function AdminTeamScreen() {
                 </View>
               )}
 
+              {/* ── Pickup history — completed & cancelled physical collections ── */}
+              {isCollector && requestHistory.length > 0 && (
+                <View style={{ marginTop: 6, marginBottom: 16 }}>
+                  <Text style={{ ...T.label, marginBottom: 4 }}>PICKUP HISTORY ({requestHistory.length})</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 8 }}>
+                    Physical pickup requests completed or cancelled.
+                  </Text>
+                  {requestHistory.slice(0, 10).map((r: any) => {
+                    const st = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.COLLECTED;
+                    return (
+                      <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: st.color }}>{st.label}</Text>
+                          </View>
+                          <Amount value={Number(r.collectedAmount ?? r.requestedAmount ?? 0)} size="sm" />
+                        </View>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                          {memberMap[r.memberId] ?? r.memberName ?? r.memberId?.slice(0, 8) + '…'}
+                        </Text>
+                        {r.chitName && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{r.chitName}</Text>}
+                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+                          {fmtDate(r.collectedAt ?? r.cancelledAt ?? r.updatedAt)}
+                        </Text>
+                        {r.cancelReason && (
+                          <Text style={{ fontSize: 11, color: C.gray400, fontStyle: 'italic', marginTop: 2 }}>"{r.cancelReason}"</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                  {requestHistory.length > 10 && (
+                    <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
+                      +{requestHistory.length - 10} older
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* ── Collection history — payment batches created by this collector ── */}
+              {isCollector && (collectorBatches as any[]).length > 0 && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ ...T.label, marginBottom: 4 }}>COLLECTION HISTORY ({(collectorBatches as any[]).length})</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 8 }}>
+                    Payment batches created after cash was confirmed received.
+                  </Text>
+                  {(collectorBatches as any[]).slice(0, 10).map((b: any) => {
+                    const done = b.status === 'COMPLETED';
+                    const awaiting = b.status === 'AWAITING_REMITTANCE';
+                    return (
+                      <View key={b.id} style={{ backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <View style={{
+                            borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+                            backgroundColor: done ? '#F0FDF4' : awaiting ? '#FFFBEB' : C.gray100,
+                          }}>
+                            <Text style={{
+                              fontSize: 11, fontWeight: '700',
+                              color: done ? '#16A34A' : awaiting ? C.amber : C.gray500,
+                            }}>
+                              {awaiting ? 'Pending Remittance' : b.status}
+                            </Text>
+                          </View>
+                          <Amount value={Number(b.totalAmount ?? b.amount ?? 0)} size="sm" />
+                        </View>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                          {memberMap[b.memberId] ?? b.memberName ?? b.memberId?.slice(0, 8) + '…'}
+                        </Text>
+                        {b.chitName && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{b.chitName}</Text>}
+                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>
+                          {fmtDate(b.collectedAt ?? b.createdAt)}{b.paymentMode ? ` · ${b.paymentMode}` : ''}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  {(collectorBatches as any[]).length > 10 && (
+                    <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center', marginTop: 2 }}>
+                      +{(collectorBatches as any[]).length - 10} older
+                    </Text>
+                  )}
+                </View>
+              )}
+
               {/* ── Activate / Deactivate ── */}
               <View style={{ marginBottom: 8 }}>
                 {selected.enabled === false || selected.status === 'INACTIVE' ? (
@@ -591,6 +798,7 @@ export default function AdminTeamScreen() {
 
       {/* ── Create Staff Modal ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Add Staff Member</Text>
@@ -656,6 +864,7 @@ export default function AdminTeamScreen() {
               disabled={isExpired || !cFullName || !cUsername || !cPassword || (!!cPhone && !cPhoneVerified)} />
           </View>
         </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

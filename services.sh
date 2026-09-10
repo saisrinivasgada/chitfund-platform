@@ -19,6 +19,7 @@ if [ -f "$ROOT/.env.local" ]; then
 fi
 export DB_PASSWORD="${DB_PASSWORD:-ChitWise@Local1}"
 export JWT_SECRET="${JWT_SECRET:-dev-local-jwt-secret-not-for-production-32+}"
+export INTERNAL_SERVICE_KEY="${INTERNAL_SERVICE_KEY:-dev-internal-key}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Service definitions: "name:jar:port"

@@ -39,7 +39,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: () => createGroup({ name: name.trim(), description: description.trim() || undefined }),
+    mutationFn: () => createGroup({ name: name.trim(), description: description.trim() || undefined, memberIds: [], members: [] }),
     onSuccess: (group) => { onCreated(group); onClose(); setName(''); setDescription(''); setError(''); },
     onError: (err: any) => setError(err?.response?.data?.message ?? 'Failed to create group'),
   });

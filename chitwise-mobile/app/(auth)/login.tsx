@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { login, selectTenant, verifyLoginOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
+import * as LocalAuthentication from 'expo-local-authentication';
 import {
   isBiometricAvailable,
   isBiometricEnabled,
@@ -379,6 +380,9 @@ export default function LoginScreen() {
       tenantId:           data.tenantId,
       tenantName:         tenantName,
       mustChangePassword: data.mustChangePassword,
+      chatEnabled:        data.chatEnabled !== false,
+      adminPhone:         data.adminPhone ?? undefined,
+      adminEmail:         data.adminEmail ?? undefined,
     });
     if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword) {
       setPendingCreds({ username: username.trim(), password });
@@ -485,9 +489,15 @@ export default function LoginScreen() {
 
   async function handleEnableBiometric() {
     if (!pendingCreds) return;
+    setShowEnablePrompt(false);
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Verify your identity to enable ' + biometricLabel,
+      cancelLabel: 'Cancel',
+      disableDeviceFallback: false,
+    });
+    if (!result.success) { setPendingCreds(null); return; }
     await enableBiometric(pendingCreds.username, pendingCreds.password);
     setBiometricOn(true);
-    setShowEnablePrompt(false);
     setPendingCreds(null);
   }
 
@@ -536,6 +546,7 @@ export default function LoginScreen() {
               onChangeText={setUsername}
               placeholder="Enter your username"
               autoCapitalize="none"
+              returnKeyType="next"
             />
             <View style={{ height: 14 }} />
             <Input
@@ -544,6 +555,8 @@ export default function LoginScreen() {
               onChangeText={(v) => setPassword(v.replace(/\s/g, ''))}
               placeholder="Enter your password"
               secureTextEntry
+              returnKeyType="go"
+              onSubmitEditing={handleLogin}
             />
 
             {error ? (
@@ -569,39 +582,64 @@ export default function LoginScreen() {
               <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>Forgot password?</Text>
             </TouchableOpacity>
 
-            {/* Biometric quick-login */}
-            {biometricAvail && biometricOn && (
+            {/* Biometric quick-login / setup */}
+            {biometricAvail && !isAddAccountMode && (
               <>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 16 }}>
                   <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
                   <Text style={{ marginHorizontal: 12, fontSize: 12, color: '#9CA3AF' }}>or</Text>
                   <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
                 </View>
-                <TouchableOpacity
-                  onPress={handleBiometricLogin}
-                  disabled={loading}
-                  style={{
-                    alignItems: 'center', paddingVertical: 13,
-                    borderRadius: 12, borderWidth: 1.5,
-                    borderColor: C.navy + '30',
-                  }}
-                >
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: C.navy }}>
-                    🔒 Sign in with {biometricLabel}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={async () => { await disableBiometric(); setBiometricOn(false); }}
-                  style={{ marginTop: 10, alignItems: 'center', paddingVertical: 4 }}
-                >
-                  <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Disable {biometricLabel} login</Text>
-                </TouchableOpacity>
+                {biometricOn ? (
+                  <>
+                    <TouchableOpacity
+                      onPress={handleBiometricLogin}
+                      disabled={loading}
+                      style={{
+                        alignItems: 'center', paddingVertical: 13,
+                        borderRadius: 12, borderWidth: 1.5,
+                        borderColor: C.navy + '30',
+                      }}
+                    >
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: C.navy }}>
+                        {biometricLabel === 'Face ID' ? '🪪' : '👆'} Sign in with {biometricLabel}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={async () => { await disableBiometric(); setBiometricOn(false); }}
+                      style={{ marginTop: 10, alignItems: 'center', paddingVertical: 4 }}
+                    >
+                      <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Disable {biometricLabel} login</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (username && password) {
+                        setPendingCreds({ username: username.trim(), password });
+                        setShowEnablePrompt(true);
+                      } else {
+                        setError('Enter your credentials first, then enable ' + biometricLabel + '.');
+                      }
+                    }}
+                    disabled={loading}
+                    style={{
+                      alignItems: 'center', paddingVertical: 13,
+                      borderRadius: 12, borderWidth: 1.5,
+                      borderColor: '#E5E7EB',
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#9CA3AF' }}>
+                      {biometricLabel === 'Face ID' ? '🪪' : '👆'} Set up {biometricLabel} login
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
 
           <TouchableOpacity
-            onPress={() => Linking.openURL('http://3.21.196.51/register')}
+            onPress={() => Linking.openURL('https://thechitwise.com/register')}
             style={{ marginTop: 28, alignItems: 'center', paddingVertical: 4 }}
             activeOpacity={0.7}
           >
@@ -648,6 +686,7 @@ export default function LoginScreen() {
 
       {/* Login OTP verification */}
       <Modal visible={!!loginOtpState} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your identity</Text>
@@ -659,7 +698,7 @@ export default function LoginScreen() {
               value={loginOtp}
               onChangeText={(v) => { setLoginOtp(v.replace(/\D/g, '').slice(0, 6)); setError(''); }}
               placeholder="123456"
-              keyboardType="numeric"
+              keyboardType="number-pad"
             />
             {error ? (
               <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
@@ -667,12 +706,13 @@ export default function LoginScreen() {
               </View>
             ) : null}
             <View style={{ height: 20 }} />
-            <Button label="Verify &amp; Sign In" onPress={handleLoginOtpSubmit} loading={loading} disabled={loginOtp.length !== 6} fullWidth size="lg" />
+            <Button label="Verify & Sign In" onPress={handleLoginOtpSubmit} loading={loading} disabled={loginOtp.length !== 6} fullWidth size="lg" />
             <TouchableOpacity onPress={() => { setLoginOtpState(null); setLoginOtp(''); setError(''); }} style={{ marginTop: 14, alignItems: 'center' }}>
               <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Cancel — go back</Text>
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Forgot password flow */}

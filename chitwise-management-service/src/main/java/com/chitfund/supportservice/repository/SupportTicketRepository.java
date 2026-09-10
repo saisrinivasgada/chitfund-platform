@@ -18,5 +18,6 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, St
 
     long countByTenantIdAndStatusIn(String tenantId, java.util.List<TicketStatus> statuses);
 
+    Page<SupportTicket> findByTenantIdAndCreatedByOrderByCreatedAtDesc(String tenantId, String createdBy, Pageable pageable);
 
 }

@@ -31,7 +31,7 @@ function _flushRefreshQueue(error, token = null) {
 
 function _evictSession() {
   clearAuthToken();
-  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled']
+  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','adminPhone','adminEmail']
     .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
   sessionStorage.removeItem('token');
   window.location.href = '/session-expired';
@@ -598,6 +598,11 @@ export const getChits = async (params = {}) => {
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
+export const getChitsPage = async (params = {}) => {
+  const res = await api.get('/chits', { params });
+  return res.data.data ?? { content: [], totalElements: 0, totalPages: 0, number: 0 };
+};
+
 export const getChit = async (id) => {
   const res = await api.get(`/chits/${id}`);
   return res.data.data;
@@ -666,9 +671,17 @@ export const recordWinner = async ({ chitId, ...body }) => {
 };
 
 // ─── Reservations ──────────────────────────────────────────────────────────
+// Full schedule with each slot's memberId — ADMIN/MANAGER/STAFF only.
+// Members must use getMyReservations, which never returns another member's id.
 export const getReservations = async (chitId) => {
   const res = await api.get(`/chits/${chitId}/reservations`);
   return res.data.data ?? [];
+};
+
+export const getMyReservations = async (chitId) => {
+  const res = await api.get(`/chits/${chitId}/reservations/mine`);
+  const d = res.data.data ?? {};
+  return { mySlots: d.mySlots ?? [], outline: d.outline ?? [] };
 };
 
 export const addReservationSlot = async ({ chitId, ...body }) => {
@@ -1569,6 +1582,31 @@ export const superAdminUpdateContactMode = async (id, preferredContact) => {
   return res.data.data;
 };
 
+export const superAdminSearchContactRequests = async ({ type, status, fromDate, toDate, page = 0, size = 20 } = {}) => {
+  const params = { page, size };
+  if (type) params.type = type;
+  if (status) params.status = status;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  const res = await api.get('/super-admin/contact-requests/search', { params });
+  return res.data.data; // Spring Page: { content, totalElements, totalPages, number, size, ... }
+};
+
+export const superAdminGetContactRequest = async (id) => {
+  const res = await api.get(`/super-admin/contact-requests/${id}`);
+  return res.data.data;
+};
+
+export const superAdminListContactMessages = async (id) => {
+  const res = await api.get(`/super-admin/contact-requests/${id}/messages`);
+  return res.data.data;
+};
+
+export const superAdminSendContactMessage = async (id, content) => {
+  const res = await api.post(`/super-admin/contact-requests/${id}/messages`, { content });
+  return res.data.data;
+};
+
 // ─── Support Tickets (org admin → ChitWise) ────────────────────────────────
 
 export const createSupportTicket = async ({ type, subject, description }) => {
@@ -1610,34 +1648,34 @@ export const markTicketRead = async (ticketId) => {
 
 export const listConversations = async ({ page = 0, size = 30 } = {}) => {
   const res = await api.get('/conversations', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const startConversation = async ({ memberId, memberName }) => {
   const res = await api.post('/conversations', { memberId, memberName });
-  return res.data.data;
+  return res.data;
 };
 
 export const getMyConversation = async () => {
   const res = await api.get('/conversations/mine');
-  return res.data.data;
+  return res.data;
 };
 
 export const getConversationUnread = async () => {
   const res = await api.get('/conversations/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getMemberConversationUnread = async () => {
   const res = await api.get('/conversations/mine/unread');
-  return res.data.data?.unread ?? 0;
+  return res.data?.unread ?? 0;
 };
 
 export const getChatMessages = async (conversationId, { cursor, limit = 50 } = {}) => {
   const params = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/conversations/${conversationId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendChatMessage = async (conversationId, content, clientMessageId) => {
@@ -1645,7 +1683,7 @@ export const sendChatMessage = async (conversationId, content, clientMessageId) 
     content,
     clientMessageId,
   });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteChatMessage = async (conversationId, messageId) => {
@@ -1718,44 +1756,43 @@ export const hubDeleteTicketMessage = async (ticketId, messageId) => {
 
 export const createGroup = async (body) => {
   const res = await api.post('/groups', body);
-  return res.data.data;
+  return res.data;
 };
 
 export const listGroups = async ({ page = 0, size = 20 } = {}) => {
   const res = await api.get('/groups', { params: { page, size } });
-  return res.data.data;
+  return res.data;
 };
 
 export const getGroup = async (groupId) => {
   const res = await api.get(`/groups/${groupId}`);
-  return res.data.data;
+  return res.data;
 };
 
 export const addGroupMember = async (groupId, body) => {
   const res = await api.post(`/groups/${groupId}/members`, body);
-  return res.data.data;
+  return res.data;
 };
 
 export const removeGroupMember = async (groupId, userId) => {
-  const res = await api.delete(`/groups/${groupId}/members/${userId}`);
-  return res.data;
+  await api.delete(`/groups/${groupId}/members/${userId}`);
 };
 
 export const getGroupMembers = async (groupId) => {
   const res = await api.get(`/groups/${groupId}/members`);
-  return res.data.data;
+  return res.data;
 };
 
 export const getGroupMessages = async (groupId, { cursor, limit = 50 } = {}) => {
   const params = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get(`/groups/${groupId}/messages`, { params });
-  return res.data.data;
+  return res.data;
 };
 
 export const sendGroupMessage = async (groupId, content, clientMessageId) => {
   const res = await api.post(`/groups/${groupId}/messages`, { content, clientMessageId });
-  return res.data.data;
+  return res.data;
 };
 
 export const deleteGroupMessage = async (groupId, messageId) => {
@@ -1875,6 +1912,48 @@ export const hubDeleteGroupMessage = async (id, msgId) => {
 
 export const hubAddChatGroupMember = async (groupId, employeeId) => {
   const res = await hubApi.post(`/hub/chat/groups/${groupId}/members/${employeeId}`);
+  return res.data.data ?? res.data;
+};
+
+// ── Reminders ─────────────────────────────────────────────────────────────────
+
+export const sendReminder = async ({ memberProfileId, chits, message, repeatIntervalMinutes, reminderTime }) => {
+  const res = await api.post('/reminders', { memberProfileId, chits, message, repeatIntervalMinutes: repeatIntervalMinutes || null, reminderTime: reminderTime || null });
+  return res.data.data ?? res.data;
+};
+
+export const getRemindersForMember = async (memberProfileId, { page = 0, size = 20 } = {}) => {
+  const res = await api.get(`/reminders/member/${memberProfileId}`, { params: { page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const getReminderForAdmin = async (reminderId) => {
+  const res = await api.get(`/reminders/admin/${reminderId}`);
+  return res.data.data ?? res.data;
+};
+
+export const getMyReminders = async ({ filter = 'all', page = 0, size = 20 } = {}) => {
+  const res = await api.get('/reminders/mine', { params: { filter, page, size } });
+  return res.data.data ?? res.data;
+};
+
+export const getMyReminder = async (reminderId) => {
+  const res = await api.get(`/reminders/${reminderId}`);
+  return res.data.data ?? res.data;
+};
+
+export const markReminderSeen = async (reminderId) => {
+  const res = await api.put(`/reminders/${reminderId}/seen`);
+  return res.data.data ?? res.data;
+};
+
+export const setReminderPromisedDate = async (reminderId, promisedDate) => {
+  const res = await api.put(`/reminders/${reminderId}/promised-date`, { promisedDate });
+  return res.data.data ?? res.data;
+};
+
+export const removeReminder = async (reminderId) => {
+  const res = await api.delete(`/reminders/${reminderId}`);
   return res.data.data ?? res.data;
 };
 

@@ -17,20 +17,23 @@ import {
   recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
+  pauseChit, resumeChit, getDeletedChits, deleteChit,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
 import { toast } from '../../../components/Toast';
 
 // Statuses that count as "cleared" (no payment needed)
-const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED']);
+const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED', 'CREDIT_COVERED', 'PARTIAL_CREDIT']);
 const PAY_STATUS_COLOR: Record<string, string> = {
   SETTLED: C.green, SETTLEMENT_CLEARED: C.green, WAIVED: C.gray400,
   PAYOUT_DEDUCTED: C.navy, PARTIALLY_PAID: C.amber, OUTSTANDING: C.red,
+  CREDIT_COVERED: C.green, PARTIAL_CREDIT: C.amber,
 };
 const PAY_STATUS_LABEL: Record<string, string> = {
   SETTLED: 'Settled', SETTLEMENT_CLEARED: 'Settled', WAIVED: 'Waived',
   PAYOUT_DEDUCTED: 'Payout', PARTIALLY_PAID: 'Partial', OUTSTANDING: 'Pending',
+  CREDIT_COVERED: 'Credit', PARTIAL_CREDIT: 'Partial Credit',
 };
 
 // Compute ISO due date for a given cycle number relative to chit start date
@@ -147,9 +150,11 @@ type DetailTab = 'info' | 'members' | 'winners' | 'draws' | 'schedule' | 'audit'
 export default function AdminChitsScreen() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
-  const params = useLocalSearchParams<{ openChitId?: string }>();
+  const params = useLocalSearchParams<{ openChitId?: string; openTab?: string; openAdd?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  // Typed confirmation for chit deletion — mirrors the web DELETE guard.
+  const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('info');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -271,13 +276,23 @@ export default function AdminChitsScreen() {
     ? (tenantLimits.allowedChitTypes as string).split(',').map((t: string) => t.trim())
     : ['RESERVATION', 'LOTTERY', 'AUCTION'];
 
-  // Auto-open chit when navigated from member detail with openChitId param
+  // Auto-open chit when navigated from member detail or the dashboard.
+  // openTab lets the dashboard drop straight into e.g. the auction tab.
   useEffect(() => {
     if (params.openChitId && (chits as any[]).length > 0) {
       const target = (chits as any[]).find((c: any) => c.id === params.openChitId);
-      if (target) { setSelected(target); setDetailTab('info'); setShowDetail(true); }
+      if (target) {
+        setSelected(target);
+        setDetailTab((params.openTab as DetailTab) ?? 'info');
+        setShowDetail(true);
+      }
     }
-  }, [params.openChitId, chits]);
+  }, [params.openChitId, params.openTab, chits]);
+
+  // Dashboard "New Chit" quick action opens the create form directly
+  useEffect(() => {
+    if (params.openAdd === '1') setShowCreate(true);
+  }, [params.openAdd]);
   const { data: enrollments = [] } = useQuery({
     queryKey: ['a-enrollments', selected?.id],
     queryFn: () => getEnrollments(selected!.id),
@@ -423,6 +438,43 @@ export default function AdminChitsScreen() {
       toast.saved('Status updated');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
+  });
+
+  // Pause/resume go through dedicated endpoints, not updateChitStatus: the
+  // backend stamps pausedAt on pause and, on resume, shifts endDate forward by
+  // the months paused. A plain status flip would leave the chit's end date
+  // unchanged, so members would still be held to the original completion date.
+  const pauseMut = useMutation({
+    mutationFn: (id: string) => pauseChit(id),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setSelected((prev: any) => prev ? { ...prev, ...(updated ?? {}), status: 'PAUSED' } : prev);
+      toast.noted('Chit paused');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to pause chit'),
+  });
+
+  const resumeMut = useMutation({
+    mutationFn: (id: string) => resumeChit(id),
+    onSuccess: (updated: any) => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setSelected((prev: any) => prev ? { ...prev, ...(updated ?? {}), status: 'ACTIVE' } : prev);
+      toast.saved('Chit resumed — end date shifted by the paused period');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resume chit'),
+  });
+
+  // Soft delete — hides the chit from lists; still readable under the Deleted filter.
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteChit(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['a-chits'] });
+      setShowDetail(false);
+      setSelected(null);
+      setConfirmDeleteText('');
+      toast.deleted('Chit deleted');
+    },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete chit'),
   });
 
   const enrollMut = useMutation({
@@ -843,9 +895,21 @@ export default function AdminChitsScreen() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'name' | 'amount' | 'members'>('name');
 
-  const displayChits = [...(chits as any[])].filter((c) =>
-    statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
-  )
+  // Soft-deleted chits come from a separate endpoint — only fetched when the
+  // Deleted filter is active.
+  const showingDeleted = statusFilter === 'DELETED';
+  const { data: deletedChits = [] } = useQuery({
+    queryKey: ['a-chits-deleted'],
+    queryFn: getDeletedChits,
+    enabled: showingDeleted,
+    staleTime: 60_000,
+  });
+
+  const displayChits = (showingDeleted
+    ? [...(deletedChits as any[])]
+    : [...(chits as any[])].filter((c) =>
+        statusFilter === 'ALL' ? c.status !== 'CANCELLED' : c.status === statusFilter
+      ))
     .sort((a, b) => {
       if (sortBy === 'amount') return Number(b.installmentAmount ?? 0) - Number(a.installmentAmount ?? 0);
       if (sortBy === 'members') return Number(b.enrolledCount ?? b.capacity ?? 0) - Number(a.enrolledCount ?? a.capacity ?? 0);
@@ -897,6 +961,7 @@ export default function AdminChitsScreen() {
                   { label: 'Done', status: 'COMPLETED', count: completed.length, color: C.navy },
                   { label: 'Draft', status: 'DRAFT', count: draft.length, color: C.gray400 },
                   { label: 'Cancelled', status: 'CANCELLED', count: cancelled.length, color: C.amber },
+                  { label: 'Deleted', status: 'DELETED', count: (deletedChits as any[]).length, color: C.red },
                 ].map((s) => {
                   const isActive = statusFilter === s.status;
                   return (
@@ -928,15 +993,30 @@ export default function AdminChitsScreen() {
             </View>
           </View>
         }
-        ListEmptyComponent={<EmptyState title="No chits" message={statusFilter === 'ALL' ? 'Create your first chit.' : `No ${statusFilter.toLowerCase()} chits.`} />}
+        ListEmptyComponent={
+          <EmptyState
+            title={showingDeleted ? 'No deleted chits' : 'No chits'}
+            message={
+              showingDeleted ? 'Deleted chits will appear here.'
+                : statusFilter === 'ALL' ? 'Create your first chit.'
+                : `No ${statusFilter.toLowerCase()} chits.`
+            }
+          />
+        }
         ListFooterComponent={displayChits.length > 0 ? (
           <Text style={{ textAlign: 'center', color: C.gray400, marginTop: 12, fontSize: 12 }}>
             {displayChits.length} chit{displayChits.length !== 1 ? 's' : ''}
           </Text>
         ) : null}
         renderItem={({ item: c }) => (
-          <TouchableOpacity onPress={() => openDetail(c)} activeOpacity={0.75}>
-            <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: STATUS_COLOR[c.status] ?? C.gray300 }}>
+          // Deleted chits are read-only — the detail view's actions all assume a
+          // live chit, so the row is inert and dimmed.
+          <TouchableOpacity
+            onPress={() => { if (!showingDeleted) openDetail(c); }}
+            activeOpacity={showingDeleted ? 1 : 0.75}
+            disabled={showingDeleted}
+          >
+            <Card style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: showingDeleted ? C.gray300 : (STATUS_COLOR[c.status] ?? C.gray300), opacity: showingDeleted ? 0.6 : 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy, flex: 1 }}>{c.name}</Text>
                 <Badge status={c.status} />
@@ -964,7 +1044,7 @@ export default function AdminChitsScreen() {
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Draw</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                    {c.winnersAssigned ?? c.currentDraw ?? 0}/{c.durationMonths ?? c.totalDraws ?? '—'}
+                    {c.status === 'COMPLETED' ? (c.durationMonths ?? c.totalDraws ?? '—') : (c.winnersAssigned ?? c.currentDraw ?? 0)}/{c.durationMonths ?? c.totalDraws ?? '—'}
                   </Text>
                 </View>
                 {(c.totalAmount ?? c.chitValue) && (
@@ -1077,6 +1157,40 @@ export default function AdminChitsScreen() {
             {/* ── INFO TAB ─────────────────────────────────────────────────── */}
             {detailTab === 'info' && selected && (
               <>
+                {/* Draw summary card */}
+                {(() => {
+                  const total = Number(selected.durationMonths ?? selected.totalDraws ?? 0);
+                  const completed = selected.status === 'COMPLETED'
+                    ? total
+                    : Number(selected.winnersAssigned ?? selected.currentDraw ?? 0);
+                  const remaining = Math.max(0, total - completed);
+                  const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+                  const nextDue = selected.startDate && nextDrawNum
+                    ? computeDueDate(selected.startDate, nextDrawNum, selected.monthlyDueDate)
+                    : null;
+                  if (!total) return null;
+                  return (
+                    <Card style={{ marginBottom: 16, backgroundColor: C.navy, padding: 16 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                        {[
+                          { label: 'Total', value: String(total) },
+                          { label: 'Done', value: String(completed), highlight: true },
+                          { label: 'Left', value: String(remaining) },
+                          ...(nextDue && selected.status !== 'COMPLETED' ? [{ label: 'Next Due', value: fmtDate(nextDue) }] : []),
+                        ].map(({ label, value, highlight }) => (
+                          <View key={label} style={{ alignItems: 'center', flex: 1 }}>
+                            <Text style={{ fontSize: highlight ? 22 : 18, fontWeight: '800', color: highlight ? '#D4A017' : C.white }}>{value}</Text>
+                            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{label}</Text>
+                          </View>
+                        ))}
+                      </View>
+                      <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3 }}>
+                        <View style={{ height: 6, borderRadius: 3, backgroundColor: selected.status === 'COMPLETED' ? '#10B981' : '#D4A017', width: `${pct}%` as any }} />
+                      </View>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textAlign: 'right', marginTop: 4 }}>{pct}% complete</Text>
+                    </Card>
+                  );
+                })()}
                 <Card style={{ marginBottom: 16 }}>
                   {[
                     { label: 'Chit Value', value: selected.chitValue ? `₹${Number(selected.chitValue).toLocaleString('en-IN')}` : '—' },
@@ -1085,8 +1199,8 @@ export default function AdminChitsScreen() {
                       ? { label: 'Post-Payout', value: selected.defaultPostPayoutContribution ? `₹${Number(selected.defaultPostPayoutContribution).toLocaleString('en-IN')} / member` : 'Enabled' }
                       : null,
                     { label: 'Duration', value: `${selected.durationMonths ?? '—'} months` },
-                    { label: 'Draw Progress', value: `${selected.winnersAssigned ?? selected.currentDraw ?? 0} / ${selected.durationMonths ?? selected.totalDraws ?? '—'}` },
                     { label: 'Members', value: String(selected.capacity ?? '—') },
+                    (selected.orgHeldSpotsCount ?? 0) > 0 ? { label: 'Org Held Slots', value: String(selected.orgHeldSpotsCount) } : null,
                     { label: 'Start Date', value: fmtDate(selected.startDate) },
                     selected.endDate ? { label: 'End Date', value: fmtDate(selected.endDate) } : null,
                     selected.monthlyDueDate ? { label: 'Due Day', value: `${selected.monthlyDueDate}th of month` } : null,
@@ -1101,23 +1215,78 @@ export default function AdminChitsScreen() {
                   <>
                     <Text style={{ ...T.label, marginBottom: 10 }}>CHANGE STATUS</Text>
                     <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-                      {(STATUS_NEXT[selected.status] ?? []).map((s) => (
-                        <View key={s} style={{ flex: 1, minWidth: '40%' }}>
-                          <Button
-                            label={`Set ${s}`}
-                            variant={s === 'ACTIVE' ? 'success' : s === 'COMPLETED' ? 'primary' : 'ghost'}
-                            size="sm"
-                            loading={statusMut.isPending}
-                            onPress={() => Alert.alert('Change Status', `Set chit to ${s}?`, [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Confirm', onPress: () => statusMut.mutate({ id: selected.id, status: s, startDate: s === 'ACTIVE' ? (selected.startDate ?? new Date().toISOString().split('T')[0]) : undefined }) },
-                            ])}
-                          />
-                        </View>
-                      ))}
+                      {(STATUS_NEXT[selected.status] ?? []).map((s) => {
+                        // Pausing an active chit and resuming a paused one have
+                        // their own endpoints — see pauseMut/resumeMut above.
+                        const isPause  = selected.status === 'ACTIVE' && s === 'PAUSED';
+                        const isResume = selected.status === 'PAUSED' && s === 'ACTIVE';
+                        const label   = isPause ? 'Pause Chit' : isResume ? 'Resume Chit' : `Set ${s}`;
+                        const busy    = isPause ? pauseMut.isPending : isResume ? resumeMut.isPending : statusMut.isPending;
+                        const prompt  = isPause
+                          ? 'Pause this chit? Collections stop until you resume, and the end date shifts by however long it stays paused.'
+                          : isResume
+                            ? 'Resume this chit? The end date moves forward by the time it was paused.'
+                            : `Set chit to ${s}?`;
+                        return (
+                          <View key={s} style={{ flex: 1, minWidth: '40%' }}>
+                            <Button
+                              label={label}
+                              variant={s === 'ACTIVE' ? 'success' : s === 'COMPLETED' ? 'primary' : 'ghost'}
+                              size="sm"
+                              loading={busy}
+                              onPress={() => Alert.alert(isPause ? 'Pause Chit' : isResume ? 'Resume Chit' : 'Change Status', prompt, [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Confirm', onPress: () => {
+                                  if (isPause)       pauseMut.mutate(selected.id);
+                                  else if (isResume) resumeMut.mutate(selected.id);
+                                  else statusMut.mutate({ id: selected.id, status: s, startDate: s === 'ACTIVE' ? (selected.startDate ?? new Date().toISOString().split('T')[0]) : undefined });
+                                } },
+                              ])}
+                            />
+                          </View>
+                        );
+                      })}
                     </View>
                   </>
                 )}
+
+                {/* Danger zone — soft delete, gated behind typing DELETE */}
+                <Text style={{ ...T.label, marginBottom: 8, color: C.red }}>DANGER ZONE</Text>
+                <Card style={{ borderWidth: 1, borderColor: '#FECACA', marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Delete this chit fund</Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 4, lineHeight: 17 }}>
+                    Hides "{selected.name}" from all lists. It stays viewable under the Deleted
+                    filter. Type DELETE below to confirm.
+                  </Text>
+                  <TextInput
+                    value={confirmDeleteText}
+                    onChangeText={setConfirmDeleteText}
+                    placeholder="DELETE"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    placeholderTextColor={C.gray400}
+                    style={{
+                      borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
+                      paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
+                      color: C.gray900, marginTop: 12, marginBottom: 10,
+                    }}
+                  />
+                  <Button
+                    label="Delete Chit Fund"
+                    variant="danger"
+                    size="sm"
+                    loading={deleteMut.isPending}
+                    disabled={confirmDeleteText.trim() !== 'DELETE'}
+                    onPress={() => Alert.alert(
+                      'Delete Chit Fund',
+                      `Delete "${selected.name}"? It will be hidden from all lists.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deleteMut.mutate(selected.id) },
+                      ]
+                    )}
+                  />
+                </Card>
               </>
             )}
 

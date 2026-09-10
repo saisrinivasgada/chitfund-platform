@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
-import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact } from '../../../services/api';
+import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact, listAuctions } from '../../../services/api';
 import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 
@@ -65,7 +65,27 @@ export default function MemberHomeScreen() {
 
   const activeChits    = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const completedChits = (chits as any[]).filter((c) => c.status === 'COMPLETED');
-  const pendingReqs    = (requests as any[]).filter((r) => ['PENDING', 'ASSIGNED', 'PICKED_UP'].includes(r.status));
+  const pendingReqs    = (requests as any[]).filter((r) => ['PENDING', 'ASSIGNED', 'PICKED_UP', 'PARTIALLY_COLLECTED'].includes(r.status));
+  // Staff logged a smaller amount than requested — the member has to confirm it
+  // before the payment is booked, so surface it at the top of the home screen.
+  const needsApproval  = (requests as any[]).filter((r) => r.status === 'PARTIALLY_COLLECTED');
+
+  // Live auctions across the member's auction chits — they can bid from chit detail.
+  const auctionChits = activeChits.filter(
+    (c: any) => c.chitType === 'AUCTION' || c.winnerSelectionMode === 'AUCTION',
+  );
+  const auctionQueries = useQueries({
+    queries: auctionChits.map((c: any) => ({
+      queryKey: ['auctions', c.id],
+      queryFn: () => listAuctions(c.id),
+      refetchInterval: 15_000,
+    })),
+  });
+  const liveAuctions = auctionChits.flatMap((c: any, i: number) =>
+    ((auctionQueries[i]?.data as any[]) ?? [])
+      .filter((a: any) => a.status === 'OPEN')
+      .map((a: any) => ({ ...a, chitName: c.name, chitId: c.id })),
+  );
 
   async function openSettlementDetail(s: any) {
     // If chitItems are already in list response, use them directly
@@ -158,6 +178,62 @@ export default function MemberHomeScreen() {
           </View>
         </View>
 
+        {/* Action required — staff collected a partial amount */}
+        {needsApproval.length > 0 && (
+          <TouchableOpacity
+            onPress={() => router.push('/(app)/(member)/requests')}
+            style={{
+              backgroundColor: '#FFF7ED', borderWidth: 1.5, borderColor: '#F97316',
+              borderRadius: 12, padding: 16, marginBottom: 16,
+              flexDirection: 'row', alignItems: 'center',
+            }}
+          >
+            <View style={{
+              width: 40, height: 40, backgroundColor: '#FFEDD5', borderRadius: 20,
+              justifyContent: 'center', alignItems: 'center', marginRight: 12,
+            }}>
+              <Text style={{ fontSize: 18 }}>⚠️</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#C2410C', fontWeight: '700', fontSize: 15 }}>Action Required</Text>
+              <Text style={{ color: C.gray600 ?? C.gray500, fontSize: 13, marginTop: 2 }}>
+                {needsApproval.length} pickup{needsApproval.length > 1 ? 's' : ''} need your approval
+              </Text>
+            </View>
+            <Text style={{ color: '#C2410C', fontSize: 20, fontWeight: '300' }}>›</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Live auctions — bidding is open right now */}
+        {liveAuctions.map((a: any) => (
+          <TouchableOpacity
+            key={a.id}
+            onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: a.chitId } } as any)}
+            style={{
+              backgroundColor: '#7F1D1D', borderRadius: 12, padding: 16, marginBottom: 16,
+              flexDirection: 'row', alignItems: 'center',
+            }}
+          >
+            <View style={{
+              width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20,
+              justifyContent: 'center', alignItems: 'center', marginRight: 12,
+            }}>
+              <Text style={{ fontSize: 18 }}>🔨</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: C.white, fontWeight: '700', fontSize: 15 }} numberOfLines={1}>
+                Live Auction — {a.chitName}
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 2 }}>
+                Bidding open for Draw {a.monthNumber} — tap to place your bid
+              </Text>
+            </View>
+            <View style={{ backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+              <Text style={{ color: '#B91C1C', fontSize: 12, fontWeight: '700' }}>Bid Now</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+
         {/* Pending invitations banner */}
         {pendingInvitations.length > 0 && (
           <TouchableOpacity
@@ -195,13 +271,14 @@ export default function MemberHomeScreen() {
             {pendingReqs.map((r: any) => (
               <GlassCard key={r.id} style={{ marginBottom: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <Amount value={r.requestedAmount} size="sm" />
+                  <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
                   <Badge status={r.status} />
                 </View>
                 <Text style={{ fontSize: 12, color: C.gray500 }}>
                   {r.status === 'PENDING'   && 'Waiting for staff assignment'}
                   {r.status === 'ASSIGNED'  && 'Staff assigned — they will visit you soon'}
                   {r.status === 'PICKED_UP' && 'Staff collected your cash — awaiting admin confirmation'}
+                  {r.status === 'PARTIALLY_COLLECTED' && 'Staff collected a partial amount — your approval needed'}
                 </Text>
                 <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Requested {fmtDate(r.requestedAt)}</Text>
               </GlassCard>
@@ -281,7 +358,7 @@ export default function MemberHomeScreen() {
           )}
         </View>
 
-        {/* Message Admin */}
+        {/* Messages (admin DM + groups unified) */}
         <TouchableOpacity
           onPress={() => router.push('/(app)/(member)/messages')}
           style={{
@@ -292,21 +369,7 @@ export default function MemberHomeScreen() {
           }}
         >
           <Text style={{ fontSize: 18 }}>💬</Text>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Message your Admin</Text>
-        </TouchableOpacity>
-
-        {/* Group Chats */}
-        <TouchableOpacity
-          onPress={() => router.push('/(app)/(member)/groups')}
-          style={{
-            marginBottom: 8, flexDirection: 'row', alignItems: 'center',
-            justifyContent: 'center', gap: 8, paddingVertical: 14,
-            borderRadius: 14, borderWidth: 1, borderColor: '#16a34a30',
-            backgroundColor: '#F0FDF4',
-          }}
-        >
-          <Text style={{ fontSize: 18 }}>👥</Text>
-          <Text style={{ fontSize: 14, fontWeight: '600', color: '#16a34a' }}>My Groups</Text>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Messages</Text>
         </TouchableOpacity>
 
         {/* Contact Support — only shown if admin has a support phone set */}

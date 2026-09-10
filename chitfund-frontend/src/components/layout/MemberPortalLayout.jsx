@@ -3,10 +3,9 @@ import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, UsersRound } from 'lucide-react';
+import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
-import MessagesPanel from '../messaging/MessagesPanel';
-import GroupsPanel from '../messaging/GroupsPanel';
+import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
@@ -271,13 +270,12 @@ const ROLE_LABELS = {
 };
 
 export default function MemberPortalLayout() {
-  const { isAuthenticated, isRestoring, user, tenantId, tenantName, logout } = useAuth();
+  const { isAuthenticated, isRestoring, user, tenantId, tenantName, logout, chatEnabled, adminPhone, adminEmail } = useAuth();
   const navigate = useNavigate();
   const [showSwitch, setShowSwitch] = useState(false);
   const [showSwitchOrg, setShowSwitchOrg] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
-  const [showGroups, setShowGroups] = useState(false);
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
 
   const { data: me } = useQuery({
@@ -346,27 +344,51 @@ export default function MemberPortalLayout() {
             >
               {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
-            <button
-              type="button"
-              onClick={() => setShowMessages(true)}
-              title="Chat with your org admin"
-              className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
-            >
-              <MessageSquare size={16} />
-              {memberMsgUnread > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
-                  {memberMsgUnread > 9 ? '9+' : memberMsgUnread}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowGroups(true)}
-              title="Group chats"
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors cursor-pointer"
-            >
-              <UsersRound size={16} />
-            </button>
+            {chatEnabled ? (
+              <button
+                type="button"
+                onClick={() => setShowMessages(true)}
+                title="Messages"
+                className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
+              >
+                <MessageSquare size={16} />
+                {memberMsgUnread > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                    {memberMsgUnread > 9 ? '9+' : memberMsgUnread}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <>
+                {adminPhone && (
+                  <a
+                    href={`tel:${adminPhone}`}
+                    title="Call admin"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                  >
+                    <Phone size={16} />
+                  </a>
+                )}
+                {adminEmail && (
+                  <a
+                    href={`mailto:${adminEmail}`}
+                    title="Email admin"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                  >
+                    <Mail size={16} />
+                  </a>
+                )}
+                {adminPhone && (
+                  <a
+                    href={`sms:${adminPhone}`}
+                    title="SMS admin"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors"
+                  >
+                    <MessageSquare size={16} />
+                  </a>
+                )}
+              </>
+            )}
             <NotificationBell />
 
             {/* Company switcher — shows current org name, click to switch */}
@@ -442,8 +464,7 @@ export default function MemberPortalLayout() {
           onClose={() => setShowSignOut(false)}
         />
       )}
-      {showMessages && <MessagesPanel onClose={() => setShowMessages(false)} />}
-      {showGroups && <GroupsPanel onClose={() => setShowGroups(false)} />}
+      {chatEnabled && showMessages && <UnifiedMessagesPanel onClose={() => setShowMessages(false)} />}
     </div>
   );
 }

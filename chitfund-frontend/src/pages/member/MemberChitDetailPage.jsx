@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   getChit, getPaymentHistory, getMemberBalance, getDraws, getWinners, getMyMemberProfile,
-  getPayoutsForMember, getPayoutById,
+  getPayoutsForMember, getPayoutById, getMyReservations,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import Modal from '../../components/ui/Modal';
@@ -40,6 +40,8 @@ const MONTH_STATUS = {
   WAIVED:             { dot: '#9CA3AF', circleBg: '#F3F4F6', circleText: '#4B5563', bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Waived' },
   PAYOUT_DEDUCTED:    { dot: '#1E3A5F', circleBg: '#EEF2F8', circleText: '#1E3A5F', bg: '#EEF2F8', border: '#CBD5E1', text: '#1E3A5F', label: 'Payout Deducted' },
   SETTLEMENT_CLEARED: { dot: '#16A34A', circleBg: '#DCFCE7', circleText: '#15803D', bg: '#F0FDF4', border: '#BBF7D0', text: '#15803D', label: 'Settlement Cleared' },
+  CREDIT_COVERED:     { dot: '#059669', circleBg: '#D1FAE5', circleText: '#065F46', bg: '#ECFDF5', border: '#6EE7B7', text: '#065F46', label: 'Credit Covered' },
+  PARTIAL_CREDIT:     { dot: '#0891B2', circleBg: '#CFFAFE', circleText: '#164E63', bg: '#ECFEFF', border: '#A5F3FC', text: '#164E63', label: 'Partial Credit' },
 };
 
 // ─── Payout detail modal (full admin-style breakdown) ─────────────────────────
@@ -234,6 +236,16 @@ export default function MemberChitDetailPage() {
     refetchInterval: 60_000,
   });
 
+  // Member-scoped: full detail for this member's own slots plus an anonymised
+  // outline of the rest. The admin reservations route returns every member's id
+  // and is blocked for MEMBER, so it must not be used here.
+  const { data: myReservations } = useQuery({
+    queryKey: ['myReservations', chitId],
+    queryFn: () => getMyReservations(chitId),
+    enabled: !!chitId,
+    staleTime: 60_000,
+  });
+
   const { data: draws = [] } = useQuery({
     queryKey: ['draws', chitId],
     queryFn: () => getDraws(chitId),
@@ -269,8 +281,7 @@ export default function MemberChitDetailPage() {
   const ha = (v) => hidden ? '••••••' : fmtAmount(v);
   const ss = CHIT_STATUS_STYLE[chit.status] ?? CHIT_STATUS_STYLE.ACTIVE;
   const outstanding = Number(balance?.totalOutstanding ?? 0);
-
-  const settledCount = history.filter((r) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED'].includes(r.status)).length;
+  const settledCount = history.filter((r) => ['SETTLED', 'WAIVED', 'PAYOUT_DEDUCTED', 'SETTLEMENT_CLEARED', 'CREDIT_COVERED'].includes(r.status)).length;
 
   // Build a draw-info lookup: monthNumber → draw
   const drawByMonth = Object.fromEntries(draws.map((d) => [d.monthNumber, d]));
@@ -353,6 +364,103 @@ export default function MemberChitDetailPage() {
         <InfoPill icon={CalendarDays} label="End Date"   value={fmt(chit.endDate)} />
         <InfoPill icon={TrendingUp}  label="Draws Done" value={`${history.length} / ${chit.durationMonths ?? '—'}`} />
       </div>
+
+      {/* My reserved slots — which months are mine, when, and what each pays */}
+      {(myReservations?.mySlots?.length ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-700">
+              My Slot{myReservations.mySlots.length > 1 ? 's' : ''} ({myReservations.mySlots.length})
+            </h3>
+            {(() => {
+              const total = myReservations.mySlots.reduce((s, r) => s + Number(r.payoutAmount ?? 0), 0);
+              return total > 0 ? (
+                <span className="text-xs text-gray-500">
+                  Total payout {hidden ? '••••••' : fmtAmount(total)}
+                </span>
+              ) : null;
+            })()}
+          </div>
+
+          <div className="space-y-2">
+            {myReservations.mySlots.map((s) => {
+              const done = s.status === 'PROCESSED';
+              const monthLabel = s.reservationMonth
+                ? new Date(s.reservationMonth).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+                : '—';
+              return (
+                <div
+                  key={s.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl border ${
+                    done ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
+                  }`}
+                >
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                    style={{ backgroundColor: done ? '#16A34A' : '#D4A017' }}
+                  >
+                    {s.monthNumber ?? '—'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{monthLabel}</p>
+                    <p className="text-xs text-gray-500">Draw #{s.monthNumber ?? '—'}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                      {done ? 'Payout received' : 'Scheduled payout'}
+                    </p>
+                    <p className={`text-sm font-bold ${done ? 'text-green-700' : 'text-[#1E3A5F]'}`}>
+                      {hidden ? '••••••' : fmtAmount(s.payoutAmount)}
+                    </p>
+                    {Number(s.postPayoutContribution ?? 0) > 0 && (
+                      <p className="text-[10px] text-gray-400">
+                        then {hidden ? '••••' : fmtAmount(s.postPayoutContribution)}/mo
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Anonymised outline — which months are taken, without naming anyone */}
+          {(myReservations?.outline?.length ?? 0) > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-[11px] font-semibold text-gray-500 mb-2">SCHEDULE OVERVIEW</p>
+              <div className="flex flex-wrap gap-1.5">
+                {myReservations.outline.map((s, i) => {
+                  const cls = s.mine
+                    ? (s.processed ? 'bg-green-600 text-white' : 'bg-[#D4A017] text-white')
+                    : s.processed ? 'bg-gray-200 text-gray-500'
+                    : s.taken ? 'bg-gray-100 text-gray-500'
+                    : 'bg-white text-gray-400 border border-dashed border-gray-300';
+                  return (
+                    <div
+                      key={`${s.monthNumber ?? 'x'}-${i}`}
+                      title={s.mine ? 'Yours' : s.taken ? 'Taken' : 'Open'}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-semibold ${cls}`}
+                    >
+                      {s.monthNumber ?? '—'}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-3 mt-2">
+                {[
+                  { c: 'bg-[#D4A017]', t: 'Yours' },
+                  { c: 'bg-green-600', t: 'Yours · done' },
+                  { c: 'bg-gray-100', t: 'Taken' },
+                  { c: 'bg-white border border-dashed border-gray-300', t: 'Open' },
+                ].map(({ c, t }) => (
+                  <span key={t} className="flex items-center gap-1 text-[10px] text-gray-500">
+                    <span className={`w-2.5 h-2.5 rounded-sm ${c}`} /> {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* My payment summary */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

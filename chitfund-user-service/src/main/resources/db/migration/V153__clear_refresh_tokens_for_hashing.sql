@@ -1,4 +1,4 @@
--- Refresh tokens were previously stored as plaintext values.
+-- V153: Refresh tokens were previously stored as plaintext values.
 -- They are now stored as SHA-256 hashes. Existing plaintext rows cannot
 -- be migrated (the raw values are gone), so all active sessions are
 -- invalidated here. Users will be prompted to log in again.

@@ -38,6 +38,7 @@ jobs:
       gateway:      ${{ steps.out.outputs.gateway }}
       audit:        ${{ steps.out.outputs.audit }}
       reporting:    ${{ steps.out.outputs.reporting }}
+      management:   ${{ steps.out.outputs.management }}
       frontend:     ${{ steps.out.outputs.frontend }}
       backend:      ${{ steps.out.outputs.backend }}
     steps:
@@ -73,6 +74,8 @@ jobs:
             reporting:
               - 'chitfund-common/**'
               - 'chitfund-reporting-service/**'
+            management:
+              - 'chitwise-management-service/**'
             frontend:
               - 'chitfund-frontend/**'
             backend:
@@ -86,6 +89,7 @@ jobs:
               - 'chitfund-api-gateway/**'
               - 'chitfund-audit-service/**'
               - 'chitfund-reporting-service/**'
+              - 'chitwise-management-service/**'
       - name: Resolve outputs (paths-filter + force-deploy inputs)
         id: out
         run: |
@@ -103,11 +107,15 @@ jobs:
             echo "gateway=$(    [[ "${{ steps.f.outputs.gateway }}"      == "true" || "$force_be" == "true" ]] && echo true || echo false )"
             echo "audit=$(      [[ "${{ steps.f.outputs.audit }}"        == "true" || "$force_be" == "true" ]] && echo true || echo false )"
             echo "reporting=$(  [[ "${{ steps.f.outputs.reporting }}"    == "true" || "$force_be" == "true" ]] && echo true || echo false )"
+            echo "management=$( [[ "${{ steps.f.outputs.management }}"   == "true" || "$force_be" == "true" ]] && echo true || echo false )"
             echo "frontend=$(   fe )"
             echo "backend=$(    be )"
           } >> "$GITHUB_OUTPUT"
 
-  # ── 2. Per-service compile checks (run in parallel) ───────────────────────────
+  # ── 2. Per-service compile + unit tests (run in parallel) ────────────────────
+  # These ran `compile` until 2026-09-10, which never touched src/test. The only
+  # settlement tests in the repo had been failing unnoticed for months as a
+  # result. Running `test` here means a broken test now blocks the deploy.
 
   build-user:
     name: "user-service"
@@ -122,8 +130,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-user-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-user-service -am test --no-transfer-progress
 
   build-member:
     name: "member-service"
@@ -138,8 +146,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-member-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-member-service -am test --no-transfer-progress
 
   build-chit:
     name: "chit-service"
@@ -154,8 +162,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-chit-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-chit-service -am test --no-transfer-progress
 
   build-payment:
     name: "payment-service"
@@ -170,8 +178,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payment-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-payment-service -am test --no-transfer-progress
 
   build-payout:
     name: "payout-service"
@@ -186,8 +194,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payout-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-payout-service -am test --no-transfer-progress
 
   build-notification:
     name: "notification-service"
@@ -202,8 +210,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-notification-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-notification-service -am test --no-transfer-progress
 
   build-gateway:
     name: "api-gateway"
@@ -218,8 +226,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-api-gateway -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-api-gateway -am test --no-transfer-progress
 
   build-audit:
     name: "audit-service"
@@ -234,8 +242,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-audit-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-audit-service -am test --no-transfer-progress
 
   build-reporting:
     name: "reporting-service"
@@ -250,8 +258,24 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-reporting-service -am compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-reporting-service -am test --no-transfer-progress
+
+  build-management:
+    name: "management-service"
+    needs: changes
+    if: needs.changes.outputs.management == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Compile & test
+        run: mvn -pl chitwise-management-service test --no-transfer-progress
 
   build-frontend:
     name: "frontend"
@@ -274,7 +298,7 @@ jobs:
   build-summary:
     name: Build & Compile Check
     runs-on: ubuntu-latest
-    needs: [build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-audit, build-reporting, build-frontend]
+    needs: [build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-audit, build-reporting, build-management, build-frontend]
     if: always()
     steps:
       - name: Check results
@@ -291,7 +315,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [changes, build-summary]
+    # always() so the gating below is the only thing that decides. Without a
+    # status function GitHub applies an implicit success() plus its own
+    # skip-propagation, and this job skipped on every push while running on
+    # every workflow_dispatch — even when change detection had correctly
+    # resolved backend=true. Every real condition is still checked explicitly,
+    # so a failed build-summary still stops the build.
     if: |
+      always() &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.build-summary.result == 'success' &&
@@ -300,6 +331,12 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Why this job ran
+        run: |
+          echo "event=${{ github.event_name }} ref=${{ github.ref }}"
+          echo "build-summary=${{ needs.build-summary.result }}"
+          echo "backend=${{ needs.changes.outputs.backend }} frontend=${{ needs.changes.outputs.frontend }}"
+
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
@@ -411,6 +448,17 @@ jobs:
           cache-from: type=gha,scope=reporting-service
           cache-to: type=gha,mode=max,scope=reporting-service
 
+      - name: Build & push management-service
+        if: needs.changes.outputs.management == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: chitwise-management-service/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/management-service:latest
+          cache-from: type=gha,scope=management-service
+          cache-to: type=gha,mode=max,scope=management-service
+
   # ── 5. Deploy — EC2 pulls images and restarts ─────────────────────────────────
   deploy:
     name: Deploy to EC2
@@ -443,16 +491,16 @@ jobs:
           chmod 600 ~/.ssh/config
 
       # ── Backend deploy ────────────────────────────────────────────────────────
-      - name: Sync docker-compose and update .env
+      - name: Sync docker-compose and fetch secrets
         if: needs.changes.outputs.backend == 'true'
         run: |
           scp -i ~/.ssh/deploy-key.pem \
             docker-compose.prod.yml \
-            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/docker-compose.prod.yml
-          echo "${{ secrets.PROD_ENV }}" | \
-            ssh -i ~/.ssh/deploy-key.pem \
-              ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
-              "cat > ${{ env.APP_DIR }}/.env"
+            scripts/fetch-secrets.sh \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ env.APP_DIR }}/
+          ssh -i ~/.ssh/deploy-key.pem \
+            ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "chmod +x ${{ env.APP_DIR }}/fetch-secrets.sh && ${{ env.APP_DIR }}/fetch-secrets.sh"
 
       - name: Pull images and restart services
         if: needs.changes.outputs.backend == 'true'
@@ -460,18 +508,70 @@ jobs:
           ssh -i ~/.ssh/deploy-key.pem \
             ${{ env.EC2_USER }}@${{ secrets.EC2_HOST }} << 'ENDSSH'
           set -e
-          source /app/.env
-          # Clear any failed Flyway migrations so services can start cleanly
-          for db in chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting; do
-            mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
-              -e "DELETE FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true
+          # Read just the two values needed below. Sourcing the whole file made
+          # bash interpret every secret, so one value containing a space, '#' or
+          # a quote failed the deploy before it started.
+          getsecret() { sed -n "s/^$1=//p" /app/.env | head -1 | sed -e "s/^['\"]//" -e "s/['\"]$//"; }
+          DB_HOST=$(getsecret DB_HOST)
+          DB_PASSWORD=$(getsecret DB_PASSWORD)
+          DBS="chitfund_user chitfund_member chitfund_chit chitfund_payment chitfund_payout chitfund_notification chitfund_audit chitfund_reporting chitwise_management"
+          # Each service owns a schema and Flyway builds its tables, but nothing
+          # created the schema itself — so a newly added service starts against a
+          # database that does not exist and never turns healthy. That is how
+          # chitwise_management failed. Doing it here keeps the deploy
+          # reproducible if the environment is ever rebuilt.
+          for db in $DBS; do
+            if ! mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" \
+                 -e "CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"; then
+              echo "WARN: could not ensure database '$db' exists — check the chitfund user's CREATE privilege"
+            fi
           done
+          # Pre-flight: report failed migrations, never erase them.
+          #
+          # This used to run DELETE FROM flyway_schema_history WHERE success = 0,
+          # which let a deploy "succeed" by destroying the evidence that a
+          # migration had failed. A failed migration usually means a partially
+          # applied schema change; deleting the row makes Flyway retry it against
+          # a database that is already half-migrated, and the second failure has
+          # no record of the first. On financial schemas that is how silent
+          # divergence starts.
+          #
+          # Now it stops and hands the decision to a human, who can inspect the
+          # partial state and either finish it or write a forward correction.
+          FAILED=0
+          for db in $DBS; do
+            rows=$(mysql -N -B -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
+              -e "SELECT CONCAT(version,' ',description,' (attempted ',installed_on,')')
+                  FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true)
+            if [ -n "$rows" ]; then
+              FAILED=1
+              echo "=== FAILED MIGRATIONS in $db ==="
+              echo "$rows"
+            fi
+          done
+          if [ "$FAILED" = "1" ]; then
+            echo ""
+            echo "Deploy aborted: the schema above is partially migrated."
+            echo "Inspect it before doing anything. Do NOT delete the history row —"
+            echo "that hides the partial change rather than undoing it. Either finish"
+            echo "the migration by hand and mark the row successful, or add a forward"
+            echo "corrective migration and redeploy."
+            exit 1
+          fi
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           cd /app
           docker compose -f docker-compose.prod.yml pull
           docker compose -f docker-compose.prod.yml up -d --wait || {
-            echo "=== DEPLOY FAILED — container logs ==="
+            echo "=== DEPLOY FAILED ==="
             docker compose -f docker-compose.prod.yml ps
+            # Print logs for whatever is not running or not healthy. The handler
+            # promised logs but only ever printed 'ps', so failures had to be
+            # diagnosed by guesswork.
+            for c in $(docker ps -a --format '{{.Names}} {{.Status}}' \
+                       | grep -Ev 'Up .*\(healthy\)' | awk '{print $1}'); do
+              echo "--- logs: $c ---"
+              docker logs --tail 60 "$c" 2>&1 | tail -40
+            done
             exit 1
           }
           docker compose -f docker-compose.prod.yml ps

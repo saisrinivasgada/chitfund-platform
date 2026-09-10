@@ -101,6 +101,13 @@ spring:
           filters:
             - JwtAuthGatewayFilter
 
+        - id: user-service-reminders
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/reminders/**
+          filters:
+            - JwtAuthGatewayFilter
+
         # ── Chit Service ──────────────────────────────────────────────────────
         # Controllers live at /api/chits/** — no stripping.
         - id: chit-service
@@ -147,8 +154,28 @@ spring:
             - JwtAuthGatewayFilter
             - StripPrefix=1
 
+        # Admin-triggered notification actions live in payment-service (they use payment-service internals)
+        # These must come BEFORE the wildcard notification-service route
+        - id: payment-service-notifications-reminder
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/notifications/reminder/**
+            - Method=POST
+          filters:
+            - JwtAuthGatewayFilter
+            - StripPrefix=1
+
+        - id: payment-service-notifications-whatsapp
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/notifications/whatsapp/**
+            - Method=POST
+          filters:
+            - JwtAuthGatewayFilter
+            - StripPrefix=1
+
         # Notification endpoints — in-app notifications (mine, unread-count, mark-read)
-        # Routes to notification-service on port 8086 (was wrongly pointing to payment-service)
+        # Routes to notification-service on port 8086
         - id: notification-service
           uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
           predicates:

@@ -10,7 +10,7 @@ import { useAuthStore } from '../../../store/authStore';
 import {
   getMyAssignedRequests, markPickedUp, cancelByStaff,
   getMembers, getChits, getMyPendingBatches, updateCashRequest, listStaff,
-  partiallyCollectCashRequest, getAdminSupportContact,
+  partiallyCollectCashRequest, getAdminSupportContact, rescheduleRequest,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
@@ -365,7 +365,46 @@ function TaskDetailModal({
                   borderWidth: 1.5, borderTopWidth: 0, borderColor: C.navy,
                   borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
                 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>SCHEDULE DATE (YYYY-MM-DD)</Text>
+                  {/* Quick presets — matches the web's one-tap defer options */}
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>QUICK RESCHEDULE</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                    {[
+                      { label: 'Tomorrow', days: 1 },
+                      { label: 'Next Week', days: 7 },
+                    ].map(({ label, days }) => (
+                      <TouchableOpacity
+                        key={label}
+                        onPress={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + days);
+                          const iso = d.toISOString().slice(0, 10);
+                          Alert.alert('Reschedule', `Move this visit to ${label.toLowerCase()} (${iso})?`, [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Confirm',
+                              onPress: () => {
+                                rescheduleRequest(task.id, iso)
+                                  .then(() => {
+                                    qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+                                    setReschedOpen(false);
+                                    toast.saved(`Rescheduled to ${label.toLowerCase()} — admin notified`);
+                                  })
+                                  .catch((e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Reschedule failed'));
+                              },
+                            },
+                          ]);
+                        }}
+                        style={{
+                          flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center',
+                          backgroundColor: C.white, borderWidth: 1.5, borderColor: C.navy,
+                        }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>OR PICK A DATE (YYYY-MM-DD)</Text>
                   <TextInput
                     value={reschedDate}
                     onChangeText={setReschedDate}
@@ -387,16 +426,13 @@ function TaskDetailModal({
                         {
                           text: 'Confirm',
                           onPress: () => {
-                            // rescheduleRequest API call – just invalidates; no mutation state needed here
-                            import('../../../services/api').then(({ rescheduleRequest }) => {
-                              rescheduleRequest(task.id, reschedDate)
-                                .then(() => {
-                                  qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-                                  setReschedOpen(false);
-                                  toast.saved('Visit scheduled');
-                                })
-                                .catch((e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'));
-                            });
+                            rescheduleRequest(task.id, reschedDate)
+                              .then(() => {
+                                qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+                                setReschedOpen(false);
+                                toast.saved('Visit scheduled');
+                              })
+                              .catch((e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'));
                           },
                         },
                       ]);

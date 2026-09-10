@@ -9,6 +9,7 @@ import {
   getAllPaymentBatches, getAllPayouts, getWalletBalance, getWalletTransactions, getChits,
   getPayoutById, getChit, getDraws, getPayoutsByChit,
   getCollectionsReport, getMembersReport, getPayoutsReport,
+  getPaymentBatchById, getDrawPayments, listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
 
@@ -508,8 +509,99 @@ function MemberReport() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Payments Report
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Payment batch detail ──────────────────────────────────────────────────────
+function PaymentDetailModal({ batchId, onClose }: { batchId: string | null; onClose: () => void }) {
+  const { data: batch, isLoading } = useQuery({
+    queryKey: ['rpt-batch', batchId],
+    queryFn: () => getPaymentBatchById(batchId!),
+    enabled: !!batchId,
+  });
+  const { data: staff = [] } = useQuery({ queryKey: ['rpt-staff'], queryFn: listStaff, staleTime: 300_000 });
+  const { data: members = [] } = useQuery({ queryKey: ['rpt-members'], queryFn: getMembers, staleTime: 300_000 });
+
+  // Payment-service stores collectedBy/recordedBy as a userId, so index members
+  // by both their profile id and their linked userId to resolve either shape.
+  const nameById: Record<string, string> = {};
+  (staff as any[]).forEach((s: any) => { nameById[s.id] = s.fullName ?? s.username ?? '—'; });
+  (members as any[]).forEach((m: any) => {
+    const n = m.fullName ?? m.name ?? '—';
+    nameById[m.id] = n;
+    if (m.userId) nameById[m.userId] = n;
+  });
+  const who = (id?: string) => (id ? nameById[id] ?? `${id.slice(0, 8)}…` : '—');
+
+  const b = batch as any;
+  const allocations: any[] = b?.allocations ?? [];
+
+  function DRow({ label, value, color }: { label: string; value?: string | null; color?: string }) {
+    if (!value) return null;
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.gray100, gap: 12 }}>
+        <Text style={{ fontSize: 13, color: C.gray500 }}>{label}</Text>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: color ?? C.gray900, flexShrink: 1, textAlign: 'right' }}>{value}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible={!!batchId} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        {isLoading || !b ? (
+          <ListLoadingScreen />
+        ) : (
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            <View style={{ backgroundColor: C.navy, borderRadius: 16, padding: 18, marginBottom: 16 }}>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: '700', letterSpacing: 1 }}>AMOUNT</Text>
+              <Text style={{ fontSize: 28, fontWeight: '800', color: '#D4A017', marginTop: 2 }}>{fmt(b.totalAmount)}</Text>
+              <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 4 }}>{b.status}</Text>
+            </View>
+            <Card style={{ padding: 14 }}>
+              <DRow label="Member" value={b.memberName ?? who(b.memberId)} />
+              <DRow label="Chit" value={b.chitName} />
+              {allocations.length > 0 && (
+                <DRow label="Draw(s) Paid" value={allocations.map((a) => `#${a.monthNumber}`).join(', ')} />
+              )}
+              <DRow label="Payment Mode" value={(b.paymentMode ?? '').replace(/_/g, ' ') || undefined} />
+              <DRow label="Reference" value={b.referenceNumber} />
+              <DRow label="Recorded By" value={who(b.recordedBy ?? b.collectedBy)} />
+              <DRow label="Collected At" value={fmtDate(b.collectedAt ?? b.createdAt)} />
+              {b.remittedBy && <DRow label="Remitted By" value={who(b.remittedBy)} />}
+              {b.remittedAt && <DRow label="Remitted At" value={fmtDate(b.remittedAt)} />}
+              {b.status === 'VOIDED' && (
+                <>
+                  <DRow label="Voided By" value={who(b.voidedBy)} color={C.red} />
+                  <DRow label="Voided At" value={fmtDate(b.voidedAt)} color={C.red} />
+                  <DRow label="Void Reason" value={b.voidReason} color={C.red} />
+                </>
+              )}
+              <DRow label="Notes" value={b.notes} />
+            </Card>
+
+            {allocations.length > 0 && (
+              <>
+                <SectionHeader title={`Allocations (${allocations.length})`} />
+                {allocations.map((a: any, i: number) => (
+                  <Card key={a.id ?? i} style={{ marginBottom: 8, padding: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 13, color: C.gray700 }}>Draw #{a.monthNumber}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{fmt(a.amount ?? a.allocatedAmount)}</Text>
+                  </Card>
+                ))}
+              </>
+            )}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 function PaymentsReport() {
   const [presetIdx, setPresetIdx] = useState(0);
+  const [detailBatchId, setDetailBatchId] = useState<string | null>(null);
   const from = PRESETS[presetIdx].from();
   const to   = PRESETS[presetIdx].to();
 
@@ -575,25 +667,30 @@ function PaymentsReport() {
           {(batches as any[]).map((b: any) => {
             const draws = (b.allocations ?? []).map((a: any) => `#${a.monthNumber}`).join(', ');
             return (
-              <Card key={b.id} style={{ marginBottom: 8, padding: 12 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
-                      {b.memberName ?? '—'}
-                    </Text>
-                    <Text style={T.xs} numberOfLines={1}>{b.chitName ?? '—'} · {fmtDate(b.collectedAt ?? b.createdAt)}</Text>
-                    {draws ? <Text style={{ fontSize: 11, color: C.navy, marginTop: 2 }}>Draw {draws}</Text> : null}
+              <TouchableOpacity key={b.id} activeOpacity={0.75} onPress={() => setDetailBatchId(b.id)}>
+                <Card style={{ marginBottom: 8, padding: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                        {b.memberName ?? '—'}
+                      </Text>
+                      <Text style={T.xs} numberOfLines={1}>{b.chitName ?? '—'} · {fmtDate(b.collectedAt ?? b.createdAt)}</Text>
+                      {draws ? <Text style={{ fontSize: 11, color: C.navy, marginTop: 2 }}>Draw {draws}</Text> : null}
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: PMT_STATUS_COLOR[b.status] ?? C.gray700 }}>{fmt(b.totalAmount)}</Text>
+                      <Text style={T.xs}>{b.status}</Text>
+                    </View>
+                    <Text style={{ fontSize: 18, color: C.gray300, marginLeft: 6 }}>›</Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: PMT_STATUS_COLOR[b.status] ?? C.gray700 }}>{fmt(b.totalAmount)}</Text>
-                    <Text style={T.xs}>{b.status}</Text>
-                  </View>
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             );
           })}
         </View>
       )}
+
+      <PaymentDetailModal batchId={detailBatchId} onClose={() => setDetailBatchId(null)} />
     </View>
   );
 }
@@ -706,6 +803,7 @@ function ChitReport() {
   const [chitId, setChitId] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [selectedPayoutId, setSelectedPayoutId] = useState<string | null>(null);
+  const [selectedDraw, setSelectedDraw] = useState<{ id: string; monthNumber: number } | null>(null);
 
   const { data: chits = [] } = useQuery({ queryKey: ['rpt-chits'], queryFn: getChits });
   const { data: chit }  = useQuery({ queryKey: ['rpt-chit', chitId], queryFn: () => getChit(chitId), enabled: !!chitId });
@@ -856,21 +954,33 @@ function ChitReport() {
           <SectionHeader title={`Draw Collections (${collectionRows.length})`} />
           {collectionRows.length === 0 ? (
             <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', paddingVertical: 12 }}>No draw data</Text>
-          ) : collectionRows.map((r: any) => (
-            <Card key={r.monthNumber} style={{ marginBottom: 6, padding: 12 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw #{r.monthNumber}</Text>
-                <View style={{ backgroundColor: DRAW_STATUS_COLOR_RPT[r.drawStatus] + '20', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: DRAW_STATUS_COLOR_RPT[r.drawStatus] ?? C.gray400 }}>{r.drawStatus}</Text>
-                </View>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 14 }}>
-                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Due</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>{fmt(r.totalDue)}</Text></View>
-                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Collected</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>{fmt(r.totalCollected)}</Text></View>
-                <View><Text style={{ fontSize: 10, color: C.gray400 }}>Outstanding</Text><Text style={{ fontSize: 12, fontWeight: '600', color: Number(r.outstanding) > 0 ? C.red : C.gray400 }}>{fmt(r.outstanding)}</Text></View>
-              </View>
-            </Card>
-          ))}
+          ) : collectionRows.map((r: any) => {
+            const drawId = drawMap[r.monthNumber]?.id;
+            return (
+              <TouchableOpacity
+                key={r.monthNumber}
+                activeOpacity={drawId ? 0.75 : 1}
+                onPress={() => drawId && setSelectedDraw({ id: drawId, monthNumber: r.monthNumber })}
+              >
+                <Card style={{ marginBottom: 6, padding: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Draw #{r.monthNumber}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ backgroundColor: DRAW_STATUS_COLOR_RPT[r.drawStatus] + '20', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: DRAW_STATUS_COLOR_RPT[r.drawStatus] ?? C.gray400 }}>{r.drawStatus}</Text>
+                      </View>
+                      {drawId && <Text style={{ fontSize: 16, color: C.gray300 }}>›</Text>}
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 14 }}>
+                    <View><Text style={{ fontSize: 10, color: C.gray400 }}>Due</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.navy }}>{fmt(r.totalDue)}</Text></View>
+                    <View><Text style={{ fontSize: 10, color: C.gray400 }}>Collected</Text><Text style={{ fontSize: 12, fontWeight: '600', color: C.green }}>{fmt(r.totalCollected)}</Text></View>
+                    <View><Text style={{ fontSize: 10, color: C.gray400 }}>Outstanding</Text><Text style={{ fontSize: 12, fontWeight: '600', color: Number(r.outstanding) > 0 ? C.red : C.gray400 }}>{fmt(r.outstanding)}</Text></View>
+                  </View>
+                </Card>
+              </TouchableOpacity>
+            );
+          })}
 
           {/* Payouts */}
           <SectionHeader title={`Payouts (${payoutsData.length})`} />
@@ -895,7 +1005,84 @@ function ChitReport() {
         </View>
       )}
       <PayoutDetailModal payoutId={selectedPayoutId} onClose={() => setSelectedPayoutId(null)} />
+      <DrawDetailModal draw={selectedDraw} onClose={() => setSelectedDraw(null)} />
     </View>
+  );
+}
+
+// ── Draw drill-down: per-member payment status for one draw ───────────────────
+function DrawDetailModal({ draw, onClose }: {
+  draw: { id: string; monthNumber: number } | null; onClose: () => void;
+}) {
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ['rpt-draw-payments', draw?.id],
+    queryFn: () => getDrawPayments(draw!.id),
+    enabled: !!draw?.id,
+  });
+  const { data: members = [] } = useQuery({ queryKey: ['rpt-members'], queryFn: getMembers, staleTime: 300_000 });
+
+  const nameById: Record<string, string> = {};
+  (members as any[]).forEach((m: any) => {
+    const n = m.fullName ?? m.name ?? '—';
+    nameById[m.id] = n;
+    if (m.userId) nameById[m.userId] = n;
+  });
+
+  const list = rows as any[];
+  const totalDue = list.reduce((s, r) => s + Number(r.amountDue ?? 0), 0);
+  const totalPaid = list.reduce((s, r) => s + Number(r.amountPaid ?? 0), 0);
+
+  return (
+    <Modal visible={!!draw} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Draw #{draw?.monthNumber} Detail</Text>
+          <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
+        </View>
+        {isLoading ? (
+          <ListLoadingScreen />
+        ) : (
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              <Card style={{ flex: 1, padding: 14 }}>
+                <Text style={T.xs}>Total Due</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginTop: 4 }}>{fmt(totalDue)}</Text>
+              </Card>
+              <Card style={{ flex: 1, padding: 14 }}>
+                <Text style={T.xs}>Collected</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: C.green, marginTop: 4 }}>{fmt(totalPaid)}</Text>
+              </Card>
+            </View>
+
+            <SectionHeader title={`Members (${list.length})`} />
+            {list.length === 0 ? (
+              <EmptyState title="No payment records" message="This draw has no member payment records yet." />
+            ) : list.map((r: any, i: number) => {
+              const due = Number(r.amountDue ?? 0);
+              const paid = Number(r.amountPaid ?? 0);
+              return (
+                <Card key={r.id ?? i} style={{ marginBottom: 8, padding: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
+                        {r.memberName ?? nameById[r.memberId] ?? '—'}
+                      </Text>
+                      <Text style={T.xs}>Due {fmt(due)} · Paid {fmt(paid)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: PMT_STATUS_COLOR[r.status] ?? C.gray700 }}>
+                        {fmt(Math.max(due - paid, 0))}
+                      </Text>
+                      <Text style={T.xs}>{r.status}</Text>
+                    </View>
+                  </View>
+                </Card>
+              );
+            })}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Modal>
   );
 }
 

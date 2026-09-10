@@ -90,6 +90,16 @@ public class ChitController {
         return ResponseEntity.ok(ApiResponse.success(chitService.listDeletedChits(pageable)));
     }
 
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('MEMBER')")
+    public ResponseEntity<ApiResponse<List<ChitResponse>>> getMyChits() {
+        String memberIdStr = MemberContext.get();
+        if (memberIdStr == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Member context not found");
+        }
+        return ResponseEntity.ok(ApiResponse.success(chitService.listChitsForMember(UUID.fromString(memberIdStr), null)));
+    }
+
     @GetMapping("/member/{memberId}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER') or hasRole('MEMBER')")
     public ResponseEntity<ApiResponse<List<ChitResponse>>> listChitsForMember(

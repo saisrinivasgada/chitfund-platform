@@ -1,0 +1,38 @@
+appId: ${APP_ID}
+name: Member Login
+---
+- launchApp:
+    clearState: true
+
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Sign In"
+
+- tapOn:
+    text: "Enter your username"
+- inputText: ${MEMBER_USERNAME}
+- pressKey: Enter
+
+- tapOn:
+    text: "Enter your password"
+- inputText: ${MEMBER_PASSWORD}
+- pressKey: Enter
+
+- waitForAnimationToEnd
+
+# Handle tenant picker if shown
+- runFlow:
+    when:
+      visible:
+        text: "Select Organisation"
+    commands:
+      - tapOn:
+          index: 0
+          text: "›"
+      - waitForAnimationToEnd
+
+# Member sees Home tab (not Dashboard)
+- extendedWaitUntil:
+    visible:
+      text: "Home"
+    timeout: 10000
