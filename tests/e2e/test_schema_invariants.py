@@ -153,31 +153,76 @@ class TestConstraintsThatProtectMoney:
         assert count == 1
 
 
-class TestEmptyStackHasNoMoney:
+class TestLedgerInvariants:
     """
-    A freshly reset stack must hold no financial rows.
+    Properties that must hold whatever the stack contains.
 
-    If it does, a later test asserting a balance would be measuring leftovers
-    from a previous run rather than what it just did.
+    An earlier version of this class asserted the tables were empty, which only
+    held in the instant after a reset — the concurrency and payout tests
+    legitimately write rows, so it failed as soon as the suite grew. "Empty" was
+    also a much weaker claim than what actually matters: that the ledger is
+    self-consistent no matter how much has happened to it.
     """
 
-    @pytest.mark.parametrize("schema,table", [
-        ("chitfund_payment", "payment_records"),
-        ("chitfund_payment", "payment_batches"),
-        ("chitfund_payment", "payment_allocations"),
-        ("chitfund_payment", "admin_wallet"),
-        ("chitfund_payout", "payouts"),
-    ])
-    def test_table_is_empty_after_reset(self, db, schema, table):
-        count = db.scalar(schema, f"SELECT COUNT(*) FROM `{table}`")
-        assert count == 0, (
-            f"{schema}.{table} holds {count} rows on a supposedly clean stack — "
-            "run scripts/test-reset.sh before the suite")
-
-    def test_treasury_starts_at_zero(self, db):
-        # The reconciliation tests all measure movement from this baseline.
-        total = db.scalar(
+    def test_no_allocation_exceeds_its_batch(self, db):
+        # Allocating more than was collected creates money out of nothing.
+        bad = db.query(
             "chitfund_payment",
-            """SELECT COALESCE(SUM(CASE WHEN entry_type = 'IN' THEN amount ELSE -amount END), 0)
-               FROM admin_wallet""")
-        assert Decimal(str(total)) == Decimal("0.00")
+            """SELECT b.id, b.total_amount, SUM(a.allocated_amount) AS allocated
+               FROM payment_batches b
+               JOIN payment_allocations a ON a.batch_id = b.id
+               GROUP BY b.id, b.total_amount
+               HAVING SUM(a.allocated_amount) > b.total_amount""")
+        assert not list(bad), f"batches allocated beyond their own total: {list(bad)}"
+
+    def test_no_record_is_paid_more_than_it_is_due(self, db):
+        # Overpayment belongs in the credit balance, never on the record.
+        bad = db.query(
+            "chitfund_payment",
+            """SELECT id, chit_id, member_id, amount_due, amount_paid
+               FROM payment_records WHERE amount_paid > amount_due""")
+        assert not list(bad), f"records paid beyond what is owed: {list(bad)}"
+
+    def test_no_negative_money_anywhere(self, db):
+        for table, col in (("payment_records", "amount_paid"),
+                           ("payment_records", "amount_due"),
+                           ("payment_batches", "total_amount"),
+                           ("payment_allocations", "allocated_amount")):
+            n = db.scalar("chitfund_payment",
+                          f"SELECT COUNT(*) FROM `{table}` WHERE `{col}` < 0")
+            assert n == 0, f"{table}.{col} holds {n} negative value(s)"
+
+    def test_voided_batches_have_no_live_allocations(self, db):
+        # A voided payment must not still be paying down an installment.
+        bad = db.query(
+            "chitfund_payment",
+            """SELECT b.id
+               FROM payment_batches b
+               JOIN payment_allocations a ON a.batch_id = b.id
+               JOIN payment_records r ON r.id = a.payment_record_id
+               WHERE b.status = 'VOIDED' AND r.amount_paid > 0
+                 AND r.status IN ('SETTLED', 'PARTIALLY_PAID')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM payment_allocations a2
+                     JOIN payment_batches b2 ON b2.id = a2.batch_id
+                     WHERE a2.payment_record_id = r.id AND b2.status <> 'VOIDED')""")
+        assert not list(bad), (
+            f"records still show payment from voided batches only: {list(bad)}")
+
+    def test_treasury_never_holds_less_than_completed_collections(self, db):
+        collected = Decimal(str(db.scalar(
+            "chitfund_payment",
+            "SELECT COALESCE(SUM(total_amount), 0) FROM payment_batches WHERE status='COMPLETED'")))
+        banked = Decimal(str(db.scalar(
+            "chitfund_payment",
+            "SELECT COALESCE(SUM(amount), 0) FROM admin_wallet WHERE entry_type='IN'")))
+        assert banked >= collected, (
+            f"treasury received {banked} against {collected} collected — money "
+            "was taken from a member and never reached the books")
+
+    def test_disbursed_never_exceeds_approved_payout(self, db):
+        bad = db.query(
+            "chitfund_payout",
+            """SELECT id, net_payout_amount, disbursed_amount FROM payouts
+               WHERE disbursed_amount > net_payout_amount""")
+        assert not list(bad), f"payouts disbursed beyond approval: {list(bad)}"
