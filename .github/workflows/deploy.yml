@@ -526,11 +526,38 @@ jobs:
               echo "WARN: could not ensure database '$db' exists — check the chitfund user's CREATE privilege"
             fi
           done
-          # Clear any failed Flyway migrations so services can start cleanly
+          # Pre-flight: report failed migrations, never erase them.
+          #
+          # This used to run DELETE FROM flyway_schema_history WHERE success = 0,
+          # which let a deploy "succeed" by destroying the evidence that a
+          # migration had failed. A failed migration usually means a partially
+          # applied schema change; deleting the row makes Flyway retry it against
+          # a database that is already half-migrated, and the second failure has
+          # no record of the first. On financial schemas that is how silent
+          # divergence starts.
+          #
+          # Now it stops and hands the decision to a human, who can inspect the
+          # partial state and either finish it or write a forward correction.
+          FAILED=0
           for db in $DBS; do
-            mysql -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
-              -e "DELETE FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true
+            rows=$(mysql -N -B -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" "$db" \
+              -e "SELECT CONCAT(version,' ',description,' (attempted ',installed_on,')')
+                  FROM flyway_schema_history WHERE success = 0;" 2>/dev/null || true)
+            if [ -n "$rows" ]; then
+              FAILED=1
+              echo "=== FAILED MIGRATIONS in $db ==="
+              echo "$rows"
+            fi
           done
+          if [ "$FAILED" = "1" ]; then
+            echo ""
+            echo "Deploy aborted: the schema above is partially migrated."
+            echo "Inspect it before doing anything. Do NOT delete the history row —"
+            echo "that hides the partial change rather than undoing it. Either finish"
+            echo "the migration by hand and mark the row successful, or add a forward"
+            echo "corrective migration and redeploy."
+            exit 1
+          fi
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           cd /app
           docker compose -f docker-compose.prod.yml pull
