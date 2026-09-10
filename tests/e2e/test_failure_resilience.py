@@ -7,10 +7,11 @@ dead addresses, so every test here executes with those downstreams already
 failing. If a collection still succeeds and the ledger is still correct, the
 degradation is genuinely graceful rather than merely untested.
 
-This is also where risk R2 is regression-tested. V38 adds a payment-service
-outbox, and consumer inboxes deduplicate its at-least-once delivery. The live
-failure-injection assertion remains pending until those migrations can run on
-the disposable Docker/MySQL stack.
+This is also where risk R2 shows: event publishing is fire-and-forget after
+commit, with no outbox. A payment survives a publish failure — which these
+prove — but reporting and notification then silently diverge from the ledger,
+and nothing reconciles them. That gap is recorded here rather than asserted
+away, because it needs a design decision.
 
     pytest tests/e2e/test_failure_resilience.py -v
 
@@ -132,7 +133,13 @@ class TestVoidUnderFailure:
 
 
 class TestEventDeliveryGap:
-    """R2 regression coverage for durable event publication."""
+    """
+    R2, recorded rather than asserted away.
+
+    Events publish after commit with no outbox. The payment is safe — that is
+    what the tests above prove — but a failed publish is never retried and
+    nothing reconciles the ledger against reporting afterwards.
+    """
 
     def test_payment_is_durable_even_though_events_are_not(self, api, db, open_month):
         api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
@@ -148,8 +155,11 @@ class TestEventDeliveryGap:
             "the payment did not survive an event-publish failure")
 
     @pytest.mark.xfail(
-        reason="Outbox/inbox implemented; pending migration and retry validation "
-               "against the disposable Docker/MySQL stack.",
+        reason="R2: there is no outbox. A publish failure after commit is logged "
+               "and dropped, so reporting and notification can diverge from the "
+               "ledger with nothing to detect or repair it. Recorded as a known "
+               "gap — fixing it means adding a transactional outbox, which is a "
+               "design decision rather than a patch.",
         strict=False)
     def test_an_outbox_records_undelivered_events(self, db):
         tables = db.query(

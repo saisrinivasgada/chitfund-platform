@@ -16,6 +16,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,6 +29,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +54,9 @@ class ChitMonthDrawEventTimingTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
         service = new ChitMonthDrawService(
                 drawRepository, paymentRecordRepository, allocationRepository,
                 eventPublisher, notificationService, memberServiceClient,
@@ -65,21 +72,55 @@ class ChitMonthDrawEventTimingTest {
 
     @AfterEach
     void tearDown() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
         TenantContext.clear();
     }
 
     @Test
-    void openDrawRoutesEventToTransactionalPublisherExactlyOnce() {
+    void committedOpenDrawPublishesExactlyOnce() {
         service.openDraw(openRequest(), UUID.randomUUID(), "ADMIN");
 
+        verify(eventPublisher, never()).publish(any(ChitMonthOpenedEvent.class));
+        commitCallbacks();
         verify(eventPublisher).publish(any(ChitMonthOpenedEvent.class));
     }
 
     @Test
-    void skipDrawRoutesEventToTransactionalPublisherExactlyOnce() {
+    void rolledBackOpenDrawPublishesNothing() {
+        service.openDraw(openRequest(), UUID.randomUUID(), "ADMIN");
+
+        rollbackCallbacks();
+        verify(eventPublisher, never()).publish(any(ChitMonthOpenedEvent.class));
+    }
+
+    @Test
+    void committedSkipDrawPublishesExactlyOnce() {
         service.skipDraw(skipRequest(), UUID.randomUUID(), "ADMIN");
 
+        verify(eventPublisher, never()).publish(any(ChitMonthSkippedEvent.class));
+        commitCallbacks();
         verify(eventPublisher).publish(any(ChitMonthSkippedEvent.class));
+    }
+
+    @Test
+    void rolledBackSkipDrawPublishesNothing() {
+        service.skipDraw(skipRequest(), UUID.randomUUID(), "ADMIN");
+
+        rollbackCallbacks();
+        verify(eventPublisher, never()).publish(any(ChitMonthSkippedEvent.class));
+    }
+
+    private void commitCallbacks() {
+        TransactionSynchronizationUtils.invokeAfterCommit(TransactionSynchronizationManager.getSynchronizations());
+    }
+
+    private void rollbackCallbacks() {
+        TransactionSynchronizationUtils.invokeAfterCompletion(
+                TransactionSynchronizationManager.getSynchronizations(),
+                TransactionSynchronization.STATUS_ROLLED_BACK);
     }
 
     private OpenMonthRequest openRequest() {

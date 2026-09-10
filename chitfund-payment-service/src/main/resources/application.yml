@@ -51,11 +51,6 @@ app:
   payout-service-url: ${PAYOUT_SERVICE_URL:http://localhost:8085}
   notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
 
-chitwise:
-  outbox:
-    enabled: ${OUTBOX_ENABLED:false}
-    relay-delay-ms: ${OUTBOX_RELAY_DELAY_MS:2000}
-
 whatsapp:
   enabled: ${WHATSAPP_ENABLED:false}
   phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:NOT_CONFIGURED}

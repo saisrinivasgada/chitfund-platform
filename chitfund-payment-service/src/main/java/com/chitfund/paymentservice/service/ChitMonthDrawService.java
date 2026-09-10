@@ -21,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -150,7 +152,7 @@ public class ChitMonthDrawService {
                 actorRole,
                 Instant.now()
         );
-        eventPublisher.publish(openedEvent);
+        publishAfterCommit(() -> eventPublisher.publish(openedEvent));
 
         // Notify enrolled members: their payment is due
         try {
@@ -394,9 +396,27 @@ public class ChitMonthDrawService {
                 actorRole,
                 Instant.now()
         );
-        eventPublisher.publish(skippedEvent);
+        publishAfterCommit(() -> eventPublisher.publish(skippedEvent));
 
         return buildSummary(cycle, waivedRecords);
+    }
+
+    private void publishAfterCommit(Runnable publish) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        publish.run();
+                    } catch (Exception e) {
+                        // The transactional outbox will replace this best-effort fallback.
+                        log.error("Post-commit draw event publish failed: {}", e.getMessage(), e);
+                    }
+                }
+            });
+        } else {
+            publish.run();
+        }
     }
 
     @Transactional

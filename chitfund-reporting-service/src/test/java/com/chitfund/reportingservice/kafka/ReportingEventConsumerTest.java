@@ -1,41 +1,21 @@
 package com.chitfund.reportingservice.kafka;
 
 import com.chitfund.reportingservice.service.ReportIngestService;
-import com.chitfund.reportingservice.repository.EventInboxRepository;
-import com.chitfund.common.event.SqsEventEnvelope;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
 class ReportingEventConsumerTest {
 
     @Test
     void malformedMessageFailsSoSqsCanRetryIt() {
         ReportingEventConsumer consumer = new ReportingEventConsumer(
-                mock(ReportIngestService.class), new ObjectMapper(),
-                mock(EventInboxRepository.class));
+                mock(ReportIngestService.class), new ObjectMapper());
 
         assertThatThrownBy(() -> consumer.onEvent("not-json"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("processing failed");
-    }
-
-    @Test
-    void duplicateEventIdIsAcknowledgedWithoutRepeatingSideEffects() throws Exception {
-        ReportIngestService ingest = mock(ReportIngestService.class);
-        EventInboxRepository inbox = mock(EventInboxRepository.class);
-        ObjectMapper mapper = new ObjectMapper();
-        when(inbox.existsById("event-1")).thenReturn(true);
-        ReportingEventConsumer consumer = new ReportingEventConsumer(ingest, mapper, inbox);
-        String raw = mapper.writeValueAsString(
-                new SqsEventEnvelope("event-1", "PAYMENT_COMPLETED", "{}"));
-
-        consumer.onEvent(raw);
-
-        verifyNoInteractions(ingest);
     }
 }
