@@ -437,11 +437,14 @@ export const confirmSettlement = async (
   memberId: string, chitItems: any[], notes?: string,
   adjustmentAmount?: number | null, adjustmentReason?: string | null,
   idempotencyKey?: string,
+  supersedesSettlementId?: string | null, supersessionReason?: string | null,
 ) =>
   unwrapObj(await api.post('/settlement/confirm', {
     memberId, chitItems, notes: notes ?? null,
     adjustmentAmount: adjustmentAmount ?? null,
     adjustmentReason: adjustmentReason ?? null,
+    supersedesSettlementId: supersedesSettlementId ?? null,
+    supersessionReason: supersessionReason ?? null,
   }, {
     headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {},
   }));

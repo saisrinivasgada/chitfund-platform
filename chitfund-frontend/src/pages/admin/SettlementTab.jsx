@@ -623,6 +623,9 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
   const [allHistPage, setAllHistPage] = useState(0);
   const [viewSettlement, setViewSettlement] = useState(null); // settlement object to show in detail modal
   const [voidConfirmId, setVoidConfirmId] = useState(null);
+  const [supersedingSettlement, setSupersedingSettlement] = useState(null);
+  const [supersessionReason, setSupersessionReason] = useState('');
+  const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState(null);
   const [expandedDrawChit, setExpandedDrawChit] = useState(null); // chitId inside detail modal
 
   // Payment recording step (shown after settlement is confirmed)
@@ -799,6 +802,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         adjustmentAmount: parsedAdjustment !== 0 ? parsedAdjustment : null,
         adjustmentReason: parsedAdjustment !== 0 ? (adjustmentReason || null) : null,
         idempotencyKey,
+        supersedesSettlementId: supersedingSettlement?.id ?? null,
+        supersessionReason: supersedingSettlement ? supersessionReason.trim() : null,
       });
     },
     onSuccess: (settlement) => {
@@ -813,6 +818,9 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       setNotes('');
       setAdjustmentAmount('');
       setAdjustmentReason('');
+      setSupersedingSettlement(null);
+      setSupersessionReason('');
+      setConfirmIdempotencyKey(null);
       // If there's a payment to collect/disburse, show payment step
       const net = Number(settlement?.netAmount ?? 0);
       if (net !== 0 && settlement?.id) {
@@ -970,7 +978,10 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                   const remaining = Math.max(0, absNet - moved);
                   const memberName = allMembers.find((m) => m.id === s.memberId)?.fullName ?? `…${String(s.memberId).slice(-6)}`;
                   const isVoided = s.paymentStatus === 'VOIDED';
-                  const statusCfg = {
+                  const isSuperseded = Boolean(s.supersededById);
+                  const statusCfg = isSuperseded ? {
+                    bg: 'bg-purple-100', text: 'text-purple-700', label: `Superseded · v${s.settlementVersion ?? 1}`,
+                  } : ({
                     PENDING:             { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Pending' },
                     PARTIALLY_COLLECTED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
                     PARTIALLY_DISBURSED: { bg: 'bg-[#EEF2F8]', text: 'text-[#1E3A5F]', label: 'Partial' },
@@ -978,9 +989,9 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                     FULLY_DISBURSED:     { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Disbursed' },
                     BALANCED:            { bg: 'bg-gray-100',   text: 'text-gray-500',   label: 'Balanced' },
                     VOIDED:              { bg: 'bg-red-100',    text: 'text-red-600',    label: 'Voided' },
-                  }[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-400', label: s.paymentStatus };
+                  }[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-400', label: s.paymentStatus });
                   return (
-                    <Tr key={s.id} className={isVoided ? 'opacity-60' : ''}>
+                    <Tr key={s.id} className={isVoided || isSuperseded ? 'opacity-60' : ''}>
                       <Td className="font-medium text-gray-800">{memberName}</Td>
                       <Td className="text-xs text-gray-500 whitespace-nowrap">
                         {new Date(s.settledAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -999,8 +1010,8 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                           {statusCfg.label}
                         </span>
                       </Td>
-                      <Td className={`font-semibold text-sm ${remaining > 0 && !isVoided ? (isCollect ? 'text-red-600' : 'text-green-700') : 'text-gray-400'}`}>
-                        {isVoided ? '—' : (hidden ? '••••••' : `₹${remaining.toLocaleString('en-IN')}`)}
+                      <Td className={`font-semibold text-sm ${remaining > 0 && !isVoided && !isSuperseded ? (isCollect ? 'text-red-600' : 'text-green-700') : 'text-gray-400'}`}>
+                        {isVoided || isSuperseded ? '—' : (hidden ? '••••••' : `₹${remaining.toLocaleString('en-IN')}`)}
                       </Td>
                       <Td>
                         <div className="flex items-center gap-2">
@@ -1011,7 +1022,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                           >
                             <Eye size={13} /> View
                           </button>
-                          {!isVoided && (
+                          {!isVoided && !isSuperseded && (
                             <button
                               type="button"
                               onClick={() => setVoidConfirmId(s.id)}
@@ -1158,10 +1169,16 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                 setAdjustmentAmount('');
                 setAdjustmentReason('');
                 setNotes('');
+                setSupersedingSettlement(null);
+                setSupersessionReason('');
+                setConfirmIdempotencyKey(null);
                 setHistoryPage(0);
               }}
             >
               <option value="">— Choose a member —</option>
+              {selectedMember && !activeMembers.some((m) => m.id === selectedMember.id) && (
+                <option value={selectedMember.id}>{selectedMember.fullName} (inactive)</option>
+              )}
               {activeMembers.map((m) => (
                 <option key={m.id} value={m.id}>{m.fullName}</option>
               ))}
@@ -1514,15 +1531,43 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                 </FormField>
               </div>
 
+              {supersedingSettlement && (
+                <div className="mb-4 p-4 rounded-xl border-2 border-amber-300 bg-amber-50">
+                  <p className="text-sm font-semibold text-amber-900">Audited settlement correction</p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    This will reverse settlement {String(supersedingSettlement.id).slice(0, 8)}…,
+                    preserve its history, and create version {(supersedingSettlement.settlementVersion ?? 1) + 1}.
+                  </p>
+                  <FormField label="Mandatory correction reason">
+                    <Textarea
+                      value={supersessionReason}
+                      onChange={(e) => setSupersessionReason(e.target.value)}
+                      placeholder="Explain exactly why this settlement is being replaced…"
+                      rows={2}
+                    />
+                  </FormField>
+                  <button
+                    type="button"
+                    className="text-xs text-amber-900 underline mt-2"
+                    onClick={() => { setSupersedingSettlement(null); setSupersessionReason(''); }}
+                  >
+                    Cancel correction
+                  </button>
+                </div>
+              )}
+
               {/* Confirm button */}
               <Button
                 size="lg"
                 className="w-full"
-                disabled={includedItems.length === 0}
-                onClick={() => setShowConfirm(true)}
+                disabled={includedItems.length === 0 || (supersedingSettlement && !supersessionReason.trim())}
+                onClick={() => {
+                  setConfirmIdempotencyKey((key) => key ?? crypto.randomUUID());
+                  setShowConfirm(true);
+                }}
               >
                 <HandCoins size={18} />
-                Confirm Settlement
+                {supersedingSettlement ? 'Confirm Corrected Settlement' : 'Confirm Settlement'}
               </Button>
             </div>
           )}
@@ -1861,6 +1906,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         const remaining = Math.max(0, absNet - paidSoFar);
         const memberName = allMembers.find((m) => m.id === s.memberId)?.fullName ?? `Member ${String(s.memberId).slice(-6)}`;
         const isVoided = s.paymentStatus === 'VOIDED';
+        const isSuperseded = Boolean(s.supersededById);
 
         const printSettlement = async () => {
           const chitItems = s.chitItems ?? [];
@@ -2207,7 +2253,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
               })()}
 
               {/* Actions */}
-              {remaining > 0 && !isVoided && (
+              {remaining > 0 && !isVoided && !isSuperseded && (
                 <div className={`rounded-xl p-4 border-2 ${isCollect ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
                   <p className={`text-sm font-semibold mb-3 ${isCollect ? 'text-red-700' : 'text-green-700'}`}>
                     {isCollect
@@ -2238,15 +2284,33 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
                 <Button variant="secondary" size="sm" onClick={printSettlement}>
                   <Printer size={14} /> Print Report
                 </Button>
-                {!isVoided && (
-                  <button
-                    type="button"
-                    onClick={() => setVoidConfirmId(s.id)}
-                    className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1.5 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                  >
-                    <XCircle size={14} /> Void Settlement
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {!s.supersededById && s.reversalReady && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSupersedingSettlement(s);
+                        setSupersessionReason('');
+                        setConfirmIdempotencyKey(null);
+                        setSelectedMemberId(s.memberId);
+                        setViewSettlement(null);
+                        setShowHistoryView(false);
+                      }}
+                      className="text-xs font-medium text-amber-700 hover:text-amber-900 border border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-50"
+                    >
+                      Correct &amp; Replace
+                    </button>
+                  )}
+                  {!isVoided && !s.supersededById && (
+                    <button
+                      type="button"
+                      onClick={() => setVoidConfirmId(s.id)}
+                      className="text-xs font-medium text-red-600 hover:text-red-800 flex items-center gap-1.5 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                    >
+                      <XCircle size={14} /> Void Settlement
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </Modal>
@@ -2258,7 +2322,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         <ConfirmDialog
           variant="danger"
           title="Void Settlement"
-          description="This posts available reversal entries and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available. This action cannot be undone."
+          description="This restores captured payment statuses, posts linked treasury and credit reversals, and reactivates the member through a retrying status-sync workflow. Legacy settlements without snapshots are refused."
           actionLabel="Void Settlement"
           loading={voidMutation.isPending}
           onConfirm={() => voidMutation.mutate(voidConfirmId)}
@@ -2270,10 +2334,12 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
       {showConfirm && (
         <ConfirmDialog
           variant="warning"
-          title="Confirm Settlement"
-          description={`Settle ${selectedMember?.fullName} across ${includedItems.length} chit${includedItems.length !== 1 ? 's' : ''}. This action cannot be undone.`}
-          actionLabel="Yes, Confirm Settlement"
-          onConfirm={() => confirmMutation.mutate({ idempotencyKey: crypto.randomUUID() })}
+          title={supersedingSettlement ? 'Confirm Audited Correction' : 'Confirm Settlement'}
+          description={supersedingSettlement
+            ? `Reverse and replace settlement ${String(supersedingSettlement.id).slice(0, 8)}… for ${selectedMember?.fullName}. The original remains in the audit trail.`
+            : `Settle ${selectedMember?.fullName} across ${includedItems.length} chit${includedItems.length !== 1 ? 's' : ''}. This action cannot be undone.`}
+          actionLabel={supersedingSettlement ? 'Reverse & Create Replacement' : 'Yes, Confirm Settlement'}
+          onConfirm={() => confirmMutation.mutate({ idempotencyKey: confirmIdempotencyKey })}
           onClose={() => setShowConfirm(false)}
           loading={confirmMutation.isPending}
         >

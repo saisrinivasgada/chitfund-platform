@@ -1,11 +1,11 @@
 """
 Settlement confirmation under concurrency — risk R5 in the plan.
 
-SettlementService.confirm now treats every prior settlement, including VOIDED,
-as blocking, and V37 adds a strict unique (tenant, member) database constraint.
-The service check gives a useful response in the ordinary case; the database
-constraint is the final authority when concurrent requests race on different
-pods. Phase B may relax this only after full reversal/supersession is proven.
+SettlementService.confirm treats every prior settlement as blocking unless the
+request explicitly invokes audited supersession. V37 provides the emergency
+strict key; V38 replaces it with a generated-column unique key that permits one
+live row while retaining VOIDED/SUPERSEDED history. The database remains the
+final authority when concurrent requests race on different pods.
 
 A duplicate settlement is not a cosmetic problem: each one clears the member's
 outstanding records and posts its own treasury movement, so the same debt would
@@ -63,8 +63,8 @@ class TestDuplicateSettlement:
     """Regression coverage for sequential and concurrent confirmation."""
 
     @pytest.mark.xfail(
-        reason="Fix implemented in SettlementService and V37; keep this as a "
-               "pending live-stack check until V37 is applied to disposable MySQL.",
+        reason="Fix implemented in SettlementService and V37/V38; keep this as a "
+               "pending live-stack check until migrations are applied to disposable MySQL.",
         strict=False)
     def test_sequential_second_confirm_is_refused(self, api, db, settleable_member):
         first = _confirm(api, settleable_member)
@@ -75,7 +75,7 @@ class TestDuplicateSettlement:
         assert len(_settlements(db, settleable_member["member_id"])) == 1
 
     @pytest.mark.xfail(
-        reason="V37 supplies the concurrency constraint, but this machine has no "
+        reason="V38 supplies the live-row concurrency constraint, but this machine has no "
                "Docker/MySQL runtime to apply it and prove the two-request race.",
         strict=False)
     def test_concurrent_confirms_create_at_most_one_settlement(self, api, db, settleable_member):

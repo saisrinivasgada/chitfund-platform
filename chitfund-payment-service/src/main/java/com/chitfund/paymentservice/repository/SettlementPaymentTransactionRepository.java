@@ -28,4 +28,6 @@ public interface SettlementPaymentTransactionRepository
     /** Fast existence check used as the first step of idempotency handling. */
     Optional<SettlementPaymentTransaction> findByTenantIdAndIdempotencyKey(
             String tenantId, String idempotencyKey);
+
+    boolean existsByReversalOfId(UUID reversalOfId);
 }

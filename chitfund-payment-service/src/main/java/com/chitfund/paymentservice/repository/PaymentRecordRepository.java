@@ -52,6 +52,12 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     List<PaymentRecord> findByTenantIdAndMemberIdAndStatusIn(
             String tenantId, UUID memberId, List<PaymentRecordStatus> statuses);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId = :tenantId AND r.id IN :ids ORDER BY r.id")
+    List<PaymentRecord> findAllByTenantIdAndIdInForUpdate(
+            @Param("tenantId") String tenantId,
+            @Param("ids") List<UUID> ids);
+
     // Used to verify enrollment before accepting payment from admin-held slot holders (non-member UUIDs)
     boolean existsByMemberIdAndChitId(UUID memberId, UUID chitId);
 

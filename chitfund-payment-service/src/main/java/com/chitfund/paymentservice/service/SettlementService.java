@@ -4,12 +4,15 @@ import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.ChitServiceClient.ChitDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.EnrollmentDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.ReservationDto;
-import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.client.PayoutServiceClient;
 import com.chitfund.paymentservice.client.PayoutServiceClient.PayoutDto;
 import com.chitfund.paymentservice.domain.Settlement;
+import com.chitfund.paymentservice.domain.SettlementAuditEvent;
 import com.chitfund.paymentservice.domain.SettlementChitItem;
 import com.chitfund.paymentservice.domain.PaymentRecord;
+import com.chitfund.paymentservice.domain.AdminWalletEntry;
+import com.chitfund.paymentservice.domain.SettlementPaymentRecordEffect;
+import com.chitfund.paymentservice.domain.SettlementMemberStatusSync;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.domain.enums.SettlementCase;
 import com.chitfund.paymentservice.domain.enums.SettlementMode;
@@ -29,7 +32,11 @@ import com.chitfund.paymentservice.domain.enums.TransactionDirection;
 import com.chitfund.paymentservice.domain.enums.WalletEntryType;
 import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
 import com.chitfund.paymentservice.repository.ChitMonthDrawRepository;
+import com.chitfund.paymentservice.repository.AdminWalletRepository;
 import com.chitfund.paymentservice.repository.PaymentRecordRepository;
+import com.chitfund.paymentservice.repository.SettlementAuditEventRepository;
+import com.chitfund.paymentservice.repository.SettlementPaymentRecordEffectRepository;
+import com.chitfund.paymentservice.repository.SettlementMemberStatusSyncRepository;
 import com.chitfund.paymentservice.repository.SettlementPaymentTransactionRepository;
 import com.chitfund.paymentservice.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
@@ -44,8 +51,10 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -74,10 +83,13 @@ public class SettlementService {
     private final ChitMonthDrawRepository chitMonthDrawRepository;
     private final SettlementRepository settlementRepository;
     private final SettlementPaymentTransactionRepository transactionRepository;
+    private final SettlementPaymentRecordEffectRepository recordEffectRepository;
+    private final SettlementAuditEventRepository settlementAuditEventRepository;
+    private final SettlementMemberStatusSyncRepository memberStatusSyncRepository;
+    private final AdminWalletRepository adminWalletRepository;
     private final AdminWalletService adminWalletService;
     private final ChitServiceClient chitServiceClient;
     private final PayoutServiceClient payoutServiceClient;
-    private final MemberServiceClient memberServiceClient;
     private final MemberCreditService memberCreditService;
     private final PlanExpiryChecker planExpiryChecker;
 
@@ -144,7 +156,7 @@ public class SettlementService {
      * Executes the settlement. Writes to:
      *  1. PaymentRecord rows (OUTSTANDING/PARTIALLY_PAID → SETTLEMENT_CLEARED)
      *  2. Settlement + SettlementChitItem rows (audit trail)
-     *  3. AdminWalletEntry (treasury movement)
+     *  3. exact PaymentRecord before-state snapshots and a member-status saga row
      *
      * Does NOT touch ChitEnrollment.active — leave that as-is.
      * Does NOT mark PaymentRecords that are already SETTLED / PAYOUT_DEDUCTED / WAIVED.
@@ -162,6 +174,10 @@ public class SettlementService {
         String tenantId = TenantContext.get();
         String idempotencyKey = normalizeIdempotencyKey(rawIdempotencyKey);
         validateDistinctChits(request);
+        if (request.getSupersedesSettlementId() != null && idempotencyKey == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "X-Idempotency-Key is required for settlement supersession");
+        }
         String requestHash = settlementRequestHash(request);
 
         // Retry check must precede the live-settlement guard: the same request/key
@@ -184,17 +200,25 @@ public class SettlementService {
             }
         }
 
-        // Phase A blocks every prior settlement, including VOIDED. The current
-        // void path cannot atomically reactivate the member or reverse all
-        // downstream effects, so treating VOIDED as a clean slate is unsafe.
-        if (settlementRepository.existsByMemberIdAndTenantId(memberId, tenantId)) {
+        SupersessionPreparation preparation = prepareSupersession(
+                request, adminId, tenantId, idempotencyKey, requestHash);
+        if (preparation.idempotentResult() != null) {
+            return toSettlementResponse(preparation.idempotentResult());
+        }
+        Settlement priorSettlement = preparation.priorSettlement();
+
+        // Historical rows never silently become a clean slate. A correction must
+        // explicitly name the row it supersedes and provide a mandatory reason.
+        if (priorSettlement == null
+                && settlementRepository.existsByMemberIdAndTenantId(memberId, tenantId)) {
             throw new BusinessException(
                     ErrorCode.SETTLEMENT_ALREADY_EXISTS,
-                    "This member has already been settled. Re-settlement is disabled until the audited supersession workflow is available.",
+                    "This member has already been settled. Use the audited supersession workflow to replace it.",
                     HttpStatus.CONFLICT);
         }
 
         List<SettlementChitItem> chitItems = new ArrayList<>();
+        List<SettlementPaymentRecordEffect> recordEffects = new ArrayList<>();
         BigDecimal totalOwed = BigDecimal.ZERO;
         BigDecimal totalRefunded = BigDecimal.ZERO;
 
@@ -217,6 +241,14 @@ public class SettlementService {
                             memberId, chitId,
                             List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
             for (PaymentRecord rec : openRecords) {
+                recordEffects.add(SettlementPaymentRecordEffect.builder()
+                        .tenantId(tenantId)
+                        .paymentRecordId(rec.getId())
+                        .beforeStatus(rec.getStatus())
+                        .afterStatus(PaymentRecordStatus.SETTLEMENT_CLEARED)
+                        .beforeAmountPaid(rec.getAmountPaid())
+                        .beforeAmountDue(rec.getAmountDue())
+                        .build());
                 rec.setStatus(PaymentRecordStatus.SETTLEMENT_CLEARED);
                 paymentRecordRepository.save(rec);
             }
@@ -268,7 +300,7 @@ public class SettlementService {
                 : BigDecimal.ZERO;
 
         // Apply member credit balance — consume full balance; excess becomes a fund disbursement
-        BigDecimal creditBalance = memberCreditService.getBalance(memberId);
+        BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(memberId);
         BigDecimal netAmount = baseNetAmount.add(adjustment).subtract(creditBalance);
 
         // 4. Save Settlement entity
@@ -297,6 +329,12 @@ public class SettlementService {
                 .disbursedAmount(BigDecimal.ZERO)
                 .idempotencyKey(idempotencyKey)
                 .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
+                .supersedesId(priorSettlement != null ? priorSettlement.getId() : null)
+                .settlementVersion(priorSettlement != null
+                        ? priorSettlement.getSettlementVersion() + 1 : 1)
+                .supersessionReason(priorSettlement != null
+                        ? request.getSupersessionReason().trim() : null)
+                .reversalReady(true)
                 .build();
         // Link items to settlement
         for (SettlementChitItem item : chitItems) {
@@ -307,18 +345,49 @@ public class SettlementService {
         // decision through its unique tenant/member live-settlement constraint.
         Settlement saved = settlementRepository.saveAndFlush(settlement);
 
+        for (SettlementPaymentRecordEffect effect : recordEffects) {
+            effect.setSettlementId(saved.getId());
+        }
+        recordEffectRepository.saveAll(recordEffects);
+
+        if (priorSettlement != null) {
+            priorSettlement.setSupersededById(saved.getId());
+            settlementRepository.save(priorSettlement);
+            settlementAuditEventRepository.save(SettlementAuditEvent.builder()
+                    .tenantId(tenantId)
+                    .eventType("SETTLEMENT_SUPERSEDED")
+                    .settlementId(priorSettlement.getId())
+                    .relatedSettlementId(saved.getId())
+                    .actorId(adminId)
+                    .reason(request.getSupersessionReason().trim())
+                    .build());
+            settlementAuditEventRepository.save(SettlementAuditEvent.builder()
+                    .tenantId(tenantId)
+                    .eventType("SETTLEMENT_REPLACEMENT_CREATED")
+                    .settlementId(saved.getId())
+                    .relatedSettlementId(priorSettlement.getId())
+                    .actorId(adminId)
+                    .reason(request.getSupersessionReason().trim())
+                    .build());
+        } else {
+            settlementAuditEventRepository.save(SettlementAuditEvent.builder()
+                    .tenantId(tenantId)
+                    .eventType("SETTLEMENT_CONFIRMED")
+                    .settlementId(saved.getId())
+                    .actorId(adminId)
+                    .build());
+        }
+
         log.info("Settlement confirmed — member {} by admin {}: owes ₹{}, refunded ₹{}, net ₹{}, credit ₹{}, paymentStatus={}",
                 memberId, adminId, totalOwed, totalRefunded, netAmount, creditBalance, initialPaymentStatus);
 
         // Consume the member's credit balance — recorded as an OUT transaction against the settlement
         if (creditBalance.compareTo(BigDecimal.ZERO) > 0) {
-            memberCreditService.consumeCredit(memberId, creditBalance, saved.getId(), null, adminId,
+            memberCreditService.consumeCreditForSettlement(memberId, creditBalance, saved.getId(), adminId,
                     "Credit applied at settlement " + saved.getId());
         }
 
-        // Mark the member INACTIVE — they have fully withdrawn from all chits.
-        // Done after commit (best-effort): settlement is already persisted even if this fails.
-        memberServiceClient.deactivateMember(memberId);
+        queueMemberStatus(saved, "INACTIVE", tenantId);
 
         return toSettlementResponse(saved);
     }
@@ -346,6 +415,69 @@ public class SettlementService {
         }
     }
 
+    private SupersessionPreparation prepareSupersession(
+            ConfirmSettlementRequest request, UUID adminId, String tenantId,
+            String idempotencyKey, String requestHash) {
+        UUID priorId = request.getSupersedesSettlementId();
+        String reason = request.getSupersessionReason();
+        if (priorId == null && (reason == null || reason.isBlank())) {
+            return new SupersessionPreparation(null, null);
+        }
+        if (priorId == null || reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "supersedesSettlementId and supersessionReason are required together");
+        }
+        if (reason.trim().length() > 500) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "supersessionReason must be at most 500 characters");
+        }
+
+        Settlement prior = settlementRepository.findByIdWithLock(priorId, tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Settlement to supersede was not found"));
+        if (!prior.getMemberId().equals(request.getMemberId())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Replacement member must match the original settlement member");
+        }
+        if (prior.getSupersededById() != null) {
+            Settlement replacement = settlementRepository
+                    .findByIdAndTenantId(prior.getSupersededById(), tenantId).orElse(null);
+            if (replacement != null
+                    && idempotencyKey.equals(replacement.getIdempotencyKey())
+                    && requestHash.equals(replacement.getIdempotencyRequestHash())) {
+                return new SupersessionPreparation(null, replacement);
+            }
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Settlement was already superseded", HttpStatus.CONFLICT);
+        }
+        if (!prior.isReversalReady()) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This legacy settlement has no exact before-state snapshot and cannot be superseded automatically",
+                    HttpStatus.CONFLICT);
+        }
+
+        if (prior.getPaymentStatus() != SettlementPaymentStatus.VOIDED) {
+            reverseSettlementEffects(prior, adminId, tenantId);
+        } else if (prior.getReversalCompletedAt() == null) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "The void operation did not complete its audited reversal",
+                    HttpStatus.CONFLICT);
+        }
+
+        // Reserving superseded_by before the replacement insert releases the
+        // generated-column live slot inside this same transaction. The final ID
+        // replaces this marker immediately after the new row is flushed.
+        prior.setSupersededById(UUID.randomUUID());
+        prior.setSupersededAt(LocalDateTime.now());
+        prior.setSupersededByActor(adminId);
+        settlementRepository.saveAndFlush(prior);
+        return new SupersessionPreparation(prior, null);
+    }
+
+    private record SupersessionPreparation(
+            Settlement priorSettlement, Settlement idempotentResult) {
+    }
+
     private String settlementRequestHash(ConfirmSettlementRequest request) {
         // Item order is presentation detail, not financial meaning, so sort the
         // canonical forms. A null CASE_C mode has the same meaning as FAIR.
@@ -357,8 +489,9 @@ public class SettlementService {
         BigDecimal adjustment = request.getAdjustmentAmount() != null
                 ? request.getAdjustmentAmount() : BigDecimal.ZERO;
         return IdempotencyFingerprint.of(
-                request.getMemberId(), canonicalItems, request.getNotes(),
-                adjustment, request.getAdjustmentReason());
+            request.getMemberId(), canonicalItems, request.getNotes(),
+                adjustment, request.getAdjustmentReason(), request.getSupersedesSettlementId(),
+                request.getSupersessionReason() == null ? null : request.getSupersessionReason().trim());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -828,79 +961,150 @@ public class SettlementService {
     // VOID
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Voids a confirmed settlement and posts the reversals currently supported.
-     * Re-settlement remains blocked in Phase A because member activation and all
-     * downstream side effects are not part of one atomic reversal.
-     *
-     * WHY OUTSTANDING and not the original status?
-     * The original status before settlement was OUTSTANDING or PARTIALLY_PAID.
-     * We don't store the original status at confirm time. Reverting to OUTSTANDING
-     * is conservative, but it is not a lossless reversal. That is why VOIDED is
-     * audit history rather than permission to settle the member again.
-     */
+    /** Voids a Phase-B settlement using exact snapshots and immutable reversals. */
     @Transactional
     public SettlementResponse voidSettlement(UUID settlementId, UUID adminId) {
         String tenantId = TenantContext.get();
-        Settlement settlement = settlementRepository.findByIdAndTenantId(settlementId, tenantId)
+        Settlement settlement = settlementRepository.findByIdWithLock(settlementId, tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Settlement not found"));
 
         if (settlement.getPaymentStatus() == SettlementPaymentStatus.VOIDED) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Settlement is already voided");
         }
-
-        // Revert SETTLEMENT_CLEARED records back to OUTSTANDING for this member
-        List<PaymentRecord> cleared = paymentRecordRepository
-                .findByTenantIdAndMemberIdAndStatusIn(tenantId, settlement.getMemberId(),
-                        List.of(PaymentRecordStatus.SETTLEMENT_CLEARED));
-        for (PaymentRecord rec : cleared) {
-            rec.setStatus(PaymentRecordStatus.OUTSTANDING);
-            paymentRecordRepository.save(rec);
+        if (settlement.getSupersededById() != null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A superseded settlement cannot be voided independently");
         }
-        log.info("Void settlement {}: reverted {} SETTLEMENT_CLEARED records to OUTSTANDING for member {}",
-                settlementId, cleared.size(), settlement.getMemberId());
-
-        // Reverse any payment transactions already recorded against this settlement.
-        // COLLECTION txn → reverse as OUT (cash/bank leaves treasury back to member)
-        // DISBURSEMENT txn → reverse as IN (cash/bank returns to treasury)
-        List<SettlementPaymentTransaction> txns = transactionRepository
-                .findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(settlementId, tenantId);
-        for (SettlementPaymentTransaction txn : txns) {
-            AccountType account = txn.getMode() != null
-                    && txn.getMode().name().equals("CASH") ? AccountType.CASH : AccountType.BANK;
-            WalletEntryType reversalEntry = txn.getDirection() == TransactionDirection.COLLECTION
-                    ? WalletEntryType.OUT   // collected cash goes back out
-                    : WalletEntryType.IN;   // disbursed cash comes back in
-            String desc = "VOID reversal — settlement " + settlementId
-                    + " txn " + txn.getId()
-                    + " ₹" + txn.getAmount().toPlainString();
-            AdminWalletEntryRequest walletReq = new AdminWalletEntryRequest();
-            walletReq.setAccountType(account);
-            walletReq.setEntryType(reversalEntry);
-            walletReq.setAmount(txn.getAmount());
-            walletReq.setCategory("SETTLEMENT_VOID_REVERSAL");
-            walletReq.setDescription(desc);
-            walletReq.setReferenceId(txn.getId());
-            adminWalletService.addEntry(walletReq, adminId, tenantId);
-        }
-        if (!txns.isEmpty()) {
-            log.info("Void settlement {}: reversed {} payment transactions in treasury", settlementId, txns.size());
+        if (!settlement.isReversalReady()) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This legacy settlement has no exact before-state snapshot and cannot be voided automatically",
+                    HttpStatus.CONFLICT);
         }
 
-        // Restore any credit that was consumed when this settlement was confirmed
-        BigDecimal creditApplied = settlement.getCreditApplied();
-        if (creditApplied != null && creditApplied.compareTo(BigDecimal.ZERO) > 0) {
-            memberCreditService.addCredit(settlement.getMemberId(), creditApplied, settlementId, null, adminId,
-                    "Credit restored — settlement " + settlementId + " voided");
-            log.info("Void settlement {}: restored ₹{} credit to member {}", settlementId, creditApplied, settlement.getMemberId());
-        }
+        reverseSettlementEffects(settlement, adminId, tenantId);
 
         settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
         settlement.setVoidedAt(LocalDateTime.now());
         settlement.setVoidedBy(adminId);
         settlementRepository.save(settlement);
+        settlementAuditEventRepository.save(SettlementAuditEvent.builder()
+                .tenantId(tenantId)
+                .eventType("SETTLEMENT_VOIDED")
+                .settlementId(settlementId)
+                .actorId(adminId)
+                .reason("Administrative void")
+                .build());
+        queueMemberStatus(settlement, "ACTIVE", tenantId);
 
         return toSettlementResponse(settlement);
+    }
+
+    private void reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
+        if (settlement.getReversalCompletedAt() != null) return;
+
+        List<SettlementPaymentRecordEffect> effects =
+                recordEffectRepository.findBySettlementIdOrderByPaymentRecordId(settlement.getId());
+        List<UUID> recordIds = effects.stream()
+                .map(SettlementPaymentRecordEffect::getPaymentRecordId)
+                .toList();
+        Map<UUID, PaymentRecord> records = recordIds.isEmpty() ? Map.of()
+                : paymentRecordRepository.findAllByTenantIdAndIdInForUpdate(tenantId, recordIds)
+                        .stream().collect(Collectors.toMap(PaymentRecord::getId, Function.identity()));
+        if (records.size() != recordIds.size()) {
+            throw reversalConflict("A payment record captured by the settlement is missing");
+        }
+
+        LocalDateTime reversedAt = LocalDateTime.now();
+        for (SettlementPaymentRecordEffect effect : effects) {
+            if (effect.getReversedAt() != null) continue;
+            PaymentRecord record = records.get(effect.getPaymentRecordId());
+            if (record.getStatus() != effect.getAfterStatus()
+                    || record.getAmountPaid().compareTo(effect.getBeforeAmountPaid()) != 0
+                    || record.getAmountDue().compareTo(effect.getBeforeAmountDue()) != 0) {
+                throw reversalConflict("Payment record changed after settlement; automatic reversal refused");
+            }
+            record.setStatus(effect.getBeforeStatus());
+            effect.setReversedAt(reversedAt);
+        }
+        paymentRecordRepository.saveAll(records.values());
+        recordEffectRepository.saveAll(effects);
+
+        List<SettlementPaymentTransaction> originals = transactionRepository
+                .findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(settlement.getId(), tenantId)
+                .stream().filter(txn -> txn.getReversalOfId() == null).toList();
+        for (SettlementPaymentTransaction original : originals) {
+            if (transactionRepository.existsByReversalOfId(original.getId())) continue;
+            List<AdminWalletEntry> walletMatches = adminWalletRepository
+                    .findByTenantIdAndReferenceId(tenantId, original.getId());
+            if (walletMatches.size() != 1) {
+                throw reversalConflict("Settlement transaction must have exactly one treasury entry");
+            }
+            AdminWalletEntry originalWallet = walletMatches.get(0);
+            WalletEntryType expectedEntryType = original.getDirection() == TransactionDirection.COLLECTION
+                    ? WalletEntryType.IN : WalletEntryType.OUT;
+            if (originalWallet.getAmount().compareTo(original.getAmount()) != 0
+                    || originalWallet.getEntryType() != expectedEntryType) {
+                throw reversalConflict("Treasury entry does not match its settlement transaction");
+            }
+            if (adminWalletRepository.existsByReversalOfEntryId(originalWallet.getId())) continue;
+
+            TransactionDirection reverseDirection =
+                    original.getDirection() == TransactionDirection.COLLECTION
+                            ? TransactionDirection.DISBURSEMENT : TransactionDirection.COLLECTION;
+            String reversalKey = UUID.randomUUID().toString();
+            SettlementPaymentTransaction reversal = SettlementPaymentTransaction.builder()
+                    .tenantId(tenantId)
+                    .settlement(settlement)
+                    .amount(original.getAmount())
+                    .mode(original.getMode())
+                    .direction(reverseDirection)
+                    .referenceNumber(original.getReferenceNumber())
+                    .notes("Audited reversal of settlement transaction " + original.getId())
+                    .recordedBy(adminId)
+                    .recordedAt(reversedAt)
+                    .idempotencyKey(reversalKey)
+                    .idempotencyRequestHash(IdempotencyFingerprint.of(
+                            "SETTLEMENT_REVERSAL", settlement.getId(), original.getId()))
+                    .reversalOfId(original.getId())
+                    .build();
+            transactionRepository.saveAndFlush(reversal);
+
+            AdminWalletEntryRequest walletReq = new AdminWalletEntryRequest();
+            walletReq.setAccountType(originalWallet.getAccountType());
+            walletReq.setEntryType(originalWallet.getEntryType() == WalletEntryType.IN
+                    ? WalletEntryType.OUT : WalletEntryType.IN);
+            walletReq.setAmount(originalWallet.getAmount());
+            walletReq.setCategory("SETTLEMENT_REVERSAL");
+            walletReq.setDescription("Audited reversal of wallet entry " + originalWallet.getId());
+            walletReq.setReferenceId(reversal.getId());
+            walletReq.setReversalOfEntryId(originalWallet.getId());
+            adminWalletService.addEntry(walletReq, adminId, tenantId);
+        }
+
+        BigDecimal reversedCredit = memberCreditService.reverseCreditForSettlement(
+                settlement.getId(), settlement.getMemberId(), adminId);
+        BigDecimal expectedCredit = orZero(settlement.getCreditApplied());
+        if (reversedCredit.compareTo(expectedCredit) != 0) {
+            throw reversalConflict("Settlement credit audit does not match the amount originally applied");
+        }
+        settlement.setReversalCompletedAt(reversedAt);
+        settlementRepository.save(settlement);
+    }
+
+    private BusinessException reversalConflict(String message) {
+        return new BusinessException(ErrorCode.CONCURRENT_MODIFICATION, message, HttpStatus.CONFLICT);
+    }
+
+    private void queueMemberStatus(Settlement settlement, String desiredStatus, String tenantId) {
+        memberStatusSyncRepository.save(SettlementMemberStatusSync.builder()
+                .tenantId(tenantId)
+                .settlementId(settlement.getId())
+                .memberId(settlement.getMemberId())
+                .desiredStatus(desiredStatus)
+                .status("PENDING")
+                .attempts(0)
+                .availableAt(LocalDateTime.now())
+                .build());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -932,6 +1136,14 @@ public class SettlementService {
                 .remainingAmount(remaining)
                 .voidedAt(s.getVoidedAt())
                 .voidedBy(s.getVoidedBy())
+                .supersedesId(s.getSupersedesId())
+                .supersededById(s.getSupersededById())
+                .settlementVersion(s.getSettlementVersion())
+                .supersessionReason(s.getSupersessionReason())
+                .supersededAt(s.getSupersededAt())
+                .supersededByActor(s.getSupersededByActor())
+                .reversalCompletedAt(s.getReversalCompletedAt())
+                .reversalReady(s.isReversalReady())
                 .chitItems(s.getChitItems().stream()
                         .map(item -> SettlementResponse.ChitItemDetail.builder()
                                 .id(item.getId())

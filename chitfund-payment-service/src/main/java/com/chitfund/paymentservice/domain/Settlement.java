@@ -29,8 +29,8 @@ import java.util.UUID;
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_settlement_tenant_idempotency",
                         columnNames = {"tenant_id", "idempotency_key"}),
-                @UniqueConstraint(name = "uk_settlement_one_per_member",
-                        columnNames = {"tenant_id", "member_id"})
+                @UniqueConstraint(name = "uk_settlement_one_live_per_member",
+                        columnNames = {"tenant_id", "member_id", "active_slot"})
         },
         indexes = {
                 @Index(name = "idx_settlement_member", columnList = "member_id"),
@@ -126,6 +126,37 @@ public class Settlement {
     /** SHA-256 of the financial request fields; prevents a key being reused for different data. */
     @Column(name = "idempotency_request_hash", length = 64)
     private String idempotencyRequestHash;
+
+    @Column(name = "supersedes_id", columnDefinition = "varchar(36)")
+    private UUID supersedesId;
+
+    @Column(name = "superseded_by_id", columnDefinition = "varchar(36)")
+    private UUID supersededById;
+
+    @Column(name = "settlement_version", nullable = false)
+    @Builder.Default
+    private int settlementVersion = 1;
+
+    @Column(name = "supersession_reason", length = 500)
+    private String supersessionReason;
+
+    @Column(name = "superseded_at")
+    private LocalDateTime supersededAt;
+
+    @Column(name = "superseded_by_actor", columnDefinition = "varchar(36)")
+    private UUID supersededByActor;
+
+    @Column(name = "reversal_completed_at")
+    private LocalDateTime reversalCompletedAt;
+
+    /** True only when exact before-state/effect records were captured at confirm. */
+    @Column(name = "reversal_ready", nullable = false)
+    @Builder.Default
+    private boolean reversalReady = false;
+
+    // Read-only mapping of the MySQL generated column used by the live-row key.
+    @Column(name = "active_slot", insertable = false, updatable = false)
+    private Integer activeSlot;
 
     @OneToMany(mappedBy = "settlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

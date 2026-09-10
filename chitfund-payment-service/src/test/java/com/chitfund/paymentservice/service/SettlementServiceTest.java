@@ -75,6 +75,11 @@ class SettlementServiceTest {
     @Mock private PaymentRecordRepository paymentRecordRepository;
     @Mock private ChitMonthDrawRepository chitMonthDrawRepository;
     @Mock private SettlementRepository settlementRepository;
+    @Mock private com.chitfund.paymentservice.repository.SettlementPaymentTransactionRepository transactionRepository;
+    @Mock private com.chitfund.paymentservice.repository.SettlementPaymentRecordEffectRepository recordEffectRepository;
+    @Mock private com.chitfund.paymentservice.repository.SettlementAuditEventRepository settlementAuditEventRepository;
+    @Mock private com.chitfund.paymentservice.repository.SettlementMemberStatusSyncRepository memberStatusSyncRepository;
+    @Mock private com.chitfund.paymentservice.repository.AdminWalletRepository adminWalletRepository;
     @Mock private ChitServiceClient chitServiceClient;
     @Mock private PayoutServiceClient payoutServiceClient;
     @Mock private AdminWalletService adminWalletService;
@@ -96,6 +101,9 @@ class SettlementServiceTest {
         // unstubbed call surfaces as an NPE inside BigDecimal rather than a clear
         // failure. Default to zero credit; tests that care override it.
         when(memberCreditService.getBalance(any(UUID.class))).thenReturn(BigDecimal.ZERO);
+        when(memberCreditService.getBalanceForUpdate(any(UUID.class))).thenReturn(BigDecimal.ZERO);
+        when(memberCreditService.reverseCreditForSettlement(any(), any(), any()))
+                .thenReturn(BigDecimal.ZERO);
     }
 
     @AfterEach
@@ -717,7 +725,8 @@ class SettlementServiceTest {
     void idempotentRetryReturnsOriginalSettlement() {
         ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
         String hash = IdempotencyFingerprint.of(
-                MEMBER_ID, List.of(CHIT_A_ID + ":FAIR"), null, BigDecimal.ZERO, null);
+                MEMBER_ID, List.of(CHIT_A_ID + ":FAIR"), null, BigDecimal.ZERO, null,
+                null, null);
         UUID settlementId = UUID.randomUUID();
         Settlement prior = Settlement.builder()
                 .id(settlementId)
@@ -782,6 +791,259 @@ class SettlementServiceTest {
                 .hasMessageContaining("only appear once");
 
         verifyNoInteractions(settlementRepository, chitServiceClient, payoutServiceClient);
+    }
+
+    @Test
+    @DisplayName("Phase B refuses legacy settlement without an exact reversal snapshot")
+    void supersessionRefusesLegacySettlementWithoutSnapshot() {
+        UUID priorId = UUID.randomUUID();
+        Settlement prior = Settlement.builder()
+                .id(priorId)
+                .tenantId("tenant-test")
+                .memberId(MEMBER_ID)
+                .paymentStatus(SettlementPaymentStatus.BALANCED)
+                .reversalReady(false)
+                .build();
+        when(settlementRepository.findByIdWithLock(priorId, "tenant-test"))
+                .thenReturn(java.util.Optional.of(prior));
+
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        req.setSupersedesSettlementId(priorId);
+        req.setSupersessionReason("Correct the original calculation");
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, "replacement-key"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("no exact before-state snapshot");
+
+        verify(recordEffectRepository, never()).saveAll(any());
+        verify(settlementRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Phase B requires an idempotency key before touching the prior settlement")
+    void supersessionRequiresIdempotencyKey() {
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        req.setSupersedesSettlementId(UUID.randomUUID());
+        req.setSupersessionReason("Correction");
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("X-Idempotency-Key");
+
+        verify(settlementRepository, never()).findByIdWithLock(any(), any());
+    }
+
+    @Test
+    @DisplayName("Concurrent retry returns the replacement found after locking the prior row")
+    void concurrentSupersessionRetryReturnsCommittedReplacement() {
+        UUID priorId = UUID.randomUUID();
+        UUID replacementId = UUID.randomUUID();
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        req.setSupersedesSettlementId(priorId);
+        req.setSupersessionReason("Correction");
+        String hash = IdempotencyFingerprint.of(
+                MEMBER_ID, List.of(CHIT_A_ID + ":FAIR"), null, BigDecimal.ZERO, null,
+                priorId, "Correction");
+        Settlement prior = Settlement.builder()
+                .id(priorId).tenantId("tenant-test").memberId(MEMBER_ID)
+                .supersededById(replacementId).build();
+        Settlement replacement = Settlement.builder()
+                .id(replacementId).tenantId("tenant-test").memberId(MEMBER_ID)
+                .settledBy(ADMIN_ID).settledAt(LocalDateTime.now()).createdAt(LocalDateTime.now())
+                .totalOwed(BigDecimal.ZERO).totalRefunded(BigDecimal.ZERO).netAmount(BigDecimal.ZERO)
+                .paymentStatus(SettlementPaymentStatus.BALANCED)
+                .collectedAmount(BigDecimal.ZERO).disbursedAmount(BigDecimal.ZERO)
+                .idempotencyKey("replacement-key").idempotencyRequestHash(hash)
+                .supersedesId(priorId).settlementVersion(2).chitItems(List.of()).build();
+        when(settlementRepository.findByTenantIdAndIdempotencyKey(
+                "tenant-test", "replacement-key")).thenReturn(java.util.Optional.empty());
+        when(settlementRepository.findByIdWithLock(priorId, "tenant-test"))
+                .thenReturn(java.util.Optional.of(prior));
+        when(settlementRepository.findByIdAndTenantId(replacementId, "tenant-test"))
+                .thenReturn(java.util.Optional.of(replacement));
+
+        var response = settlementService.confirm(req, ADMIN_ID, "replacement-key");
+
+        assertThat(response.getId()).isEqualTo(replacementId);
+        verify(recordEffectRepository, never()).saveAll(any());
+        verify(memberStatusSyncRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Phase B restores exact partial status and links an audited replacement")
+    void supersessionRestoresExactStateAndLinksReplacement() {
+        UUID priorId = UUID.randomUUID();
+        Settlement prior = Settlement.builder()
+                .id(priorId)
+                .tenantId("tenant-test")
+                .memberId(MEMBER_ID)
+                .settledBy(ADMIN_ID)
+                .settledAt(LocalDateTime.now().minusDays(1))
+                .totalOwed(BigDecimal.valueOf(600))
+                .totalRefunded(BigDecimal.ZERO)
+                .netAmount(BigDecimal.valueOf(600))
+                .paymentStatus(SettlementPaymentStatus.PENDING)
+                .collectedAmount(BigDecimal.ZERO)
+                .disbursedAmount(BigDecimal.ZERO)
+                .settlementVersion(1)
+                .reversalReady(true)
+                .build();
+        PaymentRecord record = record(CHIT_A_ID, 1, 1000, 400,
+                PaymentRecordStatus.SETTLEMENT_CLEARED);
+        var oldEffect = com.chitfund.paymentservice.domain.SettlementPaymentRecordEffect.builder()
+                .id(UUID.randomUUID())
+                .tenantId("tenant-test")
+                .settlementId(priorId)
+                .paymentRecordId(record.getId())
+                .beforeStatus(PaymentRecordStatus.PARTIALLY_PAID)
+                .afterStatus(PaymentRecordStatus.SETTLEMENT_CLEARED)
+                .beforeAmountPaid(BigDecimal.valueOf(400))
+                .beforeAmountDue(BigDecimal.valueOf(1000))
+                .build();
+
+        when(settlementRepository.findByIdWithLock(priorId, "tenant-test"))
+                .thenReturn(java.util.Optional.of(prior));
+        when(recordEffectRepository.findBySettlementIdOrderByPaymentRecordId(priorId))
+                .thenReturn(List.of(oldEffect));
+        when(paymentRecordRepository.findAllByTenantIdAndIdInForUpdate(
+                eq("tenant-test"), anyList())).thenReturn(List.of(record));
+        when(transactionRepository.findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(
+                priorId, "tenant-test")).thenReturn(List.of());
+
+        ChitDto chit = chit(CHIT_A_ID, 1, 1000, false, null);
+        when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
+        when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(null);
+        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+                .thenReturn(List.of(record));
+        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq(MEMBER_ID), eq(CHIT_A_ID), anyList())).thenReturn(List.of(record));
+        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID))
+                .thenReturn(List.of(draw(CHIT_A_ID, 1)));
+        when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
+                .thenReturn(List.of());
+        when(settlementRepository.saveAndFlush(any(Settlement.class))).thenAnswer(inv -> {
+            Settlement value = inv.getArgument(0);
+            if (value.getId() == null) value.setId(UUID.randomUUID());
+            return value;
+        });
+
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        req.setSupersedesSettlementId(priorId);
+        req.setSupersessionReason("Partial payment status was classified incorrectly");
+
+        var response = settlementService.confirm(req, ADMIN_ID, "replacement-key");
+
+        assertThat(response.getSettlementVersion()).isEqualTo(2);
+        assertThat(response.getSupersedesId()).isEqualTo(priorId);
+        assertThat(prior.getSupersededById()).isEqualTo(response.getId());
+        assertThat(prior.getNetAmount()).isEqualByComparingTo("600");
+        assertThat(oldEffect.getReversedAt()).isNotNull();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Iterable<com.chitfund.paymentservice.domain.SettlementPaymentRecordEffect>> effectsCaptor =
+                ArgumentCaptor.forClass(Iterable.class);
+        verify(recordEffectRepository, atLeast(2)).saveAll(effectsCaptor.capture());
+        List<com.chitfund.paymentservice.domain.SettlementPaymentRecordEffect> replacementEffects =
+                new ArrayList<>();
+        effectsCaptor.getAllValues().forEach(values -> values.forEach(replacementEffects::add));
+        assertThat(replacementEffects).anySatisfy(effect -> {
+            assertThat(effect.getSettlementId()).isEqualTo(response.getId());
+            assertThat(effect.getBeforeStatus()).isEqualTo(PaymentRecordStatus.PARTIALLY_PAID);
+        });
+        verify(memberCreditService).reverseCreditForSettlement(priorId, MEMBER_ID, ADMIN_ID);
+        verify(settlementAuditEventRepository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("Phase B void posts linked reversals and restores the exact payment status")
+    void phaseBVoidCreatesLinkedReversals() {
+        UUID settlementId = UUID.randomUUID();
+        Settlement settlement = Settlement.builder()
+                .id(settlementId)
+                .tenantId("tenant-test")
+                .memberId(MEMBER_ID)
+                .settledBy(ADMIN_ID)
+                .netAmount(BigDecimal.valueOf(1000))
+                .creditApplied(BigDecimal.valueOf(100))
+                .paymentStatus(SettlementPaymentStatus.FULLY_COLLECTED)
+                .collectedAmount(BigDecimal.valueOf(1000))
+                .disbursedAmount(BigDecimal.ZERO)
+                .reversalReady(true)
+                .build();
+        PaymentRecord record = record(CHIT_A_ID, 1, 1000, 400,
+                PaymentRecordStatus.SETTLEMENT_CLEARED);
+        var effect = com.chitfund.paymentservice.domain.SettlementPaymentRecordEffect.builder()
+                .id(UUID.randomUUID())
+                .tenantId("tenant-test")
+                .settlementId(settlementId)
+                .paymentRecordId(record.getId())
+                .beforeStatus(PaymentRecordStatus.PARTIALLY_PAID)
+                .afterStatus(PaymentRecordStatus.SETTLEMENT_CLEARED)
+                .beforeAmountPaid(BigDecimal.valueOf(400))
+                .beforeAmountDue(BigDecimal.valueOf(1000))
+                .build();
+        UUID txnId = UUID.randomUUID();
+        var originalTxn = com.chitfund.paymentservice.domain.SettlementPaymentTransaction.builder()
+                .id(txnId)
+                .tenantId("tenant-test")
+                .settlement(settlement)
+                .amount(BigDecimal.valueOf(1000))
+                .mode(com.chitfund.paymentservice.domain.enums.PaymentMode.CASH)
+                .direction(com.chitfund.paymentservice.domain.enums.TransactionDirection.COLLECTION)
+                .idempotencyKey(UUID.randomUUID().toString())
+                .idempotencyRequestHash("a".repeat(64))
+                .recordedBy(ADMIN_ID)
+                .build();
+        UUID walletId = UUID.randomUUID();
+        var originalWallet = com.chitfund.paymentservice.domain.AdminWalletEntry.builder()
+                .id(walletId)
+                .tenantId("tenant-test")
+                .accountType(com.chitfund.paymentservice.domain.enums.AccountType.CASH)
+                .entryType(com.chitfund.paymentservice.domain.enums.WalletEntryType.IN)
+                .amount(BigDecimal.valueOf(1000))
+                .referenceId(txnId)
+                .build();
+
+        when(settlementRepository.findByIdWithLock(settlementId, "tenant-test"))
+                .thenReturn(java.util.Optional.of(settlement));
+        when(recordEffectRepository.findBySettlementIdOrderByPaymentRecordId(settlementId))
+                .thenReturn(List.of(effect));
+        when(paymentRecordRepository.findAllByTenantIdAndIdInForUpdate(
+                "tenant-test", List.of(record.getId()))).thenReturn(List.of(record));
+        when(transactionRepository.findBySettlement_IdAndTenantIdOrderByCreatedAtAsc(
+                settlementId, "tenant-test")).thenReturn(List.of(originalTxn));
+        when(memberCreditService.reverseCreditForSettlement(settlementId, MEMBER_ID, ADMIN_ID))
+                .thenReturn(BigDecimal.valueOf(100));
+        when(adminWalletRepository.findByTenantIdAndReferenceId("tenant-test", txnId))
+                .thenReturn(List.of(originalWallet));
+        when(transactionRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            var value = (com.chitfund.paymentservice.domain.SettlementPaymentTransaction) inv.getArgument(0);
+            value.setId(UUID.randomUUID());
+            return value;
+        });
+
+        var response = settlementService.voidSettlement(settlementId, ADMIN_ID);
+
+        assertThat(record.getStatus()).isEqualTo(PaymentRecordStatus.PARTIALLY_PAID);
+        assertThat(effect.getReversedAt()).isNotNull();
+        assertThat(response.getPaymentStatus()).isEqualTo(SettlementPaymentStatus.VOIDED);
+        assertThat(response.getReversalCompletedAt()).isNotNull();
+
+        ArgumentCaptor<com.chitfund.paymentservice.domain.SettlementPaymentTransaction> reversalCaptor =
+                ArgumentCaptor.forClass(com.chitfund.paymentservice.domain.SettlementPaymentTransaction.class);
+        verify(transactionRepository).saveAndFlush(reversalCaptor.capture());
+        assertThat(reversalCaptor.getValue().getReversalOfId()).isEqualTo(txnId);
+        assertThat(reversalCaptor.getValue().getDirection())
+                .isEqualTo(com.chitfund.paymentservice.domain.enums.TransactionDirection.DISBURSEMENT);
+
+        ArgumentCaptor<com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest> walletCaptor =
+                ArgumentCaptor.forClass(com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest.class);
+        verify(adminWalletService).addEntry(walletCaptor.capture(), eq(ADMIN_ID), eq("tenant-test"));
+        assertThat(walletCaptor.getValue().getReversalOfEntryId()).isEqualTo(walletId);
+        assertThat(walletCaptor.getValue().getEntryType())
+                .isEqualTo(com.chitfund.paymentservice.domain.enums.WalletEntryType.OUT);
+        verify(memberCreditService).reverseCreditForSettlement(settlementId, MEMBER_ID, ADMIN_ID);
+        verify(memberStatusSyncRepository).save(argThat(sync -> "ACTIVE".equals(sync.getDesiredStatus())));
     }
 
     private ConfirmSettlementRequest confirmationRequest(UUID chitId) {

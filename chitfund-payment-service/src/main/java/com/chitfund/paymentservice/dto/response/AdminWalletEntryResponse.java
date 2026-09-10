@@ -19,6 +19,7 @@ public class AdminWalletEntryResponse {
     private String category;
     private String description;
     private UUID referenceId;
+    private UUID reversalOfEntryId;
     private LocalDateTime createdAt;
     private UUID createdBy;
 }

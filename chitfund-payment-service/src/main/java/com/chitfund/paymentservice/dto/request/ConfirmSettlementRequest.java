@@ -28,6 +28,11 @@ public class ConfirmSettlementRequest {
     // Required when adjustmentAmount is non-zero to document the reason.
     private String adjustmentReason;
 
+    // Phase B correction fields. Both are required together.
+    private UUID supersedesSettlementId;
+
+    private String supersessionReason;
+
     @Data
     public static class ChitItemRequest {
 

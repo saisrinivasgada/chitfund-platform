@@ -53,6 +53,15 @@ public class SettlementResponse {
     private LocalDateTime voidedAt;
     private UUID voidedBy;
 
+    private UUID supersedesId;
+    private UUID supersededById;
+    private int settlementVersion;
+    private String supersessionReason;
+    private LocalDateTime supersededAt;
+    private UUID supersededByActor;
+    private LocalDateTime reversalCompletedAt;
+    private boolean reversalReady;
+
     @Data
     @Builder
     public static class ChitItemDetail {

@@ -143,6 +143,36 @@ class FinancialIdempotencyTest {
         verify(settlementRepository, never()).findByIdWithLock(any(), any());
     }
 
+    @Test
+    void moneyCannotBeRecordedAgainstSupersededSettlement() {
+        TenantContext.set("tenant-a");
+        UUID settlementId = UUID.randomUUID();
+        Settlement settlement = Settlement.builder()
+                .id(settlementId)
+                .tenantId("tenant-a")
+                .memberId(UUID.randomUUID())
+                .supersededById(UUID.randomUUID())
+                .netAmount(new BigDecimal("100.00"))
+                .collectedAmount(BigDecimal.ZERO)
+                .disbursedAmount(BigDecimal.ZERO)
+                .paymentStatus(SettlementPaymentStatus.PENDING)
+                .build();
+        when(transactionRepository.findByTenantIdAndIdempotencyKey(
+                "tenant-a", "settlement-request-1")).thenReturn(Optional.empty());
+        when(settlementRepository.findByIdWithLock(settlementId, "tenant-a"))
+                .thenReturn(Optional.of(settlement));
+
+        SettlementTransactionService service = new SettlementTransactionService(
+                transactionRepository, settlementRepository, adminWalletService);
+
+        assertThatThrownBy(() -> service.recordTransaction(
+                settlementId, settlementRequest(new BigDecimal("50.00")), UUID.randomUUID()))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(transactionRepository, never()).saveAndFlush(any());
+    }
+
     private static RecordPaymentRequest paymentRequest(BigDecimal amount) {
         RecordPaymentRequest request = new RecordPaymentRequest();
         request.setChitId(UUID.randomUUID());

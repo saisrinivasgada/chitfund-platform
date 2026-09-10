@@ -29,10 +29,10 @@ FROM (
 ) AS duplicates;
 ```
 
-Phase A was subsequently made stricter because the current VOID operation is
-not a complete reversal. V37 therefore permits only one historical settlement
-row of any status per tenant/member. Before V37 is ever deployed, this
-additional aggregate-only preflight must also return zero:
+V37 uses the first query as its safety check. The application refuses automatic
+re-settlement of legacy VOIDED rows because they lack exact snapshots; V38 adds
+the final supersession-aware live-row rule. The broader historical query below
+is still useful as an audit count, but it is not a deployment prerequisite:
 
 ```sql
 SELECT /*+ MAX_EXECUTION_TIME(5000) */

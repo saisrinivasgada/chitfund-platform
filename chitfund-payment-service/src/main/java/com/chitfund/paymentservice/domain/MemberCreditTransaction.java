@@ -33,6 +33,10 @@ public class MemberCreditTransaction {
     // Which payment batch triggered this movement (used for void reversal)
     private UUID sourceBatchId;
 
+    private UUID sourceSettlementId;
+
+    private UUID reversalOfId;
+
     // Which chit this payment was for (informational)
     private UUID chitId;
 

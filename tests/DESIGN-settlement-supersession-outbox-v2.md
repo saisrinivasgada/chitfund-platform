@@ -1,13 +1,21 @@
 # Refined design — settlement supersession and transactional outbox
 
-Status: **design only; not approved for implementation**
+Status: **Phase B settlement supersession implemented on the local `test`
+branch; release approval is blocked on disposable MySQL verification. The
+general transactional outbox and paise migration remain design only.**
 
-This document follows the emergency Phase A duplicate guard. Phase A permits
-one settlement row per `(tenant_id, member_id)`, including VOIDED history. It is
-deliberately stricter than the eventual model because the current void operation
-does not prove complete cross-service reversal.
+This document follows the emergency Phase A duplicate guard. V37's database
+key permits one non-VOIDED settlement per `(tenant_id, member_id)`, while the
+Phase A service still refuses every historical re-settlement—including legacy
+VOIDED rows—because those rows do not contain exact reversal snapshots.
 
 ## 1. Settlement supersession (Phase B)
+
+Implementation note: V38 follows this design with exact payment-record effect
+snapshots, linked transaction/wallet/credit reversals, immutable audit events,
+and a retrying member-status synchronization saga. Existing settlements are
+marked `reversal_ready=false` because their original payment status cannot be
+reconstructed safely; automated void/supersession refuses those legacy rows.
 
 ### Invariants
 
@@ -21,7 +29,7 @@ does not prove complete cross-service reversal.
 7. Treasury reconciliation remains true after the original operation, every
    partial payment, every reversal, and the replacement.
 
-### Why the current void operation is insufficient
+### Why the pre-Phase-B void operation was insufficient
 
 Confirmation and later settlement payments can affect:
 
@@ -33,9 +41,10 @@ Confirmation and later settlement payments can affect:
 - downstream reporting, notifications and audit;
 - partially collected or partially disbursed amounts.
 
-The current void code does not store each payment record's previous status and
-does not reactivate the member. Therefore VOIDED must not unlock re-settlement
-in Phase A.
+The pre-Phase-B void code did not store each payment record's previous status
+and did not reactivate the member. Therefore legacy VOIDED rows must not unlock
+automatic re-settlement. V38 marks them `reversal_ready=false`; new V38
+settlements may be voided/replaced only after their exact reversal completes.
 
 ### Proposed schema (expand phase)
 
@@ -116,7 +125,9 @@ Inside one payment-database transaction:
 8. Calculate the replacement from restored canonical state—not from
    `SETTLEMENT_CLEARED` state—and persist fresh effect snapshots.
 9. Create the new live settlement and link `supersedes_id`/version.
-10. Insert reversal and replacement outbox events in this same transaction.
+10. Insert immutable reversal/replacement audit facts and the durable member
+    status command in this same transaction. Publishing general cross-service
+    events remains part of the separately approved outbox project.
 
 After commit, member-service consumes the replacement event idempotently and
 applies the intended member status. Saga state must show PENDING/APPLIED/FAILED;

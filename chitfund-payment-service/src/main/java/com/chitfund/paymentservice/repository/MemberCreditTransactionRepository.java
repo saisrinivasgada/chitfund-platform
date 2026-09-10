@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface MemberCreditTransactionRepository extends JpaRepository<MemberCreditTransaction, UUID> {
     List<MemberCreditTransaction> findByMemberIdOrderByCreatedAtDesc(UUID memberId);
     List<MemberCreditTransaction> findBySourceBatchId(UUID sourceBatchId);
+    List<MemberCreditTransaction> findBySourceSettlementId(UUID sourceSettlementId);
+    boolean existsByReversalOfId(UUID reversalOfId);
 }

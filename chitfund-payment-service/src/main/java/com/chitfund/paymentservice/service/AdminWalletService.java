@@ -43,6 +43,7 @@ public class AdminWalletService {
                 .category(req.getCategory())
                 .description(req.getDescription())
                 .referenceId(req.getReferenceId())
+                .reversalOfEntryId(req.getReversalOfEntryId())
                 .createdAt(LocalDateTime.now())
                 .createdBy(createdBy)
                 .build();
@@ -161,6 +162,7 @@ public class AdminWalletService {
                 .category(e.getCategory())
                 .description(e.getDescription())
                 .referenceId(e.getReferenceId())
+                .reversalOfEntryId(e.getReversalOfEntryId())
                 .createdAt(e.getCreatedAt())
                 .createdBy(e.getCreatedBy())
                 .build();

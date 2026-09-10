@@ -18,6 +18,8 @@ public interface AdminWalletRepository extends JpaRepository<AdminWalletEntry, U
 
     List<AdminWalletEntry> findByTenantIdOrderByCreatedAtDesc(String tenantId);
     Page<AdminWalletEntry> findByTenantIdOrderByCreatedAtDesc(String tenantId, Pageable pageable);
+    List<AdminWalletEntry> findByTenantIdAndReferenceId(String tenantId, UUID referenceId);
+    boolean existsByReversalOfEntryId(UUID reversalOfEntryId);
 
     @Query("SELECT COALESCE(SUM(e.amount), 0) FROM AdminWalletEntry e WHERE e.tenantId = :tenantId AND e.accountType = :accountType AND e.entryType = :entryType")
     BigDecimal sumByTenantAndAccountTypeAndEntryType(@Param("tenantId") String tenantId,

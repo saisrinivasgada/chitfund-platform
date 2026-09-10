@@ -44,6 +44,9 @@ public class AdminWalletEntry {
     @Column(name = "reference_id")
     private UUID referenceId;
 
+    @Column(name = "reversal_of_entry_id")
+    private UUID reversalOfEntryId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

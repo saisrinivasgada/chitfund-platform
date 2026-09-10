@@ -59,8 +59,9 @@ public class SettlementController {
     }
 
     /**
-     * Executes the settlement. Irreversible — marks PaymentRecords as SETTLEMENT_CLEARED,
-     * saves Settlement + SettlementChitItem records, and creates an AdminWalletEntry.
+     * Executes the settlement. Marks PaymentRecords as SETTLEMENT_CLEARED and
+     * saves the obligation plus its exact reversal snapshots. Money moves later
+     * through settlement transactions; Phase-B corrections use compensation.
      */
     @PostMapping("/confirm")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -145,9 +146,8 @@ public class SettlementController {
     }
 
     /**
-     * Voids a settlement and posts compensating entries where supported.
-     * Phase A still blocks re-settlement because the full cross-service reversal
-     * workflow is not yet proven.
+     * Voids a Phase-B settlement using exact snapshots and linked compensating
+     * entries. Legacy rows without snapshots are refused.
      */
     @PostMapping("/{settlementId}/void")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")

@@ -39,6 +39,7 @@ public class SettlementTransactionResponse {
     private LocalDateTime recordedAt;
     private LocalDateTime createdAt;
     private String idempotencyKey;
+    private UUID reversalOfId;
 
     // ── Running totals from the parent Settlement after this transaction ───
 

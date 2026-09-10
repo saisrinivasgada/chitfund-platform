@@ -104,7 +104,30 @@ public class InternalMemberController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
         }
         return memberRepository.findById(memberId).map(m -> {
+            if (m.getStatus() == MemberStatus.BLACKLISTED) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
+            }
             m.setStatus(MemberStatus.INACTIVE);
+            memberRepository.save(m);
+            return ResponseEntity.ok(Map.<String, Object>of("success", true));
+        }).orElse(ResponseEntity.ok(Map.of("success", false, "reason", "not found")));
+    }
+
+    /** Called by payment-service after an audited settlement void. Idempotent. */
+    @PatchMapping("/{memberId}/activate")
+    public ResponseEntity<Map<String, Object>> activateMember(
+            @PathVariable UUID memberId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        return memberRepository.findById(memberId).map(m -> {
+            if (m.getStatus() == MemberStatus.BLACKLISTED) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
+            }
+            m.setStatus(MemberStatus.ACTIVE);
             memberRepository.save(m);
             return ResponseEntity.ok(Map.<String, Object>of("success", true));
         }).orElse(ResponseEntity.ok(Map.of("success", false, "reason", "not found")));

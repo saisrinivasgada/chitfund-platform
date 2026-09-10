@@ -1205,7 +1205,7 @@ function PendingSettlementCard({ memberId }) {
   });
   const settlements = settlementPage?.content ?? [];
   const TERMINAL = new Set(['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED']);
-  const pendingOnes = settlements.filter((s) => !TERMINAL.has(s.paymentStatus));
+  const pendingOnes = settlements.filter((s) => !s.supersededById && !TERMINAL.has(s.paymentStatus));
 
   if (pendingOnes.length === 0) return null;
 
@@ -1280,7 +1280,7 @@ function SettlementHistorySection({ memberId }) {
   const voidMutation = useMutation({
     mutationFn: (settlementId) => voidSettlement(settlementId),
     onSuccess: () => {
-      toast.success('Settlement voided — payment records reverted to Outstanding');
+      toast.success('Settlement voided — exact payment state restored');
       qc.invalidateQueries({ queryKey: ['memberSettlements', memberId] });
       qc.invalidateQueries({ queryKey: ['members'] });
       setVoidId(null);
@@ -1296,7 +1296,7 @@ function SettlementHistorySection({ memberId }) {
   });
 
   const TERMINAL = ['FULLY_COLLECTED', 'FULLY_DISBURSED', 'BALANCED', 'VOIDED'];
-  const hasActive = settlements.some((s) => !TERMINAL.includes(s.paymentStatus));
+  const hasActive = settlements.some((s) => !s.supersededById && !TERMINAL.includes(s.paymentStatus));
   const [collapsed, setCollapsed] = useState(!hasActive);
   const statusCfg = {
     PENDING:              { bg: 'bg-amber-100', text: 'text-amber-700',  label: 'Pending' },
@@ -1348,14 +1348,17 @@ function SettlementHistorySection({ memberId }) {
           const isCollect = net > 0;
           const moved = isCollect ? Number(s.collectedAmount ?? 0) : Number(s.disbursedAmount ?? 0);
           const remaining = Math.max(0, absNet - moved);
-          const isTerminal = TERMINAL.includes(s.paymentStatus);
+          const isSuperseded = Boolean(s.supersededById);
+          const isTerminal = isSuperseded || TERMINAL.includes(s.paymentStatus);
           const isVoided = s.paymentStatus === 'VOIDED';
-          const cfg = statusCfg[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: s.paymentStatus };
+          const cfg = isSuperseded
+            ? { bg: 'bg-purple-100', text: 'text-purple-700', label: `Superseded · v${s.settlementVersion ?? 1}` }
+            : (statusCfg[s.paymentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-500', label: s.paymentStatus });
           const isOpen = activeId === s.id;
           const isExpanded = expandedSettlement === s.id;
 
           return (
-            <div key={s.id} className={isVoided ? 'opacity-60' : ''}>
+            <div key={s.id} className={isVoided || isSuperseded ? 'opacity-60' : ''}>
               {/* Settlement row */}
               <div className="px-6 py-4 flex items-center gap-4">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isCollect ? 'bg-red-50' : 'bg-green-50'}`}>
@@ -1418,7 +1421,7 @@ function SettlementHistorySection({ memberId }) {
                       {isOpen ? 'Cancel' : 'Record Payment'}
                     </button>
                   )}
-                  {!isVoided && (
+                  {!isVoided && !isSuperseded && (
                     <button
                       type="button"
                       onClick={() => setVoidId(s.id)}
@@ -1602,7 +1605,7 @@ function SettlementHistorySection({ memberId }) {
         <ConfirmDialog
           variant="danger"
           title="Void Settlement"
-          description="This posts available reversal entries and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available. This cannot be undone."
+          description="This restores captured payment statuses, posts linked treasury and credit reversals, and queues member reactivation. Legacy settlements without exact snapshots are refused."
           actionLabel="Void Settlement"
           loading={voidMutation.isPending}
           onConfirm={() => voidMutation.mutate(voidId)}

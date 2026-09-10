@@ -2356,6 +2356,9 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   const [preview, setPreview] = useState<any>(null);
   const [confirmedSettlement, setConfirmedSettlement] = useState<any>(null);
   const [detailSettlement, setDetailSettlement] = useState<any>(null);
+  const [supersedingSettlement, setSupersedingSettlement] = useState<any>(null);
+  const [supersessionReason, setSupersessionReason] = useState('');
+  const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState<string | null>(null);
 
   // Adjustment / notes
   const [adjAmount, setAdjAmount] = useState('');
@@ -2392,7 +2395,8 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   const pendingTotalPages = pendingData?.totalPages ?? 0;
   const pendingTotalElements = pendingData?.totalElements ?? 0;
 
-  const activeMembers = (members as any[]).filter((m: any) => m.status !== 'INACTIVE');
+  const activeMembers = (members as any[]).filter((m: any) =>
+    m.status !== 'INACTIVE' || m.id === supersedingSettlement?.memberId);
   const filteredMembers = activeMembers.filter((m: any) => {
     if (!memberSearch) return true;
     const q = memberSearch.toLowerCase();
@@ -2415,6 +2419,8 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
       const adj = adjAmount ? Number(adjAmount) : null;
       return confirmSettlement(
         memberId, chitItems, notes || undefined, adj, adjReason || undefined, idempotencyKey,
+        supersedingSettlement?.id ?? null,
+        supersedingSettlement ? supersessionReason.trim() : null,
       );
     },
     onSuccess: (settlement) => {
@@ -2471,7 +2477,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   function confirmVoidSettlement(s: any) {
     Alert.alert(
       'Void Settlement',
-      'This posts the reversals currently supported and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available.',
+      'This restores captured payment statuses, posts linked treasury and credit reversals, and queues member reactivation. Legacy settlements without snapshots are refused.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Void Settlement', style: 'destructive', onPress: () => voidSettlementMut.mutate(s.id) },
@@ -2482,6 +2488,8 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   function resetAll() {
     setStep('pick'); setMemberId(''); setMemberSearch(''); setPreview(null);
     setAdjAmount(''); setAdjReason(''); setNotes('');
+    setSupersedingSettlement(null); setSupersessionReason('');
+    setConfirmIdempotencyKey(null);
     setPayMode('CASH'); setPayRef(''); setPayNotes('');
     setConfirmedSettlement(null); setExpanded({});
   }
@@ -2639,8 +2647,10 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                 const absNet = Math.abs(net);
                 const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red };
                 const statusLabels: Record<string, string> = { FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced', PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided' };
-                const sColor = statusColors[s.paymentStatus] ?? C.gray400;
-                const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
+                const sColor = s.supersededById ? SETT_PURPLE : (statusColors[s.paymentStatus] ?? C.gray400);
+                const sLabel = s.supersededById
+                  ? `Superseded · v${s.settlementVersion ?? 1}`
+                  : (statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? ''));
                 return (
                   <TouchableOpacity key={s.id ?? i} onPress={() => setDetailSettlement(s)} activeOpacity={0.75}>
                     <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: SETT_PURPLE }}>
@@ -2833,24 +2843,40 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             placeholderTextColor={C.gray400}
             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60, textAlignVertical: 'top', marginBottom: 20 }} />
 
+          {supersedingSettlement && (
+            <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1.5, borderColor: '#FCD34D', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>Audited correction</Text>
+              <Text style={{ fontSize: 11, color: '#92400E', marginTop: 3, marginBottom: 8 }}>
+                Replaces version {supersedingSettlement.settlementVersion ?? 1}; the original remains in history.
+              </Text>
+              <TextInput
+                value={supersessionReason}
+                onChangeText={setSupersessionReason}
+                multiline
+                placeholder="Mandatory reason for replacing this settlement"
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1, borderColor: '#FCD34D', borderRadius: 8, padding: 10, backgroundColor: C.white, minHeight: 55, textAlignVertical: 'top' }}
+              />
+            </View>
+          )}
+
           <Button
-            label={`Confirm Settlement${finalNet !== 0 ? ` — ₹${Math.abs(finalNet).toLocaleString('en-IN')}` : ''}`}
-            variant="primary" fullWidth disabled={isExpired || (adjAmount !== '' && !adjReason.trim())}
+            label={`${supersedingSettlement ? 'Confirm Corrected Settlement' : 'Confirm Settlement'}${finalNet !== 0 ? ` — ₹${Math.abs(finalNet).toLocaleString('en-IN')}` : ''}`}
+            variant="primary" fullWidth disabled={isExpired || (adjAmount !== '' && !adjReason.trim()) || (!!supersedingSettlement && !supersessionReason.trim())}
             loading={confirmMut.isPending}
-            onPress={() => Alert.alert(
-              'Confirm Settlement',
-              `Settle ${selectedMember?.fullName}?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive. This cannot be undone.`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Confirm',
-                  style: 'destructive',
-                  onPress: () => confirmMut.mutate(
-                    `mob-settle-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                  ),
-                },
-              ]
-            )}
+            onPress={() => {
+              const key = confirmIdempotencyKey
+                ?? `mob-settle-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              setConfirmIdempotencyKey(key);
+              Alert.alert(
+                supersedingSettlement ? 'Confirm Audited Correction' : 'Confirm Settlement',
+                `${supersedingSettlement ? 'Reverse the original and create a linked replacement for' : 'Settle'} ${selectedMember?.fullName}?\n\n${finalNet < 0 ? `Fund refunds ₹${Math.abs(finalNet).toLocaleString('en-IN')} to member.` : finalNet > 0 ? `Member owes ₹${Math.abs(finalNet).toLocaleString('en-IN')} to fund.` : 'No money changes hands.'}\n\nMember will be marked Inactive.`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Confirm', style: 'destructive', onPress: () => confirmMut.mutate(key) },
+                ],
+              );
+            }}
           />
           </>
           )}
@@ -2938,8 +2964,10 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             const isCollect = net > 0;
             const statusColors: Record<string, string> = { FULLY_COLLECTED: C.green, FULLY_DISBURSED: C.green, BALANCED: C.gray500, PENDING: C.amber, PARTIALLY_COLLECTED: C.navyLight, PARTIALLY_DISBURSED: C.navyLight, VOIDED: C.red };
             const statusLabels: Record<string, string> = { FULLY_COLLECTED: 'Collected', FULLY_DISBURSED: 'Disbursed', BALANCED: 'Balanced', PENDING: 'Pending', PARTIALLY_COLLECTED: 'Partial', PARTIALLY_DISBURSED: 'Partial', VOIDED: 'Voided' };
-            const sColor = statusColors[s.paymentStatus] ?? C.gray400;
-            const sLabel = statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? '');
+            const sColor = s.supersededById ? SETT_PURPLE : (statusColors[s.paymentStatus] ?? C.gray400);
+            const sLabel = s.supersededById
+              ? `Superseded · v${s.settlementVersion ?? 1}`
+              : (statusLabels[s.paymentStatus] ?? (s.paymentStatus ?? ''));
             const chitItems: any[] = s.chitItems ?? [];
             return (
               <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
@@ -3055,8 +3083,27 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                   })
                 )}
 
+                {/* Audited correction — only Phase-B settlements have snapshots. */}
+                {!s.supersededById && s.reversalReady && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSupersedingSettlement(s);
+                      setSupersessionReason('');
+                      setConfirmIdempotencyKey(null);
+                      setMemberId(s.memberId);
+                      setMemberSearch(selectedMember?.fullName ?? '');
+                      setDetailSettlement(null);
+                      setPreview(null);
+                      setStep('pick');
+                    }}
+                    style={{ marginTop: 20, paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1.5, borderColor: '#FCD34D' }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#92400E' }}>Correct &amp; Replace</Text>
+                  </TouchableOpacity>
+                )}
+
                 {/* Void — only while the settlement is still live */}
-                {s.paymentStatus !== 'VOIDED' && (
+                {s.paymentStatus !== 'VOIDED' && !s.supersededById && (
                   <TouchableOpacity
                     onPress={() => confirmVoidSettlement(s)}
                     disabled={voidSettlementMut.isPending}

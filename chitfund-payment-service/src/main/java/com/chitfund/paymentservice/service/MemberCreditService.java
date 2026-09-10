@@ -29,6 +29,14 @@ public class MemberCreditService {
                 .orElse(BigDecimal.ZERO);
     }
 
+    /** Locks the balance while a financial workflow decides and records its use. */
+    @Transactional
+    public BigDecimal getBalanceForUpdate(UUID memberId) {
+        return creditBalanceRepository.findByMemberIdForUpdate(memberId)
+                .map(MemberCreditBalance::getBalance)
+                .orElse(BigDecimal.ZERO);
+    }
+
     @Transactional(readOnly = true)
     public MemberCreditResponse getCreditDetails(UUID memberId) {
         BigDecimal balance = getBalance(memberId);
@@ -61,28 +69,7 @@ public class MemberCreditService {
      */
     @Transactional
     public void addCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) return;
-
-        MemberCreditBalance credit = creditBalanceRepository.findByMemberIdForUpdate(memberId)
-                .orElseGet(() -> MemberCreditBalance.builder()
-                        .memberId(memberId)
-                        .balance(BigDecimal.ZERO)
-                        .build());
-        credit.setBalance(credit.getBalance().add(amount));
-        creditBalanceRepository.save(credit);
-
-        creditTxnRepository.save(MemberCreditTransaction.builder()
-                .memberId(memberId)
-                .amount(amount)
-                .type("IN")
-                .sourceBatchId(batchId)
-                .chitId(chitId)
-                .description(description)
-                .createdBy(actorId)
-                .build());
-
-        log.info("Credit IN ₹{} for member {} (batch {}) — balance now ₹{}",
-                amount, memberId, batchId, credit.getBalance());
+        recordMovement(memberId, amount, "IN", batchId, null, null, chitId, actorId, description);
     }
 
     /**
@@ -91,31 +78,73 @@ public class MemberCreditService {
      */
     @Transactional
     public void consumeCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) return;
+        recordMovement(memberId, amount, "OUT", batchId, null, null, chitId, actorId, description);
+    }
+
+    /** Records credit consumed by settlement confirmation with an explicit audit link. */
+    @Transactional
+    public void consumeCreditForSettlement(UUID memberId, BigDecimal amount, UUID settlementId,
+                                           UUID actorId, String description) {
+        recordMovement(memberId, amount, "OUT", null, settlementId, null, null, actorId, description);
+    }
+
+    /** Restores exactly the credit movements created by one reversible settlement. */
+    @Transactional
+    public BigDecimal reverseCreditForSettlement(UUID settlementId, UUID memberId, UUID actorId) {
+        List<MemberCreditTransaction> originals = creditTxnRepository.findBySourceSettlementId(settlementId);
+        BigDecimal reversed = BigDecimal.ZERO;
+        for (MemberCreditTransaction original : originals) {
+            if (original.getReversalOfId() != null) {
+                continue;
+            }
+            reversed = reversed.add(original.getAmount());
+            if (creditTxnRepository.existsByReversalOfId(original.getId())) continue;
+            String reverseType = "IN".equals(original.getType()) ? "OUT" : "IN";
+            recordMovement(memberId, original.getAmount(), reverseType, null, settlementId,
+                    original.getId(), original.getChitId(), actorId,
+                    "Settlement reversal for credit transaction " + original.getId());
+        }
+        return reversed;
+    }
+
+    private void recordMovement(UUID memberId, BigDecimal amount, String type,
+                                UUID batchId, UUID settlementId, UUID reversalOfId,
+                                UUID chitId, UUID actorId, String description) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
 
         MemberCreditBalance credit = creditBalanceRepository.findByMemberIdForUpdate(memberId)
                 .orElseGet(() -> MemberCreditBalance.builder()
                         .memberId(memberId)
                         .balance(BigDecimal.ZERO)
                         .build());
-
-        BigDecimal newBalance = credit.getBalance().subtract(amount);
-        if (newBalance.compareTo(BigDecimal.ZERO) < 0) newBalance = BigDecimal.ZERO;
+        BigDecimal newBalance = "IN".equals(type)
+                ? credit.getBalance().add(amount)
+                : credit.getBalance().subtract(amount);
+        if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
+            // Settlement movements must be exact and auditable. Preserve the
+            // pre-existing clamp only for legacy payment-batch consumption.
+            if (settlementId != null) {
+                throw new IllegalStateException("Settlement credit movement would make the member balance negative");
+            }
+            newBalance = BigDecimal.ZERO;
+        }
         credit.setBalance(newBalance);
         creditBalanceRepository.save(credit);
 
         creditTxnRepository.save(MemberCreditTransaction.builder()
                 .memberId(memberId)
                 .amount(amount)
-                .type("OUT")
+                .type(type)
                 .sourceBatchId(batchId)
+                .sourceSettlementId(settlementId)
+                .reversalOfId(reversalOfId)
                 .chitId(chitId)
                 .description(description)
                 .createdBy(actorId)
                 .build());
 
-        log.info("Credit OUT ₹{} for member {} (batch {}) — balance now ₹{}",
-                amount, memberId, batchId, newBalance);
+        log.info("Credit {} ₹{} for member {} (batch {}, settlement {}) — balance now ₹{}",
+                type, amount, memberId, batchId, settlementId, newBalance);
     }
 
     /**

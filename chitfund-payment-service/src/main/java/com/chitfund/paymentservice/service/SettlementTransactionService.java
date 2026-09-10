@@ -102,6 +102,11 @@ public class SettlementTransactionService {
         Settlement settlement = settlementRepository.findByIdWithLock(settlementId, tenantId)
                 .orElseThrow(() -> new IllegalArgumentException("Settlement not found: " + settlementId));
 
+        if (settlement.getSupersededById() != null) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Cannot record money against a superseded settlement", HttpStatus.CONFLICT);
+        }
+
         // ── 3. Status gate — reject if already fully settled ─────────────────
         SettlementPaymentStatus currentStatus = settlement.getPaymentStatus();
         if (currentStatus == SettlementPaymentStatus.FULLY_COLLECTED
@@ -269,6 +274,14 @@ public class SettlementTransactionService {
                 .disbursedAmount(s.getDisbursedAmount())
                 .remainingAmount(remaining)
                 .createdAt(s.getCreatedAt())
+                .supersedesId(s.getSupersedesId())
+                .supersededById(s.getSupersededById())
+                .settlementVersion(s.getSettlementVersion())
+                .supersessionReason(s.getSupersessionReason())
+                .supersededAt(s.getSupersededAt())
+                .supersededByActor(s.getSupersededByActor())
+                .reversalCompletedAt(s.getReversalCompletedAt())
+                .reversalReady(s.isReversalReady())
                 .chitItems(s.getChitItems().stream()
                         .map(item -> SettlementResponse.ChitItemDetail.builder()
                                 .id(item.getId())
@@ -315,6 +328,7 @@ public class SettlementTransactionService {
                 .recordedAt(txn.getRecordedAt())
                 .createdAt(txn.getCreatedAt())
                 .idempotencyKey(txn.getIdempotencyKey())
+                .reversalOfId(txn.getReversalOfId())
                 .collectedAmount(settlement.getCollectedAmount())
                 .disbursedAmount(settlement.getDisbursedAmount())
                 .remainingAmount(remaining)

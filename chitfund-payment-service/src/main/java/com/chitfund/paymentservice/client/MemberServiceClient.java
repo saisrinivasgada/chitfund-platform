@@ -138,22 +138,23 @@ public class MemberServiceClient {
         return result.getOrDefault(memberId.toString(), null);
     }
 
-    /**
-     * Marks a member INACTIVE after settlement is confirmed.
-     * Fails silently — settlement is already committed; member status is best-effort.
-     */
-    @SuppressWarnings("unchecked")
-    public void deactivateMember(UUID memberId) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
-            restTemplate.exchange(
-                    memberServiceUrl + "/internal/members/" + memberId + "/deactivate",
-                    HttpMethod.PATCH,
-                    new HttpEntity<>(headers),
-                    Map.class);
-        } catch (RestClientException e) {
-            log.warn("member-service unreachable for deactivate memberId={}: {}", memberId, e.getMessage());
+    /** Strict, idempotent status synchronization used by the settlement saga. */
+    public void setMemberStatus(UUID memberId, String desiredStatus) {
+        if (!"ACTIVE".equals(desiredStatus) && !"INACTIVE".equals(desiredStatus)) {
+            throw new IllegalArgumentException("Unsupported member status sync command");
+        }
+        String action = "ACTIVE".equals(desiredStatus) ? "activate" : "deactivate";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Internal-Key", internalKey);
+        ResponseEntity<Map> response = restTemplate.exchange(
+                memberServiceUrl + "/internal/members/" + memberId + "/" + action,
+                HttpMethod.PATCH,
+                new HttpEntity<>(headers),
+                Map.class);
+        Map<?, ?> body = response.getBody();
+        if (!response.getStatusCode().is2xxSuccessful()
+                || body == null || !Boolean.TRUE.equals(body.get("success"))) {
+            throw new IllegalStateException("member-service did not apply status " + desiredStatus);
         }
     }
 

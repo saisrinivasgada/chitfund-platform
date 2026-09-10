@@ -96,6 +96,10 @@ public class SettlementPaymentTransaction {
     @Column(name = "idempotency_request_hash", nullable = false, length = 64)
     private String idempotencyRequestHash;
 
+    /** Original transaction reversed by this immutable compensating row. */
+    @Column(name = "reversal_of_id", columnDefinition = "varchar(36)")
+    private UUID reversalOfId;
+
     /** Set in @PrePersist — server-side insertion timestamp. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

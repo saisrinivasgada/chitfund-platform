@@ -21,8 +21,8 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
     // All settlements for a member within a tenant, newest first — paginated
     Page<Settlement> findByMemberIdAndTenantIdOrderBySettledAtDesc(UUID memberId, String tenantId, Pageable pageable);
 
-    // Phase A is deliberately strict: even VOIDED history blocks re-settlement
-    // until the full cross-service reversal/supersession workflow is proven.
+    // A normal confirmation cannot ignore history. Phase B corrections must name
+    // the exact prior settlement through supersedesSettlementId.
     boolean existsByMemberIdAndTenantId(UUID memberId, String tenantId);
 
     Optional<Settlement> findByTenantIdAndIdempotencyKey(String tenantId, String idempotencyKey);
@@ -56,8 +56,8 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
            countQuery = "SELECT COUNT(s) FROM Settlement s WHERE s.tenantId = :tenantId")
     Page<Settlement> findAllByTenant(@Param("tenantId") String tenantId, Pageable pageable);
 
-    @Query(value = "SELECT s FROM Settlement s WHERE s.tenantId = :tenantId AND s.paymentStatus NOT IN :terminalStatuses",
-           countQuery = "SELECT COUNT(s) FROM Settlement s WHERE s.tenantId = :tenantId AND s.paymentStatus NOT IN :terminalStatuses")
+    @Query(value = "SELECT s FROM Settlement s WHERE s.tenantId = :tenantId AND s.supersededById IS NULL AND s.paymentStatus NOT IN :terminalStatuses",
+           countQuery = "SELECT COUNT(s) FROM Settlement s WHERE s.tenantId = :tenantId AND s.supersededById IS NULL AND s.paymentStatus NOT IN :terminalStatuses")
     Page<Settlement> findPendingByTenant(
             @Param("tenantId") String tenantId,
             @Param("terminalStatuses") List<SettlementPaymentStatus> terminalStatuses,
