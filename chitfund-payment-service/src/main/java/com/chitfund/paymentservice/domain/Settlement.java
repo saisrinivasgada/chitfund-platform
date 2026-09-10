@@ -28,7 +28,9 @@ import java.util.UUID;
 @Table(name = "settlements",
         uniqueConstraints = {
                 @UniqueConstraint(name = "uk_settlement_tenant_idempotency",
-                        columnNames = {"tenant_id", "idempotency_key"})
+                        columnNames = {"tenant_id", "idempotency_key"}),
+                @UniqueConstraint(name = "uk_settlement_one_per_member",
+                        columnNames = {"tenant_id", "member_id"})
         },
         indexes = {
                 @Index(name = "idx_settlement_member", columnList = "member_id"),

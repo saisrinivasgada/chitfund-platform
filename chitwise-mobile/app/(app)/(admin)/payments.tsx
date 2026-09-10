@@ -2471,7 +2471,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
   function confirmVoidSettlement(s: any) {
     Alert.alert(
       'Void Settlement',
-      'This reverses the settlement and reopens the member\'s balances. Recorded payments against it are not automatically refunded.',
+      'This posts the reversals currently supported and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Void Settlement', style: 'destructive', onPress: () => voidSettlementMut.mutate(s.id) },

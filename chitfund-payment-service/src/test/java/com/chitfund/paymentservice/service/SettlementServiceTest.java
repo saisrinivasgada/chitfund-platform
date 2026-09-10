@@ -697,10 +697,10 @@ class SettlementServiceTest {
     }
 
     @Test
-    @DisplayName("Completed settlement blocks a second confirmation")
-    void completedSettlementBlocksSecondConfirmation() {
-        when(settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNot(
-                MEMBER_ID, "tenant-test", SettlementPaymentStatus.VOIDED)).thenReturn(true);
+    @DisplayName("Any prior settlement, including voided history, blocks a second confirmation")
+    void anyPriorSettlementBlocksSecondConfirmation() {
+        when(settlementRepository.existsByMemberIdAndTenantId(
+                MEMBER_ID, "tenant-test")).thenReturn(true);
 
         ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
 
@@ -741,7 +741,7 @@ class SettlementServiceTest {
         var response = settlementService.confirm(req, ADMIN_ID, " retry-key ");
 
         assertThat(response.getId()).isEqualTo(settlementId);
-        verify(settlementRepository, never()).existsByMemberIdAndTenantIdAndPaymentStatusNot(any(), any(), any());
+        verify(settlementRepository, never()).existsByMemberIdAndTenantId(any(), any());
         verify(settlementRepository, never()).saveAndFlush(any());
         verifyNoInteractions(chitServiceClient, payoutServiceClient);
     }

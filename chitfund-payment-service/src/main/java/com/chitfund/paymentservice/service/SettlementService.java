@@ -184,14 +184,13 @@ public class SettlementService {
             }
         }
 
-        // Completion does not make a settlement disappear: FULLY_COLLECTED,
-        // FULLY_DISBURSED and BALANCED must all block another confirmation.
-        // Only an explicitly VOIDED row allows the member to be settled again.
-        if (settlementRepository.existsByMemberIdAndTenantIdAndPaymentStatusNot(
-                memberId, tenantId, SettlementPaymentStatus.VOIDED)) {
+        // Phase A blocks every prior settlement, including VOIDED. The current
+        // void path cannot atomically reactivate the member or reverse all
+        // downstream effects, so treating VOIDED as a clean slate is unsafe.
+        if (settlementRepository.existsByMemberIdAndTenantId(memberId, tenantId)) {
             throw new BusinessException(
                     ErrorCode.SETTLEMENT_ALREADY_EXISTS,
-                    "This member has already been settled. Void the existing settlement before creating another.",
+                    "This member has already been settled. Re-settlement is disabled until the audited supersession workflow is available.",
                     HttpStatus.CONFLICT);
         }
 
@@ -830,14 +829,15 @@ public class SettlementService {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Voids a confirmed settlement. Reverts all SETTLEMENT_CLEARED payment records
-     * for the member back to OUTSTANDING so they can be included in a future settlement.
+     * Voids a confirmed settlement and posts the reversals currently supported.
+     * Re-settlement remains blocked in Phase A because member activation and all
+     * downstream side effects are not part of one atomic reversal.
      *
      * WHY OUTSTANDING and not the original status?
      * The original status before settlement was OUTSTANDING or PARTIALLY_PAID.
      * We don't store the original status at confirm time. Reverting to OUTSTANDING
-     * is conservative — the admin can then manually correct any PARTIALLY_PAID nuances.
-     * The key goal is to unblock the member from being re-settled.
+     * is conservative, but it is not a lossless reversal. That is why VOIDED is
+     * audit history rather than permission to settle the member again.
      */
     @Transactional
     public SettlementResponse voidSettlement(UUID settlementId, UUID adminId) {

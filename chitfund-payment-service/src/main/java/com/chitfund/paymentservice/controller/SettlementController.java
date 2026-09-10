@@ -145,8 +145,9 @@ public class SettlementController {
     }
 
     /**
-     * Voids a settlement — reverts all SETTLEMENT_CLEARED payment records to OUTSTANDING.
-     * Admin-only: this is a financially significant, irreversible (soft) action.
+     * Voids a settlement and posts compensating entries where supported.
+     * Phase A still blocks re-settlement because the full cross-service reversal
+     * workflow is not yet proven.
      */
     @PostMapping("/{settlementId}/void")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")

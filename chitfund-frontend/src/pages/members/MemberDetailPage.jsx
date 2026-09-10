@@ -1602,7 +1602,7 @@ function SettlementHistorySection({ memberId }) {
         <ConfirmDialog
           variant="danger"
           title="Void Settlement"
-          description="This will void the settlement and revert all SETTLEMENT_CLEARED payment records to Outstanding. The member can be re-settled after voiding. This cannot be undone."
+          description="This posts available reversal entries and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available. This cannot be undone."
           actionLabel="Void Settlement"
           loading={voidMutation.isPending}
           onConfirm={() => voidMutation.mutate(voidId)}

@@ -1,10 +1,11 @@
 """
 Settlement confirmation under concurrency — risk R5 in the plan.
 
-SettlementService.confirm now treats every non-VOIDED settlement as live, and
-V37 adds a unique (tenant, member, active_slot) database constraint. The service
-check gives a useful response in the ordinary case; the database constraint is
-the final authority when concurrent requests race on different pods.
+SettlementService.confirm now treats every prior settlement, including VOIDED,
+as blocking, and V37 adds a strict unique (tenant, member) database constraint.
+The service check gives a useful response in the ordinary case; the database
+constraint is the final authority when concurrent requests race on different
+pods. Phase B may relax this only after full reversal/supersession is proven.
 
 A duplicate settlement is not a cosmetic problem: each one clears the member's
 outstanding records and posts its own treasury movement, so the same debt would

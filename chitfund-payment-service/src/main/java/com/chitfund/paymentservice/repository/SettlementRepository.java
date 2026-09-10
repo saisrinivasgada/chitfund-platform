@@ -21,10 +21,9 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
     // All settlements for a member within a tenant, newest first — paginated
     Page<Settlement> findByMemberIdAndTenantIdOrderBySettledAtDesc(UUID memberId, String tenantId, Pageable pageable);
 
-    // A completed settlement is still live. Only an explicitly VOIDED settlement
-    // permits another confirmation for the same tenant/member.
-    boolean existsByMemberIdAndTenantIdAndPaymentStatusNot(
-            UUID memberId, String tenantId, SettlementPaymentStatus excludedStatus);
+    // Phase A is deliberately strict: even VOIDED history blocks re-settlement
+    // until the full cross-service reversal/supersession workflow is proven.
+    boolean existsByMemberIdAndTenantId(UUID memberId, String tenantId);
 
     Optional<Settlement> findByTenantIdAndIdempotencyKey(String tenantId, String idempotencyKey);
 

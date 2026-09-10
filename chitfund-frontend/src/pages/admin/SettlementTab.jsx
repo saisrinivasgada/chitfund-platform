@@ -2258,7 +2258,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         <ConfirmDialog
           variant="danger"
           title="Void Settlement"
-          description="This will void the settlement and revert all SETTLEMENT_CLEARED payment records back to Outstanding. The member can then be re-settled. This action cannot be undone."
+          description="This posts available reversal entries and marks the settlement void. Re-settlement remains blocked until the audited supersession workflow is available. This action cannot be undone."
           actionLabel="Void Settlement"
           loading={voidMutation.isPending}
           onConfirm={() => voidMutation.mutate(voidConfirmId)}
