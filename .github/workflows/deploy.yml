@@ -112,7 +112,10 @@ jobs:
             echo "backend=$(    be )"
           } >> "$GITHUB_OUTPUT"
 
-  # ── 2. Per-service compile checks (run in parallel) ───────────────────────────
+  # ── 2. Per-service compile + unit tests (run in parallel) ────────────────────
+  # These ran `compile` until 2026-09-10, which never touched src/test. The only
+  # settlement tests in the repo had been failing unnoticed for months as a
+  # result. Running `test` here means a broken test now blocks the deploy.
 
   build-user:
     name: "user-service"
@@ -127,8 +130,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-user-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-user-service -am test -q --no-transfer-progress
 
   build-member:
     name: "member-service"
@@ -143,8 +146,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-member-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-member-service -am test -q --no-transfer-progress
 
   build-chit:
     name: "chit-service"
@@ -159,8 +162,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-chit-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-chit-service -am test -q --no-transfer-progress
 
   build-payment:
     name: "payment-service"
@@ -175,8 +178,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payment-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-payment-service -am test -q --no-transfer-progress
 
   build-payout:
     name: "payout-service"
@@ -191,8 +194,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-payout-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-payout-service -am test -q --no-transfer-progress
 
   build-notification:
     name: "notification-service"
@@ -207,8 +210,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-notification-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-notification-service -am test -q --no-transfer-progress
 
   build-gateway:
     name: "api-gateway"
@@ -223,8 +226,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-api-gateway -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-api-gateway -am test -q --no-transfer-progress
 
   build-audit:
     name: "audit-service"
@@ -239,8 +242,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-audit-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-audit-service -am test -q --no-transfer-progress
 
   build-reporting:
     name: "reporting-service"
@@ -255,8 +258,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitfund-common,chitfund-reporting-service -am test-compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitfund-common,chitfund-reporting-service -am test -q --no-transfer-progress
 
   build-management:
     name: "management-service"
@@ -271,8 +274,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Compile
-        run: mvn -pl chitwise-management-service compile -q --no-transfer-progress
+      - name: Compile & test
+        run: mvn -pl chitwise-management-service test -q --no-transfer-progress
 
   build-frontend:
     name: "frontend"
