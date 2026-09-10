@@ -159,16 +159,17 @@ class TestPayoutOwnership:
             "the request may be failing validation before the ownership check")
         assert "denied" in (body.get("message") or "").lower()
 
-    @pytest.mark.xfail(
-        reason="BusinessException's 2-arg constructor hardcodes 400, so FORBIDDEN "
-               "does not surface as 403. Access is still denied; only the status "
-               "is wrong. Recorded rather than hidden — clients cannot tell a "
-               "permission failure from a bad request.",
-        strict=False)
-    def test_forbidden_status_code(self, api, token):
+    def test_forbidden_returns_403(self, api, token):
+        """
+        Until 2026-09-10 this returned 400: BusinessException's shorter
+        constructors hardcoded BAD_REQUEST regardless of the error code, so a
+        permission failure was indistinguishable from a malformed request and
+        clients that redirect on 401 never fired. Now mapped by code.
+        """
         member = token("MEMBER", member_id=str(uuid.uuid4()))
         r = api.as_role("GET", f"{api.payout}/payouts/member/{uuid.uuid4()}", member)
-        assert r.status_code == 403
+        assert r.status_code == 403, (
+            f"expected 403 for a permission failure, got {r.status_code}")
 
 
 class TestTenantIsolation:

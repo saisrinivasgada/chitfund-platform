@@ -34,13 +34,36 @@ public class BusinessException extends RuntimeException {
     public BusinessException(ErrorCode errorCode) {
         super(errorCode.getDefaultMessage());
         this.errorCode = errorCode;
-        this.httpStatus = HttpStatus.BAD_REQUEST;
+        this.httpStatus = defaultStatusFor(errorCode);
     }
 
     public BusinessException(ErrorCode errorCode, String message) {
         super(message);
         this.errorCode = errorCode;
-        this.httpStatus = HttpStatus.BAD_REQUEST;
+        this.httpStatus = defaultStatusFor(errorCode);
+    }
+
+    /**
+     * Maps an error code to the status that describes it.
+     *
+     * <p>These constructors previously hardcoded 400 for every code, so an
+     * authorization failure was indistinguishable from a malformed request:
+     * clients could not tell "you may not do this" from "your request was
+     * wrong", and the ones that return a user to sign-in on 401 never fired.
+     *
+     * <p>Only the codes whose meaning is unambiguous are mapped. Everything else
+     * keeps 400, so this narrows behaviour rather than reclassifying errors
+     * wholesale.
+     */
+    private static HttpStatus defaultStatusFor(ErrorCode errorCode) {
+        if (errorCode == null) return HttpStatus.BAD_REQUEST;
+        return switch (errorCode) {
+            case UNAUTHORIZED, TOKEN_EXPIRED, TOKEN_INVALID, REFRESH_TOKEN_EXPIRED
+                    -> HttpStatus.UNAUTHORIZED;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
+            case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            default -> HttpStatus.BAD_REQUEST;
+        };
     }
 
     public BusinessException(ErrorCode errorCode, String message, HttpStatus httpStatus) {
