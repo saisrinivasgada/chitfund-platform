@@ -723,8 +723,17 @@ public class CashRequestService {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    /**
+     * Resolves a request within the caller's tenant.
+     *
+     * <p>This was a bare findById, so an admin or manager could act on another
+     * org's request by passing its id — assignStaff, rescheduleRequest,
+     * cancelByStaff, cancelRequest and updateRequest all resolve the row through
+     * here, making those cross-tenant writes. Scoping the helper fixes every
+     * caller at once and leaves no unscoped lookup to reach for by mistake.
+     */
     private CashPaymentRequest findOrThrow(UUID id) {
-        return requestRepository.findById(id)
+        return requestRepository.findByIdAndTenantId(id, tenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
     }
 
