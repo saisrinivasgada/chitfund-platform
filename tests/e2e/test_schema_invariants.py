@@ -170,6 +170,15 @@ class TestConstraintsThatProtectMoney:
         assert str(row["version"]) == "39"
         assert row["success"] == 1
 
+    def test_payout_outbox_migration_is_applied(self, db):
+        row = db.one(
+            "chitfund_payout",
+            """SELECT version, success FROM flyway_schema_history
+               WHERE version = '10'""")
+        assert row is not None
+        assert str(row["version"]) == "10"
+        assert row["success"] == 1
+
     def test_v38_active_slot_is_a_mysql_generated_column(self, db):
         column = db.one(
             "chitfund_payment",
@@ -207,6 +216,19 @@ class TestConstraintsThatProtectMoney:
             """SELECT NON_UNIQUE, COLUMN_NAME, SEQ_IN_INDEX
                FROM information_schema.STATISTICS
                WHERE TABLE_SCHEMA = 'chitfund_payment'
+                 AND TABLE_NAME = 'event_outbox'
+                 AND INDEX_NAME = 'uq_outbox_event_destination'
+               ORDER BY SEQ_IN_INDEX""")
+        assert rows
+        assert all(row["NON_UNIQUE"] == 0 for row in rows)
+        assert [row["COLUMN_NAME"] for row in rows] == ["event_id", "destination"]
+
+    def test_payout_outbox_has_stable_event_destination_uniqueness(self, db):
+        rows = db.query(
+            "chitfund_payout",
+            """SELECT NON_UNIQUE, COLUMN_NAME, SEQ_IN_INDEX
+               FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = 'chitfund_payout'
                  AND TABLE_NAME = 'event_outbox'
                  AND INDEX_NAME = 'uq_outbox_event_destination'
                ORDER BY SEQ_IN_INDEX""")

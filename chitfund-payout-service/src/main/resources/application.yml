@@ -56,3 +56,12 @@ logging:
     com.chitfund: INFO
     org.springframework.security: WARN
     org.flywaydb: INFO
+
+chitwise:
+  events:
+    mode: ${CHITWISE_EVENTS_MODE:LEGACY}
+    relay-enabled: ${CHITWISE_EVENTS_RELAY_ENABLED:true}
+    relay-delay-ms: ${CHITWISE_EVENTS_RELAY_DELAY_MS:2000}
+    batch-size: ${CHITWISE_EVENTS_BATCH_SIZE:100}
+    max-attempts: ${CHITWISE_EVENTS_MAX_ATTEMPTS:10}
+    lease-duration: ${CHITWISE_EVENTS_LEASE_DURATION:30s}

@@ -22,6 +22,7 @@ DESTRUCTIVE — writes financial rows in two services.
 from __future__ import annotations
 
 import uuid
+import time
 from decimal import Decimal
 
 import pytest
@@ -103,6 +104,39 @@ class TestPayoutCreation:
         assert second.status_code >= 400, (
             "a second payout was created for the same chit month — the winner "
             "would be paid twice")
+
+    def test_create_commits_one_logical_event_for_both_destinations(self, api, db, winner):
+        created = _create_payout(api, winner)
+        assert created.status_code in (200, 201), created.text[:300]
+        payout_id = created.json()["data"]["id"]
+
+        rows = db.query(
+            "chitfund_payout",
+            """SELECT delivery_id, event_id, event_type, destination, status
+               FROM event_outbox WHERE aggregate_id=%s ORDER BY destination""",
+            (payout_id,))
+        assert len(rows) == 2
+        assert len({row["delivery_id"] for row in rows}) == 2
+        assert len({row["event_id"] for row in rows}) == 1
+        assert {row["event_type"] for row in rows} == {"PAYOUT_CREATED"}
+        assert {row["destination"] for row in rows} == {
+            "chitfund-notification-events", "chitfund-reporting-events"}
+
+        # The disposable stack intentionally has no SQS endpoint. Durable rows
+        # must survive the outage and eventually become operator-visible FAILED
+        # records instead of disappearing into a warning log.
+        deadline = time.monotonic() + 20
+        statuses = set()
+        while time.monotonic() < deadline:
+            statuses = {
+                row["status"] for row in db.query(
+                    "chitfund_payout",
+                    "SELECT status FROM event_outbox WHERE aggregate_id=%s",
+                    (payout_id,))}
+            if statuses == {"FAILED"}:
+                break
+            time.sleep(0.5)
+        assert statuses == {"FAILED"}, statuses
 
 
 class TestVoidRevertsAcrossServices:

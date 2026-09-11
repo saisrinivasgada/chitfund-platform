@@ -129,7 +129,7 @@ public class PayoutService {
                 Instant.now(),
                 TenantContext.get()
         );
-        publishAfterCommit(() -> eventPublisher.publish(createdEvent));
+        eventPublisher.publish(createdEvent);
 
         auditClient.log("PAYOUT", payout.getId().toString(), payout.getChitId().toString(),
                 "PAYOUT_CREATED", adminId.toString(), actorRole,
@@ -215,7 +215,7 @@ public class PayoutService {
                     Instant.now(),
                     TenantContext.get()
             );
-            publishAfterCommit(() -> eventPublisher.publish(disbursedEvent));
+            eventPublisher.publish(disbursedEvent);
 
             // If every draw in this chit now has a DISBURSED payout, auto-complete the chit.
             // WHY check here and not in chit-service?

@@ -151,6 +151,8 @@ services:
       CHIT_SERVICE_URL: http://chit-service:8082
       NOTIFICATION_SERVICE_URL: http://localhost:9999
       AUDIT_SERVICE_URL: http://localhost:9999
+      CHITWISE_EVENTS_MODE: OUTBOX
+      CHITWISE_EVENTS_MAX_ATTEMPTS: 3
     ports:
       - "127.0.0.1:9085:8085"
     depends_on:
