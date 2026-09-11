@@ -93,13 +93,46 @@ def test_two_mysql_workers_claim_without_overlap_and_stale_finalize_loses():
                 """, (claimed[0], lease_a))
             correct_finalize = cursor.rowcount
             cursor.execute(f"""
+                UPDATE `{table}`
+                SET claimed_until=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND)
+                WHERE delivery_id=%s AND lease_token=%s
+                """, (claimed[1], lease_b))
+        setup.commit()
+
+        reclaimed_lease = str(uuid.uuid4())
+        with setup.cursor() as cursor:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            cursor.execute("START TRANSACTION")
+            cursor.execute(f"""
+                SELECT delivery_id FROM `{table}`
+                WHERE status='IN_FLIGHT' AND claimed_until < UTC_TIMESTAMP(6)
+                ORDER BY claimed_until, delivery_id LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """)
+            reclaimed = cursor.fetchone()
+            assert reclaimed == (claimed[1],)
+            cursor.execute(f"""
+                UPDATE `{table}` SET lease_token=%s,
+                    claimed_until=DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 30 SECOND)
+                WHERE delivery_id=%s
+                """, (reclaimed_lease, claimed[1]))
+        setup.commit()
+
+        with setup.cursor() as cursor:
+            cursor.execute(f"""
                 UPDATE `{table}` SET status='PUBLISHED'
                 WHERE delivery_id=%s AND lease_token=%s AND status='IN_FLIGHT'
-                """, (claimed[0], "stale-lease"))
+                """, (claimed[1], lease_b))
             stale_finalize = cursor.rowcount
+            cursor.execute(f"""
+                UPDATE `{table}` SET status='PUBLISHED'
+                WHERE delivery_id=%s AND lease_token=%s AND status='IN_FLIGHT'
+                """, (claimed[1], reclaimed_lease))
+            reclaimed_finalize = cursor.rowcount
         setup.commit()
         assert correct_finalize == 1
         assert stale_finalize == 0
+        assert reclaimed_finalize == 1
     finally:
         try:
             with setup.cursor() as cursor:
