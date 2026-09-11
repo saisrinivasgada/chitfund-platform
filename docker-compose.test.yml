@@ -63,6 +63,11 @@ services:
       # In-memory storage: a reset is instant and nothing survives a teardown,
       # which is the point of a disposable stack.
       - /var/lib/mysql
+    volumes:
+      # A newly created tmpfs container must be usable without first running a
+      # reset against a previous container. The script creates all schemas used
+      # by the base stack and the optional event-delivery overlay.
+      - ./scripts/mysql/init-test-schemas.sql:/docker-entrypoint-initdb.d/10-create-test-schemas.sql:ro
     networks: [chitwise-test]
 
   user-service:

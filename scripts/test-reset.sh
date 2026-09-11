@@ -52,6 +52,8 @@ SCHEMAS=(
   chitfund_chit
   chitfund_payment
   chitfund_payout
+  chitfund_notification
+  chitfund_reporting
 )
 
 echo "Resetting ${#SCHEMAS[@]} schemas in $TEST_CONTAINER ..."
@@ -66,6 +68,7 @@ done
 echo
 echo "Schemas recreated empty. Restart the services so Flyway rebuilds them:"
 echo "  docker compose -f docker-compose.test.yml restart user-service member-service chit-service payment-service payout-service"
+echo "For the event overlay, include docker-compose.events-test.yml and restart its consumers too."
 echo
 echo "Then wait for health:"
 echo "  docker compose -f docker-compose.test.yml up -d --wait"

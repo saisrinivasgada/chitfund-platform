@@ -1,0 +1,124 @@
+# Optional successful-delivery overlay for docker-compose.test.yml.
+#
+# It uses disposable LocalStack SQS and LOGGING notifications only. DUAL mode
+# intentionally publishes each logical event through both the legacy and outbox
+# paths with the same event_id, so the consumer inboxes are forced to prove
+# deduplication under real queue delivery.
+#
+#   docker compose -f docker-compose.test.yml -f docker-compose.events-test.yml up -d --wait
+#   TEST_EVENT_STACK=true python3 -m pytest -q tests/e2e/test_event_delivery.py
+
+services:
+  localstack:
+    image: localstack/localstack:3.8.1
+    container_name: chitwise-test-localstack
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-2
+      EAGER_SERVICE_LOADING: "1"
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - ./scripts/localstack/init-sqs.sh:/etc/localstack/init/ready.d/10-init-sqs.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name chitfund-reporting-events >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks: [chitwise-test]
+
+  payment-service:
+    environment:
+      CHITWISE_EVENTS_MODE: DUAL
+      CHITWISE_EVENTS_MAX_ATTEMPTS: 10
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  payout-service:
+    environment:
+      CHITWISE_EVENTS_MODE: DUAL
+      CHITWISE_EVENTS_MAX_ATTEMPTS: 10
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: chitfund-notification-service/Dockerfile
+    container_name: chitwise-test-notification
+    environment:
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+      DB_NAME: chitfund_notification
+      DB_USERNAME: root
+      DB_PASSWORD: testpassword
+      JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
+      INTERNAL_SERVICE_KEY: test-internal-service-key
+      SPRING_PROFILES_ACTIVE: test
+      AWS_REGION: us-east-2
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_EC2_METADATA_DISABLED: "true"
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+      NOTIFICATION_SENDER_MODE: LOGGING
+      MEMBER_SERVICE_URL: http://member-service:8083
+      USER_SERVICE_URL: http://user-service:8081
+      CHIT_SERVICE_URL: http://chit-service:8082
+    ports:
+      - "127.0.0.1:9086:8086"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      member-service:
+        condition: service_healthy
+      chit-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  reporting-service:
+    build:
+      context: .
+      dockerfile: chitfund-reporting-service/Dockerfile
+    container_name: chitwise-test-reporting
+    environment:
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+      DB_NAME: chitfund_reporting
+      DB_USERNAME: root
+      DB_PASSWORD: testpassword
+      JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
+      INTERNAL_SERVICE_KEY: test-internal-service-key
+      SPRING_PROFILES_ACTIVE: test
+      AWS_REGION: us-east-2
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_EC2_METADATA_DISABLED: "true"
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+      USER_SERVICE_URL: http://user-service:8081
+    ports:
+      - "127.0.0.1:9087:8087"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
