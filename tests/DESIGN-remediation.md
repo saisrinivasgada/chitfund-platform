@@ -52,24 +52,22 @@ I proposed restoring "original committed contents" for any migration present in 
 **Revised recommendation: change nothing in the migration files.** The invariant your policy is
 protecting — repository content equals what production executed — currently holds.
 
-### 1.2b Unexplained, and worth noting rather than papering over
+### 1.2b RESOLVED — automatic repair was rewriting history
 
-I cannot explain *how* production's V10 row, installed 2026-07-07, carries the checksum of a file I
-edited on 2026-09-10. Flyway does not update checksums without an explicit repair, and I found no
-repair call. Possible explanations, none verified:
+The checksum mutation was explained during the final safety audit. Payment-service and
+member-service each registered a `FlywayMigrationStrategy` that called `flyway.repair()` before
+every `migrate()`. Flyway repair updates stored checksums to match the current files and removes
+failed migration entries, so it explains both the changed V10 checksum and why failures could
+disappear without a repair command in the deployment workflow.
 
-- the deploy re-ran the migration after the history DELETE removed a failed row, and `installed_on`
-  is not what I assume it is;
-- something outside the deploy pipeline has run `flyway repair`;
-- the checksums are being written by a path I have not found.
+Both automatic repair hooks were removed. Payment-service now validates on migrate and no longer
+allows out-of-order migration. CI runs `scripts/check-migration-safety.sh`, which rejects any future
+automatic `flyway.repair()` call and verifies an immutable SHA-256 manifest covering every existing
+Flyway SQL file.
 
-This matters because it is the same class of invisible mutation as the history DELETE. I would not
-enable `validate-on-migrate` until it is understood — if checksums can change silently, validation
-will pass while the underlying problem persists.
-
-**Suggested next step:** capture `flyway_schema_history` for payment-service now, deploy an unrelated
-change, and capture it again. If any checksum or `installed_on` moves, something is rewriting
-history and that is the real finding.
+A disposable MySQL 8 failure test changed the latest member and payment migration rows to
+`success = 0`, restarted both services, and verified both stopped while the two failed rows remained
+present. The schemas were then discarded and rebuilt from empty.
 
 ### 1.2c (superseded) Original blocked note
 
@@ -102,15 +100,8 @@ restored.
 
 No migration file changes. Production and the repository are consistent.
 
-**Still worth doing**, since consistency today is luck rather than design:
-
-1. **Checksum manifest in CI** — commit the expected checksum per migration and fail the build if a
-   committed migration's content changes. This is the guard that makes the current state an
-   invariant instead of a coincidence.
-2. **Do not enable `validate-on-migrate` yet** — see §1.2b. If something is silently rewriting
-   checksums, validation would pass while hiding it.
-3. **Resolve §1.2b first.** An unexplained mutation of migration history is the same class of
-   problem as the DELETE, and arguably worse because nothing in the repository references it.
+The checksum manifest and automatic-repair guard are now enforced in CI. Existing migration files
+remain unchanged; every schema change must be introduced as a new forward-only migration.
 
 ### 1.4 Management-service V9 — evidence it never ran in production
 

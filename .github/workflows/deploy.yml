@@ -301,6 +301,9 @@ jobs:
     needs: [build-user, build-member, build-chit, build-payment, build-payout, build-notification, build-gateway, build-audit, build-reporting, build-management, build-frontend]
     if: always()
     steps:
+      - uses: actions/checkout@v4
+      - name: Enforce immutable Flyway migrations
+        run: ./scripts/check-migration-safety.sh
       - name: Check results
         run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
