@@ -9,6 +9,7 @@ import com.chitfund.paymentservice.dto.request.TransferRequest;
 import com.chitfund.paymentservice.dto.response.AdminWalletBalanceResponse;
 import com.chitfund.paymentservice.dto.response.AdminWalletEntryResponse;
 import com.chitfund.paymentservice.repository.AdminWalletRepository;
+import com.chitfund.paymentservice.util.MoneyPaise;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,7 @@ public class AdminWalletService {
                 .accountType(req.getAccountType())
                 .entryType(req.getEntryType())
                 .amount(req.getAmount())
+                .amountPaise(MoneyPaise.exact(req.getAmount()))
                 .category(req.getCategory())
                 .description(req.getDescription())
                 .referenceId(req.getReferenceId())
@@ -102,6 +104,7 @@ public class AdminWalletService {
                 .accountType(from)
                 .entryType(WalletEntryType.OUT)
                 .amount(req.getAmount())
+                .amountPaise(MoneyPaise.exact(req.getAmount()))
                 .category("TRANSFER")
                 .description(desc)
                 .createdAt(now)
@@ -114,6 +117,7 @@ public class AdminWalletService {
                 .accountType(to)
                 .entryType(WalletEntryType.IN)
                 .amount(req.getAmount())
+                .amountPaise(MoneyPaise.exact(req.getAmount()))
                 .category("TRANSFER")
                 .description(desc)
                 .createdAt(now)
@@ -145,6 +149,7 @@ public class AdminWalletService {
                 .accountType(req.getAccountType())
                 .entryType(WalletEntryType.OUT)
                 .amount(req.getAmount())
+                .amountPaise(MoneyPaise.exact(req.getAmount()))
                 .category("CREDIT_WITHDRAWAL")
                 .description(desc)
                 .createdAt(java.time.LocalDateTime.now())

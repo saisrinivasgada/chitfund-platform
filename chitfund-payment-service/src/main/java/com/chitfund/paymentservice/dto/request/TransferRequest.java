@@ -2,6 +2,7 @@ package com.chitfund.paymentservice.dto.request;
 
 import com.chitfund.paymentservice.domain.enums.AccountType;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -15,6 +16,7 @@ public class TransferRequest {
 
     @NotNull(message = "Amount is required")
     @DecimalMin(value = "0.01", message = "Amount must be positive")
+    @Digits(integer = 10, fraction = 2, message = "Amount must fit DECIMAL(12,2)")
     private BigDecimal amount;
 
     private String description;

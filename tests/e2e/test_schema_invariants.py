@@ -170,6 +170,31 @@ class TestConstraintsThatProtectMoney:
         assert str(row["version"]) == "39"
         assert row["success"] == 1
 
+    def test_admin_wallet_paise_expand_migration_is_applied(self, db):
+        row = db.one(
+            "chitfund_payment",
+            """SELECT version, success FROM flyway_schema_history
+               WHERE version = '40'""")
+        assert row is not None
+        assert str(row["version"]) == "40"
+        assert row["success"] == 1
+
+        column = db.one(
+            "chitfund_payment",
+            """SELECT DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA='chitfund_payment'
+                 AND TABLE_NAME='admin_wallet' AND COLUMN_NAME='amount_paise'""")
+        assert column == {"DATA_TYPE": "bigint", "IS_NULLABLE": "YES"}
+
+        constraint = db.one(
+            "chitfund_payment",
+            """SELECT ENFORCED FROM information_schema.TABLE_CONSTRAINTS
+               WHERE CONSTRAINT_SCHEMA='chitfund_payment'
+                 AND TABLE_NAME='admin_wallet'
+                 AND CONSTRAINT_NAME='chk_admin_wallet_amount_paise_nonnegative'
+                 AND CONSTRAINT_TYPE='CHECK'""")
+        assert constraint == {"ENFORCED": "YES"}
+
     def test_payout_outbox_migration_is_applied(self, db):
         row = db.one(
             "chitfund_payout",

@@ -83,3 +83,10 @@ chitwise:
     retention-enabled: ${CHITWISE_EVENTS_RETENTION_ENABLED:false}
     retention-days: ${CHITWISE_EVENTS_RETENTION_DAYS:90}
     retention-batch-size: ${CHITWISE_EVENTS_RETENTION_BATCH_SIZE:1000}
+  money:
+    admin-wallet:
+      reconciliation-enabled: ${CHITWISE_ADMIN_WALLET_PAISE_RECONCILIATION_ENABLED:true}
+      reconciliation-delay-ms: ${CHITWISE_ADMIN_WALLET_PAISE_RECONCILIATION_DELAY_MS:60000}
+      # Enable only after every row has been backfilled and every running app
+      # version dual-writes. Missing rows then become release-blocking.
+      require-complete: ${CHITWISE_ADMIN_WALLET_PAISE_REQUIRE_COMPLETE:false}

@@ -25,4 +25,15 @@ public interface AdminWalletRepository extends JpaRepository<AdminWalletEntry, U
     BigDecimal sumByTenantAndAccountTypeAndEntryType(@Param("tenantId") String tenantId,
                                                       @Param("accountType") AccountType accountType,
                                                       @Param("entryType") WalletEntryType entryType);
+
+    @Query(value = "SELECT COUNT(*) FROM admin_wallet WHERE amount_paise IS NULL",
+            nativeQuery = true)
+    long countMissingPaise();
+
+    @Query(value = """
+            SELECT COUNT(*) FROM admin_wallet
+            WHERE amount_paise IS NOT NULL
+              AND amount_paise <> CAST(ROUND(amount * 100) AS SIGNED)
+            """, nativeQuery = true)
+    long countPaiseMismatches();
 }

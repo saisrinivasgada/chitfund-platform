@@ -36,6 +36,9 @@ public class AdminWalletEntry {
     @Column(nullable = false)
     private BigDecimal amount;
 
+    @Column(name = "amount_paise")
+    private Long amountPaise;
+
     private String category;
 
     @Column(columnDefinition = "TEXT")

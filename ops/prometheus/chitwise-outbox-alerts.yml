@@ -26,3 +26,21 @@ groups:
         annotations:
           summary: "{{ $labels.service }} finalized an expired or reclaimed outbox lease"
           runbook: "ops/runbooks/outbox.md"
+
+      - alert: ChitwiseMoneyShadowMismatch
+        expr: chitwise_money_shadow_mismatch > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.table }} decimal and paise values disagree"
+          runbook: "ops/runbooks/admin-wallet-paise-migration.md"
+
+      - alert: ChitwiseMoneyShadowIncompleteAfterBackfill
+        expr: chitwise_money_shadow_missing{required="true"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.table }} has missing paise values after completeness was required"
+          runbook: "ops/runbooks/admin-wallet-paise-migration.md"
