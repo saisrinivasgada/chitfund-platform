@@ -51,6 +51,20 @@ class AuditEventConsumerTest {
     }
 
     @Test
+    void nonCanonicalEventIdFailsInsteadOfBeingSilentlyTruncated() {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        AuditEventConsumer consumer = new AuditEventConsumer(
+                mock(AuditService.class), new ObjectMapper(), inbox);
+
+        assertThatThrownBy(() -> consumer.onEvent("""
+                {"eventId":"not-a-uuid","eventType":"PAYMENT_COMPLETED","payload":"{}"}
+                """))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("processing failed");
+        verify(inbox, never()).claimIfAbsent(any(), any(), any());
+    }
+
+    @Test
     void handlerFailureIsPropagatedForQueueRetry() throws Exception {
         AuditService auditService = mock(AuditService.class);
         EventInboxRepository inbox = mock(EventInboxRepository.class);

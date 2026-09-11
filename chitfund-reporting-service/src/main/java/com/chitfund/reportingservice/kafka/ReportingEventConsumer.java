@@ -17,6 +17,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Locale;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -32,6 +34,10 @@ public class ReportingEventConsumer {
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            if (!supports(envelope.eventType())) {
+                log.warn("Unknown reporting event type: {}", envelope.eventType());
+                return;
+            }
             if (isDuplicate(envelope)) {
                 log.info("Ignoring duplicate reporting event {} ({})",
                         envelope.eventId(), envelope.eventType());
@@ -48,8 +54,7 @@ public class ReportingEventConsumer {
                     onPayoutCreated(objectMapper.readValue(envelope.payload(), PayoutCreatedEvent.class));
                 case SqsQueues.EVT_PAYOUT_DISBURSED ->
                     onPayoutDisbursed(objectMapper.readValue(envelope.payload(), PayoutDisbursedEvent.class));
-                default ->
-                    log.debug("Ignored event type: {}", envelope.eventType());
+                default -> throw new IllegalStateException("Validated event type was not handled");
             }
         } catch (Exception e) {
             log.error("Failed to process reporting event: {}", e.getMessage(), e);
@@ -61,8 +66,25 @@ public class ReportingEventConsumer {
         if (envelope.eventId() == null || envelope.eventId().isBlank()) {
             return false;
         }
+        String eventId = canonicalEventId(envelope.eventId());
         return inboxRepository.claimIfAbsent(
-                envelope.eventId(), envelope.eventType(), LocalDateTime.now()) == 0;
+                eventId, envelope.eventType(), LocalDateTime.now()) == 0;
+    }
+
+    private boolean supports(String eventType) {
+        return SqsQueues.EVT_MONTH_OPENED.equals(eventType)
+                || SqsQueues.EVT_MONTH_SKIPPED.equals(eventType)
+                || SqsQueues.EVT_PAYMENT_COMPLETED.equals(eventType)
+                || SqsQueues.EVT_PAYOUT_CREATED.equals(eventType)
+                || SqsQueues.EVT_PAYOUT_DISBURSED.equals(eventType);
+    }
+
+    private String canonicalEventId(String eventId) {
+        String canonical = UUID.fromString(eventId).toString();
+        if (!canonical.equals(eventId.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("eventId must be a canonical UUID");
+        }
+        return canonical;
     }
 
     private void onMonthOpened(ChitMonthOpenedEvent event) {

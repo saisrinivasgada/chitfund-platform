@@ -123,6 +123,9 @@ services:
       PAYOUT_SERVICE_URL: http://payout-service:8085
       NOTIFICATION_SERVICE_URL: http://localhost:9999
       AUDIT_SERVICE_URL: http://localhost:9999
+      # Exercise durable event capture while every real destination is absent.
+      CHITWISE_EVENTS_MODE: OUTBOX
+      CHITWISE_EVENTS_MAX_ATTEMPTS: 3
     ports:
       - "127.0.0.1:9084:8084"
     depends_on:

@@ -33,8 +33,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -766,20 +764,6 @@ public class CashRequestService {
                 .orElseThrow(() -> new ResourceNotFoundException("CashPaymentRequest", id));
     }
 
-    /** Publishes a Kafka event only after the surrounding DB transaction commits, preventing phantom events on rollback. */
-    private void publishAfterCommit(Runnable publish) {
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    try { publish.run(); }
-                    catch (Exception e) { log.error("Post-commit event publish failed: {}", e.getMessage()); }
-                }
-            });
-        } else {
-            publish.run();
-        }
-    }
-
     private CashRequestResponse toResponse(CashPaymentRequest r) {
         return CashRequestResponse.builder()
                 .id(r.getId())
@@ -828,24 +812,26 @@ public class CashRequestService {
     private void publishCashRequestEvent(String eventType, CashPaymentRequest req,
                                           String memberName, String staffName,
                                           BigDecimal collectedAmount, String extraData) {
+        // memberId in the entity is always the user-service UUID (either self-created JWT principal,
+        // or resolved from member-service UUID in createRequestByAdmin).
+        // Resolution failure must not prevent durable event capture, so the known ID is the fallback.
+        String memberUserId = req.getMemberId().toString();
         try {
-            // memberId in the entity is always the user-service UUID (either self-created JWT principal,
-            // or resolved from member-service UUID in createRequestByAdmin).
-            // getMemberUserId() returns null when passed a user-service UUID (correct — it's already a userId).
-            // In that case fall back to memberId itself as the userId so the event always has a memberUserId.
-            String memberUserId = memberServiceClient.getMemberUserId(req.getMemberId());
-            if (memberUserId == null) memberUserId = req.getMemberId().toString();
-            String tenantId = com.chitfund.common.context.TenantContext.get();
-            CashRequestEvent event = new CashRequestEvent(
-                    tenantId,
-                    req.getId().toString(), eventType,
-                    req.getMemberId().toString(), memberUserId,
-                    req.getAssignedStaffId() != null ? req.getAssignedStaffId().toString() : null,
-                    req.getRequestedAmount(), memberName, staffName,
-                    Instant.now(), collectedAmount, extraData);
-            publishAfterCommit(() -> eventPublisher.publish(event));
-        } catch (Exception e) {
-            log.warn("Failed to build cash request event {}: {}", eventType, e.getMessage());
+            String resolved = memberServiceClient.getMemberUserId(req.getMemberId());
+            if (resolved != null) memberUserId = resolved;
+        } catch (Exception exception) {
+            log.warn("Could not resolve member user ID for cash request {}; using member ID",
+                    req.getId());
         }
+
+        String tenantId = com.chitfund.common.context.TenantContext.get();
+        CashRequestEvent event = new CashRequestEvent(
+                tenantId,
+                req.getId().toString(), eventType,
+                req.getMemberId().toString(), memberUserId,
+                req.getAssignedStaffId() != null ? req.getAssignedStaffId().toString() : null,
+                req.getRequestedAmount(), memberName, staffName,
+                Instant.now(), collectedAmount, extraData);
+        eventPublisher.publish(event);
     }
 }

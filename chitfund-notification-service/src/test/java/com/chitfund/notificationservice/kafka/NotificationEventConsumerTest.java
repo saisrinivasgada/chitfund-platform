@@ -61,6 +61,18 @@ class NotificationEventConsumerTest {
     }
 
     @Test
+    void nonCanonicalEventIdFailsInsteadOfBeingSilentlyTruncated() {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+
+        assertThatThrownBy(() -> consumer(inbox, mock(NotificationService.class)).onEvent("""
+                {"eventId":"not-a-uuid","eventType":"PAYMENT_COMPLETED","payload":"{}"}
+                """))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("processing failed");
+        verify(inbox, never()).claimIfAbsent(any(), any(), any());
+    }
+
+    @Test
     void legacyEnvelopeWithoutEventIdRemainsCompatible() {
         EventInboxRepository inbox = mock(EventInboxRepository.class);
 

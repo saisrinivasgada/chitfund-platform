@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -43,6 +44,10 @@ public class NotificationEventConsumer {
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            if (!supports(envelope.eventType())) {
+                log.warn("Unknown notification event type: {}", envelope.eventType());
+                return;
+            }
             if (isDuplicate(envelope)) {
                 log.info("Ignoring duplicate notification event {} ({})",
                         envelope.eventId(), envelope.eventType());
@@ -65,8 +70,7 @@ public class NotificationEventConsumer {
                     onMemberUpdated(objectMapper.readValue(envelope.payload(), MemberUpdatedEvent.class));
                 case SqsQueues.EVT_CASH_REQUEST_EVENT ->
                     onCashRequestEvent(objectMapper.readValue(envelope.payload(), CashRequestEvent.class));
-                default ->
-                    log.warn("Unknown notification event type: {}", envelope.eventType());
+                default -> throw new IllegalStateException("Validated event type was not handled");
             }
         } catch (Exception e) {
             log.error("Failed to process notification event: {}", e.getMessage(), e);
@@ -78,8 +82,28 @@ public class NotificationEventConsumer {
         if (envelope.eventId() == null || envelope.eventId().isBlank()) {
             return false;
         }
+        String eventId = canonicalEventId(envelope.eventId());
         return inboxRepository.claimIfAbsent(
-                envelope.eventId(), envelope.eventType(), LocalDateTime.now()) == 0;
+                eventId, envelope.eventType(), LocalDateTime.now()) == 0;
+    }
+
+    private boolean supports(String eventType) {
+        return SqsQueues.EVT_MONTH_OPENED.equals(eventType)
+                || SqsQueues.EVT_MONTH_SKIPPED.equals(eventType)
+                || SqsQueues.EVT_CASH_COLLECTED.equals(eventType)
+                || SqsQueues.EVT_PAYMENT_COMPLETED.equals(eventType)
+                || SqsQueues.EVT_PAYOUT_CREATED.equals(eventType)
+                || SqsQueues.EVT_PAYOUT_DISBURSED.equals(eventType)
+                || SqsQueues.EVT_MEMBER_UPDATED.equals(eventType)
+                || SqsQueues.EVT_CASH_REQUEST_EVENT.equals(eventType);
+    }
+
+    private String canonicalEventId(String eventId) {
+        String canonical = UUID.fromString(eventId).toString();
+        if (!canonical.equals(eventId.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("eventId must be a canonical UUID");
+        }
+        return canonical;
     }
 
     // ── Month opened — all members get "installment due" alert ───────────────

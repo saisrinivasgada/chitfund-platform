@@ -7,11 +7,8 @@ dead addresses, so every test here executes with those downstreams already
 failing. If a collection still succeeds and the ledger is still correct, the
 degradation is genuinely graceful rather than merely untested.
 
-This is also where risk R2 shows: event publishing is fire-and-forget after
-commit, with no outbox. A payment survives a publish failure — which these
-prove — but reporting and notification then silently diverge from the ledger,
-and nothing reconciles them. That gap is recorded here rather than asserted
-away, because it needs a design decision.
+This is also where the R2 regression is pinned: failed event delivery must leave
+a durable, retryable outbox row that operations can observe and replay.
 
     pytest tests/e2e/test_failure_resilience.py -v
 
@@ -21,6 +18,7 @@ DESTRUCTIVE — writes financial rows.
 from __future__ import annotations
 
 import uuid
+import time
 from decimal import Decimal
 
 import pytest
@@ -133,15 +131,9 @@ class TestVoidUnderFailure:
 
 
 class TestEventDeliveryGap:
-    """
-    R2, recorded rather than asserted away.
+    """R2 regression: a downstream outage is visible and retryable."""
 
-    Events publish after commit with no outbox. The payment is safe — that is
-    what the tests above prove — but a failed publish is never retried and
-    nothing reconciles the ledger against reporting afterwards.
-    """
-
-    def test_payment_is_durable_even_though_events_are_not(self, api, db, open_month):
+    def test_payment_is_durable_while_event_destinations_are_down(self, api, db, open_month):
         api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
                     json={"chitId": open_month["chit_id"],
                           "memberId": open_month["member_id"],
@@ -154,17 +146,88 @@ class TestEventDeliveryGap:
         assert any(b["status"] == "COMPLETED" for b in batches), (
             "the payment did not survive an event-publish failure")
 
-    @pytest.mark.xfail(
-        reason="R2: there is no outbox. A publish failure after commit is logged "
-               "and dropped, so reporting and notification can diverge from the "
-               "ledger with nothing to detect or repair it. Recorded as a known "
-               "gap — fixing it means adding a transactional outbox, which is a "
-               "design decision rather than a patch.",
-        strict=False)
-    def test_an_outbox_records_undelivered_events(self, db):
-        tables = db.query(
+    def test_an_outbox_records_undelivered_events(self, api, db, open_month):
+        payment = api.as_role(
+            "POST", f"{api.payment}/payments", open_month["admin"],
+            headers={"X-Idempotency-Key": str(uuid.uuid4())},
+            json={"chitId": open_month["chit_id"],
+                  "memberId": open_month["member_id"],
+                  "amount": 250, "paymentMode": "UPI"})
+        assert payment.status_code == 201, payment.text[:300]
+        batch_id = payment.json()["data"]["id"]
+
+        deliveries = list(db.query(
             "chitfund_payment",
-            """SELECT TABLE_NAME FROM information_schema.TABLES
-               WHERE TABLE_SCHEMA = 'chitfund_payment'
-                 AND TABLE_NAME LIKE '%outbox%'""")
-        assert list(tables), "no outbox table exists to hold undelivered events"
+            """SELECT delivery_id, event_id, event_type, destination, status,
+                      attempts, payload
+               FROM event_outbox WHERE aggregate_id=%s""",
+            (batch_id,)))
+        assert len(deliveries) == 3
+        assert len({row["delivery_id"] for row in deliveries}) == 3
+        assert len({row["event_id"] for row in deliveries}) == 1
+        assert {row["destination"] for row in deliveries} == {
+            "chitfund-notification-events",
+            "chitfund-audit-events",
+            "chitfund-reporting-events",
+        }
+        assert {row["event_type"] for row in deliveries} == {"PAYMENT_COMPLETED"}
+        assert all(row["status"] in {"PENDING", "IN_FLIGHT", "FAILED"}
+                   for row in deliveries)
+
+    def test_failed_delivery_can_be_replayed_without_changing_identity(
+            self, api, db, token, open_month):
+        payment = api.as_role(
+            "POST", f"{api.payment}/payments", open_month["admin"],
+            headers={"X-Idempotency-Key": str(uuid.uuid4())},
+            json={"chitId": open_month["chit_id"],
+                  "memberId": open_month["member_id"],
+                  "amount": 250, "paymentMode": "UPI"})
+        assert payment.status_code == 201, payment.text[:300]
+        batch_id = payment.json()["data"]["id"]
+
+        delivery = None
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            delivery = db.one(
+                "chitfund_payment",
+                """SELECT delivery_id, event_id, payload, status
+                   FROM event_outbox
+                   WHERE aggregate_id=%s AND status='FAILED'
+                   ORDER BY delivery_id LIMIT 1""",
+                (batch_id,))
+            if delivery:
+                break
+            time.sleep(0.25)
+        assert delivery is not None, "delivery did not exhaust its configured retries"
+
+        other_tenant_admin = token(
+            "ADMIN", tenant="20000000-0000-0000-0000-000000000002")
+        blocked = api.as_role(
+            "POST",
+            f"{api.payment}/admin/outbox/{delivery['delivery_id']}/replay",
+            other_tenant_admin,
+            json={"reason": "must not cross tenant boundary"})
+        assert blocked.status_code == 404, blocked.text[:300]
+
+        replayed = api.as_role(
+            "POST",
+            f"{api.payment}/admin/outbox/{delivery['delivery_id']}/replay",
+            open_month["admin"],
+            json={"reason": "failure-injection endpoint recovered"})
+        assert replayed.status_code == 200, replayed.text[:300]
+
+        unchanged = db.one(
+            "chitfund_payment",
+            """SELECT event_id, payload FROM event_outbox WHERE delivery_id=%s""",
+            (delivery["delivery_id"],))
+        assert unchanged["event_id"] == delivery["event_id"]
+        assert unchanged["payload"] == delivery["payload"]
+        audit = db.one(
+            "chitfund_payment",
+            """SELECT tenant_id, replayed_by, reason
+               FROM event_outbox_replay_audit WHERE delivery_id=%s""",
+            (delivery["delivery_id"],))
+        assert audit is not None
+        assert audit["tenant_id"] == "10000000-0000-0000-0000-000000000001"
+        assert audit["reason"] == "failure-injection endpoint recovered"
+        assert audit["replayed_by"] == "00000000-0000-0000-0000-0000000000aa"
