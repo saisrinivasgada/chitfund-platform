@@ -93,7 +93,8 @@ public class SettlementPaymentTransaction {
     @Column(name = "idempotency_key", nullable = false, length = 36)
     private String idempotencyKey;
 
-    @Column(name = "idempotency_request_hash", nullable = false, length = 64)
+    @Column(name = "idempotency_request_hash", nullable = false, length = 64,
+            columnDefinition = "char(64)")
     private String idempotencyRequestHash;
 
     /** Original transaction reversed by this immutable compensating row. */

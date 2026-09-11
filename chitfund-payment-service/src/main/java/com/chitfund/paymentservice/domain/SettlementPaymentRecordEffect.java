@@ -32,11 +32,13 @@ public class SettlementPaymentRecordEffect {
     private UUID paymentRecordId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "before_status", nullable = false, length = 20, updatable = false)
+    @Column(name = "before_status", nullable = false, length = 20, updatable = false,
+            columnDefinition = "varchar(20)")
     private PaymentRecordStatus beforeStatus;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "after_status", nullable = false, length = 20, updatable = false)
+    @Column(name = "after_status", nullable = false, length = 20, updatable = false,
+            columnDefinition = "varchar(20)")
     private PaymentRecordStatus afterStatus;
 
     @Column(name = "before_amount_paid", nullable = false, precision = 15, scale = 2, updatable = false)

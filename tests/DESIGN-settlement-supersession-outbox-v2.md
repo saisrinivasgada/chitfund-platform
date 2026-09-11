@@ -1,8 +1,11 @@
 # Refined design — settlement supersession and transactional outbox
 
-Status: **Phase B settlement supersession implemented on the local `test`
-branch; release approval is blocked on disposable MySQL verification. The
-general transactional outbox and paise migration remain design only.**
+Status: **Phase B settlement supersession is implemented on the local `test`
+branch and its V37/V38 schema, duplicate-confirm race, supersession race,
+VOIDED-history behavior, partial-disbursement compensation, payment-record
+snapshots, treasury reversal and audit links were verified against disposable
+MySQL 8 on 2026-09-10. The general transactional outbox and paise migration
+remain design only.**
 
 This document follows the emergency Phase A duplicate guard. V37's database
 key permits one non-VOIDED settlement per `(tenant_id, member_id)`, while the
@@ -99,8 +102,10 @@ GENERATED ALWAYS AS (
 UNIQUE KEY uq_settlement_live (tenant_id, member_id, active_slot)
 ```
 
-The generated-column behavior and multiple-NULL uniqueness must be tested on
-the same MySQL 8 version used by production, not H2.
+The generated-column behavior and multiple-NULL uniqueness are covered by
+`tests/e2e/test_schema_invariants.py` and the concurrent acceptance tests in
+`tests/e2e/test_settlement_supersession.py`. They passed on disposable MySQL
+8.0; H2 is not used for this release gate.
 
 ### Supersession transaction
 
@@ -151,7 +156,18 @@ net treasury effect
 Every reversal pair must sum to zero by account type and currency. The global
 treasury must equal the independently reconstructed ledger after every step.
 
-### Required tests before Phase B release
+### Phase B verification matrix
+
+The disposable MySQL suite now proves the generated-column/index definition,
+sequential and concurrent duplicate-confirm protection, concurrent
+supersession, VOIDED history followed by one live replacement, and a real
+partially disbursed refund whose payment-record, transaction, treasury and
+audit effects are compensated and replaced. Service-level tests cover exact
+record restoration, linked credit compensation, idempotency conflicts, legacy
+row refusal and member-status retry/lease behavior.
+
+The broader fault-injection cases below remain recommended release-hardening
+coverage; they are not claims made by the completed MySQL acceptance run:
 
 - supersede before any money moves;
 - partially and fully collected settlement;

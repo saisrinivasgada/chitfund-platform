@@ -152,6 +152,46 @@ class TestConstraintsThatProtectMoney:
                  AND TABLE_NAME = 'chit_month_draws' AND COLUMN_NAME = 'tenant_id'""")
         assert count == 1
 
+    def test_v37_and_v38_are_applied(self, db):
+        rows = db.query(
+            "chitfund_payment",
+            """SELECT version, success FROM flyway_schema_history
+               WHERE version IN ('37', '38') ORDER BY installed_rank""")
+        assert [(str(row["version"]), row["success"]) for row in rows] == [
+            ("37", 1), ("38", 1)
+        ]
+
+    def test_v38_active_slot_is_a_mysql_generated_column(self, db):
+        column = db.one(
+            "chitfund_payment",
+            """SELECT DATA_TYPE, EXTRA, GENERATION_EXPRESSION
+               FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = 'chitfund_payment'
+                 AND TABLE_NAME = 'settlements'
+                 AND COLUMN_NAME = 'active_slot'""")
+        assert column is not None
+        assert column["DATA_TYPE"] == "tinyint"
+        assert "STORED GENERATED" in column["EXTRA"].upper()
+        expression = column["GENERATION_EXPRESSION"].lower()
+        assert "superseded_by_id" in expression
+        assert "payment_status" in expression
+        assert "voided" in expression
+
+    def test_v38_unique_index_allows_only_one_live_settlement(self, db):
+        rows = db.query(
+            "chitfund_payment",
+            """SELECT NON_UNIQUE, COLUMN_NAME, SEQ_IN_INDEX
+               FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = 'chitfund_payment'
+                 AND TABLE_NAME = 'settlements'
+                 AND INDEX_NAME = 'uk_settlement_one_live_per_member'
+               ORDER BY SEQ_IN_INDEX""")
+        assert rows
+        assert all(row["NON_UNIQUE"] == 0 for row in rows)
+        assert [row["COLUMN_NAME"] for row in rows] == [
+            "tenant_id", "member_id", "active_slot"
+        ]
+
 
 class TestLedgerInvariants:
     """

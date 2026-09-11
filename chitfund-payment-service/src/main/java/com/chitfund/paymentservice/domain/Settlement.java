@@ -124,7 +124,7 @@ public class Settlement {
     private String idempotencyKey;
 
     /** SHA-256 of the financial request fields; prevents a key being reused for different data. */
-    @Column(name = "idempotency_request_hash", length = 64)
+    @Column(name = "idempotency_request_hash", length = 64, columnDefinition = "char(64)")
     private String idempotencyRequestHash;
 
     @Column(name = "supersedes_id", columnDefinition = "varchar(36)")
@@ -156,7 +156,7 @@ public class Settlement {
 
     // Read-only mapping of the MySQL generated column used by the live-row key.
     @Column(name = "active_slot", insertable = false, updatable = false)
-    private Integer activeSlot;
+    private Byte activeSlot;
 
     @OneToMany(mappedBy = "settlement", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default

@@ -5,7 +5,7 @@
   <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="chitfund-service"/>
 
   <!-- ── Dev profile: human-readable coloured console ─────────────────────── -->
-  <springProfile name="dev,local,default">
+  <springProfile name="dev,local,default,test">
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
       <encoder>
         <pattern>%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr([${appName}]){cyan} %clr([%X{requestId:-no-req}]){yellow} %clr([t:%X{tenantId:-—}]){blue} %clr([u:%X{userId:-—}]){magenta} %clr(%-40.40logger{39}){cyan} : %m%n%wEx</pattern>

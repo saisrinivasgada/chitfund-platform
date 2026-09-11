@@ -62,10 +62,6 @@ def _confirm(api, m):
 class TestDuplicateSettlement:
     """Regression coverage for sequential and concurrent confirmation."""
 
-    @pytest.mark.xfail(
-        reason="Fix implemented in SettlementService and V37/V38; keep this as a "
-               "pending live-stack check until migrations are applied to disposable MySQL.",
-        strict=False)
     def test_sequential_second_confirm_is_refused(self, api, db, settleable_member):
         first = _confirm(api, settleable_member)
         second = _confirm(api, settleable_member)
@@ -74,10 +70,6 @@ class TestDuplicateSettlement:
             "a second settlement was confirmed for a member who already had one")
         assert len(_settlements(db, settleable_member["member_id"])) == 1
 
-    @pytest.mark.xfail(
-        reason="V38 supplies the live-row concurrency constraint, but this machine has no "
-               "Docker/MySQL runtime to apply it and prove the two-request race.",
-        strict=False)
     def test_concurrent_confirms_create_at_most_one_settlement(self, api, db, settleable_member):
         with ThreadPoolExecutor(max_workers=2) as ex:
             results = [f.result() for f in

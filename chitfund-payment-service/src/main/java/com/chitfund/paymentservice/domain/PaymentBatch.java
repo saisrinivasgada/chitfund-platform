@@ -68,7 +68,7 @@ public class PaymentBatch {
     @Column(name = "idempotency_operation", length = 32)
     private String idempotencyOperation;
 
-    @Column(name = "idempotency_request_hash", length = 64)
+    @Column(name = "idempotency_request_hash", length = 64, columnDefinition = "char(64)")
     private String idempotencyRequestHash;
 
     @Column(nullable = false)
