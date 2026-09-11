@@ -80,6 +80,9 @@ jobs:
             frontend:
               - 'chitfund-frontend/**'
             backend:
+              - 'docker-compose.prod.yml'
+              - 'scripts/fetch-secrets.sh'
+              - '.github/workflows/deploy.yml'
               - 'chitfund-common/**'
               - 'chitfund-user-service/**'
               - 'chitfund-member-service/**'
@@ -325,6 +328,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Enforce immutable Flyway migrations
         run: ./scripts/check-migration-safety.sh
+      - name: Validate production configuration
+        env:
+          JWT_SECRET: ci-jwt-secret-that-is-long-enough-for-validation
+          INTERNAL_SERVICE_KEY: ci-internal-service-key-for-compose-validation
+          DB_HOST: mysql.example.invalid
+          DB_PASSWORD: ci-database-password
+          MANAGEMENT_JWT_SECRET: ci-management-jwt-secret-long-enough
+          MAIL_USERNAME: ci@example.invalid
+          MAIL_PASSWORD: ci-mail-password
+        run: |
+          python3 scripts/check-production-config.py
+          docker compose -f docker-compose.prod.yml config --quiet
       - name: Check results
         run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
