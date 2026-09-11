@@ -5,4 +5,10 @@ package com.chitfund.common.event;
  * eventType is a short string constant (e.g. "CASH_COLLECTED") that consumers
  * use to route to the correct handler without needing a separate queue per event.
  */
-public record SqsEventEnvelope(String eventType, String payload) {}
+public record SqsEventEnvelope(String eventId, String eventType, String payload) {
+
+    /** Backward-compatible constructor for producers not yet assigning event IDs. */
+    public SqsEventEnvelope(String eventType, String payload) {
+        this(null, eventType, payload);
+    }
+}

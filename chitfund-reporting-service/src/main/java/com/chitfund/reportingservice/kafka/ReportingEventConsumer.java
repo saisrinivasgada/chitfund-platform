@@ -4,15 +4,18 @@ import com.chitfund.common.event.*;
 import com.chitfund.reportingservice.dto.ingest.CollectionSnapshotEvent;
 import com.chitfund.reportingservice.dto.ingest.MemberPaymentEvent;
 import com.chitfund.reportingservice.dto.ingest.PayoutEvent;
+import com.chitfund.reportingservice.repository.EventInboxRepository;
 import com.chitfund.reportingservice.service.ReportIngestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
 @Component
@@ -22,11 +25,18 @@ public class ReportingEventConsumer {
 
     private final ReportIngestService ingestService;
     private final ObjectMapper objectMapper;
+    private final EventInboxRepository inboxRepository;
 
     @SqsListener(SqsQueues.REPORTING_EVENTS)
+    @Transactional
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            if (isDuplicate(envelope)) {
+                log.info("Ignoring duplicate reporting event {} ({})",
+                        envelope.eventId(), envelope.eventType());
+                return;
+            }
             switch (envelope.eventType()) {
                 case SqsQueues.EVT_MONTH_OPENED ->
                     onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));
@@ -45,6 +55,14 @@ public class ReportingEventConsumer {
             log.error("Failed to process reporting event: {}", e.getMessage(), e);
             throw new IllegalStateException("Reporting event processing failed", e);
         }
+    }
+
+    private boolean isDuplicate(SqsEventEnvelope envelope) {
+        if (envelope.eventId() == null || envelope.eventId().isBlank()) {
+            return false;
+        }
+        return inboxRepository.claimIfAbsent(
+                envelope.eventId(), envelope.eventType(), LocalDateTime.now()) == 0;
     }
 
     private void onMonthOpened(ChitMonthOpenedEvent event) {

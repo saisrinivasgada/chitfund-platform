@@ -6,6 +6,7 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.client.UserServiceClient;
 import com.chitfund.notificationservice.domain.enums.NotificationEventType;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
+import com.chitfund.notificationservice.repository.EventInboxRepository;
 import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
@@ -14,8 +15,10 @@ import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,11 +36,18 @@ public class NotificationEventConsumer {
     private final MemberServiceClient memberServiceClient;
     private final UserServiceClient userServiceClient;
     private final ChitServiceClient chitServiceClient;
+    private final EventInboxRepository inboxRepository;
 
     @SqsListener(SqsQueues.NOTIFICATION_EVENTS)
+    @Transactional
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
+            if (isDuplicate(envelope)) {
+                log.info("Ignoring duplicate notification event {} ({})",
+                        envelope.eventId(), envelope.eventType());
+                return;
+            }
             switch (envelope.eventType()) {
                 case SqsQueues.EVT_MONTH_OPENED ->
                     onMonthOpened(objectMapper.readValue(envelope.payload(), ChitMonthOpenedEvent.class));
@@ -62,6 +72,14 @@ public class NotificationEventConsumer {
             log.error("Failed to process notification event: {}", e.getMessage(), e);
             throw new IllegalStateException("Notification event processing failed", e);
         }
+    }
+
+    private boolean isDuplicate(SqsEventEnvelope envelope) {
+        if (envelope.eventId() == null || envelope.eventId().isBlank()) {
+            return false;
+        }
+        return inboxRepository.claimIfAbsent(
+                envelope.eventId(), envelope.eventType(), LocalDateTime.now()) == 0;
     }
 
     // ── Month opened — all members get "installment due" alert ───────────────
