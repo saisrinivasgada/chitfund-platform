@@ -7,7 +7,7 @@ snapshots, treasury reversal and audit links were verified against disposable
 MySQL 8 on 2026-09-10. The payment transactional outbox (V39), lease relay,
 consumer inboxes for reporting/notification/audit, operational metrics and
 audited tenant-scoped replay are implemented locally. The clean disposable
-stack passed 91 cross-service tests. Production still defaults to `LEGACY`;
+stack passed 94 cross-service tests. Production still defaults to `LEGACY`;
 successful SQS delivery/redelivery must be verified in a real test environment
 before switching modes. The paise migration remains a separate project.**
 
@@ -165,19 +165,17 @@ treasury must equal the independently reconstructed ledger after every step.
 The disposable MySQL suite now proves the generated-column/index definition,
 sequential and concurrent duplicate-confirm protection, concurrent
 supersession, VOIDED history followed by one live replacement, partially and
-fully collected money, partially and fully disbursed money, and consumed credit
-carried through a correction. Their payment-record, transaction, treasury,
-credit and audit effects are compensated and replaced. Service-level tests
-cover exact record restoration, linked credit compensation, idempotency
-conflicts, legacy row refusal and member-status retry/lease behavior.
+fully collected money, partially and fully disbursed money, consumed credit
+carried through a correction, a concurrent new credit write, pre-money
+supersession, OUTSTANDING restoration, and refusal after an unexpected later
+record mutation. Their payment-record, transaction, treasury, credit and audit
+effects are compensated and replaced. Service-level tests cover exact record
+restoration, linked credit compensation, idempotency conflicts, legacy row
+refusal and member-status retry/lease behavior.
 
 The broader fault-injection cases below remain recommended release-hardening
 coverage; they are not claims made by the completed MySQL acceptance run:
 
-- supersede before any money moves;
-- concurrent credit activity during supersession;
-- original OUTSTANDING and PARTIALLY_PAID record restoration;
-- conflicting later mutation refuses supersession;
 - member-service unavailable before/after commit;
 - duplicate request and same-key/different-payload behavior;
 - concurrent supersession requests;
@@ -336,7 +334,7 @@ Retention proposal:
 
 - **Passed on disposable MySQL 8:** clean V1-V39 migration, stable
   event/destination identity, two workers claiming without overlap, and
-  stale-token finalize rejection.
+  expired-lease reclaim with stale-token finalize rejection.
 - **Passed with the disposable stack and unreachable external services:**
   business commit creates durable deliveries, retries exhaust to FAILED, error
   text is sanitized, and the ledger stays committed.
@@ -349,7 +347,7 @@ Still required with a real non-production SQS endpoint:
 - slow/hung SQS call does not hold a database row lock;
 - crash after claim and before publish;
 - crash after publish and before success update;
-- lease expiry/reclaim after a real process crash;
+- lease expiry/reclaim after a real process crash and SQS interaction;
 - dual publication deduplicates at every running consumer;
 - consumer database failure rolls back inbox and side effect together;
 - alert delivery and retention cleanup;

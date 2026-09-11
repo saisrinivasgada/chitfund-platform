@@ -48,17 +48,18 @@ def _create_chit_and_partial_payment(api, token, payment_amount=400):
     })
     assert opened.status_code == 201, opened.text[:500]
 
-    paid = api.as_role(
-        "POST", f"{api.payment}/payments", admin,
-        headers={"X-Idempotency-Key": str(uuid.uuid4())},
-        json={
-            "chitId": chit_id,
-            "memberId": member_id,
-            "amount": payment_amount,
-            "paymentMode": "UPI",
-            "notes": "Phase B acceptance partial payment",
-        })
-    assert paid.status_code == 201, paid.text[:500]
+    if payment_amount is not None:
+        paid = api.as_role(
+            "POST", f"{api.payment}/payments", admin,
+            headers={"X-Idempotency-Key": str(uuid.uuid4())},
+            json={
+                "chitId": chit_id,
+                "memberId": member_id,
+                "amount": payment_amount,
+                "paymentMode": "UPI",
+                "notes": "Phase B acceptance partial payment",
+            })
+        assert paid.status_code == 201, paid.text[:500]
     return {"admin": admin, "member_id": member_id, "chit_id": chit_id}
 
 
@@ -316,6 +317,111 @@ def test_consumed_credit_is_restored_then_carried_into_replacement(api, token, d
     assert (original["type"], reversal["type"], replacement_use["type"]) == (
         "OUT", "IN", "OUT")
     assert {Decimal(str(row["amount"])) for row in credit} == {Decimal("200.00")}
+
+
+def test_supersede_before_money_moves_restores_outstanding_snapshot(api, token, db):
+    fixture = _create_chit_and_partial_payment(api, token, payment_amount=None)
+    first = _confirm(api, fixture)
+    assert first.status_code == 201, first.text[:500]
+    first_id = first.json()["data"]["id"]
+    assert Decimal(str(first.json()["data"]["netAmount"])) == Decimal("0.00")
+
+    replacement = _confirm(api, fixture, supersedes=first_id)
+    assert replacement.status_code == 201, replacement.text[:500]
+    replacement_id = replacement.json()["data"]["id"]
+
+    effects = list(db.query(
+        "chitfund_payment",
+        """SELECT settlement_id, before_status, after_status, reversed_at
+           FROM settlement_payment_record_effects
+           WHERE settlement_id IN (%s, %s)""",
+        (first_id, replacement_id)))
+    assert len(effects) == 2
+    by_settlement = {row["settlement_id"]: row for row in effects}
+    assert by_settlement[first_id]["before_status"] == "OUTSTANDING"
+    assert by_settlement[first_id]["reversed_at"] is not None
+    assert by_settlement[replacement_id]["before_status"] == "OUTSTANDING"
+    assert by_settlement[replacement_id]["after_status"] == "SETTLEMENT_CLEARED"
+    wallet_count = db.scalar(
+        "chitfund_payment",
+        """SELECT COUNT(*) FROM admin_wallet WHERE reference_id IN (
+             SELECT id FROM settlement_payment_transactions WHERE settlement_id=%s)""",
+        (first_id,))
+    assert wallet_count == 0
+
+
+def test_later_payment_record_mutation_blocks_automatic_supersession(api, token, db):
+    fixture = _create_chit_and_partial_payment(api, token)
+    first = _confirm(api, fixture)
+    assert first.status_code == 201, first.text[:500]
+    first_id = first.json()["data"]["id"]
+
+    # Deliberate fault injection: model an unexpected legacy/direct-SQL writer.
+    db.query(
+        "chitfund_payment",
+        """UPDATE payment_records SET amount_paid=401.00
+           WHERE member_id=%s AND chit_id=%s""",
+        (fixture["member_id"], fixture["chit_id"]))
+
+    replacement = _confirm(api, fixture, supersedes=first_id)
+    assert replacement.status_code == 409, replacement.text[:500]
+    rows = list(db.query(
+        "chitfund_payment",
+        """SELECT id, active_slot, superseded_by_id, reversal_completed_at
+           FROM settlements WHERE member_id=%s""",
+        (fixture["member_id"],)))
+    assert len(rows) == 1
+    assert rows[0]["id"] == first_id
+    assert rows[0]["active_slot"] == 1
+    assert rows[0]["superseded_by_id"] is None
+    assert rows[0]["reversal_completed_at"] is None
+
+
+def test_concurrent_new_credit_is_neither_lost_nor_double_consumed(api, token, db):
+    fixture = _create_chit_and_partial_payment(api, token, payment_amount=1200)
+    first = _confirm(api, fixture)
+    assert first.status_code == 201, first.text[:500]
+    first_id = first.json()["data"]["id"]
+
+    def add_credit():
+        return api.as_role(
+            "POST", f"{api.payment}/payments", fixture["admin"],
+            headers={"X-Idempotency-Key": str(uuid.uuid4())},
+            json={"chitId": fixture["chit_id"],
+                  "memberId": fixture["member_id"],
+                  "amount": 50, "paymentMode": "UPI",
+                  "notes": "Concurrent credit acceptance"})
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        superseded_future = executor.submit(
+            _confirm, api, fixture, supersedes=first_id)
+        credit_future = executor.submit(add_credit)
+        replacement = superseded_future.result()
+        credited = credit_future.result()
+
+    assert replacement.status_code == 201, replacement.text[:500]
+    assert credited.status_code == 201, credited.text[:500]
+    replacement_id = replacement.json()["data"]["id"]
+    replacement_credit = Decimal(str(db.scalar(
+        "chitfund_payment",
+        "SELECT credit_applied FROM settlements WHERE id=%s",
+        (replacement_id,))))
+    final_balance = Decimal(str(db.scalar(
+        "chitfund_payment",
+        "SELECT balance FROM member_credit_balance WHERE member_id=%s",
+        (fixture["member_id"],))))
+    assert replacement_credit + final_balance == Decimal("250.00")
+
+    ledger = list(db.query(
+        "chitfund_payment",
+        """SELECT type, amount FROM member_credit_transactions
+           WHERE member_id=%s""",
+        (fixture["member_id"],)))
+    ledger_balance = sum(
+        Decimal(str(row["amount"])) * (1 if row["type"] == "IN" else -1)
+        for row in ledger)
+    assert ledger_balance == final_balance
+    assert final_balance >= 0
 
 
 def test_v38_allows_voided_history_and_exactly_one_live_replacement(api, token, db):
