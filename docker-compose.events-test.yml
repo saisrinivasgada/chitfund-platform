@@ -60,6 +60,7 @@ services:
       JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
       INTERNAL_SERVICE_KEY: test-internal-service-key
       SPRING_PROFILES_ACTIVE: test
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
       AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -102,6 +103,7 @@ services:
       JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
       INTERNAL_SERVICE_KEY: test-internal-service-key
       SPRING_PROFILES_ACTIVE: test
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
       AWS_REGION: us-east-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

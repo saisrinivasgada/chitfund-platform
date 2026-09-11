@@ -27,6 +27,9 @@ x-test-common: &test-common
   JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
   INTERNAL_SERVICE_KEY: test-internal-service-key
   SPRING_PROFILES_ACTIVE: test
+  # Keep the seven-service event overlay reliable on 4 GB developer/CI Docker
+  # hosts. Production does not use this compose file or this heap limit.
+  JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
   # Point event publishing at nowhere. Delivery failure must not fail a payment,
   # and testing that it degrades cleanly is itself a Phase 6 case.
   AWS_REGION: us-east-2
