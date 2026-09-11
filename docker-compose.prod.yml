@@ -7,6 +7,10 @@ version: '3.8'
 x-common-env: &common-env
   JWT_SECRET: ${JWT_SECRET}
   AWS_REGION: us-east-2
+  # Activates fail-fast production secret validation in every backend service.
+  # Keep this in the shared environment so a newly added service cannot
+  # accidentally deploy using permissive development defaults.
+  SPRING_PROFILES_ACTIVE: prod
 
 x-db-env: &db-env
   DB_HOST: ${DB_HOST}
@@ -59,7 +63,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -76,7 +80,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -94,7 +98,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -115,7 +119,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -138,7 +142,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -156,7 +160,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -178,7 +182,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -196,7 +200,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net
@@ -248,7 +252,6 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitwise_management
-      SPRING_PROFILES_ACTIVE: prod
       MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
       MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
       MAIL_PORT: ${MAIL_PORT:-587}
@@ -275,7 +278,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 240s
     restart: unless-stopped
     networks:
       - chitfund-net

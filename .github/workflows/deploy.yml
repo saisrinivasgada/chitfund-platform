@@ -627,7 +627,10 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           cd /app
           docker compose -f docker-compose.prod.yml pull
-          docker compose -f docker-compose.prod.yml up -d --wait || {
+          # Cold starts on the small EC2 host regularly take 2-3 minutes while
+          # all Java services initialise together. Match Compose's overall wait
+          # to the 4-minute health-check grace period with additional headroom.
+          docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 600 || {
             echo "=== DEPLOY FAILED ==="
             docker compose -f docker-compose.prod.yml ps
             # Print logs for whatever is not running or not healthy. The handler
