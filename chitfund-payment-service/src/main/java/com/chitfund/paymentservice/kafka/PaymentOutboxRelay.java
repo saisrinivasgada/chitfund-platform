@@ -43,19 +43,23 @@ public class PaymentOutboxRelay {
         this.sqsTemplate = sqsTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.published = meterRegistry.counter("chitwise.outbox.published");
-        this.retried = meterRegistry.counter("chitwise.outbox.retried");
-        this.failed = meterRegistry.counter("chitwise.outbox.failed");
-        this.staleFinalizations = meterRegistry.counter("chitwise.outbox.stale_finalize");
+        this.published = meterRegistry.counter("chitwise.outbox.published", "service", "payment");
+        this.retried = meterRegistry.counter("chitwise.outbox.retried", "service", "payment");
+        this.failed = meterRegistry.counter("chitwise.outbox.failed", "service", "payment");
+        this.staleFinalizations = meterRegistry.counter(
+                "chitwise.outbox.stale_finalize", "service", "payment");
         Gauge.builder("chitwise.outbox.pending", pendingGauge, AtomicLong::get)
                 .description("Payment outbox deliveries waiting or currently leased")
+                .tag("service", "payment")
                 .register(meterRegistry);
         Gauge.builder("chitwise.outbox.failed.current", failedGauge, AtomicLong::get)
                 .description("Payment outbox deliveries requiring operator replay")
+                .tag("service", "payment")
                 .register(meterRegistry);
         Gauge.builder("chitwise.outbox.oldest.unpublished.seconds",
                         oldestUnpublishedSecondsGauge, AtomicLong::get)
                 .description("Age in seconds of the oldest pending or leased delivery")
+                .tag("service", "payment")
                 .register(meterRegistry);
     }
 

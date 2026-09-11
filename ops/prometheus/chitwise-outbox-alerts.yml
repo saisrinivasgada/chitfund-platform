@@ -1,0 +1,28 @@
+groups:
+  - name: chitwise-outbox
+    rules:
+      - alert: ChitwiseOutboxDeliveryFailed
+        expr: chitwise_outbox_failed_current > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} has failed financial-event deliveries"
+          runbook: "ops/runbooks/outbox.md"
+
+      - alert: ChitwiseOutboxBacklogStale
+        expr: chitwise_outbox_oldest_unpublished_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} outbox has been blocked for over five minutes"
+          runbook: "ops/runbooks/outbox.md"
+
+      - alert: ChitwiseOutboxLeaseContention
+        expr: increase(chitwise_outbox_stale_finalize_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} finalized an expired or reclaimed outbox lease"
+          runbook: "ops/runbooks/outbox.md"

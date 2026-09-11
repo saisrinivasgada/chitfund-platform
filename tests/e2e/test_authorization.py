@@ -227,3 +227,21 @@ class TestInternalEndpoints:
         assert r.status_code in REFUSED, (
             f"an internal endpoint accepted a wrong key ({r.status_code}) — "
             "these routes bypass user authentication entirely")
+
+
+class TestOperationalMetrics:
+    @pytest.mark.parametrize("service_name,url", [
+        ("payment", "payment"),
+        ("payout", "payout"),
+    ])
+    def test_outbox_metrics_are_exported_but_not_public(
+            self, api, token, service_name, url):
+        base = getattr(api, url)
+        anonymous = api.get(f"{base}/actuator/prometheus")
+        assert anonymous.status_code == 401
+
+        authenticated = api.as_role(
+            "GET", f"{base}/actuator/prometheus", token("ADMIN"))
+        assert authenticated.status_code == 200, authenticated.text[:200]
+        assert "chitwise_outbox_pending" in authenticated.text
+        assert f'service="{service_name}"' in authenticated.text

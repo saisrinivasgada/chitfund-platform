@@ -41,6 +41,11 @@ public class EventDeliveryProperties {
     private int maxAttempts = 10;
     @NotNull
     private Duration leaseDuration = Duration.ofSeconds(30);
+    private boolean retentionEnabled = false;
+    @Min(7) @Max(3650)
+    private int retentionDays = 90;
+    @Min(1) @Max(10000)
+    private int retentionBatchSize = 1000;
 
     @AssertTrue(message = "chitwise.events.lease-duration must be positive")
     public boolean isLeaseDurationPositive() {

@@ -156,5 +156,19 @@ public class PaymentOutboxStore {
         return age == null ? 0 : Math.max(0, age);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public int deletePublishedBefore(LocalDateTime cutoff, int requestedBatchSize) {
+        int batchSize = Math.max(1, Math.min(requestedBatchSize, 10000));
+        return jdbcTemplate.update("""
+                DELETE FROM event_outbox
+                WHERE status='PUBLISHED' AND published_at < ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM event_outbox_replay_audit audit
+                      WHERE audit.delivery_id=event_outbox.delivery_id)
+                ORDER BY published_at, delivery_id
+                LIMIT %d
+                """.formatted(batchSize), Timestamp.valueOf(cutoff));
+    }
+
     public record FailureResult(boolean updated, boolean terminal, int attempts) {}
 }

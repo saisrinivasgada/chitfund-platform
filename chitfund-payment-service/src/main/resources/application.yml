@@ -60,7 +60,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized
@@ -80,3 +80,6 @@ chitwise:
     batch-size: ${CHITWISE_EVENTS_BATCH_SIZE:100}
     max-attempts: ${CHITWISE_EVENTS_MAX_ATTEMPTS:10}
     lease-duration: ${CHITWISE_EVENTS_LEASE_DURATION:30s}
+    retention-enabled: ${CHITWISE_EVENTS_RETENTION_ENABLED:false}
+    retention-days: ${CHITWISE_EVENTS_RETENTION_DAYS:90}
+    retention-batch-size: ${CHITWISE_EVENTS_RETENTION_BATCH_SIZE:1000}
