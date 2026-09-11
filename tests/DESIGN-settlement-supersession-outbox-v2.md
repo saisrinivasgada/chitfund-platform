@@ -4,8 +4,12 @@ Status: **Phase B settlement supersession is implemented on the local `test`
 branch and its V37/V38 schema, duplicate-confirm race, supersession race,
 VOIDED-history behavior, partial-disbursement compensation, payment-record
 snapshots, treasury reversal and audit links were verified against disposable
-MySQL 8 on 2026-09-10. The general transactional outbox and paise migration
-remain design only.**
+MySQL 8 on 2026-09-10. The payment transactional outbox (V39), lease relay,
+consumer inboxes for reporting/notification/audit, operational metrics and
+audited tenant-scoped replay are implemented locally. The clean disposable
+stack passed 91 cross-service tests. Production still defaults to `LEGACY`;
+successful SQS delivery/redelivery must be verified in a real test environment
+before switching modes. The paise migration remains a separate project.**
 
 This document follows the emergency Phase A duplicate guard. V37's database
 key permits one non-VOIDED settlement per `(tenant_id, member_id)`, while the
@@ -160,19 +164,18 @@ treasury must equal the independently reconstructed ledger after every step.
 
 The disposable MySQL suite now proves the generated-column/index definition,
 sequential and concurrent duplicate-confirm protection, concurrent
-supersession, VOIDED history followed by one live replacement, and a real
-partially disbursed refund whose payment-record, transaction, treasury and
-audit effects are compensated and replaced. Service-level tests cover exact
-record restoration, linked credit compensation, idempotency conflicts, legacy
-row refusal and member-status retry/lease behavior.
+supersession, VOIDED history followed by one live replacement, partially and
+fully collected money, partially and fully disbursed money, and consumed credit
+carried through a correction. Their payment-record, transaction, treasury,
+credit and audit effects are compensated and replaced. Service-level tests
+cover exact record restoration, linked credit compensation, idempotency
+conflicts, legacy row refusal and member-status retry/lease behavior.
 
 The broader fault-injection cases below remain recommended release-hardening
 coverage; they are not claims made by the completed MySQL acceptance run:
 
 - supersede before any money moves;
-- partially and fully collected settlement;
-- partially and fully disbursed settlement;
-- consumed credit, including concurrent credit activity;
+- concurrent credit activity during supersession;
 - original OUTSTANDING and PARTIALLY_PAID record restoration;
 - conflicting later mutation refuses supersession;
 - member-service unavailable before/after commit;
@@ -216,7 +219,8 @@ CREATE TABLE event_outbox (
     created_at       DATETIME(6) NOT NULL,
     published_at     DATETIME(6) NULL,
     UNIQUE KEY uq_outbox_event_destination (event_id, destination),
-    INDEX idx_outbox_claim (status, available_at, claimed_until)
+    INDEX idx_outbox_pending (status, available_at, delivery_id),
+    INDEX idx_outbox_expired_lease (status, claimed_until, delivery_id)
 );
 ```
 
@@ -229,9 +233,9 @@ failure rolls back the business operation instead of silently losing its event.
 Claim transaction (short):
 
 1. Begin transaction.
-2. Select an eligible batch with `FOR UPDATE SKIP LOCKED` where:
-   - status is PENDING and `available_at <= now`, or
-   - status is IN_FLIGHT and `claimed_until < now`.
+2. Select eligible PENDING rows with `FOR UPDATE SKIP LOCKED`, using the
+   pending index. If capacity remains, select expired IN_FLIGHT rows in a
+   second indexed query.
 3. Assign a new random `lease_token`, set status IN_FLIGHT and
    `claimed_until = now + leaseDuration`.
 4. Commit and return immutable copies of the claimed rows.
@@ -252,6 +256,11 @@ If a worker hangs after SQS accepts the message, its lease expires and another
 worker sends again. This duplicate is expected. The inbox prevents repeating
 the consumer's database side effect. A stale worker cannot finalize a reclaimed
 row because its lease token no longer matches.
+
+The two claim classes are deliberately separate. The first combined `OR`
+query used a filesort/range-lock plan and deadlocked two workers on MySQL 8 even
+with `SKIP LOCKED`; the split queries and matching indexes passed the two-worker
+acceptance test.
 
 ### Consumer inbox
 
@@ -290,13 +299,14 @@ needs its own delivery outbox plus provider idempotency keys where supported.
 
 ### Operations
 
-Required metrics:
+Implemented payment-producer metrics:
 
-- pending count and age of oldest pending event;
-- in-flight count and expired leases;
-- publish success/failure/retry rate and latency;
-- failed count by event type/destination;
-- inbox duplicate count and consumer processing failures.
+- pending + in-flight count and age of oldest unpublished event;
+- current failed count;
+- cumulative publish, retry, terminal-failure and stale-finalization counters.
+
+Still required at the platform/monitoring layer: event-type/destination labels,
+publish latency, inbox duplicate/failure metrics, dashboards and alert routing.
 
 Required alerts:
 
@@ -306,9 +316,10 @@ Required alerts:
 - expired-lease growth;
 - consumer DLQ depth or processing failure spike.
 
-Replay is a guarded admin/runbook action. It changes FAILED to PENDING with a
-new availability time but preserves `event_id`, `delivery_id`, payload and the
-original failure audit. Replay requires actor, reason and an audit record.
+Replay is a `ROLE_ADMIN` action scoped by the caller's tenant. It changes FAILED
+to PENDING with a new availability time but preserves `event_id`,
+`delivery_id`, payload and the delivery's failure history. Every replay records
+actor, mandatory reason and timestamp in `event_outbox_replay_audit`.
 
 Errors store exception class/stable code and a redacted/truncated message—never
 credentials, authorization headers, provider tokens, full URLs or payloads.
@@ -321,18 +332,28 @@ Retention proposal:
   days), purged only after no producer replay can reference them;
 - metrics/audit aggregates retained according to the financial audit policy.
 
-### Required real-infrastructure tests
+### Verification status and remaining real-infrastructure tests
 
-- two relay workers claim without overlap on production-version MySQL 8;
+- **Passed on disposable MySQL 8:** clean V1-V39 migration, stable
+  event/destination identity, two workers claiming without overlap, and
+  stale-token finalize rejection.
+- **Passed with the disposable stack and unreachable external services:**
+  business commit creates durable deliveries, retries exhaust to FAILED, error
+  text is sanitized, and the ledger stays committed.
+- **Passed in service tests:** SQS is invoked after the claim transaction,
+  commit/rollback publication timing, stable dual-publish ID, consumer duplicate
+  suppression, consumer failure propagation, and tenant-scoped audited replay.
+
+Still required with a real non-production SQS endpoint:
+
 - slow/hung SQS call does not hold a database row lock;
 - crash after claim and before publish;
 - crash after publish and before success update;
-- lease expiry/reclaim and stale-token finalize rejection;
-- same logical event across destinations keeps one event ID;
-- dual publication deduplicates at every consumer;
+- lease expiry/reclaim after a real process crash;
+- dual publication deduplicates at every running consumer;
 - consumer database failure rolls back inbox and side effect together;
-- retry exhaustion, alert, audited replay and retention cleanup;
-- sanitized errors contain no injected test secret.
+- alert delivery and retention cleanup;
+- provider-facing notification deduplication where required.
 
 ## 3. Paise migration guardrails (separate project)
 

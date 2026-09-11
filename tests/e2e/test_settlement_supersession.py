@@ -16,8 +16,8 @@ import pytest
 pytestmark = pytest.mark.concurrency
 
 
-def _create_chit_and_partial_payment(api, token):
-    """Create a real chit enrollment with one ₹1,000 due and ₹400 paid."""
+def _create_chit_and_partial_payment(api, token, payment_amount=400):
+    """Create a real chit enrollment with one ₹1,000 due and a payment."""
     admin = token("ADMIN")
     member_id = str(uuid.uuid4())
 
@@ -54,7 +54,7 @@ def _create_chit_and_partial_payment(api, token):
         json={
             "chitId": chit_id,
             "memberId": member_id,
-            "amount": 400,
+            "amount": payment_amount,
             "paymentMode": "UPI",
             "notes": "Phase B acceptance partial payment",
         })
@@ -62,7 +62,8 @@ def _create_chit_and_partial_payment(api, token):
     return {"admin": admin, "member_id": member_id, "chit_id": chit_id}
 
 
-def _confirm(api, fixture, *, supersedes=None, key=None, reason=None):
+def _confirm(api, fixture, *, supersedes=None, key=None, reason=None,
+             adjustment=None):
     body = {
         "memberId": fixture["member_id"],
         "chitItems": [{"chitId": fixture["chit_id"], "mode": "FAIR"}],
@@ -70,6 +71,9 @@ def _confirm(api, fixture, *, supersedes=None, key=None, reason=None):
     if supersedes is not None:
         body["supersedesSettlementId"] = supersedes
         body["supersessionReason"] = reason or "MySQL 8 acceptance correction"
+    if adjustment is not None:
+        body["adjustmentAmount"] = adjustment
+        body["adjustmentReason"] = "Acceptance-test collection adjustment"
     return api.as_role(
         "POST", f"{api.payment}/settlement/confirm", fixture["admin"],
         headers={"X-Idempotency-Key": key or str(uuid.uuid4())}, json=body)
@@ -194,6 +198,124 @@ def test_partial_money_supersession_reverses_and_replaces_exactly(api, token, db
         "SETTLEMENT_SUPERSEDED",
         "SETTLEMENT_REPLACEMENT_CREATED",
     } <= audit_types
+
+
+@pytest.mark.parametrize(
+    ("amount", "expected_status"),
+    [("250", "PARTIALLY_COLLECTED"), ("400", "FULLY_COLLECTED")],
+)
+def test_collected_money_is_reversed_before_replacement(
+        api, token, db, amount, expected_status):
+    fixture = _create_chit_and_partial_payment(api, token)
+    first = _confirm(api, fixture, adjustment=800)
+    assert first.status_code == 201, first.text[:500]
+    first_id = first.json()["data"]["id"]
+    assert Decimal(str(first.json()["data"]["netAmount"])) == Decimal("400.00")
+
+    original_transaction_id = _record_disbursement(
+        api, fixture, first_id, amount=amount)
+    replacement = _confirm(
+        api, fixture, supersedes=first_id, adjustment=800)
+    assert replacement.status_code == 201, replacement.text[:500]
+    assert Decimal(str(replacement.json()["data"]["netAmount"])) == Decimal("400.00")
+
+    old = db.one(
+        "chitfund_payment",
+        """SELECT payment_status, collected_amount FROM settlements WHERE id=%s""",
+        (first_id,))
+    assert old["payment_status"] == expected_status
+    assert Decimal(str(old["collected_amount"])) == Decimal(amount)
+
+    transactions = list(db.query(
+        "chitfund_payment",
+        """SELECT id, amount, direction, reversal_of_id
+           FROM settlement_payment_transactions WHERE settlement_id=%s""",
+        (first_id,)))
+    original = next(row for row in transactions if row["id"] == original_transaction_id)
+    reversal = next(row for row in transactions if row["reversal_of_id"] == original["id"])
+    assert original["direction"] == "COLLECTION"
+    assert reversal["direction"] == "DISBURSEMENT"
+    assert Decimal(str(reversal["amount"])) == Decimal(amount)
+
+    wallet = list(db.query(
+        "chitfund_payment",
+        """SELECT entry_type, amount FROM admin_wallet
+           WHERE reference_id IN (%s, %s)""",
+        (original["id"], reversal["id"])))
+    signed_total = sum(
+        Decimal(str(row["amount"])) * (1 if row["entry_type"] == "IN" else -1)
+        for row in wallet)
+    assert signed_total == Decimal("0.00")
+
+
+def test_fully_disbursed_money_is_reversed_before_replacement(api, token, db):
+    fixture = _create_chit_and_partial_payment(api, token)
+    first = _confirm(api, fixture)
+    assert first.status_code == 201, first.text[:500]
+    first_id = first.json()["data"]["id"]
+
+    original_transaction_id = _record_disbursement(
+        api, fixture, first_id, amount="400")
+    replacement = _confirm(api, fixture, supersedes=first_id)
+    assert replacement.status_code == 201, replacement.text[:500]
+
+    old = db.one(
+        "chitfund_payment",
+        """SELECT payment_status, disbursed_amount FROM settlements WHERE id=%s""",
+        (first_id,))
+    assert old["payment_status"] == "FULLY_DISBURSED"
+    assert Decimal(str(old["disbursed_amount"])) == Decimal("400.00")
+    transactions = list(db.query(
+        "chitfund_payment",
+        """SELECT id, amount, direction, reversal_of_id
+           FROM settlement_payment_transactions WHERE settlement_id=%s""",
+        (first_id,)))
+    original = next(row for row in transactions if row["id"] == original_transaction_id)
+    reversal = next(row for row in transactions if row["reversal_of_id"] == original["id"])
+    assert original["direction"] == "DISBURSEMENT"
+    assert reversal["direction"] == "COLLECTION"
+    assert Decimal(str(reversal["amount"])) == Decimal("400.00")
+
+
+def test_consumed_credit_is_restored_then_carried_into_replacement(api, token, db):
+    fixture = _create_chit_and_partial_payment(api, token, payment_amount=1200)
+    first = _confirm(api, fixture)
+    assert first.status_code == 201, first.text[:500]
+    first_data = first.json()["data"]
+    first_id = first_data["id"]
+    assert Decimal(str(first_data["creditApplied"])) == Decimal("200.00")
+    assert Decimal(str(first_data["netAmount"])) == Decimal("-1200.00")
+
+    replacement = _confirm(api, fixture, supersedes=first_id)
+    assert replacement.status_code == 201, replacement.text[:500]
+    replacement_data = replacement.json()["data"]
+    replacement_id = replacement_data["id"]
+    assert Decimal(str(replacement_data["creditApplied"])) == Decimal("200.00")
+    assert Decimal(str(replacement_data["netAmount"])) == Decimal("-1200.00")
+
+    balance = db.scalar(
+        "chitfund_payment",
+        "SELECT balance FROM member_credit_balance WHERE member_id=%s",
+        (fixture["member_id"],))
+    assert Decimal(str(balance)) == Decimal("0.00")
+
+    credit = list(db.query(
+        "chitfund_payment",
+        """SELECT id, type, amount, source_settlement_id, reversal_of_id
+           FROM member_credit_transactions
+           WHERE source_settlement_id IN (%s, %s)
+           ORDER BY created_at, id""",
+        (first_id, replacement_id)))
+    assert len(credit) == 3
+    original = next(row for row in credit
+                    if row["source_settlement_id"] == first_id
+                    and row["reversal_of_id"] is None)
+    reversal = next(row for row in credit if row["reversal_of_id"] == original["id"])
+    replacement_use = next(row for row in credit
+                           if row["source_settlement_id"] == replacement_id)
+    assert (original["type"], reversal["type"], replacement_use["type"]) == (
+        "OUT", "IN", "OUT")
+    assert {Decimal(str(row["amount"])) for row in credit} == {Decimal("200.00")}
 
 
 def test_v38_allows_voided_history_and_exactly_one_live_replacement(api, token, db):
