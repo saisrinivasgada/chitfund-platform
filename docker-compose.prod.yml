@@ -6,6 +6,7 @@ version: '3.8'
 
 x-common-env: &common-env
   JWT_SECRET: ${JWT_SECRET}
+  INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
   AWS_REGION: us-east-2
   # Activates fail-fast production secret validation in every backend service.
   # Keep this in the shared environment so a newly added service cannot
