@@ -355,6 +355,7 @@ jobs:
     timeout-minutes: 45
     needs: [changes, build-summary]
     if: |
+      always() &&
       needs.build-summary.result == 'success' &&
       needs.changes.outputs.e2e == 'true'
     steps:
@@ -406,7 +407,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.build-summary.result == 'success' &&
-      needs.financial-e2e.result == 'success' &&
+      (needs.financial-e2e.result == 'success' ||
+       (needs.financial-e2e.result == 'skipped' && needs.changes.outputs.e2e != 'true')) &&
       needs.changes.outputs.backend == 'true'
     permissions:
       contents: read
