@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { setHubToken, clearHubToken, setHubSaasToken, clearHubSaasToken } from '../../services/api';
 import {
-  TicketIcon, UsersIcon, MessageSquare, LogOut, Home, Building2,
-  CreditCard, Gift, Bell, LifeBuoy, Layers3,
+  TicketIcon, UsersIcon, MessageSquare, LogOut, Settings,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 
 export default function HubLayout() {
@@ -11,6 +11,9 @@ export default function HubLayout() {
   const location = useLocation();
   const [hubUser, setHubUser] = useState(null);
   const [ready, setReady] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('hub_sidebar_collapsed') === 'true',
+  );
 
   useEffect(() => {
     const token = localStorage.getItem('hub_token');
@@ -53,22 +56,21 @@ export default function HubLayout() {
   }
 
   const isSuperAdmin = hubUser?.role === 'SUPER_ADMIN';
+  const isSaasAdministration = location.pathname.startsWith('/superadmin');
 
   const HUB_NAV = [
+    { label: 'Platform Console', to: '/superadmin', icon: Settings, show: isSuperAdmin },
     { label: 'Support Tickets', to: '/hub/tickets', icon: TicketIcon, show: true },
     { label: 'Team Chat',       to: '/hub/chat',    icon: MessageSquare, show: true },
     { label: 'Employees',       to: '/hub/employees', icon: UsersIcon, show: isSuperAdmin },
   ];
 
-  const SAAS_NAV = [
-    { label: 'SaaS Home',     to: '/superadmin', icon: Home },
-    { label: 'Organizations', to: '/superadmin/tenants', icon: Building2 },
-    { label: 'Plans',         to: '/superadmin/plans', icon: Layers3 },
-    { label: 'Billing',       to: '/superadmin/billing', icon: CreditCard },
-    { label: 'Promotions',    to: '/superadmin/promotions', icon: Gift },
-    { label: 'SaaS Helpdesk', to: '/superadmin/helpdesk', icon: LifeBuoy },
-    { label: 'Alerts',        to: '/superadmin/alerts', icon: Bell },
-  ];
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      localStorage.setItem('hub_sidebar_collapsed', String(!current));
+      return !current;
+    });
+  }
 
   if (!ready) return <div className="min-h-screen bg-gray-50" />;
 
@@ -109,50 +111,41 @@ export default function HubLayout() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-56 bg-white border-r border-gray-100 flex flex-col py-4 flex-shrink-0">
-          <nav className="flex flex-col gap-0.5 px-3">
-            {isSuperAdmin && (
-              <p className="px-3 pt-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">SaaS control</p>
-            )}
-            {isSuperAdmin && SAAS_NAV.map(({ label, to, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === '/superadmin'}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-[#1E3A5F] text-white'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`
-                }
-              >
-                <Icon size={16} />
-                {label}
-              </NavLink>
-            ))}
-            <p className="px-3 pt-5 pb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">Hub operations</p>
+        <aside className={`${collapsed ? 'w-16' : 'w-56'} bg-white border-r border-gray-100 flex flex-col py-3 flex-shrink-0 transition-[width] duration-200`}>
+          <div className={`flex ${collapsed ? 'justify-center' : 'justify-end'} px-3 pb-3`}>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-[#1E3A5F] hover:bg-gray-50 transition-colors"
+            >
+              {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            </button>
+          </div>
+          <nav className="flex flex-col gap-1 px-2">
             {HUB_NAV.filter(n => n.show).map(({ label, to, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
+                title={collapsed ? label : undefined}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'} py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-[#1E3A5F] text-white'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   }`
                 }
               >
-                <Icon size={16} />
-                {label}
+                <Icon size={17} className="flex-shrink-0" />
+                {!collapsed && <span>{label}</span>}
               </NavLink>
             ))}
           </nav>
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className={`flex-1 overflow-auto ${isSaasAdministration ? 'p-0' : 'p-6'}`}>
           <Outlet />
         </main>
       </div>

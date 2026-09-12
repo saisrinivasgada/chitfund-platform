@@ -2,17 +2,25 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function useInactivityLogout(timeoutMs = 30 * 60 * 1000) {
+export default function useInactivityLogout(
+  timeoutMs = 30 * 60 * 1000,
+  onTimeout,
+  redirectTo = '/session-expired',
+) {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const timerRef = useRef(null);
+  const onTimeoutRef = useRef(onTimeout);
+
+  useEffect(() => { onTimeoutRef.current = onTimeout; }, [onTimeout]);
 
   useEffect(() => {
     function reset() {
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        logout();
-        navigate('/session-expired', { replace: true });
+        if (onTimeoutRef.current) onTimeoutRef.current();
+        else logout();
+        navigate(redirectTo, { replace: true });
       }, timeoutMs);
     }
 
@@ -24,5 +32,5 @@ export default function useInactivityLogout(timeoutMs = 30 * 60 * 1000) {
       clearTimeout(timerRef.current);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [logout, navigate, timeoutMs]);
+  }, [logout, navigate, redirectTo, timeoutMs]);
 }

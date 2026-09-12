@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import useInactivityLogout from '../../hooks/useInactivityLogout';
@@ -7,6 +7,8 @@ import {
   superAdminListRenewalRequests,
   superAdminListUpgradeRequests,
   superAdminCountNewContacts,
+  clearHubSaasToken,
+  clearHubToken,
 } from '../../services/api';
 import { BookOpen } from 'lucide-react';
 import SuperAdminProfileModal from './SuperAdminProfileModal';
@@ -22,11 +24,30 @@ const NAV = [
   { label: 'Alerts',     to: '/superadmin/alerts', badge: true },
 ];
 
-export default function SuperAdminLayout() {
-  const { user, logout } = useAuth();
+export default function SuperAdminLayout({ embedded = false }) {
+  const { user: orgUser, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  useInactivityLogout();
+  const hubUser = (() => {
+    if (!embedded) return null;
+    try { return JSON.parse(localStorage.getItem('hub_user') || 'null'); }
+    catch { return null; }
+  })();
+  const user = embedded ? hubUser : orgUser;
+
+  const clearHubSession = useCallback(() => {
+    localStorage.removeItem('hub_token');
+    localStorage.removeItem('hub_saas_token');
+    localStorage.removeItem('hub_user');
+    clearHubToken();
+    clearHubSaasToken();
+  }, []);
+
+  useInactivityLogout(
+    undefined,
+    embedded ? clearHubSession : undefined,
+    embedded ? '/hub-login' : '/session-expired',
+  );
 
   const [showProfile, setShowProfile] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
@@ -61,8 +82,23 @@ export default function SuperAdminLayout() {
     return location.pathname.startsWith(to);
   }
 
+  function handleSignOut() {
+    if (embedded) {
+      clearHubSession();
+      navigate('/hub-login', { replace: true });
+    } else {
+      logout();
+      navigate('/login', { replace: true });
+    }
+  }
+
+  function handleProfile() {
+    if (embedded) navigate('/hub/change-password');
+    else setShowProfile(true);
+  }
+
   return (
-    <div className="min-h-screen bg-[#F5F7FA]">
+    <div className={`${embedded ? 'min-h-full' : 'min-h-screen'} bg-[#F5F7FA]`}>
       <header className="bg-white border-b border-gray-100 px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto scrollbar-none">
           <div className="flex items-center gap-3 flex-shrink-0">
@@ -103,7 +139,8 @@ export default function SuperAdminLayout() {
         <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
           <button
             type="button"
-            onClick={() => setShowProfile(true)}
+            onClick={handleProfile}
+            title={embedded ? 'Change password' : 'Edit profile'}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-white text-sm font-bold hover:opacity-80 cursor-pointer"
             style={{ background: 'linear-gradient(135deg, #1E3A5F, #2a4f7c)' }}
           >
@@ -119,10 +156,10 @@ export default function SuperAdminLayout() {
         </div>
       </header>
 
-      {showProfile && <SuperAdminProfileModal onClose={() => setShowProfile(false)} />}
+      {!embedded && showProfile && <SuperAdminProfileModal onClose={() => setShowProfile(false)} />}
       {showSignOut && (
         <SignOutConfirmModal
-          onConfirm={() => { logout(); navigate('/login', { replace: true }); }}
+          onConfirm={handleSignOut}
           onCancel={() => setShowSignOut(false)}
         />
       )}

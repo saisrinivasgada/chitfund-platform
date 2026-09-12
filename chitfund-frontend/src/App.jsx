@@ -20,6 +20,7 @@ import SetupAccountPage from './pages/SetupAccountPage';
 import TransferPage from './pages/TransferPage';
 import RegisterOrgPage from './pages/RegisterOrgPage';
 import ProxyPage from './pages/ProxyPage';
+import SuperAdminLayout from './components/superadmin/SuperAdminLayout';
 import SuperAdminHomePage from './pages/superadmin/SuperAdminHomePage';
 import SuperAdminTenantsPage from './pages/superadmin/SuperAdminTenantsPage';
 import SuperAdminOrgDetailPage from './pages/superadmin/SuperAdminOrgDetailPage';
@@ -155,17 +156,19 @@ export default function App() {
         <Route path="/hub/tickets/:id" element={<HubTicketDetailPage />} />
         <Route path="/hub/employees" element={<HubEmployeesPage />} />
         <Route path="/hub/chat" element={<HubChatPage />} />
-        {/* The existing SaaS screens now run inside the canonical Hub session. */}
-        <Route path="/superadmin" element={<SuperAdminHomePage />} />
-        <Route path="/superadmin/tenants" element={<SuperAdminTenantsPage />} />
-        <Route path="/superadmin/tenants/:tenantId" element={<SuperAdminOrgDetailPage />} />
-        <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
-        <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
-        <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
-        <Route path="/superadmin/helpdesk" element={<SuperAdminHelpDeskPage />} />
-        <Route path="/superadmin/helpdesk/:id" element={<SuperAdminHelpDeskDetailPage />} />
-        <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
-        <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
+        {/* Keep Hub switching visible while preserving the original SaaS top navigation. */}
+        <Route element={<SuperAdminLayout embedded />}>
+          <Route path="/superadmin" element={<SuperAdminHomePage />} />
+          <Route path="/superadmin/tenants" element={<SuperAdminTenantsPage />} />
+          <Route path="/superadmin/tenants/:tenantId" element={<SuperAdminOrgDetailPage />} />
+          <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
+          <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
+          <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
+          <Route path="/superadmin/helpdesk" element={<SuperAdminHelpDeskPage />} />
+          <Route path="/superadmin/helpdesk/:id" element={<SuperAdminHelpDeskDetailPage />} />
+          <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
+          <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
+        </Route>
       </Route>
 
       <Route path="/session-expired" element={<SessionExpiredPage />} />
