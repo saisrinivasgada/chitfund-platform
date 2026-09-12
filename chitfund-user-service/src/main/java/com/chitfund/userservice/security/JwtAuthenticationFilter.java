@@ -1,6 +1,9 @@
 package com.chitfund.userservice.security;
 
 import com.chitfund.common.context.TenantContext;
+import com.chitfund.userservice.client.HubIdentityClient;
+import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.domain.enums.Role;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +19,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.UUID;
 
 /**
  * Runs once per HTTP request. Extracts the JWT from the Authorization header,
@@ -48,6 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsServiceImpl userDetailsService;
+    private final HubIdentityClient hubIdentityClient;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -64,8 +69,37 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                String userId = jwtTokenProvider.extractUserId(token);
-                UserDetails userDetails = userDetailsService.loadUserById(userId);
+                UserDetails userDetails;
+                if ("HUB_SUPER_ADMIN".equals(scope)) {
+                    var claims = jwtTokenProvider.extractClaims(token);
+                    String employeeId = claims.get("hubEmployeeId", String.class);
+                    Number tokenVersion = claims.get("authVersion", Number.class);
+                    if (employeeId == null || tokenVersion == null) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+                    var hubIdentity = hubIdentityClient.getAuthState(employeeId).orElse(null);
+                    if (hubIdentity == null
+                            || !hubIdentity.active()
+                            || hubIdentity.mustChangePassword()
+                            || !"SUPER_ADMIN".equals(hubIdentity.role())
+                            || tokenVersion.longValue() != hubIdentity.authVersion()) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+                    userDetails = User.builder()
+                            .id(UUID.fromString(claims.getSubject()))
+                            .username(hubIdentity.username())
+                            .fullName(hubIdentity.fullName())
+                            .email(hubIdentity.email())
+                            .passwordHash("HUB_MANAGED")
+                            .role(Role.SUPER_ADMIN)
+                            .enabled(true)
+                            .build();
+                } else {
+                    String userId = jwtTokenProvider.extractUserId(token);
+                    userDetails = userDetailsService.loadUserById(userId);
+                }
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());

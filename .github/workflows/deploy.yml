@@ -300,6 +300,14 @@ jobs:
           cache: 'maven'
       - name: Compile & test
         run: mvn -pl chitwise-management-service test --no-transfer-progress
+      - name: Require the MySQL 8 employee migration test to run
+        run: |
+          report="chitwise-management-service/target/surefire-reports/TEST-com.chitfund.supportservice.migration.EmployeePasswordMigrationMySqlTest.xml"
+          test -f "$report"
+          grep -q 'tests="1"' "$report"
+          grep -q 'failures="0"' "$report"
+          grep -q 'errors="0"' "$report"
+          grep -q 'skipped="0"' "$report"
 
   build-frontend:
     name: "frontend"

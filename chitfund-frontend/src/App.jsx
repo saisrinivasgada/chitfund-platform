@@ -20,7 +20,6 @@ import SetupAccountPage from './pages/SetupAccountPage';
 import TransferPage from './pages/TransferPage';
 import RegisterOrgPage from './pages/RegisterOrgPage';
 import ProxyPage from './pages/ProxyPage';
-import SuperAdminLayout from './components/superadmin/SuperAdminLayout';
 import SuperAdminHomePage from './pages/superadmin/SuperAdminHomePage';
 import SuperAdminTenantsPage from './pages/superadmin/SuperAdminTenantsPage';
 import SuperAdminOrgDetailPage from './pages/superadmin/SuperAdminOrgDetailPage';
@@ -68,6 +67,7 @@ import SessionExpiredPage from './pages/SessionExpiredPage';
 import TenantGate from './components/layout/TenantGate';
 import HubLayout from './components/hub/HubLayout';
 import HubLoginPage from './pages/hub/HubLoginPage';
+import HubChangePasswordPage from './pages/hub/HubChangePasswordPage';
 import HubAcceptInvitePage from './pages/hub/HubAcceptInvitePage';
 import HubTicketsPage from './pages/hub/HubTicketsPage';
 import HubTicketDetailPage from './pages/hub/HubTicketDetailPage';
@@ -95,19 +95,6 @@ export default function App() {
       <Route path="/setup-account" element={<SetupAccountPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
       <Route path="/proxy" element={<ProxyPage />} />
-      {/* Super-admin console */}
-      <Route element={<SuperAdminLayout />}>
-        <Route path="/superadmin" element={<SuperAdminHomePage />} />
-        <Route path="/superadmin/tenants" element={<SuperAdminTenantsPage />} />
-        <Route path="/superadmin/tenants/:tenantId" element={<SuperAdminOrgDetailPage />} />
-        <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
-        <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
-        <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
-        <Route path="/superadmin/helpdesk" element={<SuperAdminHelpDeskPage />} />
-        <Route path="/superadmin/helpdesk/:id" element={<SuperAdminHelpDeskDetailPage />} />
-        <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
-        <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
-      </Route>
       {/* Forced password change — accessible to any authenticated user */}
       <Route path="/change-password" element={<ChangePasswordPage />} />
 
@@ -160,6 +147,7 @@ export default function App() {
 
       {/* Hub staff portal — separate auth, no org JWT */}
       <Route path="/hub-login" element={<HubLoginPage />} />
+      <Route path="/hub/change-password" element={<HubChangePasswordPage />} />
       <Route path="/hub/accept-invite" element={<HubAcceptInvitePage />} />
       <Route element={<HubLayout />}>
         <Route index path="/hub" element={<Navigate to="/hub/tickets" replace />} />
@@ -167,6 +155,17 @@ export default function App() {
         <Route path="/hub/tickets/:id" element={<HubTicketDetailPage />} />
         <Route path="/hub/employees" element={<HubEmployeesPage />} />
         <Route path="/hub/chat" element={<HubChatPage />} />
+        {/* The existing SaaS screens now run inside the canonical Hub session. */}
+        <Route path="/superadmin" element={<SuperAdminHomePage />} />
+        <Route path="/superadmin/tenants" element={<SuperAdminTenantsPage />} />
+        <Route path="/superadmin/tenants/:tenantId" element={<SuperAdminOrgDetailPage />} />
+        <Route path="/superadmin/plans" element={<SuperAdminPlansPage />} />
+        <Route path="/superadmin/promotions" element={<SuperAdminPromotionsPage />} />
+        <Route path="/superadmin/alerts" element={<SuperAdminAlertsPage />} />
+        <Route path="/superadmin/helpdesk" element={<SuperAdminHelpDeskPage />} />
+        <Route path="/superadmin/helpdesk/:id" element={<SuperAdminHelpDeskDetailPage />} />
+        <Route path="/superadmin/billing" element={<SuperAdminBillingPage />} />
+        <Route path="/superadmin/billing/payments/:paymentId" element={<SuperAdminPaymentDetailPage />} />
       </Route>
 
       <Route path="/session-expired" element={<SessionExpiredPage />} />

@@ -27,6 +27,7 @@ public class HubJwtTokenProvider {
                 .claim("email", employee.getEmail())
                 .claim("fullName", employee.getFullName())
                 .claim("role", employee.getRole())
+                .claim("authVersion", employee.getAuthVersion())
                 .claim("type", "HUB")
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiryMs))
@@ -60,6 +61,11 @@ public class HubJwtTokenProvider {
 
     public String extractRole(String token) {
         return extractClaims(token).get("role", String.class);
+    }
+
+    public long extractAuthVersion(String token) {
+        Number version = extractClaims(token).get("authVersion", Number.class);
+        return version != null ? version.longValue() : 0L;
     }
 
     private SecretKey signingKey() {

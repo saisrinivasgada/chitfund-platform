@@ -39,6 +39,9 @@ public class SecurityConfig {
                 // Hub auth — public
                 .requestMatchers("/api/hub/auth/login").permitAll()
                 .requestMatchers("/api/hub/auth/accept-invite").permitAll()
+                // Server-to-server Hub identity validation; InternalAuthFilter
+                // requires the shared internal key before this rule is reached.
+                .requestMatchers("/internal/**").permitAll()
                 // Hub endpoints — hub JWT required (validated by HubJwtAuthFilter)
                 .requestMatchers("/api/hub/**").authenticated()
                 // Org ticket + conversation endpoints — gateway already validated org JWT

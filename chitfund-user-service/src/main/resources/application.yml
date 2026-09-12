@@ -57,6 +57,7 @@ jwt:
   refresh-token-expiry-days: ${JWT_REFRESH_EXPIRY_DAYS:7}
 
 app:
+  management-service-url: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
   cookie:
     secure: ${COOKIE_SECURE:true}
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}

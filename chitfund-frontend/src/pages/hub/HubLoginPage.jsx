@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hubLogin, setHubToken } from '../../services/api';
+import { hubLogin, setHubSaasToken, setHubToken } from '../../services/api';
 
 export default function HubLoginPage() {
   const navigate = useNavigate();
@@ -16,7 +16,10 @@ export default function HubLoginPage() {
     try {
       const data = await hubLogin({ username, password });
       setHubToken(data.token);
+      setHubSaasToken(data.saasToken ?? null);
       localStorage.setItem('hub_token', data.token);
+      if (data.saasToken) localStorage.setItem('hub_saas_token', data.saasToken);
+      else localStorage.removeItem('hub_saas_token');
       localStorage.setItem('hub_user', JSON.stringify({
         id: data.id,
         employeeId: data.employeeId,
@@ -24,8 +27,11 @@ export default function HubLoginPage() {
         fullName: data.fullName,
         email: data.email,
         role: data.role,
+        mustChangePassword: data.mustChangePassword === true,
       }));
-      navigate('/hub', { replace: true });
+      navigate(data.mustChangePassword
+        ? '/hub/change-password'
+        : data.role === 'SUPER_ADMIN' ? '/superadmin' : '/hub', { replace: true });
     } catch (err) {
       const msg = err?.response?.data?.message;
       setError(msg || 'Invalid credentials');
@@ -33,6 +39,10 @@ export default function HubLoginPage() {
       setLoading(false);
     }
   }
+
+  const passwordHelpHref = `mailto:help@thechitwise.com?subject=${encodeURIComponent('ChitWise Hub password reset request')}&body=${encodeURIComponent(
+    `Hello ChitWise Help,\n\nI need a temporary password for my Hub account.${username.trim() ? `\nUsername: ${username.trim()}` : ''}\n\nThank you.`,
+  )}`;
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -87,6 +97,17 @@ export default function HubLoginPage() {
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
+          <div className="text-center pt-1">
+            <a
+              href={passwordHelpHref}
+              className="text-sm text-gray-400 hover:text-[#1E3A5F] transition-colors"
+            >
+              Forgot password? Email ChitWise Help
+            </a>
+            <p className="text-[11px] text-gray-400 mt-1">
+              Help will issue a temporary password for your account.
+            </p>
+          </div>
         </form>
       </div>
     </div>

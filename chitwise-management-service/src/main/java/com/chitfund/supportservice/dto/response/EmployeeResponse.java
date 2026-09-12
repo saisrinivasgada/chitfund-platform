@@ -18,4 +18,5 @@ public class EmployeeResponse {
     private Instant lastLoginAt;
     private Instant createdAt;
     private boolean invitePending;
+    private boolean mustChangePassword;
 }

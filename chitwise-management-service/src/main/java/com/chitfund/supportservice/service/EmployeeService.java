@@ -2,13 +2,16 @@ package com.chitfund.supportservice.service;
 
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
+import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
+import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
+import com.chitfund.supportservice.security.OrgJwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -34,6 +37,7 @@ public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
     private final HubJwtTokenProvider jwtTokenProvider;
+    private final OrgJwtTokenProvider orgJwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final EmployeeInvitationMailer invitationMailer;
 
@@ -59,17 +63,7 @@ public class EmployeeService {
         employee.setLastLoginAt(Instant.now());
         employeeRepository.save(employee);
 
-        String token = jwtTokenProvider.generateToken(employee);
-
-        return EmployeeLoginResponse.builder()
-                .token(token)
-                .id(employee.getId())
-                .employeeId(formatCardId(employee))
-                .username(employee.getUsername())
-                .fullName(employee.getFullName())
-                .email(employee.getEmail())
-                .role(employee.getRole())
-                .build();
+        return toLoginResponse(employee);
     }
 
     public Employee getById(String id) {
@@ -146,6 +140,7 @@ public class EmployeeService {
 
         employee.setUsername(req.getUsername());
         employee.setPasswordHash(passwordEncoder.encode(req.getPassword()));
+        employee.setMustChangePassword(false);
         employee.setInviteAcceptedAt(Instant.now());
         // Clear the token hash so the invite link cannot be replayed after acceptance.
         employee.setInviteToken(null);
@@ -154,22 +149,58 @@ public class EmployeeService {
         // Re-fetch to get DB-generated employeeNumber
         employee = employeeRepository.findById(employee.getId()).orElse(employee);
 
-        String token = jwtTokenProvider.generateToken(employee);
-        return EmployeeLoginResponse.builder()
-                .token(token)
-                .id(employee.getId())
-                .employeeId(formatCardId(employee))
-                .username(employee.getUsername())
-                .fullName(employee.getFullName())
-                .email(employee.getEmail())
-                .role(employee.getRole())
-                .build();
+        return toLoginResponse(employee);
+    }
+
+    @Transactional
+    public EmployeeResponse resetPassword(String employeeId, String actorId,
+                                          ResetEmployeePasswordRequest req) {
+        if (employeeId.equals(actorId)) {
+            throw new IllegalArgumentException("Use your account password-change screen to update your own password");
+        }
+
+        Employee employee = getById(employeeId);
+        if (employee.getPasswordHash() == null || employee.getInviteAcceptedAt() == null) {
+            throw new IllegalStateException("This employee has not accepted their invitation yet");
+        }
+
+        validatePassword(req.getTemporaryPassword());
+        employee.setPasswordHash(passwordEncoder.encode(req.getTemporaryPassword()));
+        employee.setMustChangePassword(true);
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
+        employeeRepository.save(employee);
+        log.info("Hub employee password reset by actorId=[{}] for employeeId=[{}]", actorId, employeeId);
+        return toResponse(employee);
+    }
+
+    @Transactional
+    public EmployeeLoginResponse changePassword(String employeeId, ChangeEmployeePasswordRequest req) {
+        Employee employee = getById(employeeId);
+        if (!employee.isActive()) {
+            throw new IllegalArgumentException("Account is deactivated");
+        }
+        if (employee.getPasswordHash() == null
+                || !passwordEncoder.matches(req.getCurrentPassword(), employee.getPasswordHash())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+        validatePassword(req.getNewPassword());
+        if (passwordEncoder.matches(req.getNewPassword(), employee.getPasswordHash())) {
+            throw new IllegalArgumentException("New password must be different from the current password");
+        }
+
+        employee.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
+        employee.setMustChangePassword(false);
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
+        employeeRepository.save(employee);
+        log.info("Hub employee changed password for employeeId=[{}]", employeeId);
+        return toLoginResponse(employee);
     }
 
     @Transactional
     public EmployeeResponse updateRole(String employeeId, UpdateEmployeeRoleRequest req) {
         Employee employee = getById(employeeId);
         employee.setRole(req.getRole());
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
         return toResponse(employeeRepository.save(employee));
     }
 
@@ -177,6 +208,7 @@ public class EmployeeService {
     public EmployeeResponse setActive(String employeeId, boolean active) {
         Employee employee = getById(employeeId);
         employee.setActive(active);
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
         return toResponse(employeeRepository.save(employee));
     }
 
@@ -184,6 +216,33 @@ public class EmployeeService {
         return e.getEmployeeNumber() != null
                 ? String.format("CW-%04d", e.getEmployeeNumber())
                 : e.getId();
+    }
+
+    private EmployeeLoginResponse toLoginResponse(Employee employee) {
+        return EmployeeLoginResponse.builder()
+                .token(jwtTokenProvider.generateToken(employee))
+                .saasToken("SUPER_ADMIN".equals(employee.getRole()) && !employee.isMustChangePassword()
+                        ? orgJwtTokenProvider.generateHubSuperAdminToken(employee)
+                        : null)
+                .id(employee.getId())
+                .employeeId(formatCardId(employee))
+                .username(employee.getUsername())
+                .fullName(employee.getFullName())
+                .email(employee.getEmail())
+                .role(employee.getRole())
+                .mustChangePassword(employee.isMustChangePassword())
+                .build();
+    }
+
+    private void validatePassword(String password) {
+        if (password == null || password.length() < 8 || password.length() > 100
+                || !password.matches(".*[A-Z].*")
+                || !password.matches(".*[a-z].*")
+                || !password.matches(".*[0-9].*")
+                || !password.matches(".*[^A-Za-z0-9].*")) {
+            throw new IllegalArgumentException(
+                    "Password must contain uppercase, lowercase, number and special character");
+        }
     }
 
     /** Returns the lowercase hex-encoded SHA-256 digest of the input. */
@@ -237,6 +296,7 @@ public class EmployeeService {
                 .lastLoginAt(e.getLastLoginAt())
                 .createdAt(e.getCreatedAt())
                 .invitePending(e.getPasswordHash() == null && e.getInviteAcceptedAt() == null)
+                .mustChangePassword(e.isMustChangePassword())
                 .build();
     }
 }

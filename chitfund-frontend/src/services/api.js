@@ -4,16 +4,19 @@ const api = axios.create({ baseURL: '/api' });
 
 // In-memory token store — JWT access token never touches localStorage
 let _authToken = null;
+let _hubSaasToken = null;
 export const setAuthToken = (token) => { _authToken = token; };
 export const clearAuthToken = () => { _authToken = null; };
 export const getAuthToken = () => _authToken;
+export const setHubSaasToken = (token) => { _hubSaasToken = token; };
+export const clearHubSaasToken = () => { _hubSaasToken = null; };
 
 // Attach auth token on every request except auth endpoints (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
 api.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
-    const token = sessionStorage.getItem('token') ?? _authToken;
+    const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -48,6 +51,18 @@ api.interceptors.response.use(
     }
 
     if (err.response?.status === 401 && !isAuthEndpoint && !originalRequest._retry) {
+      // Hub SUPER_ADMIN sessions are short-lived and deliberately have no
+      // user-service refresh token. Return to the single Hub login when they expire.
+      if (_hubSaasToken && !_authToken && !sessionStorage.getItem('token')) {
+        clearHubSaasToken();
+        clearHubToken();
+        localStorage.removeItem('hub_saas_token');
+        localStorage.removeItem('hub_token');
+        localStorage.removeItem('hub_user');
+        window.location.href = '/hub-login';
+        return Promise.reject(err);
+      }
+
       // Proxy sessions (super-admin impersonation) don't have an HttpOnly refresh cookie — evict immediately.
       if (sessionStorage.getItem('token')) {
         _evictSession();
@@ -1716,6 +1731,11 @@ export const hubLogin = async ({ username, password }) => {
   return res.data.data;
 };
 
+export const hubChangePassword = async ({ currentPassword, newPassword }) => {
+  const res = await hubApi.post('/hub/auth/change-password', { currentPassword, newPassword });
+  return res.data.data;
+};
+
 export const hubAcceptInvite = async ({ token, username, password }) => {
   const res = await hubApi.post('/hub/auth/accept-invite', { token, username, password });
   return res.data.data;
@@ -1830,6 +1850,11 @@ export const hubInviteEmployee = async (body) => {
 
 export const hubResendEmployeeInvite = async (id) => {
   const res = await hubApi.post(`/hub/employees/${id}/resend-invite`);
+  return res.data.data;
+};
+
+export const hubResetEmployeePassword = async (id, temporaryPassword) => {
+  const res = await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword });
   return res.data.data;
 };
 

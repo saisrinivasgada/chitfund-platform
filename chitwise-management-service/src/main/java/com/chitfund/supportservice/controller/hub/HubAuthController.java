@@ -2,6 +2,7 @@ package com.chitfund.supportservice.controller.hub;
 
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
+import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeMeResponse;
@@ -34,6 +35,14 @@ public class HubAuthController {
         return ResponseEntity.ok(Map.of("success", true, "data", response));
     }
 
+    @PostMapping("/change-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> changePassword(Authentication auth,
+                                            @Valid @RequestBody ChangeEmployeePasswordRequest request) {
+        EmployeeLoginResponse response = employeeService.changePassword((String) auth.getPrincipal(), request);
+        return ResponseEntity.ok(Map.of("success", true, "data", response));
+    }
+
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> me(Authentication auth) {
@@ -45,6 +54,7 @@ public class HubAuthController {
                 .username(employee.getUsername())
                 .role(employee.getRole())
                 .active(employee.isActive())
+                .mustChangePassword(employee.isMustChangePassword())
                 .lastLoginAt(employee.getLastLoginAt())
                 .build();
         return ResponseEntity.ok(Map.of("success", true, "data", meResponse));

@@ -42,7 +42,8 @@ public class InternalAuthFilter implements Filter {
         String path = request.getRequestURI();
         boolean isInternalPath = path.startsWith("/api/tickets")
                 || path.startsWith("/api/conversations")
-                || path.startsWith("/api/groups");
+                || path.startsWith("/api/groups")
+                || path.startsWith("/internal/");
 
         if (isInternalPath) {
             String provided = request.getHeader(HEADER);

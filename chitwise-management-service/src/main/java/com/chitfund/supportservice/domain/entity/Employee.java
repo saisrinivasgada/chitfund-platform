@@ -31,6 +31,14 @@ public class Employee {
     @Column(name = "password_hash")
     private String passwordHash;
 
+    @Column(name = "must_change_password", nullable = false)
+    @Builder.Default
+    private boolean mustChangePassword = false;
+
+    @Column(name = "auth_version", nullable = false)
+    @Builder.Default
+    private long authVersion = 0;
+
     @Column(nullable = false)
     private String role;
 

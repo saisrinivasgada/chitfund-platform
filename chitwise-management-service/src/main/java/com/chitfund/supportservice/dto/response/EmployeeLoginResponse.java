@@ -7,10 +7,12 @@ import lombok.Data;
 @Builder
 public class EmployeeLoginResponse {
     private String token;
+    private String saasToken;
     private String id;
     private String employeeId;
     private String username;
     private String fullName;
     private String email;
     private String role;
+    private boolean mustChangePassword;
 }

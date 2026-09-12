@@ -1,9 +1,8 @@
 package com.chitfund.supportservice.controller.hub;
 
-import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
+import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
-import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import jakarta.validation.Valid;
@@ -11,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -57,6 +57,15 @@ public class HubEmployeeController {
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> resendInvite(@PathVariable String id) {
         EmployeeResponse employee = employeeService.resendInvite(id);
+        return ResponseEntity.ok(Map.of("success", true, "data", employee));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<?> resetPassword(@PathVariable String id,
+                                           Authentication auth,
+                                           @Valid @RequestBody ResetEmployeePasswordRequest body) {
+        EmployeeResponse employee = employeeService.resetPassword(id, (String) auth.getPrincipal(), body);
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 

@@ -76,6 +76,7 @@ services:
     environment:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_user
+      MANAGEMENT_SERVICE_URL: http://management-service:8091
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s

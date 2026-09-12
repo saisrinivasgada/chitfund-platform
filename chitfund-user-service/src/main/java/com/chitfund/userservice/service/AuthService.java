@@ -79,6 +79,8 @@ public class AuthService {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
+        rejectLegacySuperAdminLogin(user);
+
         user = authenticateUser(user, request.getPassword());
 
         if (requiresLoginOtp(user) && !isDeviceTrusted(user.getId(), deviceToken)) {
@@ -114,6 +116,7 @@ public class AuthService {
                             "No " + request.getRole() + " account for this number"));
         }
 
+        rejectLegacySuperAdminLogin(user);
         user = authenticateUser(user, request.getPassword());
 
         if (requiresLoginOtp(user)) {
@@ -369,6 +372,7 @@ public class AuthService {
         refreshToken.setRevoked(true);
         refreshTokenRepository.save(refreshToken);
         User user = refreshToken.getUser();
+        rejectLegacySuperAdminLogin(user);
         String tenantId = refreshToken.getTenantId();
         if (tenantId != null) {
             List<TenantInfo> tenants = tenantService.buildTenantInfoList(user.getId());
@@ -395,6 +399,8 @@ public class AuthService {
         String userId = jwtTokenProvider.extractUserId(otpToken);
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        rejectLegacySuperAdminLogin(user);
 
         otpService.verifyOtp(user.getPhone(), "LOGIN", code);
 
@@ -477,7 +483,9 @@ public class AuthService {
             List<User> byPhone = userRepository.findByPhoneAndDeletedAtIsNull(usernameOrPhone.trim());
             if (!byPhone.isEmpty()) {
                 // Prefer non-MEMBER if multiple accounts share the same phone
-                userOpt = byPhone.stream().filter(u -> u.getRole() != Role.MEMBER).findFirst()
+                userOpt = byPhone.stream()
+                        .filter(u -> u.getRole() != Role.MEMBER && u.getRole() != Role.SUPER_ADMIN)
+                        .findFirst()
                         .or(() -> Optional.of(byPhone.get(0)));
             }
         }
@@ -488,6 +496,8 @@ public class AuthService {
         }
 
         User user = userOpt.get();
+
+        rejectLegacySuperAdminLogin(user);
 
         if (user.getPhone() == null || user.getPhone().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -512,6 +522,8 @@ public class AuthService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
 
+        rejectLegacySuperAdminLogin(user);
+
         if (user.isLocked()) {
             throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, "Account is locked");
         }
@@ -535,6 +547,8 @@ public class AuthService {
     public com.chitfund.userservice.dto.response.ForgotPasswordVerifyOtpResponse verifyForgotPasswordOtp(String userId, String code) {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
+
+        rejectLegacySuperAdminLogin(user);
 
         otpService.verifyOtp(user.getPhone(), "FORGOT_PASSWORD", code);
 
@@ -584,8 +598,11 @@ public class AuthService {
             return;
         }
         // Send to any matching account (typically one per phone for non-members)
-        User user = users.stream().filter(u -> u.getRole() != Role.MEMBER).findFirst()
+        User user = users.stream()
+                .filter(u -> u.getRole() != Role.MEMBER && u.getRole() != Role.SUPER_ADMIN)
+                .findFirst()
                 .orElse(users.get(0));
+        rejectLegacySuperAdminLogin(user);
         otpService.sendOtp(phone, cc, "FORGOT_PASSWORD", user.getId().toString());
     }
 
@@ -600,6 +617,7 @@ public class AuthService {
         }
         // Apply to all accounts on this phone (rare to have multiple, but safe)
         for (User user : users) {
+            if (user.getRole() == Role.SUPER_ADMIN) continue;
             user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
             user.setTempPasswordHash(null);
             user.setMustChangePassword(false);
@@ -613,6 +631,13 @@ public class AuthService {
     private boolean requiresLoginOtp(User user) {
         return (user.getRole() == Role.ADMIN || user.getRole() == Role.SUPER_ADMIN || user.getRole() == Role.MANAGER)
                 && user.getPhone() != null && !user.getPhone().isBlank();
+    }
+
+    private void rejectLegacySuperAdminLogin(User user) {
+        if (user.getRole() == Role.SUPER_ADMIN) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Super Admins sign in through the ChitWise Hub.", HttpStatus.FORBIDDEN);
+        }
     }
 
     public void resendLoginOtp(String otpToken) {
