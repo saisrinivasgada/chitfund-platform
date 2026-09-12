@@ -10,10 +10,20 @@ spring:
         corsConfigurations:
           '[/**]':
             allowedOrigins:
+              - "https://thechitwise.com"
+              - "https://www.thechitwise.com"
+              - "https://chitwise.app"
+              - "https://www.chitwise.app"
               - "https://app.thechitwise.com"
               - "https://hub.thechitwise.com"
               - "http://localhost:3000"
               - "http://localhost:5173"
+            # Nginx also serves tenant subdomains such as <slug>.thechitwise.com.
+            # Browser POST requests include Origin even when proxied through the
+            # same public host, so these must be explicit CORS patterns.
+            allowedOriginPatterns:
+              - "https://*.thechitwise.com"
+              - "https://*.chitwise.app"
             allowedMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
             allowedHeaders: "*"
       routes:

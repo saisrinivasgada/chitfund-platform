@@ -35,3 +35,20 @@ if errors:
     raise SystemExit(1)
 
 print(f"Production logging configuration: OK ({len(configs)} files)")
+
+gateway_config = Path("chitfund-api-gateway/src/main/resources/application.yml").read_text()
+required_gateway_origins = (
+    '"https://thechitwise.com"',
+    '"https://*.thechitwise.com"',
+    '"https://chitwise.app"',
+    '"https://*.chitwise.app"',
+)
+missing_origins = [origin for origin in required_gateway_origins if origin not in gateway_config]
+if missing_origins:
+    print(
+        "Production gateway CORS check failed; missing: " + ", ".join(missing_origins),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+print("Production gateway CORS configuration: OK")
