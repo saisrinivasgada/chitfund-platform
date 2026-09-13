@@ -10,6 +10,8 @@ import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
+import com.chitfund.supportservice.domain.entity.HubRefreshSession;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +42,10 @@ public class EmployeeService {
     private final OrgJwtTokenProvider orgJwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final EmployeeInvitationMailer invitationMailer;
+    private final HubRefreshSessionRepository refreshSessionRepository;
+
+    @org.springframework.beans.factory.annotation.Value("${hub.jwt.refresh-token-expiry-days:30}")
+    private long refreshTokenExpiryDays;
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -169,6 +175,7 @@ public class EmployeeService {
         employee.setMustChangePassword(true);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         employeeRepository.save(employee);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         log.info("Hub employee password reset by actorId=[{}] for employeeId=[{}]", actorId, employeeId);
         return toResponse(employee);
     }
@@ -192,24 +199,63 @@ public class EmployeeService {
         employee.setMustChangePassword(false);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         employeeRepository.save(employee);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         log.info("Hub employee changed password for employeeId=[{}]", employeeId);
         return toLoginResponse(employee);
     }
 
     @Transactional
-    public EmployeeResponse updateRole(String employeeId, UpdateEmployeeRoleRequest req) {
+    public EmployeeResponse updateRole(String employeeId, String actorId, UpdateEmployeeRoleRequest req) {
+        if (employeeId.equals(actorId)) {
+            throw new IllegalArgumentException("You cannot change your own Hub role");
+        }
         Employee employee = getById(employeeId);
+        if ("SUPER_ADMIN".equals(employee.getRole()) && !"SUPER_ADMIN".equals(req.getRole())
+                && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
+            throw new IllegalStateException("At least one active Super Admin is required");
+        }
         employee.setRole(req.getRole());
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         return toResponse(employeeRepository.save(employee));
     }
 
     @Transactional
-    public EmployeeResponse setActive(String employeeId, boolean active) {
+    public EmployeeResponse setActive(String employeeId, String actorId, boolean active) {
+        if (!active && employeeId.equals(actorId)) {
+            throw new IllegalArgumentException("You cannot deactivate your own Hub account");
+        }
         Employee employee = getById(employeeId);
+        if (!active && "SUPER_ADMIN".equals(employee.getRole())
+                && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
+            throw new IllegalStateException("At least one active Super Admin is required");
+        }
         employee.setActive(active);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         return toResponse(employeeRepository.save(employee));
+    }
+
+    @Transactional
+    public EmployeeLoginResponse refresh(String rawToken) {
+        HubRefreshSession session = refreshSessionRepository.findByTokenHashForUpdate(sha256Hex(rawToken))
+                .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
+        if (session.getRevokedAt() != null || !session.getExpiresAt().isAfter(Instant.now())) {
+            throw new IllegalArgumentException("Refresh token expired or revoked");
+        }
+        Employee employee = getById(session.getEmployeeId());
+        if (!employee.isActive() || employee.getAuthVersion() != session.getAuthVersion()) {
+            session.setRevokedAt(Instant.now());
+            throw new IllegalArgumentException("Session is no longer valid");
+        }
+        // Rotate on every use so a stolen old refresh token cannot be replayed.
+        session.setRevokedAt(Instant.now());
+        return toLoginResponse(employee);
+    }
+
+    @Transactional
+    public void logout(String rawToken) {
+        refreshSessionRepository.findByTokenHashForUpdate(sha256Hex(rawToken))
+                .ifPresent(session -> session.setRevokedAt(Instant.now()));
     }
 
     private String formatCardId(Employee e) {
@@ -219,8 +265,17 @@ public class EmployeeService {
     }
 
     private EmployeeLoginResponse toLoginResponse(Employee employee) {
+        String refreshToken = newInvitationToken();
+        refreshSessionRepository.save(HubRefreshSession.builder()
+                .id(UUID.randomUUID().toString())
+                .employeeId(employee.getId())
+                .tokenHash(sha256Hex(refreshToken))
+                .authVersion(employee.getAuthVersion())
+                .expiresAt(Instant.now().plusSeconds(refreshTokenExpiryDays * 24 * 3600))
+                .build());
         return EmployeeLoginResponse.builder()
                 .token(jwtTokenProvider.generateToken(employee))
+                .refreshToken(refreshToken)
                 .saasToken("SUPER_ADMIN".equals(employee.getRole()) && !employee.isMustChangePassword()
                         ? orgJwtTokenProvider.generateHubSuperAdminToken(employee)
                         : null)

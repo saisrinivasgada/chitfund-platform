@@ -4,8 +4,11 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo start",
     "android": "expo run:android",
+    "android:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo run:android",
     "ios": "expo run:ios",
+    "ios:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {

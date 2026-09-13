@@ -2,6 +2,7 @@ package com.chitfund.supportservice.domain.entity;
 
 import com.chitfund.supportservice.domain.enums.TicketPriority;
 import com.chitfund.supportservice.domain.enums.TicketStatus;
+import com.chitfund.supportservice.domain.enums.TicketSource;
 import com.chitfund.supportservice.domain.enums.TicketType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -26,14 +27,31 @@ public class SupportTicket {
     @Column(nullable = false)
     private TicketType type;
 
-    @Column(name = "tenant_id", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private TicketSource source = TicketSource.ORGANIZATION;
+
+    @Column(name = "tenant_id")
     private String tenantId;
 
-    @Column(name = "created_by", nullable = false)
+    @Column(name = "tenant_name")
+    private String tenantName;
+
+    @Column(name = "created_by")
     private String createdBy;
 
     @Column(name = "created_by_name")
     private String createdByName;
+
+    @Column(name = "requester_email")
+    private String requesterEmail;
+
+    @Column(name = "requester_phone")
+    private String requesterPhone;
+
+    @Column(name = "preferred_contact")
+    private String preferredContact;
 
     @Column(nullable = false)
     private String subject;

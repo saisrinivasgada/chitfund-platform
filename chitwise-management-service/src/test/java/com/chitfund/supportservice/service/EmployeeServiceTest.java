@@ -1,12 +1,15 @@
 package com.chitfund.supportservice.service;
 
 import com.chitfund.supportservice.domain.entity.Employee;
+import com.chitfund.supportservice.domain.entity.HubRefreshSession;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
+import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
 import org.junit.jupiter.api.Test;
@@ -15,13 +18,16 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Optional;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
@@ -35,6 +41,7 @@ class EmployeeServiceTest {
     @Mock OrgJwtTokenProvider orgTokenProvider;
     @Mock PasswordEncoder passwordEncoder;
     @Mock EmployeeInvitationMailer invitationMailer;
+    @Mock HubRefreshSessionRepository refreshSessionRepository;
 
     @Test
     void invitationStoresOnlyHashAndDeliversRawToken() throws Exception {
@@ -161,6 +168,79 @@ class EmployeeServiceTest {
         verify(orgTokenProvider, never()).generateHubSuperAdminToken(any());
     }
 
+    @Test
+    void loginStoresOnlyRefreshTokenHash() throws Exception {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        EmployeeLoginRequest request = new EmployeeLoginRequest();
+        request.setUsername(employee.getUsername());
+        request.setPassword("Password@1");
+        when(repository.findByUsername(employee.getUsername())).thenReturn(Optional.of(employee));
+        when(passwordEncoder.matches("Password@1", "old-hash")).thenReturn(true);
+        when(repository.save(employee)).thenReturn(employee);
+
+        var response = service().login(request);
+
+        ArgumentCaptor<HubRefreshSession> sessionCaptor = ArgumentCaptor.forClass(HubRefreshSession.class);
+        verify(refreshSessionRepository).save(sessionCaptor.capture());
+        String rawToken = response.getRefreshToken();
+        String expectedHash = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(rawToken.getBytes(StandardCharsets.UTF_8)));
+        assertThat(sessionCaptor.getValue().getTokenHash()).isEqualTo(expectedHash);
+        assertThat(sessionCaptor.getValue().getTokenHash()).isNotEqualTo(rawToken);
+        assertThat(sessionCaptor.getValue().getExpiresAt()).isAfter(Instant.now().plusSeconds(29L * 24 * 3600));
+    }
+
+    @Test
+    void refreshRotatesTokenAndRevokesThePresentedSession() throws Exception {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        HubRefreshSession oldSession = HubRefreshSession.builder()
+                .id("old-session")
+                .employeeId(employee.getId())
+                .tokenHash("old-token-hash")
+                .authVersion(employee.getAuthVersion())
+                .expiresAt(Instant.now().plusSeconds(3600))
+                .build();
+        when(refreshSessionRepository.findByTokenHashForUpdate(any())).thenReturn(Optional.of(oldSession));
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+
+        var response = service().refresh("old-raw-token");
+
+        assertThat(oldSession.getRevokedAt()).isNotNull();
+        ArgumentCaptor<HubRefreshSession> sessionCaptor = ArgumentCaptor.forClass(HubRefreshSession.class);
+        verify(refreshSessionRepository).save(sessionCaptor.capture());
+        String expectedNewHash = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(
+                        response.getRefreshToken().getBytes(StandardCharsets.UTF_8)));
+        assertThat(sessionCaptor.getValue().getTokenHash()).isEqualTo(expectedNewHash);
+        assertThat(sessionCaptor.getValue().getTokenHash()).isNotEqualTo(oldSession.getTokenHash());
+    }
+
+    @Test
+    void cannotDemoteTheLastActiveSuperAdmin() {
+        Employee employee = activeEmployee("SUPER_ADMIN");
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPPORT_AGENT");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(repository.findActiveSuperAdminsForUpdate()).thenReturn(java.util.List.of(employee));
+
+        assertThatThrownBy(() -> service().updateRole(employee.getId(), "another-admin", request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("At least one active Super Admin");
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void cannotDeactivateOwnHubAccount() {
+        Employee employee = activeEmployee("SUPER_ADMIN");
+
+        assertThatThrownBy(() -> service().setActive(employee.getId(), employee.getId(), false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("own Hub account");
+
+        verify(repository, never()).save(any());
+    }
+
     private com.chitfund.supportservice.dto.response.EmployeeLoginResponse invokeLoginResponse(Employee employee) {
         EmployeeLoginRequest request = new EmployeeLoginRequest();
         request.setUsername(employee.getUsername());
@@ -187,6 +267,9 @@ class EmployeeServiceTest {
     }
 
     private EmployeeService service() {
-        return new EmployeeService(repository, tokenProvider, orgTokenProvider, passwordEncoder, invitationMailer);
+        EmployeeService service = new EmployeeService(repository, tokenProvider, orgTokenProvider,
+                passwordEncoder, invitationMailer, refreshSessionRepository);
+        ReflectionTestUtils.setField(service, "refreshTokenExpiryDays", 30L);
+        return service;
     }
 }

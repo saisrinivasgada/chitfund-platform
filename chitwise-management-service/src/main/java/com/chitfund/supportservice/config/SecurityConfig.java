@@ -39,6 +39,9 @@ public class SecurityConfig {
                 // Hub auth — public
                 .requestMatchers("/api/hub/auth/login").permitAll()
                 .requestMatchers("/api/hub/auth/accept-invite").permitAll()
+                .requestMatchers("/api/hub/auth/refresh").permitAll()
+                .requestMatchers("/api/hub/auth/logout").permitAll()
+                .requestMatchers("/api/public/tickets").permitAll()
                 // Server-to-server Hub identity validation; InternalAuthFilter
                 // requires the shared internal key before this rule is reached.
                 .requestMatchers("/internal/**").permitAll()

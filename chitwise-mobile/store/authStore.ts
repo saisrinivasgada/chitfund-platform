@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 
-export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF' | 'MEMBER' | 'SUPER_ADMIN';
+export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF' | 'MEMBER' | 'SUPER_ADMIN' | 'SUPPORT_AGENT';
 
 export interface AccountCachedInfo {
   outstandingBalance?: number;
@@ -17,6 +17,8 @@ export interface AuthUser {
   role: UserRole;
   token: string;
   refreshToken?: string;
+  hubToken?: string;
+  authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
   mustChangePassword?: boolean;
@@ -32,6 +34,8 @@ export interface StoredAccount {
   role: UserRole;
   token: string;
   refreshToken?: string;
+  hubToken?: string;
+  authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
   sessionValid: boolean;
@@ -59,6 +63,7 @@ const TOKEN_KEY         = 'chitwise_token';
 const REFRESH_TOKEN_KEY = 'chitwise_refresh_token';
 const USER_KEY          = 'chitwise_user';
 const ACCOUNTS_KEY      = 'chitwise_accounts';
+const HUB_TOKEN_KEY     = 'chitwise_hub_token';
 
 async function loadAccounts(): Promise<StoredAccount[]> {
   try {
@@ -84,6 +89,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (user.refreshToken) {
         await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, user.refreshToken);
       }
+      if (user.hubToken) await SecureStore.setItemAsync(HUB_TOKEN_KEY, user.hubToken);
+      else await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
       await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
 
       const existing = await loadAccounts();
@@ -95,6 +102,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         role: user.role,
         token: user.token,
         refreshToken: user.refreshToken,
+        hubToken: user.hubToken,
+        authSource: user.authSource ?? 'ORGANIZATION',
         tenantId: user.tenantId,
         tenantName: user.tenantName,
         sessionValid: true,
@@ -112,11 +121,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
+      await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
     }
   },
 
   logout: async () => {
     const { user } = get();
+    if (user?.authSource === 'HUB' && user.refreshToken) {
+      try {
+        await fetch(`${process.env.EXPO_PUBLIC_API_URL ?? ''}/hub/auth/logout`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: user.refreshToken }),
+        });
+      } catch {}
+    }
     if (user) {
       const accounts = await loadAccounts();
       const updated = accounts.map((a) =>
@@ -128,6 +146,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
     set({ user: null });
   },
 
@@ -144,6 +163,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
+      await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
       set({ user: null });
     }
   },
@@ -155,6 +175,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     await SecureStore.deleteItemAsync(USER_KEY);
+    await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
     set({ user: null, accounts: updated });
   },
 
@@ -170,6 +191,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
+      await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
     }
   },
 
@@ -186,6 +208,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       role: target.role,
       token: target.token,
       refreshToken: target.refreshToken,
+      hubToken: target.hubToken,
+      authSource: target.authSource ?? 'ORGANIZATION',
       tenantId: target.tenantId,
       tenantName: target.tenantName,
     };
@@ -196,6 +220,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
     }
     await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+    if (target.hubToken) await SecureStore.setItemAsync(HUB_TOKEN_KEY, target.hubToken);
+    else await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
 
     const reordered = [
       { ...target, savedAt: Date.now() },

@@ -74,6 +74,20 @@ class JwtAuthenticationFilterTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
+    @Test
+    void rejectsLegacyUsersTableSuperAdminToken() throws Exception {
+        Claims claims = mock(Claims.class);
+        when(tokenProvider.validateToken("hub-saas-token")).thenReturn(true);
+        when(tokenProvider.extractScope("hub-saas-token")).thenReturn("SUPER_ADMIN");
+        when(tokenProvider.extractClaims("hub-saas-token")).thenReturn(claims);
+        when(claims.get("role", String.class)).thenReturn("SUPER_ADMIN");
+
+        new JwtAuthenticationFilter(tokenProvider, userDetailsService, hubIdentityClient)
+                .doFilter(requestWithToken(), new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
     private MockHttpServletRequest requestWithToken() {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/super-admin/tenants");
         request.addHeader("Authorization", "Bearer hub-saas-token");

@@ -84,8 +84,7 @@ public class HubChatController {
     public ResponseEntity<?> createHubGroup(Authentication auth,
                                              @Valid @RequestBody CreateHubGroupRequest body) {
         String callerId = (String) auth.getPrincipal();
-        String callerName = (String) auth.getDetails();
-        if (callerName == null) callerName = callerId;
+        String callerName = employeeService.getById(callerId).getFullName();
 
         HubGroupResponse group = hubChatService.createHubGroup(callerId, callerName, body);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("success", true, "data", group));
@@ -133,8 +132,7 @@ public class HubChatController {
                                                @PathVariable String groupId,
                                                @Valid @RequestBody SendHubMessageRequest body) {
         String callerId = (String) auth.getPrincipal();
-        String callerName = (String) auth.getDetails();
-        if (callerName == null) callerName = callerId;
+        String callerName = employeeService.getById(callerId).getFullName();
 
         HubMessageResponse msg = hubChatService.sendHubGroupMessage(groupId, callerId, callerName, body);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("success", true, "data", msg));

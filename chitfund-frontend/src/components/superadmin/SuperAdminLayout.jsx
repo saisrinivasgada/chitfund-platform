@@ -6,7 +6,6 @@ import {
   superAdminListTenants,
   superAdminListRenewalRequests,
   superAdminListUpgradeRequests,
-  superAdminCountNewContacts,
   clearHubSaasToken,
   clearHubToken,
 } from '../../services/api';
@@ -20,7 +19,6 @@ const NAV = [
   { label: 'Plans',      to: '/superadmin/plans' },
   { label: 'Billing',    to: '/superadmin/billing' },
   { label: 'Promotions', to: '/superadmin/promotions' },
-  { label: 'Helpdesk',   to: '/superadmin/helpdesk', contactBadge: true },
   { label: 'Alerts',     to: '/superadmin/alerts', badge: true },
 ];
 
@@ -52,15 +50,13 @@ export default function SuperAdminLayout({ embedded = false }) {
   const [showProfile, setShowProfile] = useState(false);
   const [showSignOut, setShowSignOut] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
-  const [contactCount, setContactCount] = useState(0);
 
   useEffect(() => {
     Promise.all([
       superAdminListTenants({}).catch(() => []),
       superAdminListRenewalRequests().catch(() => []),
       superAdminListUpgradeRequests().catch(() => []),
-      superAdminCountNewContacts().catch(() => 0),
-    ]).then(([tenants, renewals, upgrades, newContacts]) => {
+    ]).then(([tenants, renewals, upgrades]) => {
       const now = new Date();
       const renewalIds = new Set((renewals ?? []).map(r => r.id));
       const pending = (tenants ?? []).filter(t => t.status === 'PENDING').length;
@@ -73,7 +69,6 @@ export default function SuperAdminLayout({ embedded = false }) {
         return d >= 0 && d <= 14;
       }).length;
       setAlertCount(pending + expired + expiring + (renewals?.length ?? 0) + (upgrades?.length ?? 0));
-      setContactCount(Number(newContacts) || 0);
     });
   }, []);
 
@@ -111,7 +106,7 @@ export default function SuperAdminLayout({ embedded = false }) {
             </div>
           </div>
           <nav className="flex items-center gap-0.5 sm:gap-1 ml-1 sm:ml-2">
-            {NAV.map(({ label, to, badge, contactBadge }) => (
+            {NAV.map(({ label, to, badge }) => (
               <Link
                 key={to}
                 to={to}
@@ -125,11 +120,6 @@ export default function SuperAdminLayout({ embedded = false }) {
                 {badge && alertCount > 0 && (
                   <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
                     {alertCount > 99 ? '99+' : alertCount}
-                  </span>
-                )}
-                {contactBadge && contactCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
-                    {contactCount > 99 ? '99+' : contactCount}
                   </span>
                 )}
               </Link>

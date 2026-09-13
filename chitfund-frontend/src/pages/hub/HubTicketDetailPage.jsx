@@ -25,6 +25,7 @@ const VALID_TRANSITIONS = {
 };
 
 const TYPE_LABELS = {
+  INQUIRY: 'Inquiry',
   BILLING: 'Billing', CHIT: 'Chit', DRAW: 'Draw', PAYMENT: 'Payment',
   PAYOUT: 'Payout', MEMBER_MGMT: 'Members', ACCOUNT: 'Account',
   TECHNICAL: 'Technical', FEATURE_REQUEST: 'Feature Request', GENERAL: 'General',
@@ -107,7 +108,7 @@ export default function HubTicketDetailPage() {
 
   function canDelete(msg) {
     if (msg.deleted) return false;
-    if (msg.senderType !== 'SUPER_ADMIN' && msg.senderType !== 'HUB_AGENT') return false;
+    if (msg.senderType !== 'SUPER_ADMIN' && msg.senderType !== 'SUPPORT_AGENT') return false;
     if (msg.senderId !== hubUser.id && msg.senderUsername !== hubUser.username) return false;
     return Date.now() - new Date(msg.createdAt).getTime() < DELETE_WINDOW_MS;
   }
@@ -116,6 +117,7 @@ export default function HubTicketDetailPage() {
     queryKey: ['hub-employees'],
     queryFn: hubListEmployees,
     staleTime: 60000,
+    enabled: hubUser.role === 'SUPER_ADMIN',
   });
 
   const assignMut = useMutation({
@@ -164,15 +166,22 @@ export default function HubTicketDetailPage() {
             {ticket.subject}
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            Org: <span className="font-mono">{ticket.tenantId}</span>
+            Org: <span>{ticket.tenantName ?? (ticket.source === 'PUBLIC' ? 'Public inquiry' : ticket.tenantId)}</span>
             {' · '}By: {ticket.createdByName ?? ticket.createdBy}
             {' · '}{formatFull(ticket.createdAt)}
           </p>
+          {ticket.source === 'PUBLIC' && (
+            <p className="text-xs text-gray-500 mt-1">
+              {ticket.requesterEmail}
+              {ticket.requesterPhone ? ` · ${ticket.requesterPhone}` : ''}
+              {ticket.preferredContact ? ` · Prefers ${ticket.preferredContact.toLowerCase()}` : ''}
+            </p>
+          )}
           <div className="flex items-center gap-2 mt-1.5">
             <span className="text-xs text-gray-400">Assigned to:</span>
             {hubUser.role === 'SUPER_ADMIN' ? (
               <select
-                value={ticket.assigneeId ?? ''}
+                value={ticket.assignedTo ?? ''}
                 onChange={e => e.target.value && assignMut.mutate(e.target.value)}
                 disabled={assignMut.isPending}
                 className="text-xs px-2 py-0.5 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]/30 cursor-pointer disabled:opacity-50"
@@ -232,7 +241,7 @@ export default function HubTicketDetailPage() {
             <div className="flex items-center justify-center py-10 text-gray-400 text-sm">No messages yet. Start the conversation.</div>
           ) : (
             messages.map(msg => {
-              const isHub = msg.senderType === 'SUPER_ADMIN' || msg.senderType === 'HUB_AGENT';
+              const isHub = msg.senderType === 'SUPER_ADMIN' || msg.senderType === 'SUPPORT_AGENT';
               const isDeleted = msg.deleted || msg.deletedAt;
 
               return (

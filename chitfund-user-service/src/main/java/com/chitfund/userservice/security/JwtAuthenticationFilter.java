@@ -69,9 +69,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
+                var claims = jwtTokenProvider.extractClaims(token);
+                if (!"HUB_SUPER_ADMIN".equals(scope)
+                        && "SUPER_ADMIN".equals(claims.get("role", String.class))) {
+                    // Legacy users-table SUPER_ADMIN credentials are intentionally
+                    // invalid. Only a live Hub employee may enter SaaS administration.
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 UserDetails userDetails;
                 if ("HUB_SUPER_ADMIN".equals(scope)) {
-                    var claims = jwtTokenProvider.extractClaims(token);
                     String employeeId = claims.get("hubEmployeeId", String.class);
                     Number tokenVersion = claims.get("authVersion", Number.class);
                     if (employeeId == null || tokenVersion == null) {

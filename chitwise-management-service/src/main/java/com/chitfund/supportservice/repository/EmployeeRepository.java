@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface EmployeeRepository extends JpaRepository<Employee, String> {
     Optional<Employee> findByUsername(String username);
@@ -18,4 +19,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, String> {
     Optional<Employee> findByInviteTokenForUpdate(@Param("token") String token);
     boolean existsByEmail(String email);
     boolean existsByUsername(String username);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM Employee e WHERE e.role = 'SUPER_ADMIN' AND e.active = true")
+    List<Employee> findActiveSuperAdminsForUpdate();
 }

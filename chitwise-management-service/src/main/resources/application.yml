@@ -66,6 +66,7 @@ hub:
   jwt:
     secret: ${MANAGEMENT_JWT_SECRET:management-service-jwt-secret-min-32-chars-dev}
     access-token-expiry-ms: ${MANAGEMENT_JWT_EXPIRY_MS:28800000}
+    refresh-token-expiry-days: ${MANAGEMENT_REFRESH_TOKEN_EXPIRY_DAYS:30}
 
 org:
   jwt:
@@ -76,6 +77,7 @@ app:
   hub-url: ${HUB_URL:http://localhost:3000}
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
   notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
   message-delete-window-seconds: 300
 
 management:

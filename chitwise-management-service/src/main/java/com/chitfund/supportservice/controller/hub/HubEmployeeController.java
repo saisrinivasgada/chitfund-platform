@@ -23,6 +23,24 @@ public class HubEmployeeController {
 
     private final EmployeeService employeeService;
 
+    @GetMapping("/directory")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> directory(Authentication auth) {
+        String callerId = (String) auth.getPrincipal();
+        List<Map<String, Object>> employees = employeeService.listAll().stream()
+                .filter(EmployeeResponse::isActive)
+                .filter(employee -> !employee.getId().equals(callerId))
+                .map(employee -> {
+                    Map<String, Object> item = new java.util.LinkedHashMap<>();
+                    item.put("id", employee.getId());
+                    item.put("employeeId", employee.getEmployeeId());
+                    item.put("fullName", employee.getFullName());
+                    item.put("role", employee.getRole());
+                    return item;
+                }).toList();
+        return ResponseEntity.ok(Map.of("success", true, "data", employees));
+    }
+
     @GetMapping
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> listAll() {
@@ -41,15 +59,16 @@ public class HubEmployeeController {
     @PatchMapping("/{id}/role")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> updateRole(@PathVariable String id,
+                                         Authentication auth,
                                          @Valid @RequestBody UpdateEmployeeRoleRequest body) {
-        EmployeeResponse employee = employeeService.updateRole(id, body);
+        EmployeeResponse employee = employeeService.updateRole(id, (String) auth.getPrincipal(), body);
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 
     @PatchMapping("/{id}/deactivate")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> deactivate(@PathVariable String id) {
-        EmployeeResponse employee = employeeService.setActive(id, false);
+    public ResponseEntity<?> deactivate(@PathVariable String id, Authentication auth) {
+        EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), false);
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 
@@ -71,8 +90,8 @@ public class HubEmployeeController {
 
     @PatchMapping("/{id}/reactivate")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> reactivate(@PathVariable String id) {
-        EmployeeResponse employee = employeeService.setActive(id, true);
+    public ResponseEntity<?> reactivate(@PathVariable String id, Authentication auth) {
+        EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), true);
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 }

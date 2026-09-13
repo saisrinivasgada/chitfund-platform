@@ -70,6 +70,14 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                     return unauthorized(exchange, "Token scope not allowed for this endpoint");
                 }
 
+                // SUPER_ADMIN is an employee identity owned by management-service.
+                // Never accept a legacy users-table token, even if it is still
+                // cryptographically valid or a stale local database recreates the row.
+                String role = claims.get("role", String.class);
+                if ("SUPER_ADMIN".equals(role) && !"HUB_SUPER_ADMIN".equals(scope)) {
+                    return unauthorized(exchange, "Super Admins must sign in through the ChitWise Hub");
+                }
+
                 // Forward user identity headers to downstream services
                 String tenantId = claims.get("tenantId", String.class);
                 String username = claims.get("username", String.class);
@@ -83,7 +91,7 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                             headers.remove("X-User-Name");
                             headers.remove("X-Internal-Auth");
                             headers.set("X-User-Id", claims.getSubject());
-                            headers.set("X-User-Role", claims.get("role", String.class));
+                            headers.set("X-User-Role", role);
                             headers.set("X-Internal-Auth", internalServiceKey);
                             if (tenantId != null) headers.set("X-Tenant-Id", tenantId);
                             if (username != null) headers.set("X-User-Name", username);

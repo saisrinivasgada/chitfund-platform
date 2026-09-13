@@ -758,12 +758,6 @@ export default function LoginPage() {
                   </div>
 
                   <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-                    <p className="text-sm text-gray-400 mb-3">
-                      ChitWise team or Super Admin?{' '}
-                      <button onClick={() => navigate('/hub-login')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>
-                        Sign in to Hub
-                      </button>
-                    </p>
                     <p className="text-sm text-gray-400">
                       New to ChitWise?{' '}
                       <button onClick={() => navigate('/register')} className="font-semibold cursor-pointer" style={{ color: '#1E3A5F' }}>

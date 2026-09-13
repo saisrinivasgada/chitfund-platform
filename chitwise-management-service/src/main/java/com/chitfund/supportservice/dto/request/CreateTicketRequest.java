@@ -3,6 +3,7 @@ package com.chitfund.supportservice.dto.request;
 import com.chitfund.supportservice.domain.enums.TicketType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -18,4 +19,7 @@ public class CreateTicketRequest {
 
     @Size(max = 5000, message = "Description too long")
     private String description;
+
+    @Pattern(regexp = "^(EMAIL|SMS|BOTH)$", message = "preferredContact must be EMAIL, SMS or BOTH")
+    private String preferredContact;
 }

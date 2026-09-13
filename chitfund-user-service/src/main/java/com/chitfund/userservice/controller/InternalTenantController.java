@@ -25,4 +25,17 @@ public class InternalTenantController {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.ok(tenantService.getEffectiveLimits(tenantId));
     }
+
+    @GetMapping("/{tenantId}/support-context")
+    public ResponseEntity<java.util.Map<String, Object>> getSupportContext(
+            @PathVariable String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = true) String key) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        var tenant = tenantService.getTenant(java.util.UUID.fromString(tenantId));
+        var limits = tenantService.getEffectiveLimits(tenantId);
+        return ResponseEntity.ok(java.util.Map.of(
+                "tenantName", tenant.getName(),
+                "prioritySupport", limits.isPrioritySupport()
+        ));
+    }
 }

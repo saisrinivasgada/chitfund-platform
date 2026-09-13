@@ -12,6 +12,7 @@ import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMem
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
+import OtpCodeInput from './OtpCodeInput';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
 function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint }: {
@@ -447,21 +448,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                     <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
                       Enter the 6-digit code to verify your new number.
                     </Text>
-                    <TextInput
-                      value={otpCode}
-                      onChangeText={(t) => { setOtpCode(t.replace(/\D/g, '')); setOtpError(''); }}
-                      keyboardType="numeric"
-                      maxLength={6}
-                      placeholder="000000"
-                      placeholderTextColor={C.gray300}
-                      autoFocus
-                      style={{
-                        borderWidth: 2, borderColor: otpError ? '#EF4444' : '#6366F1',
-                        borderRadius: 12, padding: 14,
-                        fontSize: 28, fontWeight: '800', color: '#1E3A5F',
-                        textAlign: 'center', letterSpacing: 12, backgroundColor: '#fff',
-                      }}
-                    />
+                    <OtpCodeInput value={otpCode} onChangeText={(value) => { setOtpCode(value); setOtpError(''); }} hasError={!!otpError} autoFocus />
                     {otpError ? (
                       <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{otpError}</Text>
                     ) : null}

@@ -10,6 +10,14 @@
         "EXPO_PUBLIC_API_URL": "http://Kittus-MacBook-Air.local:8080/api"
       }
     },
+    "hub-development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_APP_VARIANT": "hub",
+        "EXPO_PUBLIC_API_URL": "http://Kittus-MacBook-Air.local:8080/api"
+      }
+    },
     "preview": {
       "android": {
         "buildType": "apk"
@@ -20,10 +28,28 @@
         "EXPO_PUBLIC_API_URL": "https://thechitwise.com/api"
       }
     },
+    "hub-preview": {
+      "android": { "buildType": "apk" },
+      "distribution": "internal",
+      "channel": "hub-preview",
+      "env": {
+        "EXPO_PUBLIC_APP_VARIANT": "hub",
+        "EXPO_PUBLIC_API_URL": "https://thechitwise.com/api"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://thechitwise.com/api"
+      }
+    },
+    "hub-production": {
+      "autoIncrement": true,
+      "distribution": "internal",
+      "channel": "hub-production",
+      "env": {
+        "EXPO_PUBLIC_APP_VARIANT": "hub",
         "EXPO_PUBLIC_API_URL": "https://thechitwise.com/api"
       }
     }

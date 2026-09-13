@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ActivityIndicator } from 'reac
 import { useMutation } from '@tanstack/react-query';
 import { PhoneInput, C } from './ui';
 import { adminSendPhoneOtp, adminVerifyPhoneOtp } from '../services/api';
+import OtpCodeInput from './OtpCodeInput';
 
 interface Props {
   phone: string;
@@ -173,19 +174,7 @@ export function AdminPhoneOtpInput({
 
           {/* Code input + verify button */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-            <TextInput
-              value={otpCode}
-              onChangeText={(v) => { setOtpCode(v.replace(/\D/g, '')); setOtpError(''); }}
-              placeholder="000000"
-              keyboardType="numeric"
-              maxLength={6}
-              placeholderTextColor={C.gray400}
-              style={{
-                flex: 1, borderWidth: 1.5, borderColor: '#818CF8', borderRadius: 10,
-                padding: 12, fontSize: 20, fontFamily: 'monospace', letterSpacing: 6,
-                textAlign: 'center', backgroundColor: '#fff', color: C.gray900,
-              }}
-            />
+            <View style={{ flex: 1 }}><OtpCodeInput value={otpCode} onChangeText={(v) => { setOtpCode(v); setOtpError(''); }} hasError={!!otpError} autoFocus /></View>
             <TouchableOpacity
               onPress={handleVerify}
               disabled={otpCode.length !== 6 || verifyMut.isPending}

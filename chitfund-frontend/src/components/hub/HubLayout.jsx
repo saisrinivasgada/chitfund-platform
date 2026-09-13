@@ -60,7 +60,7 @@ export default function HubLayout() {
 
   const HUB_NAV = [
     { label: 'Platform Console', to: '/superadmin', icon: Settings, show: isSuperAdmin },
-    { label: 'Support Tickets', to: '/hub/tickets', icon: TicketIcon, show: true },
+    { label: 'Tickets', to: '/hub/tickets', icon: TicketIcon, show: true },
     { label: 'Team Chat',       to: '/hub/chat',    icon: MessageSquare, show: true },
     { label: 'Employees',       to: '/hub/employees', icon: UsersIcon, show: isSuperAdmin },
   ];
@@ -79,12 +79,7 @@ export default function HubLayout() {
       {/* Top navbar */}
       <header className="h-14 bg-white border-b border-gray-100 flex items-center px-6 gap-4 flex-shrink-0 shadow-sm">
         <div className="flex items-center gap-2.5">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold"
-            style={{ backgroundColor: '#1E3A5F' }}
-          >
-            C
-          </div>
+          <img src="/hub-logo.svg" alt="ChitWise Hub" className="w-8 h-8 rounded-lg" />
           <span className="font-bold text-gray-900 text-sm" style={{ fontFamily: 'Merriweather, serif' }}>
             ChitWise Hub
           </span>

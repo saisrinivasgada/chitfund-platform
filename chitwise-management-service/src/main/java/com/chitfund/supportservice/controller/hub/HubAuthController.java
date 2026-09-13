@@ -4,6 +4,7 @@ import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
+import com.chitfund.supportservice.dto.request.HubRefreshRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeMeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
@@ -33,6 +34,18 @@ public class HubAuthController {
     public ResponseEntity<?> acceptInvite(@Valid @RequestBody AcceptInviteRequest request) {
         EmployeeLoginResponse response = employeeService.acceptInvite(request);
         return ResponseEntity.ok(Map.of("success", true, "data", response));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@Valid @RequestBody HubRefreshRequest request) {
+        return ResponseEntity.ok(Map.of("success", true, "data",
+                employeeService.refresh(request.getRefreshToken())));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@Valid @RequestBody HubRefreshRequest request) {
+        employeeService.logout(request.getRefreshToken());
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     @PostMapping("/change-password")

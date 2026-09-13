@@ -143,6 +143,7 @@ public class AuthService {
         String userId = jwtTokenProvider.extractUserId(request.getLoginToken());
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        rejectLegacySuperAdminLogin(user);
 
         List<TenantInfo> tenants = jwtTokenProvider.extractTenants(request.getLoginToken());
         TenantInfo selected = tenants.stream()
@@ -160,6 +161,7 @@ public class AuthService {
     public PreScopeAuthResponse generateTransferToken(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        rejectLegacySuperAdminLogin(user);
         List<TenantInfo> tenants = tenantService.buildTenantInfoList(userId);
         String loginToken = jwtTokenProvider.generatePreScopeToken(user, tenants);
         return PreScopeAuthResponse.builder()
@@ -185,6 +187,7 @@ public class AuthService {
 
         User user = userRepository.findById(setupToken.getUserId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        rejectLegacySuperAdminLogin(user);
 
         passwordValidator.validate(request.getNewPassword());
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
@@ -207,6 +210,9 @@ public class AuthService {
     // ── Account setup token generation (called by InternalUserController) ───
 
     public String generateSetupToken(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        rejectLegacySuperAdminLogin(user);
         String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
         String hash = sha256(rawToken);
         AccountSetupToken token = AccountSetupToken.builder()
@@ -340,6 +346,7 @@ public class AuthService {
     public void changePassword(UUID userId, ChangePasswordRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found: " + userId));
+        rejectLegacySuperAdminLogin(user);
         boolean matchesReal = passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash());
         boolean matchesTemp = user.getTempPasswordHash() != null
                 && passwordEncoder.matches(request.getCurrentPassword(), user.getTempPasswordHash());
@@ -455,6 +462,7 @@ public class AuthService {
     public MobileLookupResponse lookupByMobile(String phone, String phoneCountryCode) {
         List<User> accounts = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, phoneCountryCode);
         List<MobileLookupResponse.AccountOption> options = accounts.stream()
+                .filter(u -> u.getRole() != Role.SUPER_ADMIN)
                 .map(u -> MobileLookupResponse.AccountOption.builder()
                         .role(u.getRole())
                         .displayLabel(switch (u.getRole()) {
@@ -462,7 +470,7 @@ public class AuthService {
                             case STAFF, AGENT -> "Staff account";
                             case MANAGER     -> "Manager account";
                             case ADMIN       -> "Admin account";
-                            case SUPER_ADMIN -> "Super Admin";
+                            case SUPER_ADMIN -> throw new IllegalStateException("Legacy Super Admin must not be listed");
                         })
                         .build())
                 .toList();
@@ -567,6 +575,7 @@ public class AuthService {
         User user = userRepository.findByPasswordResetToken(resetToken)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Invalid or expired reset link. Please start over."));
+        rejectLegacySuperAdminLogin(user);
 
         if (user.getPasswordResetTokenExpiresAt() == null
                 || user.getPasswordResetTokenExpiresAt().isBefore(java.time.LocalDateTime.now())) {
@@ -650,6 +659,7 @@ public class AuthService {
         String userId = jwtTokenProvider.extractUserId(otpToken);
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "User not found"));
+        rejectLegacySuperAdminLogin(user);
         String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
         otpService.sendOtp(user.getPhone(), cc, "LOGIN", userId);
     }

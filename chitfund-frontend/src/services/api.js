@@ -1549,11 +1549,16 @@ export const respondToInvitation = async (invId, body) => {
 // ─── Contact / Support ────────────────────────────────────────────────────
 
 export const submitProspectContact = async ({ name, email, phone, message, preferredContact }) => {
-  await api.post('/public/contact', { name, email, phone, message, preferredContact });
+  await api.post('/public/tickets', { name, email, phone, message, preferredContact });
 };
 
 export const submitSupportTicket = async ({ subject, message, preferredContact }) => {
-  await api.post('/support/ticket', { subject, message, preferredContact });
+  await api.post('/tickets', {
+    type: 'INQUIRY',
+    subject,
+    description: message,
+    preferredContact,
+  });
 };
 
 export const getOrgSettings = async () => {
@@ -1746,9 +1751,14 @@ export const hubGetMe = async () => {
   return res.data.data;
 };
 
-export const hubListTickets = async ({ page = 0, size = 20, status } = {}) => {
+export const hubListTickets = async ({ page = 0, size = 20, status, type, priority, fromDate, toDate, q } = {}) => {
   const params = { page, size };
   if (status) params.status = status;
+  if (type) params.type = type;
+  if (priority) params.priority = priority;
+  if (fromDate) params.fromDate = fromDate;
+  if (toDate) params.toDate = toDate;
+  if (q) params.q = q;
   const res = await hubApi.get('/hub/tickets', { params });
   return res.data.data;
 };

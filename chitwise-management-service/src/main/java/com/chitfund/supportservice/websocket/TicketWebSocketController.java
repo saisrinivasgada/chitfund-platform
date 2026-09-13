@@ -26,14 +26,14 @@ public class TicketWebSocketController {
     }
 
     public void notifyNewTicket(SupportTicket ticket) {
-        messaging.convertAndSend("/topic/chitwise-pool",
-                Map.of(
-                        "type", "NEW_TICKET",
-                        "ticketId", ticket.getId(),
-                        "ticketNumber", ticket.getTicketNumber(),
-                        "subject", ticket.getSubject(),
-                        "tenantId", ticket.getTenantId()
-                ));
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("type", "NEW_TICKET");
+        payload.put("ticketId", ticket.getId());
+        payload.put("ticketNumber", ticket.getTicketNumber());
+        payload.put("subject", ticket.getSubject());
+        payload.put("source", ticket.getSource().name());
+        if (ticket.getTenantId() != null) payload.put("tenantId", ticket.getTenantId());
+        messaging.convertAndSend("/topic/chitwise-pool", payload);
     }
 
     public void notifyStatusChange(String ticketId, String status) {

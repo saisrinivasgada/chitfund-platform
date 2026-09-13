@@ -44,6 +44,9 @@ public class HubChatService {
         }
         Employee other = employeeRepo.findById(otherId)
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        if (!other.isActive()) {
+            throw new IllegalArgumentException("Employee is inactive");
+        }
 
         // Normalize ordering so (A,B) and (B,A) always resolve to the same row
         String e1 = callerId.compareTo(otherId) < 0 ? callerId : otherId;
@@ -189,10 +192,12 @@ public class HubChatService {
             for (String memberId : req.getMemberIds()) {
                 if (!memberId.equals(creatorId)
                         && !groupMemberRepo.existsByGroupIdAndEmployeeId(group.getId(), memberId)) {
-                    String name = employeeRepo.findById(memberId)
-                            .orElseThrow(() -> new IllegalArgumentException("Employee not found: " + memberId))
-                            .getFullName();
-                    addGroupMemberInternal(group.getId(), memberId, name);
+                    Employee member = employeeRepo.findById(memberId)
+                            .orElseThrow(() -> new IllegalArgumentException("Employee not found: " + memberId));
+                    if (!member.isActive()) {
+                        throw new IllegalArgumentException("Employee is inactive: " + memberId);
+                    }
+                    addGroupMemberInternal(group.getId(), memberId, member.getFullName());
                 }
             }
         }
@@ -221,9 +226,12 @@ public class HubChatService {
         if (groupMemberRepo.existsByGroupIdAndEmployeeId(groupId, employeeId)) {
             throw new IllegalStateException("Already a member");
         }
-        String name = employeeRepo.findById(employeeId)
-                .orElseThrow(() -> new IllegalArgumentException("Employee not found"))
-                .getFullName();
+        Employee employee = employeeRepo.findById(employeeId)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        if (!employee.isActive()) {
+            throw new IllegalArgumentException("Employee is inactive");
+        }
+        String name = employee.getFullName();
         addGroupMemberInternal(groupId, employeeId, name);
         groupRepo.incrementMemberCount(groupId);
     }

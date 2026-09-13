@@ -9,6 +9,7 @@ import {
   updateOrgDetails, sendSupportNumberOtp, verifySupportNumber,
 } from '../../../services/api';
 import { toast } from '../../../components/Toast';
+import OtpCodeInput from '../../../components/OtpCodeInput';
 
 function LimitRow({ label, used, max }: { label: string; used?: number; max?: number }) {
   const pct = (max && used != null) ? Math.min((used / max) * 100, 100) : 0;
@@ -148,14 +149,7 @@ function SupportPhoneSection({ currentPhone }: { currentPhone?: string | null })
           ) : (
             <>
               <Text style={{ fontSize: 12, color: C.gray500 }}>OTP sent to {phone}</Text>
-              <TextInput
-                value={otp}
-                onChangeText={setOtp}
-                placeholder="Enter OTP"
-                keyboardType="number-pad"
-                autoFocus
-                style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900 }}
-              />
+              <OtpCodeInput value={otp} onChangeText={setOtp} autoFocus />
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity onPress={() => { setOtpSent(false); setOtp(''); }} style={{ flex: 1, paddingVertical: 9, borderRadius: 8, borderWidth: 1.5, borderColor: C.gray300, alignItems: 'center' }}>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray600 }}>Back</Text>

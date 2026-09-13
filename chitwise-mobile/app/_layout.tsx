@@ -13,6 +13,7 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, retry: 2 },
   },
 });
+const HUB_BUILD = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
 
 // Maps each role to the ONLY route group that role is allowed to access.
 const ROLE_GROUP: Record<string, string> = {
@@ -21,6 +22,7 @@ const ROLE_GROUP: Record<string, string> = {
   STAFF:       '(staff)',
   MEMBER:      '(member)',
   SUPER_ADMIN: '(superadmin)',
+  SUPPORT_AGENT: '(hub)',
 };
 
 function redirectByRole(role: string, router: any) {
@@ -28,19 +30,20 @@ function redirectByRole(role: string, router: any) {
   if (target) {
     router.replace(`/(app)/${target}`);
   } else {
-    router.replace('/(auth)/login');
+    router.replace(HUB_BUILD ? '/(auth)/hub-login' : '/(auth)/login');
   }
 }
 
 function RealtimeUpdater() {
   const { user } = useAuthStore();
-  useRealtimeUpdates(!!user);
-  usePushNotifications(!!user);
+  const organizationSession = !!user && user.authSource !== 'HUB';
+  useRealtimeUpdates(organizationSession);
+  usePushNotifications(organizationSession);
   return null;
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, loadFromStorage } = useAuthStore();
+  const { user, isLoading, loadFromStorage, logout } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -55,9 +58,24 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const inAuth = seg[0] === '(auth)';
     const onForceChange = inAuth && seg[1] === 'force-change-password';
 
+    const incompatibleSession = user && (HUB_BUILD
+      ? user.authSource !== 'HUB'
+      : user.authSource === 'HUB' || user.role === 'SUPER_ADMIN' || user.role === 'SUPPORT_AGENT');
+    if (incompatibleSession) {
+      logout();
+      router.replace(HUB_BUILD ? '/(auth)/hub-login' : '/(auth)/login');
+      return;
+    }
+
     if (!user && !inAuth) {
       // Not logged in — go to login
-      router.replace('/(auth)/login');
+      router.replace(HUB_BUILD ? '/(auth)/hub-login' : '/(auth)/login');
+      return;
+    }
+
+    if (!user && inAuth) {
+      const expectedLogin = HUB_BUILD ? 'hub-login' : 'login';
+      if (seg[1] !== expectedLogin) router.replace(`/(auth)/${expectedLogin}` as any);
       return;
     }
 

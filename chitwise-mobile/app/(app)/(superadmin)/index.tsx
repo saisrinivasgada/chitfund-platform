@@ -188,7 +188,7 @@ export default function SuperAdminOrgsPage() {
             { label: '💳 Billing', route: '/(app)/(superadmin)/billing' },
             { label: '📋 Plans',   route: '/(app)/(superadmin)/plans' },
             { label: '🎟️ Promos',  route: '/(app)/(superadmin)/promotions' },
-            { label: '🎧 Helpdesk', route: '/(app)/(superadmin)/helpdesk' },
+            { label: '🎫 Tickets', route: '/(app)/(superadmin)/tickets' },
           ].map((n) => (
             <TouchableOpacity
               key={n.label}

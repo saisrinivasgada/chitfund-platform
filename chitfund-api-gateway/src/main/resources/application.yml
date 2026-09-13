@@ -28,6 +28,14 @@ spring:
             allowedHeaders: "*"
       routes:
 
+        # Public prospect inquiries join the standard management ticket system.
+        # Keep this exact route before the user-service /api/public/** wildcard.
+        - id: management-service-public-tickets
+          uri: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/public/tickets
+            - Method=POST
+
         # ── User Service ─────────────────────────────────────────────────────
         # Controllers live at /api/auth/** and /api/users/** — no path stripping needed.
         - id: user-service-public

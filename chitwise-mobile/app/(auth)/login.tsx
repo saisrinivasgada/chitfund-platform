@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { login, selectTenant, verifyLoginOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
+import OtpCodeInput from '../../components/OtpCodeInput';
 import * as LocalAuthentication from 'expo-local-authentication';
 import {
   isBiometricAvailable,
@@ -245,13 +246,7 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
                 <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 8, lineHeight: 22 }}>
                   Enter the 6-digit OTP sent to {maskedPhoneRef.current}.
                 </Text>
-                <Input
-                  label="OTP"
-                  value={otp}
-                  onChangeText={(v) => setOtp(v.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="123456"
-                  keyboardType="numeric"
-                />
+                <OtpCodeInput value={otp} onChangeText={(v) => { setOtp(v); setError(''); }} disabled={lockoutSecs > 0} hasError={!!error} autoFocus />
                 {lockoutSecs > 0 && (
                   <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginTop: 12 }}>
                     <Text style={{ color: '#92400E', fontSize: 13 }}>
@@ -693,13 +688,7 @@ export default function LoginScreen() {
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
               A 6-digit OTP was sent to {loginOtpState?.maskedPhone}
             </Text>
-            <Input
-              label="6-digit OTP"
-              value={loginOtp}
-              onChangeText={(v) => { setLoginOtp(v.replace(/\D/g, '').slice(0, 6)); setError(''); }}
-              placeholder="123456"
-              keyboardType="number-pad"
-            />
+            <OtpCodeInput value={loginOtp} onChangeText={(v) => { setLoginOtp(v); setError(''); }} hasError={!!error} autoFocus />
             {error ? (
               <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
                 <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>

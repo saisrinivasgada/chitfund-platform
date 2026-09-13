@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Per-client-IP limits (60-second window):
  *   Auth endpoints    /api/auth/**             →  15 req/min  (returns 401 to hide throttling)
  *   Hub login         /api/hub/auth/login      →  10 req/min  (returns 401 to hide throttling)
+ *   Public inquiries  POST /api/public/tickets →   5 req/min
  *   Message sends     POST /api/conversations/ →  60 req/min
  *                     POST /api/groups/        →  60 req/min
  *   Everything else                            → 200 req/min
@@ -50,6 +51,7 @@ public class RateLimitGlobalFilter implements GlobalFilter, Ordered {
     private static final long WINDOW_MS         = 60_000L;
     private static final int  AUTH_LIMIT        = 15;
     private static final int  HUB_LOGIN_LIMIT   = 10;
+    private static final int  INQUIRY_LIMIT     = 5;
     private static final int  MESSAGE_LIMIT     = 60;
     private static final int  GLOBAL_LIMIT      = 200;
 
@@ -88,6 +90,9 @@ public class RateLimitGlobalFilter implements GlobalFilter, Ordered {
         }
         if (path.equals("/api/hub/auth/login") || path.equals("/api/hub/auth/accept-invite")) {
             return new RateLimit("hub-auth", HUB_LOGIN_LIMIT, true);
+        }
+        if (HttpMethod.POST.equals(method) && path.equals("/api/public/tickets")) {
+            return new RateLimit("public-inquiry", INQUIRY_LIMIT, false);
         }
         if (HttpMethod.POST.equals(method)) {
             if (path.matches("/api/conversations/[^/]+/messages")) {

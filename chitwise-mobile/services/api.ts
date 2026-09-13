@@ -6,11 +6,58 @@ import { useUIStore } from '../store/uiStore';
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
+const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync('chitwise_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
+});
+
+hubApi.interceptors.request.use(async (config) => {
+  const token = await SecureStore.getItemAsync('chitwise_hub_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+let hubRefreshing: Promise<any> | null = null;
+async function refreshHubSession() {
+  if (hubRefreshing) return hubRefreshing;
+  hubRefreshing = (async () => {
+    const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
+    if (!refreshToken) throw new Error('no_hub_refresh');
+    const response = await axios.post(`${API_BASE_URL}/hub/auth/refresh`, { refreshToken });
+    const data = response.data?.data ?? response.data;
+    const current = useAuthStore.getState().user;
+    if (!current || current.authSource !== 'HUB') throw new Error('not_hub_session');
+    await useAuthStore.getState().setUser({
+      ...current,
+      token: data.saasToken ?? '',
+      hubToken: data.token,
+      refreshToken: data.refreshToken,
+      role: data.role,
+      mustChangePassword: data.mustChangePassword === true,
+    });
+    return data;
+  })().finally(() => { hubRefreshing = null; });
+  return hubRefreshing;
+}
+
+hubApi.interceptors.response.use((response) => response, async (error) => {
+  const original = error.config;
+  if (error.response?.status === 401 && !original?._hubRetry
+      && !String(original?.url).includes('/hub/auth/')) {
+    original._hubRetry = true;
+    try {
+      const data = await refreshHubSession();
+      original.headers.Authorization = `Bearer ${data.token}`;
+      return hubApi(original);
+    } catch {
+      const user = useAuthStore.getState().user;
+      if (user) await useAuthStore.getState().markSessionInvalid(user.id);
+    }
+  }
+  return Promise.reject(error);
 });
 
 let isRefreshing = false;
@@ -37,6 +84,14 @@ api.interceptors.response.use(
       original._retry = true;
       isRefreshing = true;
       try {
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser?.authSource === 'HUB') {
+          const hubData = await refreshHubSession();
+          if (!hubData.saasToken) throw new Error('hub_role_has_no_saas_access');
+          processQueue(null, hubData.saasToken);
+          original.headers.Authorization = `Bearer ${hubData.saasToken}`;
+          return api(original);
+        }
         const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
         if (!refreshToken) throw new Error('no_refresh');
         const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
@@ -97,6 +152,90 @@ export interface LoginResponse {
   otpToken?: string;
   maskedPhone?: string;
 }
+
+export interface HubLoginResponse {
+  token: string;
+  refreshToken: string;
+  saasToken?: string;
+  id: string;
+  employeeId: string;
+  username: string;
+  fullName: string;
+  email: string;
+  role: 'SUPER_ADMIN' | 'SUPPORT_AGENT';
+  mustChangePassword: boolean;
+}
+
+export const hubLogin = async (username: string, password: string): Promise<HubLoginResponse> => {
+  const response = await hubApi.post('/hub/auth/login', { username, password });
+  return response.data?.data ?? response.data;
+};
+
+export const hubRefresh = refreshHubSession;
+
+export const hubLogout = async (refreshToken: string) => {
+  try { await hubApi.post('/hub/auth/logout', { refreshToken }); } catch {}
+};
+
+export const hubChangePassword = async (currentPassword: string, newPassword: string): Promise<HubLoginResponse> => {
+  const response = await hubApi.post('/hub/auth/change-password', { currentPassword, newPassword });
+  return response.data?.data ?? response.data;
+};
+
+export const hubListTickets = async ({ page = 0, size = 20, status, type, priority, fromDate, toDate, q }: any = {}) => {
+  const params: any = { page, size };
+  if (status) params.status = status;
+  if (type) params.type = type;
+  if (priority) params.priority = priority;
+  // Date fields update on every keystroke in mobile. Only send complete ISO
+  // dates so a partially typed value cannot turn a valid search into HTTP 400.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromDate ?? '')) params.fromDate = fromDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(toDate ?? '')) params.toDate = toDate;
+  if (q) params.q = q;
+  return unwrapObj(await hubApi.get('/hub/tickets', { params }));
+};
+
+export const hubGetTicket = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}`));
+export const hubGetTicketMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}/messages`));
+export const hubSendTicketMessage = async (id: string, content: string) => unwrapObj(await hubApi.post(`/hub/tickets/${id}/messages`, { content }));
+export const hubUpdateTicketStatus = async (id: string, status: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status }));
+export const hubMarkTicketRead = async (id: string) => hubApi.put(`/hub/tickets/${id}/read`);
+export const hubListEmployees = async () => {
+  const response = await hubApi.get('/hub/employees');
+  return response.data?.data ?? [];
+};
+export const hubInviteEmployee = async (body: { fullName: string; email: string; role: string }) => unwrapObj(await hubApi.post('/hub/employees/invite', body));
+export const hubChangeEmployeeRole = async (id: string, role: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/role`, { role }));
+export const hubDeactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/deactivate`));
+export const hubReactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`));
+export const hubResendEmployeeInvite = async (id: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/resend-invite`));
+export const hubResetEmployeePassword = async (id: string, temporaryPassword: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword }));
+export const hubEmployeeDirectory = async (): Promise<any[]> => {
+  const response = await hubApi.get('/hub/employees/directory');
+  return response.data?.data ?? [];
+};
+export const hubListDms = async (): Promise<any[]> => {
+  const response = await hubApi.get('/hub/chat/dms');
+  return response.data?.data ?? [];
+};
+export const hubStartDm = async (otherEmployeeId: string) => unwrapObj(await hubApi.post('/hub/chat/dms', { otherEmployeeId }));
+export const hubGetDmMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/chat/dms/${id}/messages`));
+const newClientMessageId = () => 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+  const r = Math.floor(Math.random() * 16);
+  return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+});
+export const hubSendDmMessage = async (id: string, content: string, clientMessageId = newClientMessageId()) =>
+  unwrapObj(await hubApi.post(`/hub/chat/dms/${id}/messages`, { content, clientMessageId }));
+export const hubMarkDmRead = async (id: string) => hubApi.put(`/hub/chat/dms/${id}/read`);
+export const hubListGroups = async (): Promise<any[]> => {
+  const response = await hubApi.get('/hub/chat/groups');
+  return response.data?.data ?? [];
+};
+export const hubGetGroupMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/chat/groups/${id}/messages`));
+export const hubSendGroupMessage = async (id: string, content: string, clientMessageId = newClientMessageId()) =>
+  unwrapObj(await hubApi.post(`/hub/chat/groups/${id}/messages`, { content, clientMessageId }));
+export const hubCreateGroup = async (body: { name: string; description?: string; memberIds: string[] }) =>
+  unwrapObj(await hubApi.post('/hub/chat/groups', body));
 
 function parseAuthResponse(auth: any): LoginResponse {
   return {

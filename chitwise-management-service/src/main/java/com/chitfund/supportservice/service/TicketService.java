@@ -5,6 +5,10 @@ import com.chitfund.supportservice.domain.entity.TicketAssignment;
 import com.chitfund.supportservice.domain.entity.TicketMessage;
 import com.chitfund.supportservice.domain.enums.SenderType;
 import com.chitfund.supportservice.domain.enums.TicketStatus;
+import com.chitfund.supportservice.domain.enums.TicketPriority;
+import com.chitfund.supportservice.domain.enums.TicketSource;
+import com.chitfund.supportservice.domain.enums.TicketType;
+import com.chitfund.supportservice.dto.request.CreatePublicInquiryRequest;
 import com.chitfund.supportservice.dto.request.AssignTicketRequest;
 import com.chitfund.supportservice.dto.request.CreateTicketRequest;
 import com.chitfund.supportservice.dto.request.SendMessageRequest;
@@ -18,6 +22,7 @@ import com.chitfund.supportservice.repository.TicketAssignmentRepository;
 import com.chitfund.supportservice.repository.TicketMessageRepository;
 import com.chitfund.supportservice.repository.TicketNumberSeqRepository;
 import com.chitfund.supportservice.websocket.TicketWebSocketController;
+import com.chitfund.supportservice.client.TenantSupportClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,6 +47,7 @@ public class TicketService {
     private final TicketAssignmentRepository assignmentRepository;
     private final TicketWebSocketController wsController;
     private final TicketNumberSeqRepository seqRepository;
+    private final TenantSupportClient tenantSupportClient;
 
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
@@ -49,14 +55,19 @@ public class TicketService {
     @Transactional
     public TicketResponse createTicket(String userId, String userName, String tenantId,
                                        CreateTicketRequest request) {
+        TenantSupportClient.SupportContext support = tenantSupportClient.getSupportContext(tenantId);
         String ticketNumber = generateTicketNumber();
         SupportTicket ticket = SupportTicket.builder()
                 .id(UUID.randomUUID().toString())
                 .ticketNumber(ticketNumber)
                 .type(request.getType())
+                .source(TicketSource.ORGANIZATION)
                 .tenantId(tenantId)
+                .tenantName(support.tenantName())
                 .createdBy(userId)
                 .createdByName(userName)
+                .preferredContact(request.getPreferredContact())
+                .priority(support.prioritySupport() ? TicketPriority.HIGH : TicketPriority.NORMAL)
                 .subject(request.getSubject())
                 .description(request.getDescription())
                 .build();
@@ -65,6 +76,27 @@ public class TicketService {
 
         wsController.notifyNewTicket(ticket);
 
+        return toResponse(ticket, 0);
+    }
+
+    @Transactional
+    public TicketResponse createPublicInquiry(CreatePublicInquiryRequest request) {
+        SupportTicket ticket = SupportTicket.builder()
+                .id(UUID.randomUUID().toString())
+                .ticketNumber(generateTicketNumber())
+                .type(TicketType.INQUIRY)
+                .source(TicketSource.PUBLIC)
+                .createdByName(request.getName().trim())
+                .requesterEmail(request.getEmail().trim())
+                .requesterPhone(blankToNull(request.getPhone()))
+                .preferredContact(request.getPreferredContact() != null
+                        ? request.getPreferredContact() : "EMAIL")
+                .subject("Public inquiry from " + request.getName().trim())
+                .description(request.getMessage().trim())
+                .priority(TicketPriority.NORMAL)
+                .build();
+        ticket = ticketRepository.save(ticket);
+        wsController.notifyNewTicket(ticket);
         return toResponse(ticket, 0);
     }
 
@@ -83,10 +115,13 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public PagedResponse<TicketResponse> listAll(int page, int size, TicketStatus status) {
-        Page<SupportTicket> tickets = status != null
-                ? ticketRepository.findByStatusOrderByCreatedAtDesc(status, PageRequest.of(page, size))
-                : ticketRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size));
+    public PagedResponse<TicketResponse> listAll(int page, int size, TicketStatus status,
+                                                 TicketType type, TicketPriority priority,
+                                                 Instant from, Instant toExclusive, String query) {
+        page = Math.max(0, page);
+        Page<SupportTicket> tickets = ticketRepository.searchForHub(
+                status, type, priority, from, toExclusive, blankToNull(query),
+                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
 
         return PagedResponse.<TicketResponse>builder()
                 .items(tickets.getContent().stream()
@@ -255,7 +290,7 @@ public class TicketService {
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
-        if (!isHub && !ticket.getTenantId().equals(tenantId)) {
+        if (!isHub && !java.util.Objects.equals(ticket.getTenantId(), tenantId)) {
             throw new IllegalArgumentException("Ticket not found");
         }
         return ticket;
@@ -295,9 +330,14 @@ public class TicketService {
                 .id(t.getId())
                 .ticketNumber(t.getTicketNumber())
                 .type(t.getType())
+                .source(t.getSource())
                 .tenantId(t.getTenantId())
+                .tenantName(t.getTenantName())
                 .createdBy(t.getCreatedBy())
                 .createdByName(t.getCreatedByName())
+                .requesterEmail(t.getRequesterEmail())
+                .requesterPhone(t.getRequesterPhone())
+                .preferredContact(t.getPreferredContact())
                 .subject(t.getSubject())
                 .description(t.getDescription())
                 .priority(t.getPriority())
@@ -310,6 +350,10 @@ public class TicketService {
                 .updatedAt(t.getUpdatedAt())
                 .unreadCount(unreadCount)
                 .build();
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private PagedResponse<TicketResponse> toPagedResponse(Page<SupportTicket> page, String tenantId) {

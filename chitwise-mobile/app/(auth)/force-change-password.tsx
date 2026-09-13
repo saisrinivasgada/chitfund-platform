@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
-import { changePassword } from '../../services/api';
+import { changePassword, hubChangePassword } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 
 function validatePassword(pw: string): string | null {
@@ -26,10 +26,18 @@ export default function ForceChangePasswordScreen() {
   const [error, setError]           = useState('');
 
   const changeMut = useMutation({
-    mutationFn: () => changePassword(currentPwd, newPwd),
-    onSuccess: () => {
+    mutationFn: () => user?.authSource === 'HUB'
+      ? hubChangePassword(currentPwd, newPwd)
+      : changePassword(currentPwd, newPwd),
+    onSuccess: (data: any) => {
       if (user) {
-        setUser({ ...user, mustChangePassword: false });
+        setUser(user.authSource === 'HUB' ? {
+          ...user,
+          token: data.saasToken ?? '',
+          hubToken: data.token,
+          refreshToken: data.refreshToken,
+          mustChangePassword: false,
+        } : { ...user, mustChangePassword: false });
       }
       // AuthGuard will pick up mustChangePassword=false and redirect to main app
     },
