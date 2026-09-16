@@ -122,6 +122,7 @@ export default function ManagerChitsScreen() {
   const [collectMemberId, setCollectMemberId] = useState('');
   const [collectAmount, setCollectAmount] = useState('');
   const [collectMode, setCollectMode] = useState('CASH');
+  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const [showPayout, setShowPayout] = useState(false);
   const [payoutWinner, setPayoutWinner] = useState<any>(null);
@@ -308,8 +309,10 @@ export default function ManagerChitsScreen() {
       drawId: collectDraw?.id,
       amount: Number(collectAmount),
       paymentMode: collectMode,
+      idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: () => {
+      setCollectIdempotencyKey(crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-draw-payments', collectDraw?.id] });
       setShowCollect(false); setCollectMemberId(''); setCollectAmount(''); setCollectMode('CASH');
       toast.saved('Payment recorded');

@@ -762,6 +762,7 @@ function RecordPaymentTab() {
   const [voidReason, setVoidReason] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [memberInfoId, setMemberInfoId] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
@@ -813,8 +814,8 @@ function RecordPaymentTab() {
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
     mutationFn: () => workerCollect
-      ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy })
-      : recordPayment({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined }),
+      ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy, idempotencyKey })
+      : recordPayment({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined, idempotencyKey }),
     onSuccess: () => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
@@ -822,6 +823,7 @@ function RecordPaymentTab() {
         ? 'Recorded — awaiting remittance from staff'
         : 'Payment recorded — treasury credited';
       toast.saved(msg);
+      setIdempotencyKey(crypto.randomUUID());
       setAmount(''); setNotes(''); setCollectedBy('SELF');
       if (isCredit) setMode('CASH');
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });

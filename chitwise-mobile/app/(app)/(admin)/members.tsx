@@ -144,6 +144,7 @@ export default function AdminMembersScreen() {
   const [newReferralId, setNewReferralId] = useState('');
   const [newReferralSearch, setNewReferralSearch] = useState('');
   const [idCopied, setIdCopied] = useState(false);
+  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // Full list for dropdowns, referral search, status counts, limit check
   const { data: allMembers = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
@@ -282,8 +283,10 @@ export default function AdminMembersScreen() {
       amount: useCredits ? 0 : Number(collectAmount),
       paymentMode: useCredits ? 'CREDIT' : collectMode,
       notes: collectNotes || undefined,
+      idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: () => {
+      setCollectIdempotencyKey(crypto.randomUUID());
       setShowCollect(false);
       setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setUseCredits(false);
       qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
