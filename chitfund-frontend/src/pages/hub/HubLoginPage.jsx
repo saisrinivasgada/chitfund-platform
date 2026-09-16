@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { hubLogin, setHubSaasToken, setHubToken } from '../../services/api';
 
 export default function HubLoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const inactivity = searchParams.get('reason') === 'inactivity';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -58,6 +60,11 @@ export default function HubLoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+          {inactivity && !error && (
+            <div className="bg-amber-50 text-amber-800 text-sm rounded-xl px-4 py-2.5">
+              You were signed out due to inactivity. Please sign in again.
+            </div>
+          )}
           {error && (
             <div className="bg-red-50 text-red-700 text-sm rounded-xl px-4 py-2.5">{error}</div>
           )}

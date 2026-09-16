@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { setHubToken, clearHubToken, setHubSaasToken, clearHubSaasToken } from '../../services/api';
 import {
   TicketIcon, UsersIcon, MessageSquare, LogOut, Settings,
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
+
+const INACTIVITY_MS = 15 * 60 * 1000; // 15 minutes
 
 export default function HubLayout() {
   const navigate = useNavigate();
@@ -14,8 +16,12 @@ export default function HubLayout() {
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('hub_sidebar_collapsed') === 'true',
   );
+  const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
+    // Clean up stale localStorage token from older deployments
+    localStorage.removeItem('hub_token');
+
     const token = sessionStorage.getItem('hub_token');
     const saasToken = sessionStorage.getItem('hub_saas_token');
     const user = localStorage.getItem('hub_user');
@@ -45,6 +51,30 @@ export default function HubLayout() {
       navigate('/hub-login', { replace: true });
     }
   }, [location.pathname, navigate]);
+
+  // Inactivity timeout — redirect to login after 15 min of no user activity
+  useEffect(() => {
+    if (!ready) return;
+    const resetTimer = () => { lastActivityRef.current = Date.now(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivityRef.current >= INACTIVITY_MS) {
+        sessionStorage.removeItem('hub_token');
+        sessionStorage.removeItem('hub_saas_token');
+        localStorage.removeItem('hub_user');
+        clearHubToken();
+        clearHubSaasToken();
+        navigate('/hub-login?reason=inactivity', { replace: true });
+      }
+    }, 60_000); // check every minute
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      clearInterval(interval);
+    };
+  }, [ready, navigate]);
 
   function handleLogout() {
     sessionStorage.removeItem('hub_token');
