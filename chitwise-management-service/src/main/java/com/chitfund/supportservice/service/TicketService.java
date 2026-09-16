@@ -25,7 +25,9 @@ import com.chitfund.supportservice.websocket.TicketWebSocketController;
 import com.chitfund.supportservice.client.TenantSupportClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -50,6 +52,10 @@ public class TicketService {
     private final TenantSupportClient tenantSupportClient;
     private final IdentityCaseService identityCaseService;
 
+    // Self-reference through the proxy so @Transactional on createTicketTransactional is applied
+    // when called from the non-transactional createTicket (which performs the HTTP call first).
+    @Lazy @Autowired private TicketService self;
+
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
 
@@ -62,11 +68,11 @@ public class TicketService {
             throw new IllegalArgumentException("Account case subtype is valid only for Account tickets");
         }
         TenantSupportClient.SupportContext support = tenantSupportClient.getSupportContext(tenantId);
-        return createTicketTransactional(userId, userName, tenantId, request, support);
+        return self.createTicketTransactional(userId, userName, tenantId, request, support);
     }
 
     @Transactional
-    protected TicketResponse createTicketTransactional(String userId, String userName, String tenantId,
+    public TicketResponse createTicketTransactional(String userId, String userName, String tenantId,
                                                        CreateTicketRequest request,
                                                        TenantSupportClient.SupportContext support) {
         String ticketNumber = generateTicketNumber();
