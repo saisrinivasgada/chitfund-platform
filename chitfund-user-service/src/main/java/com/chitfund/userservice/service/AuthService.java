@@ -673,6 +673,7 @@ public class AuthService {
                 LOGIN_EMAIL_VERIFICATION, code);
         user.setEmailVerifiedAt(LocalDateTime.now());
         user.setEmailVerificationRequired(false);
+        user.setFailedLoginAttempts(0);
         userRepository.save(user);
 
         if (requiresLoginOtp(user)) return buildLoginOtpResponse(user);

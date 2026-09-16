@@ -53,7 +53,6 @@ public class TicketService {
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
 
-    @Transactional
     public TicketResponse createTicket(String userId, String userName, String tenantId,
                                        CreateTicketRequest request) {
         if (request.getType() == TicketType.ACCOUNT && request.getAccountCaseSubtype() == null) {
@@ -63,6 +62,13 @@ public class TicketService {
             throw new IllegalArgumentException("Account case subtype is valid only for Account tickets");
         }
         TenantSupportClient.SupportContext support = tenantSupportClient.getSupportContext(tenantId);
+        return createTicketTransactional(userId, userName, tenantId, request, support);
+    }
+
+    @Transactional
+    protected TicketResponse createTicketTransactional(String userId, String userName, String tenantId,
+                                                       CreateTicketRequest request,
+                                                       TenantSupportClient.SupportContext support) {
         String ticketNumber = generateTicketNumber();
         SupportTicket ticket = SupportTicket.builder()
                 .id(UUID.randomUUID().toString())
@@ -134,7 +140,7 @@ public class TicketService {
                                                  Instant from, Instant toExclusive, String query) {
         page = Math.max(0, page);
         Page<SupportTicket> tickets = ticketRepository.searchForHub(
-                status, type, priority, from, toExclusive, blankToNull(query),
+                status, type, priority, from, toExclusive, escapeLikeParam(blankToNull(query)),
                 PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
 
         return PagedResponse.<TicketResponse>builder()
@@ -371,6 +377,11 @@ public class TicketService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String escapeLikeParam(String raw) {
+        if (raw == null) return null;
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private PagedResponse<TicketResponse> toPagedResponse(Page<SupportTicket> page, String tenantId) {

@@ -8,6 +8,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class PlanLimitChecker {
 
     private final ChitRepository chitRepository;
@@ -25,8 +27,9 @@ public class PlanLimitChecker {
     public void checkCanCreateChit(ChitType chitType) {
         String tenantId = requireTenant();
 
-        Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
+        Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
+        if (limits == null) return;
 
         checkNotExpiredInternal(limits);
 
@@ -49,8 +52,9 @@ public class PlanLimitChecker {
     public void checkCanActivateChit() {
         String tenantId = requireTenant();
 
-        Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
+        Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
+        if (limits == null) return;
 
         checkNotExpiredInternal(limits);
 
@@ -70,8 +74,9 @@ public class PlanLimitChecker {
 
     public void checkNotExpired() {
         String tenantId = requireTenant();
-        Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
+        Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
+        if (limits == null) return;
         checkNotExpiredInternal(limits);
     }
 
@@ -84,11 +89,17 @@ public class PlanLimitChecker {
         return tenantId;
     }
 
-    private void requireLimits(Map<String, Object> limits) {
-        if (limits == null) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
+    private Map<String, Object> fetchLimits(String tenantId) {
+        try {
+            return userServiceClient.getEffectiveLimits(tenantId);
+        } catch (Exception e) {
+            log.warn("Could not fetch plan limits for tenant {} — allowing operation (user-service unavailable): {}", tenantId, e.getMessage());
+            return null;
         }
+    }
+
+    private void requireLimits(Map<String, Object> limits) {
+        // null means user-service was unreachable — fail open to avoid blocking operations during restarts
     }
 
     private void checkNotExpiredInternal(Map<String, Object> limits) {

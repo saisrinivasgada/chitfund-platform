@@ -1,5 +1,6 @@
 package com.chitfund.userservice.service;
 
+import com.chitfund.userservice.client.MemberServiceClient;
 import com.chitfund.userservice.client.NotificationServiceClient;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.repository.UserRepository;
@@ -17,6 +18,7 @@ import java.util.Map;
 @Slf4j
 public class IdentityNotificationListener {
     private final NotificationServiceClient notificationClient;
+    private final MemberServiceClient memberServiceClient;
     private final UserRepository userRepository;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -42,10 +44,22 @@ public class IdentityNotificationListener {
                         org + " sent an app-access request.",
                         Map.of("type", "CHITFUND_REQUEST", "requestId", event.requestId().toString()));
             }
-            case CHITFUND_ACCESS_ACTIVATED -> notificationClient.createInApp(
-                    event.recipientUserId(), "Chitfund Access Active",
-                    "Your verified member profile is now active for " + event.organizationName() + ".",
-                    "CHITFUND_REQUEST", "/member/chitfund-requests");
+            case CHITFUND_ACCESS_ACTIVATED -> {
+                if (event.activationTenantId() != null && event.activationMemberId() != null) {
+                    try {
+                        memberServiceClient.activateAppAccess(
+                                event.activationTenantId(), event.activationMemberId(),
+                                event.recipientUserId(), event.requestId());
+                    } catch (RuntimeException ex) {
+                        log.error("member-service activateAppAccess failed post-commit for request {}: {}",
+                                event.requestId(), ex.getMessage());
+                    }
+                }
+                notificationClient.createInApp(
+                        event.recipientUserId(), "Chitfund Access Active",
+                        "Your verified member profile is now active for " + event.organizationName() + ".",
+                        "CHITFUND_REQUEST", "/member/chitfund-requests");
+            }
             case PHONE_IDENTITY_REASSIGNED -> {
                 notificationClient.createInApp(event.recipientUserId(), "Account identity updated",
                         "A support-approved phone identity change was completed. Your historical organization and financial records were not transferred or deleted.",

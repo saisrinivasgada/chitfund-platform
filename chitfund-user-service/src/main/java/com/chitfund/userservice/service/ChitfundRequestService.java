@@ -3,7 +3,6 @@ package com.chitfund.userservice.service;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
-import com.chitfund.userservice.client.MemberServiceClient;
 import com.chitfund.userservice.domain.entity.*;
 import com.chitfund.userservice.domain.enums.*;
 import com.chitfund.userservice.dto.request.SetupAccountRequest;
@@ -44,7 +43,6 @@ public class ChitfundRequestService {
     private final OtpService otpService;
     private final AuthService authService;
     private final TenantService tenantService;
-    private final MemberServiceClient memberServiceClient;
     private final ChitfundRequestStateService requestStateService;
     private final ChitfundRequestAuditRepository requestAuditRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -135,7 +133,7 @@ public class ChitfundRequestService {
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     candidate.getId(), request.getId(),
                     tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization"),
-                    List.of()));
+                    List.of(), null, null));
         }
         return toResponse(request, setupToken, actionToken);
     }
@@ -202,7 +200,8 @@ public class ChitfundRequestService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Use account setup for a new account");
         }
         if (request.getStatus() == ChitfundRequestStatus.AWAITING_ADMIN) {
-            return;
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Your request is awaiting administrator approval. You will be notified when you can proceed.");
         }
         otpService.sendOtp(request.getRequestedPhone(), request.getPhoneCountryCode(),
                 ACCEPT_OTP, request.getId().toString());
@@ -294,7 +293,7 @@ public class ChitfundRequestService {
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     request.getCandidateUserId(), request.getId(),
                     tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
-                    List.of()));
+                    List.of(), null, null));
         }
         return toResponse(request, setupToken, actionToken);
     }
@@ -332,8 +331,6 @@ public class ChitfundRequestService {
         } catch (DataIntegrityViolationException ex) {
             throw conflict("This account is already connected to another member in this organization");
         }
-        memberServiceClient.activateAppAccess(request.getTenantId(), request.getMemberId(),
-                request.getCandidateUserId(), request.getId());
         User user = userRepository.findById(request.getCandidateUserId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         user.setHasAppAccess(true);
@@ -345,11 +342,14 @@ public class ChitfundRequestService {
         requestRepository.save(request);
         audit(request, "ACCESS_ACTIVATED", ChitfundRequestStatus.AWAITING_ADMIN,
                 request.getStatus(), adminId, "ORG_ADMIN", "Organization activated member app access");
+        // activateAppAccess is called post-commit via IdentityNotificationListener to avoid
+        // holding a DB connection during the HTTP call and to prevent state divergence if
+        // the DB write succeeds but the TX rolls back. The member-service endpoint is idempotent.
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED,
                 request.getCandidateUserId(), request.getId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
-                List.of()));
+                List.of(), request.getTenantId(), request.getMemberId()));
         return toResponse(request, null);
     }
 
@@ -612,10 +612,7 @@ public class ChitfundRequestService {
 
     private String generatePlaceholderUsername(String phone) {
         String base = "pending_" + phone.replaceAll("\\D", "");
-        String candidate = base;
-        int suffix = 1;
-        while (userRepository.existsByUsername(candidate)) candidate = base + "_" + suffix++;
-        return candidate;
+        return base + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 
     private static String normalizePhone(String phone) {

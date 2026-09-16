@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.chitfund.userservice.util.CapabilityJson;
@@ -711,6 +712,7 @@ public class TenantService {
 
     // ── Membership helpers ───────────────────────────────────────────────────
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void addUserToTenant(UUID userId, UUID tenantId, Role role, UUID memberId) {
         if (role != Role.MEMBER) return; // only members need a link row
         MemberUserLink existingForUser = memberLinkRepository.findByUserIdAndTenantId(userId, tenantId)

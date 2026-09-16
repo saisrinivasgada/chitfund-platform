@@ -53,6 +53,7 @@ public class RateLimitGlobalFilter implements GlobalFilter, Ordered {
     private static final int  HUB_LOGIN_LIMIT   = 10;
     private static final int  INQUIRY_LIMIT     = 5;
     private static final int  MESSAGE_LIMIT     = 60;
+    private static final int  OTP_LIMIT         = 10;
     private static final int  GLOBAL_LIMIT      = 200;
 
     private final ConcurrentHashMap<String, Deque<Long>> windows = new ConcurrentHashMap<>();
@@ -93,6 +94,9 @@ public class RateLimitGlobalFilter implements GlobalFilter, Ordered {
         }
         if (HttpMethod.POST.equals(method) && path.equals("/api/public/tickets")) {
             return new RateLimit("public-inquiry", INQUIRY_LIMIT, false);
+        }
+        if (path.contains("/chitfund-requests/") && (path.contains("/setup") || path.contains("/recovery") || path.contains("/otp") || path.contains("/accept"))) {
+            return new RateLimit("otp", OTP_LIMIT, true);
         }
         if (HttpMethod.POST.equals(method)) {
             if (path.matches("/api/conversations/[^/]+/messages")) {

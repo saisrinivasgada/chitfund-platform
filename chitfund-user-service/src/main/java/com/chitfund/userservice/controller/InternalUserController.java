@@ -109,10 +109,15 @@ public class InternalUserController {
             @RequestHeader(value = "X-Internal-Key", required = true) String key,
             @RequestBody Map<String, String> body) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        String tenantIdStr = body.get("tenantId");
+        String memberIdStr = body.get("memberId");
+        if (tenantIdStr == null || memberIdStr == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "tenantId and memberId are required"));
+        }
         try {
             ChitfundRequestResponse response = chitfundRequestService.create(
-                    UUID.fromString(body.get("tenantId")),
-                    UUID.fromString(body.get("memberId")),
+                    UUID.fromString(tenantIdStr),
+                    UUID.fromString(memberIdStr),
                     body.get("phone"), body.getOrDefault("phoneCountryCode", "+91"),
                     body.get("email"),
                     body.get("requestedBy") != null ? UUID.fromString(body.get("requestedBy")) : null);

@@ -72,7 +72,9 @@ public class HubJwtAuthFilter extends OncePerRequestFilter {
         return path.equals("/api/hub/auth/change-password")
                 || path.equals("/api/hub/auth/me")
                 || path.equals("/api/hub/auth/login")
-                || path.equals("/api/hub/auth/accept-invite");
+                || path.equals("/api/hub/auth/accept-invite")
+                || path.equals("/api/hub/auth/logout")
+                || path.equals("/api/hub/auth/refresh");
     }
 
     private String extractToken(HttpServletRequest request) {

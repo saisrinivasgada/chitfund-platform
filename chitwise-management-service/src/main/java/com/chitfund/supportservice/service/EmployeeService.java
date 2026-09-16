@@ -69,7 +69,7 @@ public class EmployeeService {
 
         employee.setLastLoginAt(Instant.now());
         employeeRepository.save(employee);
-
+        refreshSessionRepository.revokeAllForEmployee(employee.getId(), Instant.now());
         return toLoginResponse(employee);
     }
 
@@ -232,7 +232,9 @@ public class EmployeeService {
         }
         employee.setActive(active);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
-        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        if (!active) {
+            refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        }
         return toResponse(employeeRepository.save(employee));
     }
 

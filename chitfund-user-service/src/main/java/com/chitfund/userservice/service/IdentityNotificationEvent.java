@@ -8,7 +8,10 @@ public record IdentityNotificationEvent(
         UUID recipientUserId,
         UUID requestId,
         String organizationName,
-        List<UUID> affectedTenantIds) {
+        List<UUID> affectedTenantIds,
+        // Present only for CHITFUND_ACCESS_ACTIVATED — used to call member-service post-commit
+        UUID activationTenantId,
+        UUID activationMemberId) {
 
     public enum Type {
         CHITFUND_REQUEST_CREATED,

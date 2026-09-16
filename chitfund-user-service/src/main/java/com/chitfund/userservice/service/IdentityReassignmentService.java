@@ -130,7 +130,7 @@ public class IdentityReassignmentService {
         executionRepository.save(execution);
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.PHONE_IDENTITY_REASSIGNED,
-                oldUser.getId(), null, null, affectedTenantIds));
+                oldUser.getId(), null, null, affectedTenantIds, null, null));
         return result;
     }
 

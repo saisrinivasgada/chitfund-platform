@@ -27,10 +27,10 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, St
             "(:priority IS NULL OR t.priority = :priority) AND " +
             "(:from IS NULL OR t.createdAt >= :from) AND " +
             "(:toExclusive IS NULL OR t.createdAt < :toExclusive) AND " +
-            "(:query IS NULL OR LOWER(t.ticketNumber) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            " OR LOWER(t.subject) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            " OR LOWER(COALESCE(t.createdByName, '')) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            " OR LOWER(COALESCE(t.tenantName, '')) LIKE LOWER(CONCAT('%', :query, '%'))) " +
+            "(:query IS NULL OR LOWER(t.ticketNumber) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\\\' " +
+            " OR LOWER(t.subject) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\\\' " +
+            " OR LOWER(COALESCE(t.createdByName, '')) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\\\' " +
+            " OR LOWER(COALESCE(t.tenantName, '')) LIKE LOWER(CONCAT('%', :query, '%')) ESCAPE '\\\\') " +
             "ORDER BY CASE WHEN t.priority = com.chitfund.supportservice.domain.enums.TicketPriority.URGENT THEN 0 " +
             "WHEN t.priority = com.chitfund.supportservice.domain.enums.TicketPriority.HIGH THEN 1 ELSE 2 END, " +
             "t.createdAt DESC")

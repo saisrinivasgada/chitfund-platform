@@ -86,7 +86,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         filterChain.doFilter(request, response);
                         return;
                     }
-                    var hubIdentity = hubIdentityClient.getAuthState(employeeId).orElse(null);
+                    HubIdentityClient.HubAuthState hubIdentity;
+                    try {
+                        hubIdentity = hubIdentityClient.getAuthState(employeeId).orElse(null);
+                    } catch (Exception ex) {
+                        log.warn("management-service unreachable during HUB_SUPER_ADMIN auth; degrading to unauthenticated: {}", ex.getMessage());
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
                     if (hubIdentity == null
                             || !hubIdentity.active()
                             || hubIdentity.mustChangePassword()
