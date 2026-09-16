@@ -17,9 +17,9 @@ export default function HubLoginPage() {
       const data = await hubLogin({ username, password });
       setHubToken(data.token);
       setHubSaasToken(data.saasToken ?? null);
-      localStorage.setItem('hub_token', data.token);
-      if (data.saasToken) localStorage.setItem('hub_saas_token', data.saasToken);
-      else localStorage.removeItem('hub_saas_token');
+      sessionStorage.setItem('hub_token', data.token);
+      if (data.saasToken) sessionStorage.setItem('hub_saas_token', data.saasToken);
+      else sessionStorage.removeItem('hub_saas_token');
       localStorage.setItem('hub_user', JSON.stringify({
         id: data.id,
         employeeId: data.employeeId,

@@ -16,7 +16,7 @@ export const clearHubSaasToken = () => { _hubSaasToken = null; };
 api.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
-    const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
+    const token = sessionStorage.getItem('token') ?? _authToken;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -56,8 +56,8 @@ api.interceptors.response.use(
       if (_hubSaasToken && !_authToken && !sessionStorage.getItem('token')) {
         clearHubSaasToken();
         clearHubToken();
-        localStorage.removeItem('hub_saas_token');
-        localStorage.removeItem('hub_token');
+        sessionStorage.removeItem('hub_saas_token');
+        sessionStorage.removeItem('hub_token');
         localStorage.removeItem('hub_user');
         window.location.href = '/hub-login';
         return Promise.reject(err);
@@ -215,6 +215,17 @@ export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
 };
 export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
   await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
+};
+export const adminForgotPassword = async ({ email }) => {
+  const res = await api.post('/auth/admin/forgot-password', { email });
+  return res.data.data; // { userId }
+};
+export const adminVerifyResetOtp = async ({ userId, code }) => {
+  const res = await api.post('/auth/admin/verify-reset-otp', { userId, code });
+  return res.data.data; // { resetToken }
+};
+export const adminResetPassword = async ({ resetToken, newPassword }) => {
+  await api.post('/auth/admin/reset-password', { resetToken, newPassword });
 };
 
 // Legacy (kept for backward compat)
@@ -1747,6 +1758,21 @@ hubApi.interceptors.request.use((config) => {
   if (_hubToken) config.headers.Authorization = `Bearer ${_hubToken}`;
   return config;
 });
+
+hubApi.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      clearHubToken();
+      clearHubSaasToken();
+      sessionStorage.removeItem('hub_saas_token');
+      sessionStorage.removeItem('hub_token');
+      localStorage.removeItem('hub_user');
+      window.location.href = '/hub-login';
+    }
+    return Promise.reject(err);
+  }
+);
 
 export const hubLogin = async ({ username, password }) => {
   const res = await hubApi.post('/hub/auth/login', { username, password });

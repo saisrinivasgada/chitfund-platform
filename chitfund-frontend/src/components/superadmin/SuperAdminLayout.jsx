@@ -34,8 +34,8 @@ export default function SuperAdminLayout({ embedded = false }) {
   const user = embedded ? hubUser : orgUser;
 
   const clearHubSession = useCallback(() => {
-    localStorage.removeItem('hub_token');
-    localStorage.removeItem('hub_saas_token');
+    sessionStorage.removeItem('hub_token');
+    sessionStorage.removeItem('hub_saas_token');
     localStorage.removeItem('hub_user');
     clearHubToken();
     clearHubSaasToken();

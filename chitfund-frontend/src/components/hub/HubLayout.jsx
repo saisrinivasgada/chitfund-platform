@@ -16,8 +16,8 @@ export default function HubLayout() {
   );
 
   useEffect(() => {
-    const token = localStorage.getItem('hub_token');
-    const saasToken = localStorage.getItem('hub_saas_token');
+    const token = sessionStorage.getItem('hub_token');
+    const saasToken = sessionStorage.getItem('hub_saas_token');
     const user = localStorage.getItem('hub_user');
     if (!token || !user) {
       navigate('/hub-login', { replace: true });
@@ -47,8 +47,8 @@ export default function HubLayout() {
   }, [location.pathname, navigate]);
 
   function handleLogout() {
-    localStorage.removeItem('hub_token');
-    localStorage.removeItem('hub_saas_token');
+    sessionStorage.removeItem('hub_token');
+    sessionStorage.removeItem('hub_saas_token');
     localStorage.removeItem('hub_user');
     clearHubToken();
     clearHubSaasToken();

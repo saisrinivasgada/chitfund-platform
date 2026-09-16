@@ -25,7 +25,7 @@ export default function HubAcceptInvitePage() {
     try {
       const data = await hubAcceptInvite({ token, username, password });
       setHubToken(data.token);
-      localStorage.setItem('hub_token', data.token);
+      sessionStorage.setItem('hub_token', data.token);
       localStorage.setItem('hub_user', JSON.stringify({
         id: data.id,
         employeeId: data.employeeId,

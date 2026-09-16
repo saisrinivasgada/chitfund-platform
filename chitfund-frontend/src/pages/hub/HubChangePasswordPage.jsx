@@ -13,7 +13,7 @@ const PASSWORD_RULES = [
 
 export default function HubChangePasswordPage() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('hub_token');
+  const token = sessionStorage.getItem('hub_token');
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -47,9 +47,14 @@ export default function HubChangePasswordPage() {
         newPassword: form.newPassword,
       });
       setHubToken(data.token);
-      setHubSaasToken(data.saasToken ?? null);
-      localStorage.setItem('hub_token', data.token);
-      if (data.saasToken) localStorage.setItem('hub_saas_token', data.saasToken);
+      sessionStorage.setItem('hub_token', data.token);
+      if (data.saasToken) {
+        setHubSaasToken(data.saasToken);
+        sessionStorage.setItem('hub_saas_token', data.saasToken);
+      } else {
+        setHubSaasToken(null);
+        sessionStorage.removeItem('hub_saas_token');
+      }
       const hubUser = {
         id: data.id,
         employeeId: data.employeeId,
