@@ -2,6 +2,7 @@ package com.chitfund.paymentservice.service;
 
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.domain.PaymentBatch;
@@ -52,6 +53,7 @@ class FinancialIdempotencyTest {
     @Mock NotificationService notificationService;
     @Mock MemberCreditService memberCreditService;
     @Mock ChitMonthDrawService chitMonthDrawService;
+    @Mock AuditClient auditClient;
     @Mock SettlementPaymentTransactionRepository transactionRepository;
     @Mock SettlementRepository settlementRepository;
 
@@ -77,7 +79,8 @@ class FinancialIdempotencyTest {
         PaymentService service = new PaymentService(
                 batchRepository, paymentRecordRepository, allocationRepository,
                 planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
-                adminWalletService, notificationService, memberCreditService, chitMonthDrawService);
+                adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
+                auditClient);
 
         assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "request-1"))
                 .isInstanceOfSatisfying(BusinessException.class, ex ->
