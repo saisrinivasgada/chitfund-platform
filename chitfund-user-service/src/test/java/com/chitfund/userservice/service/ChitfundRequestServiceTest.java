@@ -2,7 +2,6 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
-import com.chitfund.userservice.client.MemberServiceClient;
 import com.chitfund.userservice.domain.entity.ChitfundAccessRequest;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.ChitfundRequestKind;
@@ -13,8 +12,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -41,7 +40,6 @@ class ChitfundRequestServiceTest {
     @Mock OtpService otpService;
     @Mock AuthService authService;
     @Mock TenantService tenantService;
-    @Mock MemberServiceClient memberServiceClient;
     @Mock ChitfundRequestStateService requestStateService;
     @Mock ChitfundRequestAuditRepository requestAuditRepository;
     @Mock org.springframework.context.ApplicationEventPublisher eventPublisher;
@@ -51,7 +49,7 @@ class ChitfundRequestServiceTest {
     void setUp() {
         service = new ChitfundRequestService(requestRepository, userRepository, memberLinkRepository,
                 tenantRepository, setupTokenRepository, emailOtpService, passwordEncoder,
-                passwordValidator, otpService, authService, tenantService, memberServiceClient,
+                passwordValidator, otpService, authService, tenantService,
                 requestStateService, requestAuditRepository, eventPublisher);
         lenient().when(requestRepository.findFirstByTenantIdAndMemberIdAndStatusInOrderByCreatedAtDesc(any(), any(), any()))
                 .thenReturn(Optional.empty());
@@ -89,7 +87,7 @@ class ChitfundRequestServiceTest {
         assertThat(response.getSetupToken()).isEqualTo("setup-token");
         verify(authService).generateSetupToken(userId, response.getId());
         verify(otpService).sendOtp("9876543210", "+91", "APP_ACCESS_SETUP", response.getId().toString());
-        verifyNoInteractions(memberLinkRepository, memberServiceClient);
+        verifyNoInteractions(memberLinkRepository);
     }
 
     @Test
@@ -107,7 +105,7 @@ class ChitfundRequestServiceTest {
 
         assertThat(response.getRequestKind()).isEqualTo(ChitfundRequestKind.LINK_EXISTING);
         assertThat(response.getStatus().name()).isEqualTo("PENDING_MEMBER");
-        verifyNoInteractions(memberLinkRepository, memberServiceClient, authService, otpService);
+        verifyNoInteractions(memberLinkRepository, authService, otpService);
     }
 
     @Test
@@ -160,9 +158,13 @@ class ChitfundRequestServiceTest {
 
         service.confirm(requestId, UUID.randomUUID());
 
-        InOrder order = inOrder(tenantService, memberServiceClient);
-        order.verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
-        order.verify(memberServiceClient).activateAppAccess(tenantId, memberId, userId, requestId);
+        verify(tenantService).addUserToTenant(userId, tenantId, Role.MEMBER, memberId);
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        IdentityNotificationEvent evt = (IdentityNotificationEvent) eventCaptor.getValue();
+        assertThat(evt.type()).isEqualTo(IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED);
+        assertThat(evt.activationTenantId()).isEqualTo(tenantId);
+        assertThat(evt.activationMemberId()).isEqualTo(memberId);
         assertThat(request.getStatus()).isEqualTo(ChitfundRequestStatus.ACTIVE);
     }
 
