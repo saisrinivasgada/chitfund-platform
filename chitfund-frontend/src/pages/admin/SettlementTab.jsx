@@ -2345,43 +2345,59 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
           onClose={() => setShowConfirm(false)}
           loading={confirmMutation.isPending}
         >
-          <div className="space-y-3 pb-2">
-            <div className={`rounded-lg p-3 text-sm font-semibold ${
-              adjustedTotal > 0 ? 'bg-red-50 text-red-700'
-              : adjustedTotal < 0 ? 'bg-green-50 text-green-700'
-              : 'bg-gray-50 text-gray-600'
-            }`}>
-              {adjustedTotal === 0
-                ? 'Accounts balance out — no payment needed.'
-                : adjustedTotal > 0
-                ? `Member pays ₹${adjustedTotal.toLocaleString('en-IN')}`
-                : `Fund refunds ₹${Math.abs(adjustedTotal).toLocaleString('en-IN')}`}
-            </div>
-            {parsedAdjustment !== 0 && (
-              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 space-y-0.5">
-                <div className="flex justify-between">
-                  <span>Base settlement</span>
-                  <span className="font-medium">{grandTotal > 0 ? `+₹${grandTotal.toLocaleString('en-IN')}` : grandTotal < 0 ? `−₹${Math.abs(grandTotal).toLocaleString('en-IN')}` : '₹0'}</span>
+          {(() => {
+            const creditApplied = Number(preview?.creditBalance ?? 0);
+            const netAfterCredit = adjustedTotal - creditApplied;
+            const showCredit = creditApplied > 0 && adjustedTotal > 0;
+            const finalAmt = showCredit ? netAfterCredit : adjustedTotal;
+            return (
+              <div className="space-y-3 pb-2">
+                <div className={`rounded-lg p-3 text-sm font-semibold ${
+                  finalAmt > 0 ? 'bg-red-50 text-red-700'
+                  : finalAmt < 0 ? 'bg-green-50 text-green-700'
+                  : 'bg-gray-50 text-gray-600'
+                }`}>
+                  {finalAmt === 0
+                    ? 'Accounts balance out — no payment needed.'
+                    : finalAmt > 0
+                    ? `Member pays ₹${finalAmt.toLocaleString('en-IN')}`
+                    : `Fund refunds ₹${Math.abs(finalAmt).toLocaleString('en-IN')}`}
                 </div>
-                <div className="flex justify-between">
-                  <span>Adjustment{adjustmentReason ? ` — ${adjustmentReason}` : ''}</span>
-                  <span className="font-medium">{parsedAdjustment > 0 ? `+₹${parsedAdjustment.toLocaleString('en-IN')}` : `−₹${Math.abs(parsedAdjustment).toLocaleString('en-IN')}`}</span>
+                {(showCredit || parsedAdjustment !== 0) && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Base settlement</span>
+                      <span className="font-medium">{grandTotal > 0 ? `+₹${grandTotal.toLocaleString('en-IN')}` : grandTotal < 0 ? `−₹${Math.abs(grandTotal).toLocaleString('en-IN')}` : '₹0'}</span>
+                    </div>
+                    {parsedAdjustment !== 0 && (
+                      <div className="flex justify-between">
+                        <span>Adjustment{adjustmentReason ? ` — ${adjustmentReason}` : ''}</span>
+                        <span className="font-medium">{parsedAdjustment > 0 ? `+₹${parsedAdjustment.toLocaleString('en-IN')}` : `−₹${Math.abs(parsedAdjustment).toLocaleString('en-IN')}`}</span>
+                      </div>
+                    )}
+                    {showCredit && (
+                      <div className="flex justify-between text-green-700 font-medium">
+                        <span>Credit balance applied</span>
+                        <span>−₹{creditApplied.toLocaleString('en-IN')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="text-xs text-gray-500 space-y-1">
+                  {includedItems.map((i) => (
+                    <div key={i.chitId} className="flex justify-between">
+                      <span>{i.chitName}</span>
+                      <span className={Number(i.displayNetAmount) >= 0 ? 'text-red-600' : 'text-green-600'}>
+                        {Number(i.displayNetAmount) >= 0
+                          ? `owes ₹${Number(i.displayNetAmount).toLocaleString('en-IN')}`
+                          : `refund ₹${Math.abs(Number(i.displayNetAmount)).toLocaleString('en-IN')}`}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
-            <div className="text-xs text-gray-500 space-y-1">
-              {includedItems.map((i) => (
-                <div key={i.chitId} className="flex justify-between">
-                  <span>{i.chitName}</span>
-                  <span className={Number(i.displayNetAmount) >= 0 ? 'text-red-600' : 'text-green-600'}>
-                    {Number(i.displayNetAmount) >= 0
-                      ? `owes ₹${Number(i.displayNetAmount).toLocaleString('en-IN')}`
-                      : `refund ₹${Math.abs(Number(i.displayNetAmount)).toLocaleString('en-IN')}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+            );
+          })()}
         </ConfirmDialog>
       )}
     </div>

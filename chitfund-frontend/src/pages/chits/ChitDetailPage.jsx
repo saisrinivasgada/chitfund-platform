@@ -2770,9 +2770,19 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const amtNum    = usingCredit ? 0 : Number(amount || 0);
   const isOverpay = !usingCredit && amtNum > balance && balance > 0;
   const canSubmit = usingCredit ? creditCoversAll : (amtNum > 0);
+  const totalOverpayAmt = !usingCredit && !viaTeam && amtNum > 0 && memberTotalBalance > 0
+    ? Math.max(0, amtNum - memberTotalBalance)
+    : 0;
 
   const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff});
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
+
+  const { data: memberTotalBalance = 0 } = useQuery({
+    queryKey: ['memberTotalBalance', paymentRecord?.memberId],
+    queryFn: () => getMemberTotalBalance(paymentRecord.memberId),
+    enabled: !!paymentRecord?.memberId,
+    staleTime: 30_000,
+  });
 
   function invalidate() {
     qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'drawPayments' });
@@ -2870,6 +2880,13 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
             {isOverpay && (
               <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 ⚠ ₹{amtNum.toLocaleString()} exceeds outstanding by <strong>₹{(amtNum - balance).toLocaleString()}</strong> — excess becomes credit balance.
+              </p>
+            )}
+            {totalOverpayAmt > 0 && (
+              <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠ This member's total outstanding across all chits is{' '}
+                <strong>₹{memberTotalBalance.toLocaleString('en-IN')}</strong>.
+                The extra <strong>₹{totalOverpayAmt.toLocaleString('en-IN')}</strong> will be added to their credit balance.
               </p>
             )}
           </FormField>

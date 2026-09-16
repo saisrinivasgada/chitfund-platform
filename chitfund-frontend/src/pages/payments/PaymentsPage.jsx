@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit,
+  getChits, getMembers, getChitsForMember, getMemberBalance, getMemberCredit, getMemberTotalBalance,
   collectPayment, recordPayment, getAllPaymentBatches,
   getActiveCashRequests, assignStaffToRequest, cancelCashRequest, listStaff,
   getPendingRemittance, remitPayment, voidPaymentBatch,
@@ -1111,6 +1111,14 @@ export function RecordPaymentTab() {
   const collectors = staff.filter((s) => (s.role === 'STAFF' || s.role === 'MANAGER') && s.enabled !== false);
 
   const isCredit = paymentMode === 'CREDIT';
+  const isWorkerCollect = paymentMode === 'CASH' && collectedBy !== 'SELF';
+
+  const { data: memberTotalBalance = 0 } = useQuery({
+    queryKey: ['memberTotalBalance', memberId],
+    queryFn: () => getMemberTotalBalance(memberId),
+    enabled: !!memberId,
+    staleTime: 30_000,
+  });
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -1191,6 +1199,10 @@ export function RecordPaymentTab() {
   // Effective amount after credit auto-applies
   const effectiveAmount = amtNum + creditBalance;
   const isOverpay = !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
+  // Cross-chit overpayment: amount exceeds member's total outstanding across ALL chits
+  const totalOverpayAmt = !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
+    ? Math.max(0, amtNum - memberTotalBalance)
+    : 0;
 
   return (
     <div className="max-w-lg">
@@ -1325,6 +1337,17 @@ export function RecordPaymentTab() {
                 <span>
                   Effective payment (₹{amtNum.toLocaleString('en-IN')}{creditBalance > 0 ? ` + ₹${creditBalance.toLocaleString('en-IN')} credit` : ''} = ₹{effectiveAmount.toLocaleString('en-IN')}) exceeds this chit's outstanding ₹{outstanding.toLocaleString('en-IN')}.
                   The excess <strong>₹{(effectiveAmount - outstanding).toLocaleString('en-IN')}</strong> will auto-apply to any other chit outstanding — if all clear, it becomes credit balance.
+                </span>
+              </div>
+            )}
+            {totalOverpayAmt > 0 && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800">
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  This member's total outstanding across all chits is{' '}
+                  <strong>₹{memberTotalBalance.toLocaleString('en-IN')}</strong>.
+                  You're recording <strong>₹{amtNum.toLocaleString('en-IN')}</strong> —
+                  the extra <strong>₹{totalOverpayAmt.toLocaleString('en-IN')}</strong> will be added to their credit balance.
                 </span>
               </div>
             )}

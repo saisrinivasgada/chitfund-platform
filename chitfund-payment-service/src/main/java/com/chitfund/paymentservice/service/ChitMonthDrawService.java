@@ -448,7 +448,9 @@ public class ChitMonthDrawService {
         boolean allDone = records.stream().allMatch(r ->
                 r.getStatus() == PaymentRecordStatus.SETTLED
                 || r.getStatus() == PaymentRecordStatus.WAIVED
-                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED);
+                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED
+                || r.getStatus() == PaymentRecordStatus.CREDIT_COVERED
+                || r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
 
         if (allDone && !records.isEmpty()) {
             draw.setStatus(DrawStatus.CLOSED);
@@ -478,7 +480,9 @@ public class ChitMonthDrawService {
         boolean allDone = records.stream().allMatch(r ->
                 r.getStatus() == PaymentRecordStatus.SETTLED
                 || r.getStatus() == PaymentRecordStatus.WAIVED
-                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED);
+                || r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED
+                || r.getStatus() == PaymentRecordStatus.CREDIT_COVERED
+                || r.getStatus() == PaymentRecordStatus.SETTLEMENT_CLEARED);
 
         if (!allDone && !records.isEmpty()) {
             draw.setStatus(DrawStatus.OPEN);
