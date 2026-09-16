@@ -376,12 +376,15 @@ jobs:
       - name: Install test dependencies
         run: pip install --requirement tests/requirements.txt
       - name: Start disposable financial stack
-        run: docker compose -f docker-compose.test.yml up -d --build --wait --wait-timeout 300
+        run: |
+          docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
+            up -d --build --wait --wait-timeout 300
       - name: Run service-integration and oracle suite
         run: python -m pytest -c tests/pytest.ini tests
       - name: Recreate stack with disposable LocalStack SQS
         run: |
-          docker compose -f docker-compose.test.yml down --volumes --remove-orphans
+          docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
+            down --volumes --remove-orphans
           docker compose -f docker-compose.test.yml -f docker-compose.events-test.yml \
             up -d --build --wait --wait-timeout 300
       - name: Verify dual delivery and inbox deduplication
@@ -391,12 +394,16 @@ jobs:
       - name: Print container logs on failure
         if: failure()
         run: |
-          docker compose -f docker-compose.test.yml -f docker-compose.events-test.yml ps
-          docker compose -f docker-compose.test.yml -f docker-compose.events-test.yml \
+          docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
+            -f docker-compose.events-test.yml ps
+          docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
+            -f docker-compose.events-test.yml \
             logs --no-color --tail=300
       - name: Tear down disposable stack
         if: always()
-        run: docker compose -f docker-compose.test.yml -f docker-compose.events-test.yml down --volumes --remove-orphans
+        run: |
+          docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
+            -f docker-compose.events-test.yml down --volumes --remove-orphans
 
   # ── 5. Build Docker images on GitHub runner & push to GHCR ───────────────────
   push-images:
