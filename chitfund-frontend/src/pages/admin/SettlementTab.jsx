@@ -626,6 +626,7 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
   const [supersedingSettlement, setSupersedingSettlement] = useState(null);
   const [supersessionReason, setSupersessionReason] = useState('');
   const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState(null);
+  const [recordPaymentKey, setRecordPaymentKey] = useState(() => crypto.randomUUID());
   const [expandedDrawChit, setExpandedDrawChit] = useState(null); // chitId inside detail modal
 
   // Payment recording step (shown after settlement is confirmed)
@@ -853,10 +854,11 @@ export default function SettlementTab({ initialMemberId = '', initialSettlementI
         mode: paymentMethod,
         referenceNumber: paymentReference || undefined,
         notes: paymentNotes || undefined,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: recordPaymentKey,
       });
     },
     onSuccess: (data) => {
+      setRecordPaymentKey(crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['wallet-balance'] });
       qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       qc.invalidateQueries({ queryKey: ['settlement-pending-payments'] });

@@ -1086,6 +1086,7 @@ export function RecordPaymentTab() {
   const [notes, setNotes]           = useState('');
   const [paymentMode, setMode]      = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF'); // only relevant for CASH
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const { data: allMembers = [] } = useQuery({
     queryKey: ['members'],
@@ -1113,7 +1114,6 @@ export function RecordPaymentTab() {
 
   const mutation = useMutation({
     mutationFn: () => {
-      const idempotencyKey = crypto.randomUUID();
       if (isCredit) {
         return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, idempotencyKey });
       }
@@ -1149,6 +1149,7 @@ export function RecordPaymentTab() {
       }
       setMemberId(''); setChitId(''); setAmount(''); setNotes('');
       setMode('CASH'); setCollectedBy('SELF');
+      setIdempotencyKey(crypto.randomUUID());
     },
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to record payment'),
   });

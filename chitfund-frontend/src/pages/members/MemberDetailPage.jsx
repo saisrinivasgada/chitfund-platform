@@ -1220,10 +1220,12 @@ function SettlementHistorySection({ memberId }) {
   const [expandedSettlement, setExpandedSettlement] = useState(null);
   const [expandedChitId, setExpandedChitId] = useState(null);
   const [voidId, setVoidId] = useState(null);
+  const [payIdempotencyKey, setPayIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const payMutation = useMutation({
     mutationFn: (vars) => recordSettlementTransaction(vars),
     onSuccess: () => {
+      setPayIdempotencyKey(crypto.randomUUID());
       toast.success('Payment recorded');
       qc.invalidateQueries({ queryKey: ['memberSettlements', memberId] });
       setActiveId(null);
@@ -1545,7 +1547,7 @@ function SettlementHistorySection({ memberId }) {
                         mode: payMode,
                         referenceNumber: payRef || null,
                         notes: payNotes || null,
-                        idempotencyKey: crypto.randomUUID(),
+                        idempotencyKey: payIdempotencyKey,
                       })
                     }
                   >

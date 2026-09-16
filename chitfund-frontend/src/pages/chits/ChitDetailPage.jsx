@@ -2749,6 +2749,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const [collectedBy, setCollectedBy]  = useState('SELF');
   const [notes, setNotes]             = useState('');
   const [usingCredit, setUsingCredit]  = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const { data: memberCredit } = useQuery({
     queryKey: ['memberCredit', paymentRecord?.memberId],
@@ -2783,7 +2784,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
   const mutation = useMutation({
     mutationFn: async () => {
       if (usingCredit) {
-        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
+        return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || undefined, idempotencyKey });
       }
       if (viaTeam) {
         return adminCreateCashRequest({
@@ -2794,7 +2795,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
           notes: notes || null,
         });
       }
-      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey: crypto.randomUUID() });
+      return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey });
     },
     onSuccess: () => {
       invalidate();
