@@ -21,6 +21,7 @@ import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.dto.response.PaymentRecordResponse;
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
@@ -77,6 +78,7 @@ public class PaymentService {
     private final NotificationService notificationService;
     private final MemberCreditService memberCreditService;
     private final ChitMonthDrawService chitMonthDrawService;
+    private final AuditClient auditClient;
 
     /**
      * Step 1 of the cash flow: worker/manager records collection from a member.
@@ -391,6 +393,19 @@ public class PaymentService {
         log.info("Payment voided: batchId={} member={} chit={} amount={} mode={} reason='{}' voidedBy={}",
                 batchId, batch.getMemberId(), batch.getChitId(),
                 batch.getTotalAmount(), batch.getPaymentMode(), request.getReason(), adminId);
+
+        auditClient.log(
+                "PAYMENT_BATCH",
+                batchId.toString(),
+                batch.getChitId() != null ? batch.getChitId().toString() : null,
+                "PAYMENT_VOIDED",
+                adminId.toString(),
+                "ADMIN",
+                Map.of("status", "COMPLETED", "amount", batch.getTotalAmount(),
+                        "mode", batch.getPaymentMode(), "memberId", batch.getMemberId()),
+                Map.of("status", "VOIDED", "reason", request.getReason() != null ? request.getReason() : "",
+                        "voidedAt", batch.getVoidedAt().toString()),
+                tenantId());
 
         return toBatchResponse(batch, allocations);
     }
