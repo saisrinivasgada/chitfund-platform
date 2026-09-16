@@ -56,6 +56,26 @@ public class UserServiceClient {
     }
 
     @SuppressWarnings("unchecked")
+    public Map<String, Object> createAppAccessRequest(String tenantId, UUID memberId, String phone,
+                                                       String phoneCountryCode, String email,
+                                                       UUID requestedBy) {
+        Map<String, String> body = new HashMap<>();
+        body.put("tenantId", tenantId);
+        body.put("memberId", memberId.toString());
+        body.put("phone", phone);
+        body.put("phoneCountryCode", phoneCountryCode != null ? phoneCountryCode : "+91");
+        if (email != null && !email.isBlank()) body.put("email", email);
+        if (requestedBy != null) body.put("requestedBy", requestedBy.toString());
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Key", internalKey);
+        ResponseEntity<Map> response = restTemplate.exchange(
+                userServiceUrl + "/internal/users/app-access-requests", HttpMethod.POST,
+                new HttpEntity<>(body, headers), Map.class);
+        return response.getBody();
+    }
+
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getEffectiveLimits(String tenantId) {
         try {
             HttpHeaders headers = new HttpHeaders();

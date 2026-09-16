@@ -5,6 +5,11 @@ import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.TenantService;
+import com.chitfund.userservice.service.ChitfundRequestService;
+import com.chitfund.userservice.dto.response.ChitfundRequestResponse;
+import com.chitfund.userservice.dto.request.PhoneReassignmentExecutionRequest;
+import com.chitfund.userservice.service.IdentityReassignmentService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -25,6 +30,16 @@ public class InternalUserController {
     private final TenantService tenantService;
     private final AuthService authService;
     private final PasswordEncoder passwordEncoder;
+    private final ChitfundRequestService chitfundRequestService;
+    private final IdentityReassignmentService identityReassignmentService;
+
+    @PostMapping("/identity-operations/phone-reassignment")
+    public ResponseEntity<?> executePhoneReassignment(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @Valid @RequestBody PhoneReassignmentExecutionRequest request) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        return ResponseEntity.ok(identityReassignmentService.execute(request));
+    }
 
     @Value("${app.internal-key}")
     private String internalKey;
@@ -84,58 +99,27 @@ public class InternalUserController {
             @RequestHeader(value = "X-Internal-Key", required = true) String key,
             @RequestBody Map<String, String> body) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                "error", "AUTH_FLOW_RETIRED",
+                "message", "Use /internal/users/app-access-requests"));
+    }
 
-        String tenantId = body.get("tenantId");
-        String memberId = body.get("memberId");
-        String phone    = body.get("phone");
-        String cc       = body.getOrDefault("phoneCountryCode", "+91");
-        String fullName = body.getOrDefault("fullName", "");
-        String email    = body.get("email");
-
-        if (tenantId == null || memberId == null || phone == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "tenantId, memberId, phone are required"));
+    @PostMapping("/app-access-requests")
+    public ResponseEntity<?> createAppAccessRequest(
+            @RequestHeader(value = "X-Internal-Key", required = true) String key,
+            @RequestBody Map<String, String> body) {
+        if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        try {
+            ChitfundRequestResponse response = chitfundRequestService.create(
+                    UUID.fromString(body.get("tenantId")),
+                    UUID.fromString(body.get("memberId")),
+                    body.get("phone"), body.getOrDefault("phoneCountryCode", "+91"),
+                    body.get("email"),
+                    body.get("requestedBy") != null ? UUID.fromString(body.get("requestedBy")) : null);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid app-access request"));
         }
-
-        UUID tenantUUID = UUID.fromString(tenantId);
-        UUID memberUUID = UUID.fromString(memberId);
-
-        // Look for existing user with this phone in this tenant as MEMBER
-        List<User> existingUsers = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, cc);
-        User user = existingUsers.stream()
-                .filter(u -> u.getRole() == Role.MEMBER || u.getRole() == Role.ADMIN || u.getRole() == Role.MANAGER || u.getRole() == Role.STAFF)
-                .findFirst().orElse(null);
-
-        boolean isNewUser = (user == null);
-
-        if (isNewUser) {
-            // Create a new user account (no password yet — will be set via setup link)
-            String username = generateUsername(phone, cc);
-            user = User.builder()
-                    .username(username)
-                    .fullName(fullName)
-                    .phone(phone)
-                    .phoneCountryCode(cc)
-                    .email((email != null && !email.isBlank()) ? email : null)
-                    .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
-                    .role(Role.MEMBER)
-                    .mustChangePassword(true)
-                    .build();
-            userRepository.save(user);
-        }
-
-        // Create membership in this tenant (idempotent)
-        tenantService.addUserToTenant(user.getId(), tenantUUID, Role.MEMBER, memberUUID);
-        // Update memberId if membership already existed (link the member record)
-        tenantService.updateMemberId(user.getId(), tenantUUID, memberUUID);
-
-        Map<String, String> response;
-        if (isNewUser) {
-            String setupToken = authService.generateSetupToken(user.getId());
-            response = Map.of("userId", user.getId().toString(), "setupToken", setupToken, "isNew", "true");
-        } else {
-            response = Map.of("userId", user.getId().toString(), "isNew", "false");
-        }
-        return ResponseEntity.ok(response);
     }
 
     /**
@@ -146,12 +130,9 @@ public class InternalUserController {
             @PathVariable UUID userId,
             @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
-        return userRepository.findById(userId)
-                .map(u -> {
-                    String token = authService.generateSetupToken(u.getId());
-                    return ResponseEntity.ok(Map.of("setupToken", token, "userId", userId.toString()));
-                })
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "User not found")));
+        return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                "error", "AUTH_FLOW_RETIRED",
+                "message", "Resend the active Chitfund Request"));
     }
 
     private String generateUsername(String phone, String countryCode) {

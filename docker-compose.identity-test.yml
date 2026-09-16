@@ -1,0 +1,63 @@
+# Optional identity/Hub overlay for docker-compose.test.yml.
+#
+# It adds only the management dependencies needed to exercise the protected
+# recycled-phone workflow. All data remains in the disposable MySQL tmpfs.
+#
+#   docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml up -d mysql-test
+#   docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml up -d user-service member-service management-service
+
+services:
+  redis-test:
+    image: redis:7-alpine
+    container_name: chitwise-test-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [chitwise-test]
+
+  management-service:
+    build:
+      context: .
+      dockerfile: chitwise-management-service/Dockerfile
+    container_name: chitwise-test-management
+    environment:
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+      DB_NAME: chitwise_management
+      DB_USERNAME: root
+      DB_PASSWORD: testpassword
+      JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
+      INTERNAL_SERVICE_KEY: test-internal-service-key
+      MANAGEMENT_JWT_SECRET: test-only-management-jwt-secret-min-32-chars
+      MANAGEMENT_JWT_EXPIRY_MS: 28800000
+      MANAGEMENT_REFRESH_TOKEN_EXPIRY_DAYS: 30
+      USER_SERVICE_URL: http://user-service:8081
+      NOTIFICATION_SERVICE_URL: http://localhost:9999
+      REDIS_URL: redis://redis-test:6379
+      SPRING_PROFILES_ACTIVE: test
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      MAIL_HOST: localhost
+      MAIL_PORT: 2525
+      MAIL_USERNAME: test
+      MAIL_PASSWORD: test
+    ports:
+      - "127.0.0.1:9091:8091"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      member-service:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]

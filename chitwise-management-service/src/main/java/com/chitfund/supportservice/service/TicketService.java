@@ -48,6 +48,7 @@ public class TicketService {
     private final TicketWebSocketController wsController;
     private final TicketNumberSeqRepository seqRepository;
     private final TenantSupportClient tenantSupportClient;
+    private final IdentityCaseService identityCaseService;
 
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
@@ -55,12 +56,21 @@ public class TicketService {
     @Transactional
     public TicketResponse createTicket(String userId, String userName, String tenantId,
                                        CreateTicketRequest request) {
+        if (request.getType() == TicketType.ACCOUNT && request.getAccountCaseSubtype() == null) {
+            throw new IllegalArgumentException("Account case subtype is required for Account tickets");
+        }
+        if (request.getType() != TicketType.ACCOUNT && request.getAccountCaseSubtype() != null) {
+            throw new IllegalArgumentException("Account case subtype is valid only for Account tickets");
+        }
         TenantSupportClient.SupportContext support = tenantSupportClient.getSupportContext(tenantId);
         String ticketNumber = generateTicketNumber();
         SupportTicket ticket = SupportTicket.builder()
                 .id(UUID.randomUUID().toString())
                 .ticketNumber(ticketNumber)
                 .type(request.getType())
+                .accountCaseSubtype(request.getAccountCaseSubtype())
+                .subjectMemberId(blankToNull(request.getMemberId()))
+                .subjectUserId(blankToNull(request.getUserId()))
                 .source(TicketSource.ORGANIZATION)
                 .tenantId(tenantId)
                 .tenantName(support.tenantName())
@@ -73,6 +83,10 @@ public class TicketService {
                 .build();
 
         ticket = ticketRepository.save(ticket);
+
+        if (ticket.getType() == TicketType.ACCOUNT) {
+            identityCaseService.openForTicket(ticket);
+        }
 
         wsController.notifyNewTicket(ticket);
 
@@ -330,6 +344,9 @@ public class TicketService {
                 .id(t.getId())
                 .ticketNumber(t.getTicketNumber())
                 .type(t.getType())
+                .accountCaseSubtype(t.getAccountCaseSubtype())
+                .subjectMemberId(t.getSubjectMemberId())
+                .subjectUserId(t.getSubjectUserId())
                 .source(t.getSource())
                 .tenantId(t.getTenantId())
                 .tenantName(t.getTenantName())

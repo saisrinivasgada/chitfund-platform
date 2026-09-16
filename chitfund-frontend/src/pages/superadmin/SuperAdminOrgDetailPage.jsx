@@ -29,7 +29,6 @@ import {
   superAdminProxyAs,
   lockUser,
   unlockUser,
-  superAdminSetupAppAccess,
   superAdminListCapabilities,
   superAdminCancelTenant,
   superAdminResumeTenant,
@@ -254,7 +253,7 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
         fullName: form.fullName,
         phone: form.phone,
         phoneCountryCode: form.countryCode,
-        email: form.email || null,
+        email: form.email.trim(),
         role: form.role,
         password: form.password || null,
       });
@@ -336,13 +335,14 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Email (optional)</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Email <span className="text-red-500">*</span></label>
             <input
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               type="email"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
               placeholder="ravi@example.com"
+              required
             />
           </div>
           <div>
@@ -364,7 +364,7 @@ function AddUserModal({ tenantId, onClose, onSuccess }) {
           )}
           <div className="flex gap-3 pt-1">
             <Button variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
-            <Button type="submit" loading={loading}>{loading ? 'Adding…' : 'Add User'}</Button>
+            <Button type="submit" loading={loading} disabled={!form.email.trim()}>{loading ? 'Adding…' : 'Add User'}</Button>
           </div>
         </form>
       </div>
@@ -816,9 +816,6 @@ export default function SuperAdminOrgDetailPage() {
   const [showAddCredit, setShowAddCredit] = useState(false);
   const [proxyingUserId, setProxyingUserId] = useState(null);
   const [lockingUserId, setLockingUserId] = useState(null);
-  const [setupModal, setSetupModal] = useState(null); // { userId, currentUsername }
-  const [setupUsername, setSetupUsername] = useState('');
-  const [setupLoading, setSetupLoading] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -1709,18 +1706,23 @@ export default function SuperAdminOrgDetailPage() {
                               <LogIn size={12} />
                               {proxyingUserId === u.userId ? '…' : 'Proxy'}
                             </button>
-                            {!u.hasAppAccess ? (
+                            {u.role === 'MEMBER' ? (
+                              <span
+                                title="Member access is managed through Chitfund Requests in the organization's Member Detail page"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-500"
+                              >
+                                <Link size={12} />
+                                {u.hasAppAccess ? 'Member-managed login' : 'Request via Member Detail'}
+                              </span>
+                            ) : !u.hasAppAccess ? (
                               <button
                                 type="button"
-                                title="Set up app access"
-                                onClick={() => {
-                                  setSetupUsername(u.username ?? '');
-                                  setSetupModal({ userId: u.userId, fullName: u.fullName });
-                                }}
+                                title="This employee account is not yet active"
+                                disabled
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 cursor-pointer transition-colors"
                               >
                                 <Link size={12} />
-                                Setup
+                                Pending
                               </button>
                             ) : (
                               <>
@@ -1926,48 +1928,6 @@ export default function SuperAdminOrgDetailPage() {
           subtitle={resetCredentials.subtitle ?? 'New temporary credentials — share with the user'}
           onDone={() => setResetCredentials(null)}
         />
-      )}
-      {setupModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-1">Set Up App Access</h3>
-            <p className="text-xs text-gray-500 mb-4">{setupModal.fullName} — enter a username to create their login</p>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Username</label>
-            <input
-              type="text"
-              value={setupUsername}
-              onChange={e => setSetupUsername(e.target.value)}
-              placeholder="e.g. venu_mango"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 mb-4"
-              autoFocus
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                type="button"
-                onClick={() => setSetupModal(null)}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-              >Cancel</button>
-              <button
-                type="button"
-                disabled={!setupUsername.trim() || setupLoading}
-                onClick={async () => {
-                  setSetupLoading(true);
-                  try {
-                    const result = await superAdminSetupAppAccess(setupModal.userId, setupUsername.trim());
-                    setSetupModal(null);
-                    setUsers(prev => prev.map(x => x.userId === setupModal.userId ? { ...x, hasAppAccess: true, username: result.username } : x));
-                    setResetCredentials({ username: result.username, password: result.tempPassword, title: 'Account Created', subtitle: 'Share these credentials with the user' });
-                  } catch {
-                    showToast('Failed to set up account');
-                  } finally {
-                    setSetupLoading(false);
-                  }
-                }}
-                className="px-4 py-2 text-sm font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
-              >{setupLoading ? 'Setting up…' : 'Create Account'}</button>
-            </div>
-          </div>
-        </div>
       )}
       {showAddCredit && tenant && (
         <ManageCreditModal

@@ -702,7 +702,7 @@ export default function OrgDetailPage() {
 
                 {/* Per-user actions */}
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.gray100 }}>
-                  <TouchableOpacity
+                  {u.role !== 'MEMBER' ? <TouchableOpacity
                     onPress={() => Alert.alert(
                       'Reset Password',
                       `Reset the password for ${u.fullName}? A temporary password will be generated.`,
@@ -717,7 +717,11 @@ export default function OrgDetailPage() {
                     <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray700 }}>
                       {busyUserId === (u.userId ?? u.id) && resetPwdMut.isPending ? '…' : 'Reset Password'}
                     </Text>
-                  </TouchableOpacity>
+                  </TouchableOpacity> : <View style={{ flex: 1, backgroundColor: C.gray100, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 6, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500, textAlign: 'center' }}>
+                      Member-managed password
+                    </Text>
+                  </View>}
                   <TouchableOpacity
                     onPress={() => { setBusyUserId(u.userId ?? u.id); lockMut.mutate({ userId: u.userId ?? u.id, locked: !!u.locked }); }}
                     disabled={busyUserId === (u.userId ?? u.id)}

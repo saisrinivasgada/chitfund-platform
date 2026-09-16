@@ -28,6 +28,12 @@ public class LoginResponse {
     private String otpToken;
     private String maskedPhone;
 
+    // New organization users must prove control of their mandatory email before
+    // they can receive a tenant-selection or access token.
+    private boolean requiresEmailVerification;
+    private String emailVerificationToken;
+    private String maskedEmail;
+
     // Populated after OTP verified with rememberDevice=true (web only)
     private String deviceToken;
 }

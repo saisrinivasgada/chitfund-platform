@@ -27,6 +27,8 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
 
     Optional<Member> findByUserIdAndTenantId(UUID userId, String tenantId);
 
+    Optional<Member> findByIdAndTenantId(UUID id, String tenantId);
+
     // Clears userId on any member in the same tenant that already occupies the unique slot,
     // so a new member can claim it without violating uk_member_user_tenant.
     // Uses @Modifying so the SQL runs immediately (not deferred to flush), guaranteeing

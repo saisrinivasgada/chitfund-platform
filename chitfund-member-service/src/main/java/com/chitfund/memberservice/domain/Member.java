@@ -26,7 +26,7 @@ public class Member {
     private String fullName;
 
     // Unique — used as the primary lookup key for workers during cash collection
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String phone;
 
     @Column(name = "phone_country_code", length = 6, nullable = false)

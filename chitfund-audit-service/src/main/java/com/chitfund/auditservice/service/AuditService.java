@@ -23,9 +23,10 @@ public class AuditService {
     private final AuditLogRepository auditLogRepository;
 
     private AuditLog buildLog(AuditLogRequest req) {
+        String tenantId = requireTenant(req.tenantId());
         return AuditLog.builder()
                 .id(UUID.randomUUID().toString())
-                .tenantId(req.tenantId() != null ? req.tenantId() : "SYSTEM")
+                .tenantId(tenantId)
                 .serviceName(req.serviceName())
                 .entityType(req.entityType())
                 .entityId(req.entityId())
@@ -39,6 +40,13 @@ public class AuditService {
                 .metadata(req.metadata())
                 .createdAt(Instant.now())
                 .build();
+    }
+
+    private String requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for every audit record");
+        }
+        return tenantId;
     }
 
     @Transactional

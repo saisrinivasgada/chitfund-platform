@@ -121,7 +121,7 @@ public class AdminPasswordResetService {
 
         // Issue a short-lived reset token (reuse the existing password_reset_token column)
         String resetToken = UUID.randomUUID().toString();
-        user.setPasswordResetToken(resetToken);
+        user.setPasswordResetToken(AuthService.sha256Value(resetToken));
         user.setPasswordResetTokenExpiresAt(LocalDateTime.now().plusMinutes(RESET_TOKEN_EXPIRY_MINUTES));
         userRepository.save(user);
 
@@ -134,7 +134,7 @@ public class AdminPasswordResetService {
      */
     @Transactional
     public void resetPassword(String resetToken, String newPassword) {
-        User user = userRepository.findByPasswordResetToken(resetToken)
+        User user = userRepository.findByPasswordResetToken(AuthService.sha256Value(resetToken))
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Invalid or expired reset link. Please start over.", HttpStatus.BAD_REQUEST));
 

@@ -16,4 +16,6 @@ public class EmployeeLoginResponse {
     private String email;
     private String role;
     private boolean mustChangePassword;
+    private boolean canManageIdentityCases;
+    private boolean platformOwner;
 }

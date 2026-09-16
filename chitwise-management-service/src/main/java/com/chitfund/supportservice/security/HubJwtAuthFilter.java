@@ -15,7 +15,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.http.MediaType;
 
 import java.io.IOException;
-import java.util.List;
+import java.util.ArrayList;
 
 @Component
 @RequiredArgsConstructor
@@ -46,10 +46,19 @@ public class HubJwtAuthFilter extends OncePerRequestFilter {
                             + "\"message\":\"Set a permanent password before continuing.\"}");
                     return;
                 }
+                var authorities = new ArrayList<SimpleGrantedAuthority>();
+                authorities.add(new SimpleGrantedAuthority(employee.getRole()));
+                if (employee.isCanManageIdentityCases() || employee.isPlatformOwner()) {
+                    authorities.add(new SimpleGrantedAuthority("IDENTITY_CASE_READ"));
+                    authorities.add(new SimpleGrantedAuthority("IDENTITY_CASE_PREPARE"));
+                }
+                if (employee.isPlatformOwner()) {
+                    authorities.add(new SimpleGrantedAuthority("IDENTITY_CASE_APPROVE"));
+                }
                 var auth = new UsernamePasswordAuthenticationToken(
                         employeeId,
                         null,
-                        List.of(new SimpleGrantedAuthority(employee.getRole()))
+                        authorities
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }

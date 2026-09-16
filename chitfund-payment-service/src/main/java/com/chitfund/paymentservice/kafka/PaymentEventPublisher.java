@@ -20,6 +20,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Captures payment-domain events transactionally and routes them to SQS.
@@ -87,11 +88,11 @@ public class PaymentEventPublisher {
                         new TransactionSynchronization() {
                             @Override
                             public void afterCommit() {
-                                send.run();
+                                CompletableFuture.runAsync(send);
                             }
                         });
             } else {
-                send.run();
+                CompletableFuture.runAsync(send);
             }
         }
     }

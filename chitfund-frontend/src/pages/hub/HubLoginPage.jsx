@@ -28,6 +28,8 @@ export default function HubLoginPage() {
         email: data.email,
         role: data.role,
         mustChangePassword: data.mustChangePassword === true,
+        canManageIdentityCases: data.canManageIdentityCases === true,
+        platformOwner: data.platformOwner === true,
       }));
       navigate(data.mustChangePassword
         ? '/hub/change-password'

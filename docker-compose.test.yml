@@ -27,6 +27,8 @@ x-test-common: &test-common
   JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
   INTERNAL_SERVICE_KEY: test-internal-service-key
   SPRING_PROFILES_ACTIVE: test
+  OTP_LOGGING_ENABLED: "true"
+  OTP_COOLDOWN_ENABLED: "false"
   # Keep the seven-service event overlay reliable on 4 GB developer/CI Docker
   # hosts. Production does not use this compose file or this heap limit.
   JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
@@ -81,6 +83,7 @@ services:
     environment:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_user
+      MEMBER_SERVICE_URL: http://member-service:8083
     ports:
       - "127.0.0.1:9081:8081"
     depends_on:
@@ -102,6 +105,7 @@ services:
     environment:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_chit
+      USER_SERVICE_URL: http://user-service:8081
       PAYMENT_SERVICE_URL: http://payment-service:8084
       NOTIFICATION_SERVICE_URL: http://localhost:9999
       AUDIT_SERVICE_URL: http://localhost:9999
@@ -126,6 +130,7 @@ services:
     environment:
       <<: [*test-common, *test-db]
       DB_NAME: chitfund_payment
+      USER_SERVICE_URL: http://user-service:8081
       CHIT_SERVICE_URL: http://chit-service:8082
       MEMBER_SERVICE_URL: http://member-service:8083
       PAYOUT_SERVICE_URL: http://payout-service:8085

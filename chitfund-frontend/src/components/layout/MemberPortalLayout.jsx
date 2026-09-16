@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
-import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail } from 'lucide-react';
+import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread, getMyChitfundRequests } from '../../services/api';
+import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
 import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import Modal from '../ui/Modal';
@@ -297,6 +297,11 @@ export default function MemberPortalLayout() {
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+  const { data: chitfundRequests = [] } = useQuery({
+    queryKey: ['my-chitfund-requests'], queryFn: getMyChitfundRequests,
+    enabled: isAuthenticated && user?.role === 'MEMBER', refetchInterval: 60_000,
+  });
+  const pendingChitfundRequests = chitfundRequests.filter((request) => request.status === 'PENDING_MEMBER').length;
 
   if (isRestoring) return (
     <div className="min-h-screen flex items-center justify-center">
@@ -336,6 +341,11 @@ export default function MemberPortalLayout() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <button type="button" onClick={() => navigate('/member/chitfund-requests')} title="Chitfund Requests"
+              className="relative w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer">
+              <UserPlus size={16} />
+              {pendingChitfundRequests > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">{pendingChitfundRequests > 9 ? '9+' : pendingChitfundRequests}</span>}
+            </button>
             <button
               type="button"
               onClick={toggleHidden}

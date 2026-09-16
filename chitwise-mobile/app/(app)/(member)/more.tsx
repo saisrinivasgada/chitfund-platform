@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { C, T } from '../../../components/ui';
 import { useAuthStore } from '../../../store/authStore';
-import { getMemberConversationUnread } from '../../../services/api';
+import { getMemberConversationUnread, getMyChitfundRequests } from '../../../services/api';
 
 interface NavItem {
   emoji: string;
@@ -27,6 +27,10 @@ export default function MemberMoreScreen() {
   });
 
   const chatEnabled = user?.chatEnabled !== false;
+  const { data: chitfundRequests = [] } = useQuery({
+    queryKey: ['m-chitfund-requests'], queryFn: getMyChitfundRequests, refetchInterval: 60_000,
+  });
+  const chitfundRequestCount = (chitfundRequests as any[]).filter(r => r.status === 'PENDING_MEMBER').length;
 
   const items: NavItem[] = [
     {
@@ -49,6 +53,14 @@ export default function MemberMoreScreen() {
       description: 'Pending chit invitations',
       route: '/(app)/(member)/invitations',
       accent: C.navy,
+    },
+    {
+      emoji: '🏢',
+      label: 'Chitfund Requests',
+      description: 'Connect another organization',
+      route: '/(app)/(member)/chitfund-requests',
+      badge: chitfundRequestCount || undefined,
+      accent: '#7C3AED',
     },
     ...(chatEnabled ? [{
       emoji: '💬',

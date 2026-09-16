@@ -27,6 +27,9 @@ public class MemberResponse {
     private UUID userId;            // null if member has no app login
     private boolean hasAppAccess;   // convenience flag: userId != null
     private String setupToken;      // only present on initial member creation (new user was auto-created)
+    private String actionToken;     // one-time existing-account request link; never a login credential
+    private String appAccessRequestId;
+    private String appAccessRequestStatus;
     private String notes;
     private UUID referredById;
     private String referredByName;

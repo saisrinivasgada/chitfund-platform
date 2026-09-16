@@ -10,6 +10,9 @@ expo-env.d.ts
 .env.local
 .env.*.local
 
+# Expo writes device history and local development-server state here.
+.expo/
+
 # Generated native dirs (EAS builds use managed workflow)
 ios/
 android/

@@ -7,6 +7,7 @@ import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
+import com.chitfund.supportservice.dto.request.UpdateIdentityPermissionsRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.repository.EmployeeRepository;
@@ -236,6 +237,20 @@ public class EmployeeService {
     }
 
     @Transactional
+    public EmployeeResponse updateIdentityPermissions(String employeeId, String actorId,
+                                                       UpdateIdentityPermissionsRequest request) {
+        Employee actor = getById(actorId);
+        if (!actor.isPlatformOwner()) {
+            throw new IllegalStateException("Only the protected platform owner can assign identity-case access");
+        }
+        Employee employee = getById(employeeId);
+        employee.setCanManageIdentityCases(request.isCanManageIdentityCases());
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        return toResponse(employeeRepository.save(employee));
+    }
+
+    @Transactional
     public EmployeeLoginResponse refresh(String rawToken) {
         HubRefreshSession session = refreshSessionRepository.findByTokenHashForUpdate(sha256Hex(rawToken))
                 .orElseThrow(() -> new IllegalArgumentException("Invalid refresh token"));
@@ -286,6 +301,8 @@ public class EmployeeService {
                 .email(employee.getEmail())
                 .role(employee.getRole())
                 .mustChangePassword(employee.isMustChangePassword())
+                .canManageIdentityCases(employee.isCanManageIdentityCases())
+                .platformOwner(employee.isPlatformOwner())
                 .build();
     }
 
@@ -352,6 +369,8 @@ public class EmployeeService {
                 .createdAt(e.getCreatedAt())
                 .invitePending(e.getPasswordHash() == null && e.getInviteAcceptedAt() == null)
                 .mustChangePassword(e.isMustChangePassword())
+                .canManageIdentityCases(e.isCanManageIdentityCases())
+                .platformOwner(e.isPlatformOwner())
                 .build();
     }
 }

@@ -381,7 +381,7 @@ public class CashRequestService {
         // CashPaymentRequest.memberId stores the user-service UUID, but payment records
         // are keyed by member-service profile UUID. Resolve the profile UUID here so
         // applyFifo can find the correct outstanding records for this draw.
-        UUID paymentMemberId = memberServiceClient.getProfileIdByUserId(req.getMemberId());
+        UUID paymentMemberId = memberServiceClient.getProfileIdByUserId(req.getMemberId(), req.getTenantId());
         if (paymentMemberId == null) {
             // memberId may already be a profile UUID (e.g. if member-service lookup failed at
             // request creation and the raw profile UUID was stored), so fall back to it.

@@ -313,7 +313,7 @@ function AddStaffModal({ onClose, allowedRoles }) {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Email</label>
+          <label className="text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
           <StyledInput
             icon={Mail}
             type="email"
@@ -321,6 +321,7 @@ function AddStaffModal({ onClose, allowedRoles }) {
             value={form.email}
             onChange={(e) => set('email', e.target.value)}
             error={fe.email}
+            required
           />
         </div>
 
@@ -330,7 +331,7 @@ function AddStaffModal({ onClose, allowedRoles }) {
             type="submit"
             variant="primary"
             loading={mutation.isPending}
-            disabled={!!form.phone && !phoneVerified}
+            disabled={!form.email.trim() || (!!form.phone && !phoneVerified)}
             size="md"
             title={form.phone && !phoneVerified ? 'Verify the phone number first' : undefined}
           >

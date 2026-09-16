@@ -9,8 +9,11 @@ import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.UpdateUserProfileRequest;
 import com.chitfund.userservice.dto.response.UserResponse;
 import com.chitfund.userservice.mapper.UserMapper;
+import com.chitfund.userservice.repository.RefreshTokenRepository;
+import com.chitfund.userservice.repository.TrustedDeviceRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,10 +29,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final UserMapper userMapper;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final TrustedDeviceRepository trustedDeviceRepository;
 
     public UserResponse getUserById(UUID id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(user);
         // Managers must not be able to fetch admin accounts by ID
         User caller = callerUser();
         if (caller != null && caller.getRole() == Role.MANAGER && user.getRole() == Role.ADMIN) {
@@ -48,6 +54,7 @@ public class UserService {
     public UserResponse lockUser(UUID id, User caller) {
         User target = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(target);
         // Managers can only lock MEMBER accounts
         if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only lock member accounts");
@@ -61,6 +68,7 @@ public class UserService {
     public UserResponse unlockUser(UUID id, User caller) {
         User target = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(target);
         // Managers can only unlock MEMBER accounts
         if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only unlock member accounts");
@@ -92,10 +100,26 @@ public class UserService {
         }
 
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            if (request.getEmail().isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Email is required", HttpStatus.BAD_REQUEST);
+            }
+            if (user.getRole() == Role.MEMBER) {
+                throw new BusinessException(ErrorCode.FORBIDDEN,
+                        "A member recovery email can only be changed through email verification.",
+                        HttpStatus.FORBIDDEN);
+            }
             if (userRepository.existsByEmail(request.getEmail())) {
                 throw new BusinessException(ErrorCode.EMAIL_TAKEN);
             }
             user.setEmail(request.getEmail());
+            // A new address must earn its own verification. It must not inherit
+            // the trust established for the previous address, and old trusted
+            // sessions must not be usable for email-based recovery.
+            user.setEmailVerifiedAt(null);
+            user.setEmailVerificationRequired(true);
+            refreshTokenRepository.revokeAllActiveByUser(user);
+            trustedDeviceRepository.deleteByUserId(user.getId());
         }
 
         user.setUpdatedBy(userId);
@@ -107,8 +131,19 @@ public class UserService {
     public UserResponse updatePhone(UUID userId, String phone, String countryCode) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+        String cc = countryCode != null ? countryCode : "+91";
+        if (user.getRole() == Role.MEMBER) {
+            boolean heldByAnotherMember = userRepository
+                    .findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, cc).stream()
+                    .anyMatch(other -> other.getRole() == Role.MEMBER && !other.getId().equals(userId));
+            if (heldByAnotherMember) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "This mobile number already belongs to another ChitWise member. Contact your organization if the number was reassigned.",
+                        HttpStatus.CONFLICT);
+            }
+        }
         user.setPhone(phone);
-        if (countryCode != null) user.setPhoneCountryCode(countryCode);
+        user.setPhoneCountryCode(cc);
         user.setUpdatedBy(userId);
         return userMapper.toResponse(userRepository.save(user));
     }
@@ -118,6 +153,12 @@ public class UserService {
     public UserResponse adminUpdatePhone(UUID targetId, User caller, String phone, String countryCode) {
         User target = userRepository.findById(targetId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", targetId));
+        requireSameTenant(target);
+        if (target.getRole() == Role.MEMBER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "An app-enabled member controls their login phone. Create an Account Access ticket if identity support is required.",
+                    HttpStatus.FORBIDDEN);
+        }
         if (caller.getRole() == Role.MANAGER && target.getRole() != Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Managers can only update member phone numbers");
         }
@@ -133,18 +174,10 @@ public class UserService {
                 ? List.of(Role.MANAGER, Role.STAFF, Role.AGENT)
                 : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
 
-        String tenantId = TenantContext.get();
-        if (tenantId != null) {
-            List<User> users = includeDeleted
-                    ? userRepository.findByTenantIdAndRoleInAndDeletedAtIsNotNull(tenantId, staffRoles)
-                    : userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(tenantId, staffRoles);
-            return users.stream().map(userMapper::toResponse).toList();
-        }
-
-        // Fallback for super-admin context (no tenant)
+        String tenantId = requireTenant();
         List<User> users = includeDeleted
-                ? userRepository.findByRoleInAndDeletedAtIsNotNull(staffRoles)
-                : userRepository.findByRoleInAndDeletedAtIsNull(staffRoles);
+                ? userRepository.findByTenantIdAndRoleInAndDeletedAtIsNotNull(tenantId, staffRoles)
+                : userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(tenantId, staffRoles);
         return users.stream().map(userMapper::toResponse).toList();
     }
 
@@ -152,6 +185,7 @@ public class UserService {
     public UserResponse deactivateStaff(UUID id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member accounts are managed through the member panel");
         }
@@ -169,6 +203,7 @@ public class UserService {
     public UserResponse activateStaff(UUID id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(user);
         user.setEnabled(true);
         user.setLocked(false);
         user.setFailedLoginAttempts(0);
@@ -188,6 +223,7 @@ public class UserService {
         }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member roles are managed through the member panel");
         }
@@ -200,6 +236,7 @@ public class UserService {
     public UserResponse softDeleteStaff(UUID id, UUID deletedBy) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        requireSameTenant(user);
         if (user.getRole() == Role.MEMBER) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Member accounts are managed through the member panel");
         }
@@ -226,5 +263,22 @@ public class UserService {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof User u) return u;
         return null;
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        return tenantId;
+    }
+
+    private void requireSameTenant(User target) {
+        String tenantId = requireTenant();
+        if (target.getTenantId() == null || !tenantId.equals(target.getTenantId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "User is not in your organization", HttpStatus.FORBIDDEN);
+        }
     }
 }

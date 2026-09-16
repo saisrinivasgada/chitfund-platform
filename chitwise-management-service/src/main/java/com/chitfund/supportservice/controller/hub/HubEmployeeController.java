@@ -3,6 +3,7 @@ package com.chitfund.supportservice.controller.hub;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
+import com.chitfund.supportservice.dto.request.UpdateIdentityPermissionsRequest;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import jakarta.validation.Valid;
@@ -92,6 +93,16 @@ public class HubEmployeeController {
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> reactivate(@PathVariable String id, Authentication auth) {
         EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), true);
+        return ResponseEntity.ok(Map.of("success", true, "data", employee));
+    }
+
+    @PatchMapping("/{id}/identity-permissions")
+    @PreAuthorize("hasAuthority('IDENTITY_CASE_APPROVE')")
+    public ResponseEntity<?> updateIdentityPermissions(@PathVariable String id,
+                                                       Authentication auth,
+                                                       @Valid @RequestBody UpdateIdentityPermissionsRequest body) {
+        EmployeeResponse employee = employeeService.updateIdentityPermissions(
+                id, (String) auth.getPrincipal(), body);
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 }

@@ -26,7 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 class PayoutEventPublisherTest {
@@ -66,8 +66,8 @@ class PayoutEventPublisherTest {
         TransactionSynchronizationUtils.invokeAfterCommit(
                 TransactionSynchronizationManager.getSynchronizations());
 
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
     }
 
     @Test
@@ -105,7 +105,7 @@ class PayoutEventPublisherTest {
                 TransactionSynchronizationManager.getSynchronizations());
 
         ArgumentCaptor<String> envelopes = ArgumentCaptor.forClass(String.class);
-        verify(sqsTemplate, times(2)).send(anyString(), envelopes.capture());
+        verify(sqsTemplate, timeout(1000).times(2)).send(anyString(), envelopes.capture());
         for (String raw : envelopes.getAllValues()) {
             assertThat(objectMapper.readValue(raw, SqsEventEnvelope.class).eventId())
                     .isEqualTo(eventId.getValue());

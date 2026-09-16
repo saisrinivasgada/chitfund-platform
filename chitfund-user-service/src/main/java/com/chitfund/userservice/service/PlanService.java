@@ -48,18 +48,25 @@ public class PlanService {
     private static final List<Role> STAFF_ROLES = List.of(Role.MANAGER, Role.STAFF);
 
     public void checkStaffLimit(String tenantId) {
-        Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId)).orElse(null);
-        if (tenant == null) return;
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
+        }
+        Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Organization not found"));
 
         if (tenant.getPlanExpiresAt() != null && tenant.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.PLAN_EXPIRED,
                     "Your subscription has expired. Please renew your plan to add team members.");
         }
 
-        PlanLimits limits = planRepo.findById(
-                tenant.getPlan() != null ? tenant.getPlan().toUpperCase() : "BASIC")
-                .orElse(null);
-        if (limits == null) return;
+        if (tenant.getPlan() == null || tenant.getPlan().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Organization has no subscription plan assigned");
+        }
+        PlanLimits limits = planRepo.findById(tenant.getPlan().toUpperCase())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Organization subscription plan is invalid"));
 
         int maxStaff = limits.getMaxStaff();
         if (maxStaff == -1) return; // unlimited

@@ -7,7 +7,6 @@ import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.*;
 import com.chitfund.userservice.dto.response.*;
-import com.chitfund.userservice.service.AdminPasswordResetService;
 import com.chitfund.userservice.service.AuthService;
 import com.chitfund.userservice.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,7 +34,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final RateLimiterService rateLimiter;
-    private final AdminPasswordResetService adminPasswordResetService;
+    private final com.chitfund.userservice.service.ChitfundRequestService chitfundRequestService;
 
     // ── Public: org self-registration ────────────────────────────────────────
 
@@ -66,13 +65,10 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        Role role = request.getRole();
-        if (role != null && role != Role.MEMBER) {
-            throw new BusinessException(ErrorCode.FORBIDDEN,
-                    "Staff accounts must be created by an admin via /api/users/staff");
-        }
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(authService.register(request, null), "Registration successful"));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED",
+                "Member accounts are created only through a verified Chitfund Request. " +
+                        "Staff accounts must be created by an organization admin."));
     }
 
     // ── Step 1: login → pre-scope token + tenant list ────────────────────────
@@ -106,6 +102,35 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(null, "OTP resent"));
     }
 
+    @PostMapping("/resend-login-email-otp")
+    public ResponseEntity<ApiResponse<Void>> resendLoginEmailOtp(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many attempts. Please try again later."));
+        }
+        authService.resendLoginEmailOtp(body.get("emailVerificationToken"));
+        return ResponseEntity.ok(ApiResponse.success(null, "Email OTP regenerated"));
+    }
+
+    @PostMapping("/verify-login-email-otp")
+    public ResponseEntity<ApiResponse<LoginResponse>> verifyLoginEmailOtp(
+            @RequestBody java.util.Map<String, String> body,
+            HttpServletRequest httpRequest,
+            HttpServletResponse response) {
+        if (!rateLimiter.tryConsumeLogin(getClientIp(httpRequest))) {
+            return ResponseEntity.status(429).body(ApiResponse.error(
+                    "RATE_LIMIT_001", "Too many attempts. Please try again later."));
+        }
+        LoginResponse result = authService.verifyLoginEmailOtp(
+                body.get("emailVerificationToken"), body.get("code"));
+        if (result.getAuthResponse() != null) {
+            setRefreshCookie(response, result.getAuthResponse().getRefreshToken());
+        }
+        return ResponseEntity.ok(ApiResponse.success(result, "Email verified"));
+    }
+
     // ── Step 1c: verify OTP after login (for ADMIN/MANAGER/SUPER_ADMIN) ──────
 
     @PostMapping("/verify-login-otp")
@@ -137,10 +162,11 @@ public class AuthController {
     // ── Account setup (member clicks SMS link) ───────────────────────────────
 
     @PostMapping("/setup-account")
-    public ResponseEntity<ApiResponse<AuthResponse>> setupAccount(
+    public ResponseEntity<ApiResponse<ChitfundRequestResponse>> setupAccount(
             @Valid @RequestBody SetupAccountRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
-                authService.setupAccount(request), "Account activated"));
+                chitfundRequestService.completeSetup(request),
+                "Account verified. Your organization must confirm app access."));
     }
 
     // ── Transfer token: generate pre-scope JWT for cross-subdomain switch ────
@@ -240,67 +266,53 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. You can now sign in."));
     }
 
-    // ── Legacy: self-service password reset via mobile OTP ───────────────────
+    // ── Removed legacy phone-only reset ──────────────────────────────────────
+    // These URLs previously reset every account sharing a phone number. Keep a
+    // clear 410 response during client rollout; the account-selected flow above
+    // is the only supported mobile-OTP password reset.
 
     @PostMapping("/forgot-password/send")
     public ResponseEntity<ApiResponse<Void>> sendForgotPasswordOtp(
             @Valid @RequestBody SendPhoneOtpRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
-            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
-        }
-        authService.sendForgotPasswordOtp(req.getPhone(), req.getCountryCode());
-        return ResponseEntity.ok(ApiResponse.success(null, "If an account exists for this number, an OTP has been sent"));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Update the app and use the account recovery flow."));
     }
 
     @PostMapping("/forgot-password/reset")
     public ResponseEntity<ApiResponse<Void>> resetPasswordViaOtp(
             @Valid @RequestBody ForgotPasswordResetRequest req,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
-            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
-        }
-        authService.resetPasswordViaOtp(req);
-        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. Please sign in with your new password."));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Update the app and use the account recovery flow."));
     }
 
-    // ── Admin email-OTP password reset (3-step) ─────────────────────────────
+    // ── Retired admin email-OTP password reset ──────────────────────────────
+    // General login recovery is mobile OTP for every organization role. Email
+    // recovery is purpose-bound to an existing-member Chitfund Request only.
 
     @PostMapping("/forgot-password")
     public ResponseEntity<ApiResponse<Void>> adminForgotPassword(
             @RequestBody java.util.Map<String, String> body,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
-            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
-        }
-        // Always respond with 200 — don't leak whether the email exists
-        try {
-            adminPasswordResetService.sendOtp(body.get("email"));
-        } catch (Exception ignored) {}
-        return ResponseEntity.ok(ApiResponse.success(null,
-                "If this email is registered to an admin account, an OTP has been sent."));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use mobile-OTP account recovery."));
     }
 
     @PostMapping("/verify-reset-otp")
     public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminVerifyResetOtp(
             @RequestBody java.util.Map<String, String> body,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
-            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
-        }
-        String resetToken = adminPasswordResetService.verifyOtp(body.get("email"), body.get("otp"));
-        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("resetToken", resetToken)));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use mobile-OTP account recovery."));
     }
 
     @PostMapping("/reset-password")
     public ResponseEntity<ApiResponse<Void>> adminResetPassword(
             @RequestBody java.util.Map<String, String> body,
             HttpServletRequest httpRequest) {
-        if (!rateLimiter.tryConsumeForgot(getClientIp(httpRequest))) {
-            return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
-        }
-        adminPasswordResetService.resetPassword(body.get("resetToken"), body.get("newPassword"));
-        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. You can now sign in."));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED", "Use mobile-OTP account recovery."));
     }
 
     // ── Mobile login (2-step) ────────────────────────────────────────────────

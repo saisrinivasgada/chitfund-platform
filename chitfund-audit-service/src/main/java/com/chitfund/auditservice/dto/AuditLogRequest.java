@@ -23,5 +23,5 @@ public record AuditLogRequest(
         String beforeState,
         String afterState,
         String metadata,
-        String tenantId
+        @NotBlank String tenantId
 ) {}

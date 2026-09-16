@@ -25,9 +25,12 @@ export interface AuthUser {
   chatEnabled?: boolean;
   adminPhone?: string;
   adminEmail?: string;
+  canManageIdentityCases?: boolean;
+  platformOwner?: boolean;
 }
 
 export interface StoredAccount {
+  accountId: string;
   userId: string;
   username: string;
   fullName: string;
@@ -38,9 +41,15 @@ export interface StoredAccount {
   authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
+  canManageIdentityCases?: boolean;
+  platformOwner?: boolean;
   sessionValid: boolean;
   cachedInfo?: AccountCachedInfo;
   savedAt: number;
+}
+
+export function accountStorageId(userId: string, tenantId?: string, authSource: 'ORGANIZATION' | 'HUB' = 'ORGANIZATION') {
+  return `${authSource}:${userId}:${tenantId ?? '-'}`;
 }
 
 interface AuthState {
@@ -68,7 +77,10 @@ const HUB_TOKEN_KEY     = 'chitwise_hub_token';
 async function loadAccounts(): Promise<StoredAccount[]> {
   try {
     const raw = await SecureStore.getItemAsync(ACCOUNTS_KEY);
-    if (raw) return JSON.parse(raw) as StoredAccount[];
+    if (raw) return (JSON.parse(raw) as StoredAccount[]).map((a) => ({
+      ...a,
+      accountId: a.accountId ?? accountStorageId(a.userId, a.tenantId, a.authSource ?? 'ORGANIZATION'),
+    }));
   } catch {}
   return [];
 }
@@ -94,8 +106,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
 
       const existing = await loadAccounts();
-      const idx = existing.findIndex((a) => a.userId === user.id);
+      const id = accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION');
+      const idx = existing.findIndex((a) => a.accountId === id);
       const entry: StoredAccount = {
+        accountId: id,
         userId: user.id,
         username: user.username,
         fullName: user.fullName,
@@ -106,6 +120,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         authSource: user.authSource ?? 'ORGANIZATION',
         tenantId: user.tenantId,
         tenantName: user.tenantName,
+        canManageIdentityCases: user.canManageIdentityCases,
+        platformOwner: user.platformOwner,
         sessionValid: true,
         cachedInfo: idx >= 0 ? existing[idx].cachedInfo : undefined,
         savedAt: Date.now(),
@@ -138,7 +154,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (user) {
       const accounts = await loadAccounts();
       const updated = accounts.map((a) =>
-        a.userId === user.id ? { ...a, sessionValid: false } : a
+        a.accountId === accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION') ? { ...a, sessionValid: false } : a
       );
       await saveAccounts(updated);
       set({ accounts: updated });
@@ -150,16 +166,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null });
   },
 
-  logoutFromAccount: async (userId: string) => {
+  logoutFromAccount: async (accountId: string) => {
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
-      a.userId === userId ? { ...a, sessionValid: false, token: '', refreshToken: undefined } : a
+      a.accountId === accountId ? { ...a, sessionValid: false, token: '', refreshToken: undefined } : a
     );
     await saveAccounts(updated);
     set({ accounts: updated });
 
     const { user } = get();
-    if (user?.id === userId) {
+    if (user && accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION') === accountId) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
@@ -179,14 +195,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null, accounts: updated });
   },
 
-  markSessionInvalid: async (userId: string) => {
-    const isCurrentUser = get().user?.id === userId;
+  markSessionInvalid: async (accountId: string) => {
+    const current = get().user;
+    const isCurrentUser = !!current && accountStorageId(current.id, current.tenantId, current.authSource ?? 'ORGANIZATION') === accountId;
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
-      a.userId === userId ? { ...a, sessionValid: false } : a
+      a.accountId === accountId ? { ...a, sessionValid: false } : a
     );
     await saveAccounts(updated);
-    set((s) => ({ accounts: updated, user: s.user?.id === userId ? null : s.user }));
+    set((s) => ({ accounts: updated, user: isCurrentUser ? null : s.user }));
     if (isCurrentUser) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
@@ -195,9 +212,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  switchToAccount: async (userId: string) => {
+  switchToAccount: async (accountId: string) => {
     const accounts = await loadAccounts();
-    const target = accounts.find((a) => a.userId === userId);
+    const target = accounts.find((a) => a.accountId === accountId);
     if (!target) return false;
     if (!target.sessionValid) return 'needs-login';
 
@@ -212,6 +229,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authSource: target.authSource ?? 'ORGANIZATION',
       tenantId: target.tenantId,
       tenantName: target.tenantName,
+      canManageIdentityCases: target.canManageIdentityCases,
+      platformOwner: target.platformOwner,
     };
     await SecureStore.setItemAsync(TOKEN_KEY, target.token);
     if (target.refreshToken) {
@@ -225,40 +244,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const reordered = [
       { ...target, savedAt: Date.now() },
-      ...accounts.filter((a) => a.userId !== userId),
+      ...accounts.filter((a) => a.accountId !== accountId),
     ];
     await saveAccounts(reordered);
     set({ user, accounts: reordered });
     return true;
   },
 
-  removeAccount: async (userId: string) => {
+  removeAccount: async (accountId: string) => {
     const accounts = await loadAccounts();
-    const updated = accounts.filter((a) => a.userId !== userId);
+    const updated = accounts.filter((a) => a.accountId !== accountId);
     await saveAccounts(updated);
     set({ accounts: updated });
   },
 
-  updateTokenForAccount: async (userId: string, token: string, refreshToken?: string) => {
+  updateTokenForAccount: async (accountId: string, token: string, refreshToken?: string) => {
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
-      a.userId === userId
+      a.accountId === accountId
         ? { ...a, token, refreshToken: refreshToken ?? a.refreshToken, sessionValid: true, savedAt: Date.now() }
         : a
     );
     await saveAccounts(updated);
     set((s) => ({
       accounts: updated,
-      user: s.user?.id === userId
+      user: s.user && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId
         ? { ...s.user, token, refreshToken: refreshToken ?? s.user.refreshToken }
         : s.user,
     }));
   },
 
-  updateCachedInfo: async (userId: string, info: AccountCachedInfo) => {
+  updateCachedInfo: async (accountId: string, info: AccountCachedInfo) => {
     const accounts = await loadAccounts();
     const updated = accounts.map((a) =>
-      a.userId === userId ? { ...a, cachedInfo: { ...a.cachedInfo, ...info } } : a
+      a.accountId === accountId ? { ...a, cachedInfo: { ...a.cachedInfo, ...info } } : a
     );
     await saveAccounts(updated);
     set({ accounts: updated });

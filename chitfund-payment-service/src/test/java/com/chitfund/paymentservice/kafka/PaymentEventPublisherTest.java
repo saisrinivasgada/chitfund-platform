@@ -29,7 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 class PaymentEventPublisherTest {
@@ -69,8 +69,8 @@ class PaymentEventPublisherTest {
 
         verify(sqsTemplate, never()).send(anyString(), anyString());
         commitCallbacks();
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
     }
 
     @Test
@@ -89,8 +89,8 @@ class PaymentEventPublisherTest {
 
         verify(sqsTemplate, never()).send(anyString(), anyString());
         commitCallbacks();
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
-        verify(sqsTemplate, times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.NOTIFICATION_EVENTS), anyString());
+        verify(sqsTemplate, timeout(1000).times(1)).send(eq(SqsQueues.REPORTING_EVENTS), anyString());
     }
 
     @Test
@@ -134,7 +134,7 @@ class PaymentEventPublisherTest {
         commitCallbacks();
 
         ArgumentCaptor<String> rawEnvelope = ArgumentCaptor.forClass(String.class);
-        verify(sqsTemplate, times(2)).send(anyString(), rawEnvelope.capture());
+        verify(sqsTemplate, timeout(1000).times(2)).send(anyString(), rawEnvelope.capture());
         for (String raw : rawEnvelope.getAllValues()) {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
             assertThat(envelope.eventId()).isEqualTo(outboxEventId.getValue());

@@ -1,20 +1,25 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { setupAccount, selectTenant } from '../services/api';
+import { setupAccount, sendSetupEmailOtp } from '../services/api';
 import { BookOpen, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
+import OtpCodeInput from '../components/ui/OtpCodeInput';
 
 export default function SetupAccountPage() {
   const [params]         = useSearchParams();
   const token             = params.get('token');
-  const { login }         = useAuth();
   const navigate          = useNavigate();
 
   const [newPassword, setNewPassword]     = useState('');
   const [confirmPass, setConfirmPass]     = useState('');
   const [fullName, setFullName]           = useState('');
+  const [username, setUsername]           = useState('');
+  const [phoneOtp, setPhoneOtp]           = useState('');
+  const [email, setEmail]                 = useState('');
+  const [emailOtp, setEmailOtp]           = useState('');
+  const [emailOtpSent, setEmailOtpSent]   = useState(false);
+  const [emailSending, setEmailSending]   = useState(false);
   const [showPass, setShowPass]           = useState(false);
   const [loading, setLoading]             = useState(false);
   const [error, setError]                 = useState('');
@@ -37,29 +42,17 @@ export default function SetupAccountPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (newPassword !== confirmPass) { setError("Passwords don't match"); return; }
+    if (username.trim().length < 3) { setError('Choose a username with at least 3 characters'); return; }
+    if (phoneOtp.length !== 6) { setError('Enter the 6-digit OTP sent to the member’s phone'); return; }
+    if (!email || !emailOtpSent || emailOtp.length !== 6) { setError('Enter and verify your recovery email before continuing'); return; }
     if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return; }
     if (!termsAccepted) { setError('Please accept the Terms of Service to continue.'); return; }
     setError('');
     setLoading(true);
     try {
-      const result = await setupAccount({ token, newPassword, fullName: fullName || undefined, termsAccepted });
-      // result is LoginResponse or AuthResponse
-      if (result?.requiresTenantSelection && result.tenants?.length > 0) {
-        if (result.tenants.length === 1) {
-          const authData = await selectTenant({ loginToken: result.loginToken, tenantId: result.tenants[0].tenantId });
-          const userData = { name: authData?.user?.fullName ?? authData?.user?.username, role: authData?.user?.role, id: authData?.user?.id };
-          login(authData.accessToken, userData, { tenantId: result.tenants[0].tenantId, tenantSlug: result.tenants[0].slug, tenantName: result.tenants[0].name });
-          navigate('/member', { replace: true });
-        } else {
-          navigate('/select-company', { state: { loginToken: result.loginToken, tenants: result.tenants } });
-        }
-      } else if (result?.accessToken) {
-        const userData = { name: result?.user?.fullName ?? result?.user?.username, role: result?.user?.role, id: result?.user?.id };
-        login(result.accessToken, userData);
-        navigate('/member', { replace: true });
-      } else {
-        setDone(true);
-      }
+      await setupAccount({ token, username: username.trim(), newPassword, fullName: fullName || undefined,
+        phoneOtp, email, emailOtp, termsAccepted });
+      setDone(true);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Setup failed. The link may have expired.');
     } finally {
@@ -74,8 +67,8 @@ export default function SetupAccountPage() {
           <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
             <CheckCircle size={32} className="text-green-500" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Account activated!</h2>
-          <p className="text-sm text-gray-500 mb-6">Your account is ready. Sign in to get started.</p>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Verification complete</h2>
+          <p className="text-sm text-gray-500 mb-6">Your organization must now confirm app access. You can sign in after confirmation.</p>
           <button onClick={() => navigate('/login')}
             className="w-full py-3 rounded-xl text-white font-medium text-sm cursor-pointer"
             style={{ backgroundColor: '#1E3A5F' }}>
@@ -119,6 +112,39 @@ export default function SetupAccountPage() {
               onChange={(e) => setFullName(e.target.value)}
               placeholder="How should we call you?"
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">Username</label>
+            <Input type="text" value={username}
+              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+              placeholder="Choose your username" required />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium text-gray-700">Phone OTP</label>
+            <p className="text-xs text-gray-500">Enter the code sent to the member’s phone.</p>
+            <OtpCodeInput value={phoneOtp} onChange={setPhoneOtp} length={6} />
+          </div>
+
+          <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Recovery email <span className="text-red-500">*</span></label>
+              <p className="text-xs text-gray-500 mt-1">Verify this address now so future organization requests can be recovered safely.</p>
+            </div>
+            <div className="flex gap-2">
+              <Input type="email" value={email}
+                onChange={(e) => { setEmail(e.target.value); setEmailOtpSent(false); setEmailOtp(''); }}
+                placeholder="member@example.com" required />
+              <Button type="button" variant="secondary" loading={emailSending} disabled={!email}
+                onClick={async () => {
+                  setError(''); setEmailSending(true);
+                  try { await sendSetupEmailOtp({ token, email }); setEmailOtpSent(true); }
+                  catch (err) { setError(err.response?.data?.message ?? 'Could not send email OTP'); }
+                  finally { setEmailSending(false); }
+                }}>Send OTP</Button>
+            </div>
+            {emailOtpSent && <OtpCodeInput value={emailOtp} onChange={setEmailOtp} length={6} />}
           </div>
 
           <div className="flex flex-col gap-1.5">

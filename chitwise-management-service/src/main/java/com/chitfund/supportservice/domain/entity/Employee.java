@@ -39,6 +39,14 @@ public class Employee {
     @Builder.Default
     private long authVersion = 0;
 
+    @Column(name = "can_manage_identity_cases", nullable = false)
+    @Builder.Default
+    private boolean canManageIdentityCases = false;
+
+    @Column(name = "platform_owner", nullable = false)
+    @Builder.Default
+    private boolean platformOwner = false;
+
     @Column(nullable = false)
     private String role;
 

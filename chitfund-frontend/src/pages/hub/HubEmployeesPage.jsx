@@ -4,6 +4,7 @@ import {
   hubListEmployees, hubInviteEmployee, hubChangeRole,
   hubDeactivateEmployee, hubReactivateEmployee, hubResendEmployeeInvite,
   hubResetEmployeePassword,
+  hubUpdateIdentityPermissions,
 } from '../../services/api';
 import { Users, Plus, X, AlertCircle, UserCheck, UserX, KeyRound, Eye, EyeOff } from 'lucide-react';
 
@@ -214,6 +215,11 @@ export default function HubEmployeesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
   });
 
+  const identityAccessMut = useMutation({
+    mutationFn: ({ id, enabled }) => hubUpdateIdentityPermissions(id, enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
+  });
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -259,6 +265,7 @@ export default function HubEmployeesPage() {
                 <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Email</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Role</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Status</th>
+                <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Identity Cases</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Joined</th>
                 {isSuperAdmin && <th className="px-5 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Actions</th>}
               </tr>
@@ -290,6 +297,14 @@ export default function HubEmployeesPage() {
                           {emp.role?.replace('_', ' ') ?? emp.role}
                         </span>
                       )}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {emp.platformOwner ? <span className="text-xs font-semibold text-purple-700">Protected owner</span> : hubUser.platformOwner ? (
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                          <input type="checkbox" checked={emp.canManageIdentityCases === true} disabled={identityAccessMut.isPending || isMe} onChange={e => identityAccessMut.mutate({ id: emp.id, enabled: e.target.checked })}/>
+                          Investigator
+                        </label>
+                      ) : <span className="text-xs text-gray-400">{emp.canManageIdentityCases ? 'Investigator' : 'No access'}</span>}
                     </td>
                     <td className="px-5 py-3.5">
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${

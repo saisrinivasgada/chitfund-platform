@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.controller;
 
 import com.chitfund.common.context.MemberContext;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
@@ -117,7 +118,7 @@ public class PaymentController {
     @PreAuthorize("hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<List<PaymentBatchResponse>>> getMyBatches(Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
-        UUID profileId = memberServiceClient.getProfileIdByUserId(userId);
+        UUID profileId = memberServiceClient.getProfileIdByUserId(userId, TenantContext.get());
         UUID memberId = profileId != null ? profileId : userId;
         return ResponseEntity.ok(ApiResponse.success(paymentService.getAllBatchesForMember(memberId)));
     }
@@ -284,7 +285,7 @@ public class PaymentController {
         // Members may only view their own batches
         if (auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_MEMBER"))) {
             UUID userId = (UUID) auth.getPrincipal();
-            UUID profileId = memberServiceClient.getProfileIdByUserId(userId);
+            UUID profileId = memberServiceClient.getProfileIdByUserId(userId, TenantContext.get());
             UUID memberId = profileId != null ? profileId : userId;
             if (!memberId.equals(batch.getMemberId()) && !userId.equals(batch.getMemberId())) {
                 return ResponseEntity.status(403).body(ApiResponse.error("ACCESS_DENIED", "Access denied"));

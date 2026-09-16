@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/members")
 @RequiredArgsConstructor
+@PreAuthorize("denyAll()")
+@Deprecated(forRemoval = true)
 public class MemberListController {
 
     private final UserRepository userRepository;
@@ -80,7 +82,7 @@ public class MemberListController {
     // ── GET /members/deleted ──────────────────────────────────────────────────
 
     @GetMapping("/deleted")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("denyAll()")
     public ResponseEntity<ApiResponse<Map<String, Object>>> listDeleted(
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
@@ -117,7 +119,7 @@ public class MemberListController {
     // ── POST /members ─────────────────────────────────────────────────────────
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("denyAll()")
     public ResponseEntity<ApiResponse<MemberListItem>> createMember(
             @RequestBody CreateMemberRequest req) {
 
@@ -180,7 +182,7 @@ public class MemberListController {
     // ── PUT /members/{id} ─────────────────────────────────────────────────────
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("denyAll()")
     public ResponseEntity<ApiResponse<MemberListItem>> updateMember(
             @PathVariable UUID id,
             @RequestBody UpdateMemberRequest req) {
@@ -205,7 +207,7 @@ public class MemberListController {
     // ── PATCH /members/{id}/status ────────────────────────────────────────────
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("denyAll()")
     public ResponseEntity<ApiResponse<MemberListItem>> patchStatus(
             @PathVariable UUID id,
             @RequestBody Map<String, String> body) {
@@ -220,7 +222,7 @@ public class MemberListController {
     // ── DELETE /members/{id} ──────────────────────────────────────────────────
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("denyAll()")
     public ResponseEntity<ApiResponse<Void>> deleteMember(
             @PathVariable UUID id,
             Authentication auth) {
@@ -237,7 +239,7 @@ public class MemberListController {
     // ── PATCH /members/{id}/link-user ─────────────────────────────────────────
 
     @PatchMapping("/{id}/link-user")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("denyAll()")
     @Transactional
     public ResponseEntity<ApiResponse<MemberListItem>> linkUser(
             @PathVariable UUID id,

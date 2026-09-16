@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -71,7 +72,7 @@ public class OtpService {
         smsService.sendOtp(phone, record.getCountryCode(), otp);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
     public String verifyOtp(String phone, String purpose, String code) {
         PhoneOtp record = otpRepo
                 .findFirstByPhoneAndPurposeAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
@@ -95,6 +96,35 @@ public class OtpService {
                             : " Please request a new one."));
         }
 
+        record.setVerified(true);
+        otpRepo.save(record);
+        return record.getId();
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
+    public String verifyOtp(String phone, String purpose, String referenceId, String code) {
+        PhoneOtp record = otpRepo
+                .findFirstByPhoneAndPurposeAndUserIdAndVerifiedFalseAndExpiresAtAfterOrderByCreatedAtDesc(
+                        phone, purpose, referenceId, LocalDateTime.now())
+                .orElseThrow(() -> new BusinessException(ErrorCode.OTP_EXPIRED,
+                        "OTP expired or not found. Please request a new one."));
+        return verifyRecord(record, code);
+    }
+
+    private String verifyRecord(PhoneOtp record, String code) {
+        if (record.getAttempts() >= MAX_ATTEMPTS) {
+            throw new BusinessException(ErrorCode.OTP_MAX_ATTEMPTS,
+                    "Too many incorrect attempts. Please request a new OTP.");
+        }
+        record.setAttempts(record.getAttempts() + 1);
+        if (!code.equals(record.getOtpHash())) {
+            otpRepo.save(record);
+            int remaining = MAX_ATTEMPTS - record.getAttempts();
+            throw new BusinessException(ErrorCode.OTP_INVALID,
+                    "Incorrect OTP." + (remaining > 0
+                            ? " " + remaining + " attempt(s) remaining."
+                            : " Please request a new one."));
+        }
         record.setVerified(true);
         otpRepo.save(record);
         return record.getId();

@@ -15,10 +15,10 @@ import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiome
 import OtpCodeInput from './OtpCodeInput';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
-function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint }: {
+function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint, editable = true }: {
   label: string; value: string; onChangeText: (t: string) => void;
   placeholder?: string; keyboardType?: any; secureTextEntry?: boolean;
-  autoCapitalize?: any; hint?: string;
+  autoCapitalize?: any; hint?: string; editable?: boolean;
 }) {
   const [focused, setFocused] = React.useState(false);
   return (
@@ -28,6 +28,7 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, secureTe
         value={value} onChangeText={onChangeText} placeholder={placeholder}
         keyboardType={keyboardType ?? 'default'} secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize ?? 'sentences'}
+        editable={editable}
         placeholderTextColor={C.gray400}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -35,6 +36,7 @@ function Field({ label, value, onChangeText, placeholder, keyboardType, secureTe
           borderWidth: 1.5,
           borderColor: focused ? C.navy : C.gray300,
           borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900,
+          backgroundColor: editable ? C.white : C.gray50,
           ...(focused ? { shadowColor: C.navy, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.12, shadowRadius: 4 } : {}),
         }}
       />
@@ -101,6 +103,11 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   const [mEmail,     setMEmail]     = useState('');
   const [mAddress,   setMAddress]   = useState('');
   const [mCity,      setMCity]      = useState('');
+  const [mAadhaar,   setMAadhaar]   = useState('');
+  const [mPan,       setMPan]       = useState('');
+  const [mBankName,  setMBankName]  = useState('');
+  const [mBankAcct,  setMBankAcct]  = useState('');
+  const [mBankIfsc,  setMBankIfsc]  = useState('');
 
   // Username availability
   const [usernameAvail, setUsernameAvail] = useState<boolean | null>(null);
@@ -134,7 +141,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       });
       if (!result.success) return;
     }
-    const result = await switchToAccount(acc.userId);
+    const result = await switchToAccount(acc.accountId);
     if (result === 'needs-login') {
       onClose();
       router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
@@ -171,14 +178,14 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
     if (acc.refreshToken) {
       try { await logoutAccount(acc.refreshToken); } catch {}
     }
-    await logoutFromAccount(acc.userId);
+    await logoutFromAccount(acc.accountId);
   }
 
   async function doDeleteAccount(acc: StoredAccount) {
     if (acc.refreshToken) {
       try { await logoutAccount(acc.refreshToken); } catch {}
     }
-    await removeAccount(acc.userId);
+    await removeAccount(acc.accountId);
   }
 
   async function handleLogoutAll() {
@@ -242,6 +249,11 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       setMEmail(memberMe.email ?? '');
       setMAddress(memberMe.address ?? '');
       setMCity(memberMe.city ?? '');
+      setMAadhaar(memberMe.aadhaarLast4 ?? '');
+      setMPan(memberMe.panNumber ?? '');
+      setMBankName(memberMe.bankName ?? '');
+      setMBankAcct(memberMe.bankAccountNumber ?? '');
+      setMBankIfsc(memberMe.bankIfsc ?? '');
     }
     setCurPwd(''); setNewPwd(''); setConfPwd('');
   }, [visible, me, memberMe]);
@@ -265,6 +277,11 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       if (mEmail    !== (memberMe?.email    ?? '')) changes.push({ field: 'Member Email', from: memberMe?.email    ?? '', to: mEmail });
       if (mAddress  !== (memberMe?.address  ?? '')) changes.push({ field: 'Address',      from: memberMe?.address  ?? '', to: mAddress });
       if (mCity     !== (memberMe?.city     ?? '')) changes.push({ field: 'City',         from: memberMe?.city     ?? '', to: mCity });
+      if (mAadhaar !== (memberMe?.aadhaarLast4 ?? '')) changes.push({ field: 'Aadhaar Last 4', from: memberMe?.aadhaarLast4 ?? '', to: mAadhaar });
+      if (mPan !== (memberMe?.panNumber ?? '')) changes.push({ field: 'PAN', from: memberMe?.panNumber ?? '', to: mPan });
+      if (mBankName !== (memberMe?.bankName ?? '')) changes.push({ field: 'Bank', from: memberMe?.bankName ?? '', to: mBankName });
+      if (mBankAcct !== (memberMe?.bankAccountNumber ?? '')) changes.push({ field: 'Bank Account', from: '••••' + (memberMe?.bankAccountNumber ?? '').slice(-4), to: '••••' + mBankAcct.slice(-4) });
+      if (mBankIfsc !== (memberMe?.bankIfsc ?? '')) changes.push({ field: 'IFSC', from: memberMe?.bankIfsc ?? '', to: mBankIfsc });
     }
     return changes;
   }
@@ -280,9 +297,17 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       if (role === 'MEMBER') {
         const memberChanged = mFullName !== (memberMe?.fullName ?? '') || mPhone !== (memberMe?.phone ?? '')
           || mPhoneCC !== (memberMe?.phoneCountryCode ?? '+91') || mEmail !== (memberMe?.email ?? '')
-          || mAddress !== (memberMe?.address ?? '') || mCity !== (memberMe?.city ?? '');
+          || mAddress !== (memberMe?.address ?? '') || mCity !== (memberMe?.city ?? '')
+          || mAadhaar !== (memberMe?.aadhaarLast4 ?? '') || mPan !== (memberMe?.panNumber ?? '')
+          || mBankName !== (memberMe?.bankName ?? '') || mBankAcct !== (memberMe?.bankAccountNumber ?? '')
+          || mBankIfsc !== (memberMe?.bankIfsc ?? '');
         if (memberChanged) {
-          ops.push(updateMyMemberProfile({ fullName: mFullName || undefined, phone: mPhone || undefined, phoneCountryCode: mPhoneCC, email: mEmail || null, address: mAddress || null, city: mCity || null }));
+          ops.push(updateMyMemberProfile({
+            fullName: mFullName || undefined, phone: mPhone || undefined, phoneCountryCode: mPhoneCC,
+            email: mEmail || null, address: mAddress || null, city: mCity || null,
+            aadhaarLast4: mAadhaar || null, panNumber: mPan || null, bankName: mBankName || null,
+            bankAccountNumber: mBankAcct || null, bankIfsc: mBankIfsc || null,
+          }));
         }
       }
       const changes = computeChanges();
@@ -429,7 +454,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                     {usernameAvail === false ? 'Username already taken' : usernameAvail === true ? 'Username available' : 'Letters, numbers, _ and . only'}
                   </Text>
                 </View>
-                <Field label="Email" value={email} onChangeText={setEmail} placeholder="sai@example.com" keyboardType="email-address" autoCapitalize="none" />
+                <Field label={role === 'MEMBER' ? 'Verified Recovery Email' : 'Email'} value={email} onChangeText={setEmail} placeholder="sai@example.com" keyboardType="email-address" autoCapitalize="none" editable={role !== 'MEMBER'} hint={role === 'MEMBER' ? 'Changing this address requires email verification.' : undefined} />
                 <View style={{ marginBottom: 14 }}>
                   <PhoneInput
                     label="Phone"
@@ -481,6 +506,12 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                     <Field label="Contact Email" value={mEmail} onChangeText={setMEmail} placeholder="contact@example.com" keyboardType="email-address" autoCapitalize="none" />
                     <Field label="Address" value={mAddress} onChangeText={setMAddress} placeholder="House / Flat, Street, Area" />
                     <Field label="City" value={mCity} onChangeText={setMCity} placeholder="Hyderabad" />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginTop: 6, marginBottom: 12 }}>IDENTITY &amp; PAYOUT DETAILS</Text>
+                    <Field label="Aadhaar Last 4" value={mAadhaar} onChangeText={(v) => setMAadhaar(v.replace(/\D/g, '').slice(0, 4))} keyboardType="numeric" />
+                    <Field label="PAN" value={mPan} onChangeText={(v) => setMPan(v.toUpperCase().slice(0, 10))} autoCapitalize="characters" />
+                    <Field label="Bank Name" value={mBankName} onChangeText={setMBankName} />
+                    <Field label="Account Number" value={mBankAcct} onChangeText={(v) => setMBankAcct(v.replace(/\D/g, '').slice(0, 20))} keyboardType="numeric" />
+                    <Field label="IFSC" value={mBankIfsc} onChangeText={(v) => setMBankIfsc(v.toUpperCase().slice(0, 11))} autoCapitalize="characters" />
                   </>
                 )}
               </>

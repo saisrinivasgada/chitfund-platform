@@ -226,6 +226,11 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
   const [memberEmail,           setMemberEmail]           = useState(currentMember?.email ?? '');
   const [address,               setAddress]               = useState(currentMember?.address ?? '');
   const [city,                  setCity]                  = useState(currentMember?.city ?? '');
+  const [aadhaarLast4,         setAadhaarLast4]          = useState(currentMember?.aadhaarLast4 ?? '');
+  const [panNumber,            setPanNumber]             = useState(currentMember?.panNumber ?? '');
+  const [bankName,             setBankName]              = useState(currentMember?.bankName ?? '');
+  const [bankAccountNumber,    setBankAccountNumber]     = useState(currentMember?.bankAccountNumber ?? '');
+  const [bankIfsc,             setBankIfsc]              = useState(currentMember?.bankIfsc ?? '');
 
   // Security fields
   const [currentPassword, setCurrentPassword] = useState('');
@@ -349,9 +354,14 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
       if (memberEmail    !== (cm.email    ?? '')) changes.push({ field: 'Contact Email', from: cm.email    ?? '', to: memberEmail });
       if (address        !== (cm.address  ?? '')) changes.push({ field: 'Address',       from: cm.address  ?? '', to: address });
       if (city           !== (cm.city     ?? '')) changes.push({ field: 'City',          from: cm.city     ?? '', to: city });
+      if (aadhaarLast4   !== (cm.aadhaarLast4 ?? '')) changes.push({ field: 'Aadhaar Last 4', from: cm.aadhaarLast4 ?? '', to: aadhaarLast4 });
+      if (panNumber      !== (cm.panNumber ?? '')) changes.push({ field: 'PAN', from: cm.panNumber ?? '', to: panNumber });
+      if (bankName       !== (cm.bankName ?? '')) changes.push({ field: 'Bank', from: cm.bankName ?? '', to: bankName });
+      if (bankAccountNumber !== (cm.bankAccountNumber ?? '')) changes.push({ field: 'Bank Account', from: '••••' + (cm.bankAccountNumber ?? '').slice(-4), to: '••••' + bankAccountNumber.slice(-4) });
+      if (bankIfsc       !== (cm.bankIfsc ?? '')) changes.push({ field: 'IFSC', from: cm.bankIfsc ?? '', to: bankIfsc });
     }
     return changes;
-  }, [fullName, username, email, phone, phoneCountryCode, memberFullName, memberPhone, memberEmail, address, city, currentUser, currentMember, role]);
+  }, [fullName, username, email, phone, phoneCountryCode, memberFullName, memberPhone, memberEmail, address, city, aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc, currentUser, currentMember, role]);
 
   async function handleSaveProfile() {
     setProfileError('');
@@ -375,7 +385,10 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
         const cm = currentMember ?? {};
         const memberChanged = memberFullName !== (cm.fullName ?? '') || memberPhone !== (cm.phone ?? '')
           || memberPhoneCountryCode !== (cm.phoneCountryCode ?? '+91') || memberEmail !== (cm.email ?? '')
-          || address !== (cm.address ?? '') || city !== (cm.city ?? '');
+          || address !== (cm.address ?? '') || city !== (cm.city ?? '')
+          || aadhaarLast4 !== (cm.aadhaarLast4 ?? '') || panNumber !== (cm.panNumber ?? '')
+          || bankName !== (cm.bankName ?? '') || bankAccountNumber !== (cm.bankAccountNumber ?? '')
+          || bankIfsc !== (cm.bankIfsc ?? '');
         if (memberChanged) {
           ops.push(memberMutation.mutateAsync({
             fullName: memberFullName || undefined,
@@ -384,6 +397,11 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
             email: memberEmail || undefined,
             address: address || undefined,
             city: city || undefined,
+            aadhaarLast4: aadhaarLast4 || undefined,
+            panNumber: panNumber || undefined,
+            bankName: bankName || undefined,
+            bankAccountNumber: bankAccountNumber || undefined,
+            bankIfsc: bankIfsc || undefined,
           }));
         }
       }
@@ -492,13 +510,15 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
               />
 
               <Field
-                label="Email"
+                label={role === 'MEMBER' ? 'Verified recovery email' : 'Email'}
                 icon={Mail}
                 type="email"
                 placeholder="sai@example.com"
                 value={email}
                 onChange={(v) => { setEmail(v); setProfileFe((f) => ({ ...f, email: undefined })); }}
                 error={profileFe.email}
+                disabled={role === 'MEMBER'}
+                hint={role === 'MEMBER' ? 'Changing this address requires a verified email-change flow.' : undefined}
               />
 
               {role === 'MEMBER' ? (
@@ -594,6 +614,16 @@ export default function EditProfileModal({ onClose, role, currentUser, currentMe
                       />
                       <Field label="Street / Area" icon={MapPin} placeholder="123 MG Road, Hyderabad" value={address} onChange={setAddress} />
                       <Field label="City" placeholder="Hyderabad" value={city} onChange={setCity} />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">Identity &amp; payout details</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field label="Aadhaar Last 4" value={aadhaarLast4} onChange={(v) => setAadhaarLast4(v.replace(/\D/g, '').slice(0, 4))} maxLength={4} />
+                      <Field label="PAN" value={panNumber} onChange={(v) => setPanNumber(v.toUpperCase())} maxLength={10} />
+                      <Field label="Bank Name" value={bankName} onChange={setBankName} />
+                      <Field label="Account Number" value={bankAccountNumber} onChange={(v) => setBankAccountNumber(v.replace(/\D/g, ''))} maxLength={20} />
+                      <Field label="IFSC" value={bankIfsc} onChange={(v) => setBankIfsc(v.toUpperCase())} maxLength={11} />
                     </div>
                   </div>
                 </>

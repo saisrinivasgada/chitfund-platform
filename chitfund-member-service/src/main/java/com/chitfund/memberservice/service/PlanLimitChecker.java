@@ -6,6 +6,7 @@ import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.memberservice.client.UserServiceClient;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -20,10 +21,16 @@ public class PlanLimitChecker {
 
     public void checkCanAddMember() {
         String tenantId = TenantContext.get();
-        if (tenantId == null) return; // super-admin / internal call
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
 
         Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
-        if (limits == null) return; // fail open if user-service unreachable
+        if (limits == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
+        }
 
         checkNotExpired(limits);
 
@@ -51,8 +58,9 @@ public class PlanLimitChecker {
                 throw new BusinessException(ErrorCode.PLAN_EXPIRED,
                         "Your subscription has expired. Please renew your plan to continue adding members.");
             }
-        } catch (java.time.format.DateTimeParseException ignored) {
-            // malformed date — fail open
+        } catch (java.time.format.DateTimeParseException invalidPlanData) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Subscription data is invalid. Please contact support.", HttpStatus.SERVICE_UNAVAILABLE);
         }
     }
 }

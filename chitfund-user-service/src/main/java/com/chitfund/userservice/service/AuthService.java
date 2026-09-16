@@ -48,6 +48,9 @@ public class AuthService {
     private final TenantService tenantService;
     private final OtpService otpService;
     private final PasswordValidator passwordValidator;
+    private final AccountEmailOtpService accountEmailOtpService;
+
+    private static final String LOGIN_EMAIL_VERIFICATION = "LOGIN_EMAIL_VERIFY";
 
     private static final int DEVICE_TOKEN_EXPIRY_DAYS = 30;
 
@@ -82,6 +85,10 @@ public class AuthService {
         rejectLegacySuperAdminLogin(user);
 
         user = authenticateUser(user, request.getPassword());
+
+        if (requiresEmailVerification(user)) {
+            return buildEmailVerificationResponse(user);
+        }
 
         if (requiresLoginOtp(user) && !isDeviceTrusted(user.getId(), deviceToken)) {
             return buildLoginOtpResponse(user);
@@ -118,6 +125,10 @@ public class AuthService {
 
         rejectLegacySuperAdminLogin(user);
         user = authenticateUser(user, request.getPassword());
+
+        if (requiresEmailVerification(user)) {
+            return buildEmailVerificationResponse(user);
+        }
 
         if (requiresLoginOtp(user)) {
             return buildLoginOtpResponse(user);
@@ -210,13 +221,25 @@ public class AuthService {
     // ── Account setup token generation (called by InternalUserController) ───
 
     public String generateSetupToken(UUID userId) {
+        return generateSetupToken(userId, null);
+    }
+
+    public String generateSetupToken(UUID userId, UUID chitfundRequestId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         rejectLegacySuperAdminLogin(user);
+        if (chitfundRequestId != null) {
+            LocalDateTime now = LocalDateTime.now();
+            List<AccountSetupToken> priorTokens = setupTokenRepository
+                    .findAllByChitfundRequestIdAndUsedAtIsNull(chitfundRequestId);
+            priorTokens.forEach(token -> token.setUsedAt(now));
+            setupTokenRepository.saveAll(priorTokens);
+        }
         String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
         String hash = sha256(rawToken);
         AccountSetupToken token = AccountSetupToken.builder()
                 .userId(userId)
+                .chitfundRequestId(chitfundRequestId)
                 .tokenHash(hash)
                 .expiresAt(LocalDateTime.now().plusHours(72))
                 .build();
@@ -227,6 +250,11 @@ public class AuthService {
     // ── Staff registration (admin-only) ──────────────────────────────────────
 
     public AuthResponse register(RegisterRequest request, UUID createdBy) {
+        Role role = request.getRole();
+        if (role != Role.ADMIN && role != Role.MANAGER && role != Role.STAFF) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Role must be ADMIN, MANAGER, or STAFF");
+        }
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new BusinessException(ErrorCode.USERNAME_TAKEN);
         }
@@ -237,14 +265,11 @@ public class AuthService {
         }
         String phone = (request.getPhone() != null && !request.getPhone().isBlank())
                 ? request.getPhone() : null;
-        Role role = request.getRole() != null ? request.getRole() : Role.MEMBER;
         if (phone != null) {
-            List<Role> sameCategory = role == Role.MEMBER
-                    ? List.of(Role.MEMBER)
-                    : List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
+            List<Role> sameCategory = List.of(Role.ADMIN, Role.MANAGER, Role.STAFF, Role.AGENT);
             if (userRepository.existsByPhoneAndRoleInAndDeletedAtIsNull(phone, sameCategory)) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "A " + (role == Role.MEMBER ? "member" : "staff") + " account with this number exists",
+                        "A staff account with this number exists",
                         HttpStatus.CONFLICT);
             }
         }
@@ -256,6 +281,10 @@ public class AuthService {
         }
 
         String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
 
         User user = User.builder()
                 .username(request.getUsername())
@@ -264,16 +293,22 @@ public class AuthService {
                 .phone(request.getPhone())
                 .phoneCountryCode(request.getPhoneCountryCode())
                 .passwordHash(passwordEncoder.encode(plainPassword))
-                .role(request.getRole())
+                .role(role)
                 .tenantId(tenantId)
                 .mustChangePassword(isTempPassword)
-                .hasAppAccess(request.getRole() != Role.MEMBER)
+                .hasAppAccess(true)
+                .emailVerificationRequired(true)
                 .createdBy(createdBy)
                 .updatedBy(createdBy)
                 .build();
         userRepository.save(user);
 
-        return buildAuthResponse(user, isTempPassword ? plainPassword : null);
+        // Creating an employee must never issue that employee's access token to
+        // the administrator. Return only the one-time onboarding credential.
+        return AuthResponse.builder()
+                .user(userMapper.toResponse(user))
+                .tempPassword(isTempPassword ? plainPassword : null)
+                .build();
     }
 
     // ── Existing flows (unchanged) ────────────────────────────────────────────
@@ -327,6 +362,11 @@ public class AuthService {
     public ResetPasswordResponse resetPassword(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found: " + userId));
+        if (user.getRole() == Role.MEMBER) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization administrators cannot reset a member's global ChitWise password. Use Account Access support.",
+                    org.springframework.http.HttpStatus.FORBIDDEN);
+        }
         String tempPassword = generateTempPassword();
         user.setTempPasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
@@ -409,7 +449,7 @@ public class AuthService {
 
         rejectLegacySuperAdminLogin(user);
 
-        otpService.verifyOtp(user.getPhone(), "LOGIN", code);
+        otpService.verifyOtp(user.getPhone(), "LOGIN", user.getId().toString(), code);
 
         updateLoginState(user, false);
         userRepository.save(user);
@@ -488,80 +528,58 @@ public class AuthService {
                 .filter(u -> u.getDeletedAt() == null);
 
         if (userOpt.isEmpty()) {
-            List<User> byPhone = userRepository.findByPhoneAndDeletedAtIsNull(usernameOrPhone.trim());
-            if (!byPhone.isEmpty()) {
-                // Prefer non-MEMBER if multiple accounts share the same phone
-                userOpt = byPhone.stream()
-                        .filter(u -> u.getRole() != Role.MEMBER && u.getRole() != Role.SUPER_ADMIN)
-                        .findFirst()
-                        .or(() -> Optional.of(byPhone.get(0)));
-            }
+            List<User> byPhone = userRepository.findByPhoneAndDeletedAtIsNull(usernameOrPhone.trim())
+                    .stream().filter(u -> u.getRole() != Role.SUPER_ADMIN).toList();
+            // A shared phone is deliberately ambiguous. Recovery by phone must
+            // never select one of several accounts heuristically.
+            if (byPhone.size() == 1) userOpt = Optional.of(byPhone.get(0));
         }
 
-        if (userOpt.isEmpty()) {
-            throw new BusinessException(ErrorCode.USER_NOT_FOUND,
-                    "No account found with that username or phone number");
-        }
-
-        User user = userOpt.get();
-
-        rejectLegacySuperAdminLogin(user);
-
-        if (user.getPhone() == null || user.getPhone().isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "No phone number on file. Contact your administrator to reset your password.");
-        }
-
-        String phone = user.getPhone().replaceAll("\\D", "");
-        String masked = phone.length() >= 4
-                ? "*".repeat(phone.length() - 4) + phone.substring(phone.length() - 4)
-                : "****";
+        User user = userOpt.filter(u -> u.getRole() != Role.SUPER_ADMIN)
+                .filter(u -> !u.isLocked())
+                .filter(u -> u.getPhone() != null && !u.getPhone().isBlank())
+                .orElse(null);
+        UUID challengeSubject = user != null ? user.getId() : UUID.randomUUID();
+        String challenge = jwtTokenProvider.generatePasswordRecoveryChallenge(
+                challengeSubject, user != null);
 
         return com.chitfund.userservice.dto.response.ForgotPasswordLookupResponse.builder()
-                .userId(user.getId().toString())
-                .maskedPhone(masked)
-                .locked(user.isLocked())
-                .role(user.getRole().name())
+                // Retain the field name for compatible clients; its value is
+                // now an opaque, short-lived challenge rather than a user ID.
+                .userId(challenge)
+                .maskedPhone("your registered mobile number")
+                .locked(false)
+                .role(null)
                 .build();
     }
 
     @Transactional
-    public void sendForgotPasswordOtpNew(String userId, String last4) {
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
-
-        rejectLegacySuperAdminLogin(user);
-
-        if (user.isLocked()) {
-            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, "Account is locked");
-        }
-        if (user.getPhone() == null || user.getPhone().isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "No phone number on file");
-        }
+    public void sendForgotPasswordOtpNew(String recoveryChallenge, String last4) {
+        User user = passwordRecoveryUser(recoveryChallenge).orElse(null);
+        // Keep the response indistinguishable for unknown, ambiguous, locked,
+        // missing-phone, and incorrect-last-four cases.
+        if (user == null || user.isLocked() || user.getPhone() == null || user.getPhone().isBlank()) return;
 
         String phoneLast4 = user.getPhone().replaceAll("\\D", "");
         if (phoneLast4.length() >= 4) {
             phoneLast4 = phoneLast4.substring(phoneLast4.length() - 4);
         }
-        if (!phoneLast4.equals(last4)) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phone digits don't match our records");
-        }
+        if (!phoneLast4.equals(last4)) return;
 
         String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
-        otpService.sendOtp(user.getPhone(), cc, "FORGOT_PASSWORD", userId);
+        otpService.sendOtp(user.getPhone(), cc, "FORGOT_PASSWORD", user.getId().toString());
     }
 
     @Transactional
-    public com.chitfund.userservice.dto.response.ForgotPasswordVerifyOtpResponse verifyForgotPasswordOtp(String userId, String code) {
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found"));
+    public com.chitfund.userservice.dto.response.ForgotPasswordVerifyOtpResponse verifyForgotPasswordOtp(String recoveryChallenge, String code) {
+        User user = passwordRecoveryUser(recoveryChallenge)
+                .orElseThrow(() -> new BusinessException(ErrorCode.OTP_INVALID, "Incorrect or expired OTP"));
 
-        rejectLegacySuperAdminLogin(user);
+        otpService.verifyOtp(user.getPhone(), "FORGOT_PASSWORD", user.getId().toString(), code);
 
-        otpService.verifyOtp(user.getPhone(), "FORGOT_PASSWORD", code);
-
-        String resetToken = java.util.UUID.randomUUID().toString().replace("-", "");
-        user.setPasswordResetToken(resetToken);
+        String resetToken = java.util.UUID.randomUUID().toString().replace("-", "")
+                + java.util.UUID.randomUUID().toString().replace("-", "");
+        user.setPasswordResetToken(sha256Value(resetToken));
         user.setPasswordResetTokenExpiresAt(java.time.LocalDateTime.now().plusMinutes(15));
         userRepository.save(user);
 
@@ -570,9 +588,25 @@ public class AuthService {
                 .build();
     }
 
+    private Optional<User> passwordRecoveryUser(String challenge) {
+        if (challenge == null || !jwtTokenProvider.validateToken(challenge)) return Optional.empty();
+        try {
+            io.jsonwebtoken.Claims claims = jwtTokenProvider.extractClaims(challenge);
+            if (!"PASSWORD_RECOVERY_LOOKUP".equals(claims.get("scope", String.class))
+                    || !Boolean.TRUE.equals(claims.get("accountResolved", Boolean.class))) {
+                return Optional.empty();
+            }
+            return userRepository.findById(UUID.fromString(claims.getSubject()))
+                    .filter(u -> u.getDeletedAt() == null)
+                    .filter(u -> u.getRole() != Role.SUPER_ADMIN);
+        } catch (RuntimeException ex) {
+            return Optional.empty();
+        }
+    }
+
     @Transactional
     public void resetPasswordWithToken(String resetToken, String newPassword) {
-        User user = userRepository.findByPasswordResetToken(resetToken)
+        User user = userRepository.findByPasswordResetToken(sha256Value(resetToken))
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Invalid or expired reset link. Please start over."));
         rejectLegacySuperAdminLogin(user);
@@ -594,45 +628,8 @@ public class AuthService {
         user.setPasswordResetTokenExpiresAt(null);
         user.setFailedLoginAttempts(0);
         refreshTokenRepository.revokeAllActiveByUser(user);
+        trustedDeviceRepository.deleteByUserId(user.getId());
         userRepository.save(user);
-    }
-
-    // ── Self-service password reset via OTP (legacy phone-only flow — kept for backward compat) ──
-
-    public void sendForgotPasswordOtp(String phone, String countryCode) {
-        String cc = (countryCode != null && !countryCode.isBlank()) ? countryCode : "+91";
-        List<User> users = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(phone, cc);
-        if (users.isEmpty()) {
-            // Return success even on miss to avoid user enumeration
-            return;
-        }
-        // Send to any matching account (typically one per phone for non-members)
-        User user = users.stream()
-                .filter(u -> u.getRole() != Role.MEMBER && u.getRole() != Role.SUPER_ADMIN)
-                .findFirst()
-                .orElse(users.get(0));
-        rejectLegacySuperAdminLogin(user);
-        otpService.sendOtp(phone, cc, "FORGOT_PASSWORD", user.getId().toString());
-    }
-
-    public void resetPasswordViaOtp(ForgotPasswordResetRequest req) {
-        String cc = (req.getCountryCode() != null && !req.getCountryCode().isBlank()) ? req.getCountryCode() : "+91";
-        // verifyOtp throws BusinessException if invalid/expired/max-attempts
-        otpService.verifyOtp(req.getPhone(), "FORGOT_PASSWORD", req.getOtpCode());
-
-        List<User> users = userRepository.findByPhoneAndPhoneCountryCodeAndDeletedAtIsNull(req.getPhone(), cc);
-        if (users.isEmpty()) {
-            throw new BusinessException(ErrorCode.USER_NOT_FOUND, "No account found for this mobile number");
-        }
-        // Apply to all accounts on this phone (rare to have multiple, but safe)
-        for (User user : users) {
-            if (user.getRole() == Role.SUPER_ADMIN) continue;
-            user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
-            user.setTempPasswordHash(null);
-            user.setMustChangePassword(false);
-            refreshTokenRepository.revokeAllActiveByUser(user);
-            userRepository.save(user);
-        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -662,6 +659,65 @@ public class AuthService {
         rejectLegacySuperAdminLogin(user);
         String cc = user.getPhoneCountryCode() != null ? user.getPhoneCountryCode() : "+91";
         otpService.sendOtp(user.getPhone(), cc, "LOGIN", userId);
+    }
+
+    public void resendLoginEmailOtp(String verificationToken) {
+        User user = emailVerificationUser(verificationToken);
+        accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
+                LOGIN_EMAIL_VERIFICATION, user.getFullName());
+    }
+
+    public LoginResponse verifyLoginEmailOtp(String verificationToken, String code) {
+        User user = emailVerificationUser(verificationToken);
+        accountEmailOtpService.verify(user.getId().toString(), user.getEmail(),
+                LOGIN_EMAIL_VERIFICATION, code);
+        user.setEmailVerifiedAt(LocalDateTime.now());
+        user.setEmailVerificationRequired(false);
+        userRepository.save(user);
+
+        if (requiresLoginOtp(user)) return buildLoginOtpResponse(user);
+        updateLoginState(user, false);
+        userRepository.save(user);
+        return buildLoginResponse(user);
+    }
+
+    private User emailVerificationUser(String token) {
+        if (token == null || !jwtTokenProvider.validateToken(token)
+                || !"EMAIL_VERIFY_PENDING".equals(jwtTokenProvider.extractScope(token))) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID,
+                    "Email verification session expired or invalid");
+        }
+        User user = userRepository.findById(UUID.fromString(jwtTokenProvider.extractUserId(token)))
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (!requiresEmailVerification(user)) {
+            throw new BusinessException(ErrorCode.TOKEN_INVALID,
+                    "Email is already verified or verification is no longer required");
+        }
+        return user;
+    }
+
+    private boolean requiresEmailVerification(User user) {
+        return user.isEmailVerificationRequired() && user.getEmailVerifiedAt() == null;
+    }
+
+    private LoginResponse buildEmailVerificationResponse(User user) {
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "This account requires a valid email. Contact your administrator.");
+        }
+        accountEmailOtpService.send(user.getId().toString(), user.getEmail(),
+                LOGIN_EMAIL_VERIFICATION, user.getFullName());
+        return LoginResponse.builder()
+                .requiresEmailVerification(true)
+                .emailVerificationToken(jwtTokenProvider.generateEmailVerificationToken(user))
+                .maskedEmail(maskEmail(user.getEmail()))
+                .build();
+    }
+
+    private static String maskEmail(String email) {
+        if (email == null || !email.contains("@")) return "***";
+        String[] parts = email.split("@", 2);
+        return parts[0].substring(0, 1) + "***@" + parts[1];
     }
 
     private LoginResponse buildLoginOtpResponse(User user) {
@@ -794,6 +850,10 @@ public class AuthService {
     }
 
     private String sha256(String input) {
+        return sha256Value(input);
+    }
+
+    public static String sha256Value(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));

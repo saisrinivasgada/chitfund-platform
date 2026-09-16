@@ -1,5 +1,7 @@
 package com.chitfund.memberservice.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -42,4 +44,17 @@ public class UpdateMemberRequest {
     private String notes;
 
     private UUID referredById;
+
+    @JsonIgnore
+    private boolean referredByIdPresent;
+
+    /**
+     * Preserve the difference between an omitted property (leave the referral
+     * unchanged) and an explicit JSON null (clear the referral).
+     */
+    @JsonSetter("referredById")
+    public void setReferredById(UUID referredById) {
+        this.referredById = referredById;
+        this.referredByIdPresent = true;
+    }
 }

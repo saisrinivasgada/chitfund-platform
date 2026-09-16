@@ -1,6 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { useAuthStore } from '../store/authStore';
+import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
@@ -54,7 +54,7 @@ hubApi.interceptors.response.use((response) => response, async (error) => {
       return hubApi(original);
     } catch {
       const user = useAuthStore.getState().user;
-      if (user) await useAuthStore.getState().markSessionInvalid(user.id);
+      if (user) await useAuthStore.getState().markSessionInvalid(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'));
     }
   }
   return Promise.reject(error);
@@ -99,14 +99,14 @@ api.interceptors.response.use(
         await SecureStore.setItemAsync('chitwise_token', accessToken);
         if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
         const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().updateTokenForAccount(user.id, accessToken, newRefresh);
+        if (user) await useAuthStore.getState().updateTokenForAccount(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'), accessToken, newRefresh);
         processQueue(null, accessToken);
         original.headers.Authorization = `Bearer ${accessToken}`;
         return api(original);
       } catch (refreshErr) {
         processQueue(refreshErr, null);
         const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().markSessionInvalid(user.id);
+        if (user) await useAuthStore.getState().markSessionInvalid(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'));
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;
@@ -142,6 +142,8 @@ export interface LoginResponse {
   fullName: string;
   role: string;
   mustChangePassword: boolean;
+  canManageIdentityCases?: boolean;
+  platformOwner?: boolean;
   tenantId?: string;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
@@ -151,6 +153,9 @@ export interface LoginResponse {
   requiresOtp?: boolean;
   otpToken?: string;
   maskedPhone?: string;
+  requiresEmailVerification?: boolean;
+  emailVerificationToken?: string;
+  maskedEmail?: string;
 }
 
 export interface HubLoginResponse {
@@ -164,6 +169,8 @@ export interface HubLoginResponse {
   email: string;
   role: 'SUPER_ADMIN' | 'SUPPORT_AGENT';
   mustChangePassword: boolean;
+  canManageIdentityCases: boolean;
+  platformOwner: boolean;
 }
 
 export const hubLogin = async (username: string, password: string): Promise<HubLoginResponse> => {
@@ -200,6 +207,11 @@ export const hubGetTicketMessages = async (id: string) => unwrapObj(await hubApi
 export const hubSendTicketMessage = async (id: string, content: string) => unwrapObj(await hubApi.post(`/hub/tickets/${id}/messages`, { content }));
 export const hubUpdateTicketStatus = async (id: string, status: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status }));
 export const hubMarkTicketRead = async (id: string) => hubApi.put(`/hub/tickets/${id}/read`);
+export const hubGetIdentityCaseByTicket = async (ticketId: string) => unwrapObj(await hubApi.get(`/hub/identity-cases/ticket/${ticketId}`));
+export const hubPrepareIdentityCase = async (caseId: string, body: any) => unwrapObj(await hubApi.put(`/hub/identity-cases/${caseId}/prepare`, body));
+export const hubApproveIdentityCase = async (caseId: string, reason: string) => unwrapObj(await hubApi.put(`/hub/identity-cases/${caseId}/approve`, { reason }));
+export const hubRejectIdentityCase = async (caseId: string, reason: string) => unwrapObj(await hubApi.put(`/hub/identity-cases/${caseId}/reject`, { reason }));
+export const hubExecuteIdentityCase = async (caseId: string) => unwrapObj(await hubApi.post(`/hub/identity-cases/${caseId}/execute`));
 export const hubListEmployees = async () => {
   const response = await hubApi.get('/hub/employees');
   return response.data?.data ?? [];
@@ -210,6 +222,7 @@ export const hubDeactivateEmployee = async (id: string) => unwrapObj(await hubAp
 export const hubReactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`));
 export const hubResendEmployeeInvite = async (id: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/resend-invite`));
 export const hubResetEmployeePassword = async (id: string, temporaryPassword: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword }));
+export const hubUpdateIdentityPermissions = async (id: string, canManageIdentityCases: boolean) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/identity-permissions`, { canManageIdentityCases }));
 export const hubEmployeeDirectory = async (): Promise<any[]> => {
   const response = await hubApi.get('/hub/employees/directory');
   return response.data?.data ?? [];
@@ -253,6 +266,12 @@ function parseAuthResponse(auth: any): LoginResponse {
 export const login = async (username: string, password: string): Promise<LoginResponse> => {
   const res = await api.post('/auth/login', { username, password });
   const d = res.data.data ?? res.data;
+  if (d.requiresEmailVerification) {
+    return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
+      requiresEmailVerification: true,
+      emailVerificationToken: d.emailVerificationToken,
+      maskedEmail: d.maskedEmail };
+  }
   if (d.requiresOtp) {
     return { token: '', userId: '', username, fullName: '', role: '', mustChangePassword: false,
       requiresOtp: true, otpToken: d.otpToken, maskedPhone: d.maskedPhone };
@@ -278,6 +297,26 @@ export const verifyLoginOtp = async (otpToken: string, code: string): Promise<Lo
   return d;
 };
 
+export const verifyLoginEmailOtp = async (emailVerificationToken: string, code: string): Promise<LoginResponse> => {
+  const res = await api.post('/auth/verify-login-email-otp', { emailVerificationToken, code });
+  const d = res.data.data ?? res.data;
+  if (d.requiresOtp) {
+    return { token: '', userId: '', username: '', fullName: '', role: '', mustChangePassword: false,
+      requiresOtp: true, otpToken: d.otpToken, maskedPhone: d.maskedPhone };
+  }
+  const auth = d.accessToken ? d : d.authResponse;
+  if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
+  if (d.requiresTenantSelection && d.loginToken) {
+    return { token: '', userId: '', username: '', fullName: '', role: '', mustChangePassword: false,
+      requiresTenantSelection: true, loginToken: d.loginToken, tenants: d.tenants ?? [] };
+  }
+  return d;
+};
+
+export const resendLoginEmailOtp = async (emailVerificationToken: string) => {
+  await api.post('/auth/resend-login-email-otp', { emailVerificationToken });
+};
+
 export const selectTenant = async (loginToken: string, tenantId: string): Promise<LoginResponse> => {
   const res = await api.post('/auth/select-tenant', { loginToken, tenantId });
   const d = res.data.data ?? res.data;
@@ -301,6 +340,14 @@ export const updateMyProfile = async (body: any) =>
   unwrapObj(await api.patch('/users/me/profile', body));
 export const updateMyMemberProfile = async (body: any) =>
   unwrapObj(await api.patch('/members/me/profile', body));
+
+export const sendChitfundSetupEmailOtp = async (token: string, email: string) => {
+  await api.post('/chitfund-requests/setup/email-otp', { token, email });
+};
+export const completeChitfundAccountSetup = async (body: {
+  token: string; username: string; newPassword: string; fullName?: string;
+  phoneOtp: string; email: string; emailOtp: string; termsAccepted: boolean;
+}) => unwrapObj(await api.post('/chitfund-requests/setup', body));
 
 // ── Staff ──────────────────────────────────────────────────────────────────────
 export const listStaff = async () => {
@@ -348,6 +395,29 @@ export const getMembersPage = async ({
 };
 export const getMember = async (id: string) => unwrapObj(await api.get(`/members/${id}`));
 export const createMember = async (body: any) => unwrapObj(await api.post('/members', body));
+export const requestMemberAppAccess = async (memberId: string) =>
+  unwrapObj(await api.post(`/members/${memberId}/app-access-request`));
+export const getMemberChitfundRequests = async (memberId: string) =>
+  unwrapList(await api.get(`/chitfund-requests/admin/member/${memberId}`));
+export const resendChitfundRequest = async (requestId: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/resend`));
+export const revokeChitfundRequest = async (requestId: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/revoke`));
+export const confirmChitfundRequest = async (requestId: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/confirm`));
+export const getMyChitfundRequests = async () =>
+  unwrapList(await api.get('/chitfund-requests/mine'));
+export const sendChitfundRequestOtp = async (requestId: string) => { await api.post(`/chitfund-requests/${requestId}/otp`); };
+export const acceptChitfundRequest = async (requestId: string, code: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/accept`, { code }));
+export const declineChitfundRequest = async (requestId: string) =>
+  unwrapObj(await api.post(`/chitfund-requests/${requestId}/decline`));
+export const getPublicChitfundRequest = async (token: string) =>
+  unwrapObj(await api.get('/chitfund-requests/public', { params: { token } }));
+export const sendChitfundRequestRecoveryEmailOtp = async (token: string) =>
+  api.post('/chitfund-requests/recovery/email-otp', { token });
+export const verifyChitfundRequestRecoveryEmailOtp = async (token: string, code: string) =>
+  unwrapObj(await api.post('/chitfund-requests/recovery/verify-email-otp', { token, code }));
 export const updateMember = async (id: string, body: any) => unwrapObj(await api.put(`/members/${id}`, body));
 export const patchMemberStatus = async (id: string, status: string, reason?: string) =>
   unwrapObj(await api.patch(`/members/${id}/status`, { status, reason }));
@@ -798,6 +868,9 @@ export const createSupportTicket = async (body: {
   type: string;
   subject: string;
   description?: string;
+  accountCaseSubtype?: 'PASSWORD_RECOVERY' | 'APP_ACCESS_FAILURE' | 'PHONE_REASSIGNMENT' | 'IDENTITY_LINK_DISPUTE';
+  memberId?: string;
+  userId?: string;
 }): Promise<any> => {
   const res = await api.post('/tickets', body);
   return res.data.data;

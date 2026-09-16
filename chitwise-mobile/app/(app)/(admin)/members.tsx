@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
-  getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, resetMemberPassword, recordPayment,
-  getUserById, getAuditLogs, getAllCashRequests, registerUser, linkMemberUser, checkUsernameAvailability,
-  sendPaymentReminder, sendWhatsAppReminder, resendSetupLink, getMyTenantLimits, getMemberSettlements,
+  getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, recordPayment,
+  getUserById, getAuditLogs, getAllCashRequests, requestMemberAppAccess,
+  getMemberChitfundRequests, resendChitfundRequest, revokeChitfundRequest, confirmChitfundRequest,
+  createSupportTicket,
+  sendPaymentReminder, sendWhatsAppReminder, getMyTenantLimits, getMemberSettlements,
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
   getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
 } from '../../../services/api';
@@ -91,18 +93,8 @@ export default function AdminMembersScreen() {
   const [chitStatusFilter, setChitStatusFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ACTIVE');
   const [payHistChitId, setPayHistChitId] = useState('');
   const [showEditInline, setShowEditInline] = useState(false);
-  const [tempPassword, setTempPassword] = useState('');
-  const [showPwdInline, setShowPwdInline] = useState(false);
-  const [pwdCopied, setPwdCopied] = useState(false);
-
   // Create login
   const [showCreateLogin, setShowCreateLogin] = useState(false);
-  const [clUsername, setClUsername] = useState('');
-  const [clEmail, setClEmail] = useState('');
-  const [clTempPassword, setClTempPassword] = useState('');
-  const [clCopied, setClCopied] = useState(false);
-  const [clAvailability, setClAvailability] = useState<null | 'checking' | 'available' | 'taken'>(null);
-  const clDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Status change inline
   const [showStatusInline, setShowStatusInline] = useState(false);
@@ -134,7 +126,7 @@ export default function AdminMembersScreen() {
   const [cFullName, setCFullName] = useState('');
   const [cPhone, setCPhone] = useState('');
   const [cPhoneCountryCode, setCPhoneCountryCode] = useState('+91');
-  const [cPhoneVerified, setCPhoneVerified] = useState(false);
+  const [cSendAppAccess, setCSendAppAccess] = useState(false);
   const [cEmail, setCEmail] = useState('');
   const [cAddress, setCAddress] = useState('');
   const [cCity, setCCity] = useState('');
@@ -184,20 +176,23 @@ export default function AdminMembersScreen() {
   const createMutation = useMutation({
     mutationFn: () => createMember({
       fullName: cFullName, phone: cPhone, phoneCountryCode: cPhoneCountryCode,
-      email: cEmail || null,
+      email: cEmail.trim(),
       address: cAddress || null, city: cCity || null, notes: cNotes || null,
       aadhaarLast4: cAadhaar || null, panNumber: cPan || null,
       bankName: cBankName || null, bankAccountNumber: cBankAccount || null,
       bankIfsc: cBankIfsc ? cBankIfsc.toUpperCase() : null,
       referredById: cReferredById || null,
+      sendAppAccess: cSendAppAccess,
     }),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      const showAccessLink = cSendAppAccess && (data?.setupToken || data?.actionToken);
       qc.invalidateQueries({ queryKey: ['m-members'] });
       setShowCreate(false);
-      setCFullName(''); setCPhone(''); setCPhoneCountryCode('+91'); setCPhoneVerified(false); setCEmail(''); setCAddress(''); setCCity(''); setCNotes('');
+      setCFullName(''); setCPhone(''); setCPhoneCountryCode('+91'); setCSendAppAccess(false); setCEmail(''); setCAddress(''); setCCity(''); setCNotes('');
       setCAAadhaar(''); setCPan(''); setCBankName(''); setCBankAccount(''); setCBankIfsc('');
       setCReferredById(''); setCReferralSearch('');
       toast.created('Member created');
+      if (showAccessLink) showChitfundRequestLink(data, 'Member created — Chitfund Request sent');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -241,33 +236,15 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete member'),
   });
 
-  const resetPwdMutation = useMutation({
-    mutationFn: (userId: string) => resetMemberPassword(userId),
-    onSuccess: (data: any) => {
-      const tmp = data?.tempPassword ?? data?.password ?? data?.data?.tempPassword ?? '';
-      setTempPassword(tmp);
-      setPwdCopied(false);
-      setShowPwdInline(true);
-      qc.invalidateQueries({ queryKey: ['m-user-status', selected?.userId] });
-    },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to reset password'),
-  });
-
   const createLoginMutation = useMutation({
-    mutationFn: async () => {
-      const authData = await registerUser({ username: clUsername.trim(), email: clEmail.trim() });
-      const newUserId = authData?.user?.id;
-      if (!newUserId) throw new Error('Registration did not return a user ID');
-      await linkMemberUser(selected!.id, newUserId);
-      return authData;
-    },
+    mutationFn: () => requestMemberAppAccess(selected!.id),
     onSuccess: (data: any) => {
-      setClTempPassword(data?.tempPassword ?? '');
-      setClCopied(false);
       qc.invalidateQueries({ queryKey: ['members'] });
-      qc.invalidateQueries({ queryKey: ['m-user-status', selected?.userId] });
+      qc.invalidateQueries({ queryKey: ['m-chitfund-requests', selected?.id] });
+      setShowCreateLogin(false);
+      showChitfundRequestLink(data, 'Chitfund Request sent');
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to create login'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to send Chitfund Request'),
   });
 
   const updateMutation = useMutation({
@@ -336,12 +313,6 @@ export default function AdminMembersScreen() {
     },
     onSuccess: (res: any) => toast.noted(res?.message ?? 'WhatsApp reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send WhatsApp message'),
-  });
-
-  const resendSetupMutation = useMutation({
-    mutationFn: () => resendSetupLink(selected!.userId ?? selected!.linkedUserId),
-    onSuccess: () => toast.noted('Setup link resent'),
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to resend setup link'),
   });
 
   const { data: memberChits = [] } = useQuery({
@@ -434,6 +405,60 @@ export default function AdminMembersScreen() {
     staleTime: 30_000,
   });
 
+  const { data: chitfundRequests = [] } = useQuery({
+    queryKey: ['m-chitfund-requests', selected?.id],
+    queryFn: () => getMemberChitfundRequests(selected!.id),
+    enabled: !!selected?.id && showDetail,
+    staleTime: 15_000,
+  });
+  const latestChitfundRequest: any = (chitfundRequests as any[])[0];
+  const refreshChitfundRequest = () => {
+    qc.invalidateQueries({ queryKey: ['m-chitfund-requests', selected?.id] });
+    qc.invalidateQueries({ queryKey: ['members'] });
+  };
+  const resendChitfundMutation = useMutation({
+    mutationFn: () => resendChitfundRequest(latestChitfundRequest.id),
+    onSuccess: (data: any) => { refreshChitfundRequest(); showChitfundRequestLink(data, 'Chitfund Request resent'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not resend request'),
+  });
+
+  function showChitfundRequestLink(data: any, title: string) {
+    const base = process.env.EXPO_PUBLIC_WEB_URL ?? 'https://thechitwise.com';
+    const url = data?.setupToken
+      ? `${base}/setup-account?token=${data.setupToken}`
+      : data?.actionToken ? `${base}/chitfund-request?token=${data.actionToken}` : '';
+    if (!url) {
+      toast.noted(title);
+      return;
+    }
+    Alert.alert(title, 'Copy this one-time link and share it privately with the member.', [
+      { text: 'Later', style: 'cancel' },
+      { text: 'Copy Link', onPress: () => { Clipboard.setString(url); toast.noted('One-time link copied'); } },
+    ]);
+  }
+  const revokeChitfundMutation = useMutation({
+    mutationFn: () => revokeChitfundRequest(latestChitfundRequest.id),
+    onSuccess: () => { refreshChitfundRequest(); toast.cancelled('Chitfund Request revoked'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not revoke request'),
+  });
+  const confirmChitfundMutation = useMutation({
+    mutationFn: () => confirmChitfundRequest(latestChitfundRequest.id),
+    onSuccess: () => { refreshChitfundRequest(); toast.saved('Member app access activated'); },
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not activate app access'),
+  });
+  const accountAccessTicketMutation = useMutation({
+    mutationFn: () => createSupportTicket({
+      type: 'ACCOUNT',
+      accountCaseSubtype: 'APP_ACCESS_FAILURE',
+      memberId: selected?.id,
+      userId: selected?.userId,
+      subject: `Account access help — ${selected?.fullName}`,
+      description: `Member cannot recover or access their ChitWise account. Please investigate without issuing credentials to the organization administrator.\n\nMember reference: ${selected?.id}`,
+    }),
+    onSuccess: () => toast.created('Account Access ticket created'),
+    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not create support ticket'),
+  });
+
   // Profile change history from audit log — admin only
   const [showProfileHistory, setShowProfileHistory] = useState(false);
   const { data: profileHistory = [] } = useQuery({
@@ -479,17 +504,12 @@ export default function AdminMembersScreen() {
 
   function openDetail(m: any) {
     setSelected(m);
-    setTempPassword('');
-    setShowPwdInline(false);
     setShowStatusInline(false);
     setShowEditInline(false);
     setShowProfileHistory(false);
     setNewStatus('');
     setStatusReason('');
     setShowCreateLogin(false);
-    setClUsername('');
-    setClEmail('');
-    setClTempPassword('');
     setPayHistChitId('');
     setShowDetail(true);
   }
@@ -508,7 +528,6 @@ export default function AdminMembersScreen() {
     setENotes(m.notes ?? '');
     setShowEditInline(true);
     // Collapse other inline panels
-    setShowPwdInline(false);
     setShowStatusInline(false);
   }
 
@@ -734,199 +753,56 @@ export default function AdminMembersScreen() {
                   );
                 })}
 
-                {/* App Login section */}
-                {selected?.hasAppAccess ? (
-                  /* ── Has login: password management ── */
-                  <>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => setShowPwdInline(v => !v)}
-                      style={{ marginBottom: showPwdInline ? 0 : 14 }}
-                    >
-                      <View style={{
-                        flexDirection: 'row', alignItems: 'center', gap: 10,
-                        backgroundColor: memberUser?.mustChangePassword ? '#FFFBEB' : C.navy50,
-                        borderRadius: 12, borderBottomLeftRadius: showPwdInline ? 0 : 12,
-                        borderBottomRightRadius: showPwdInline ? 0 : 12,
-                        padding: 12, borderWidth: 1.5,
-                        borderColor: memberUser?.mustChangePassword ? C.amber : C.navy,
-                      }}>
-                        <Text style={{ fontSize: 20 }}>🔑</Text>
-                        <View style={{ flex: 1 }}>
-                          {memberUser?.mustChangePassword ? (
-                            <>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: C.amber }}>Temporary password active</Text>
-                              <Text style={{ fontSize: 12, color: '#92400E', marginTop: 1 }}>Member hasn't changed it yet. Tap to manage.</Text>
-                            </>
-                          ) : (
-                            <>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Password Management</Text>
-                              <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Generate a new temporary password for this member.</Text>
-                            </>
-                          )}
-                        </View>
-                        <Text style={{ fontSize: 12, color: memberUser?.mustChangePassword ? C.amber : C.navy, fontWeight: '700' }}>
-                          {showPwdInline ? '▲ Close' : 'Manage →'}
+                {/* ChitWise app access — member owns all permanent credentials */}
+                <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: selected?.hasAppAccess ? '#86EFAC' : C.gray200 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>
+                    {selected?.hasAppAccess ? 'ChitWise App Access Active' : 'ChitWise App Access'}
+                  </Text>
+                  {selected?.hasAppAccess ? (
+                    <>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
+                        The member controls their own password. If recovery is unsafe or unavailable, create an Account Access ticket.
+                      </Text>
+                      <Button
+                        label={accountAccessTicketMutation.isPending ? 'Creating ticket…' : 'Create Account Access Ticket'}
+                        variant="outline" fullWidth loading={accountAccessTicketMutation.isPending}
+                        onPress={() => Alert.alert('Account Access Help', `Create a support ticket for ${selected?.fullName}? No password will be shared with you.`, [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Create Ticket', onPress: () => accountAccessTicketMutation.mutate() },
+                        ])}
+                      />
+                    </>
+                  ) : latestChitfundRequest ? (
+                    <View style={{ gap: 10 }}>
+                      <View style={{ alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8, backgroundColor: latestChitfundRequest.status === 'AWAITING_ADMIN' ? '#DBEAFE' : '#FEF3C7' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: latestChitfundRequest.status === 'AWAITING_ADMIN' ? '#1D4ED8' : '#92400E' }}>
+                          {latestChitfundRequest.status === 'PENDING_MEMBER' ? 'WAITING FOR MEMBER' : latestChitfundRequest.status.replaceAll('_', ' ')}
                         </Text>
                       </View>
-                    </TouchableOpacity>
-
-                    {showPwdInline && (
-                      <View style={{
-                        backgroundColor: C.gray50, borderRadius: 12,
-                        borderTopLeftRadius: 0, borderTopRightRadius: 0,
-                        padding: 16, marginBottom: 14, borderWidth: 1.5, borderTopWidth: 0,
-                        borderColor: memberUser?.mustChangePassword ? C.amber : C.navy,
-                      }}>
-                        {tempPassword ? (
-                          <View style={{ backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: C.amber, marginBottom: 12 }}>
-                            <Text style={{ fontSize: 11, fontWeight: '700', color: C.amber, letterSpacing: 0.5, marginBottom: 10 }}>NEW TEMP PASSWORD</Text>
-                            {memberUser?.username && (
-                              <View style={{ marginBottom: 6 }}>
-                                <Text style={{ fontSize: 11, color: '#92400E', marginBottom: 2 }}>USERNAME</Text>
-                                <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, letterSpacing: 1 }}>{memberUser.username}</Text>
-                              </View>
-                            )}
-                            <View style={{ marginBottom: 10 }}>
-                              <Text style={{ fontSize: 11, color: '#92400E', marginBottom: 2 }}>PASSWORD</Text>
-                              <Text style={{ fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{tempPassword}</Text>
-                            </View>
-                            <TouchableOpacity
-                              onPress={() => {
-                                const text = memberUser?.username
-                                  ? `Username: ${memberUser.username}\nPassword: ${tempPassword}`
-                                  : tempPassword;
-                                Clipboard.setString(text);
-                                setPwdCopied(true);
-                                setTimeout(() => setPwdCopied(false), 2500);
-                              }}
-                              style={{ backgroundColor: pwdCopied ? C.green + '20' : C.amber + '20', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}>
-                              <Text style={{ fontSize: 13, fontWeight: '700', color: pwdCopied ? C.green : C.amber }}>
-                                {pwdCopied ? '✓ Copied!' : (memberUser?.username ? 'Copy Username & Password' : 'Copy Password')}
-                              </Text>
-                            </TouchableOpacity>
-                            <Text style={{ fontSize: 11, color: '#92400E', marginTop: 8 }}>Generated in this session. Share with the member.</Text>
-                          </View>
-                        ) : (
-                          <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 12, lineHeight: 20 }}>
-                            {memberUser?.mustChangePassword
-                              ? "The temporary password was set before this session and can't be retrieved. Regenerate to get a new one."
-                              : 'Generate a new temporary password for this member to log into the app.'}
-                          </Text>
-                        )}
-                        <Button
-                          label={resetPwdMutation.isPending ? 'Generating…' : (memberUser?.mustChangePassword ? 'Regenerate Password' : 'Generate Temporary Password')}
-                          variant="primary" fullWidth loading={resetPwdMutation.isPending}
-                          onPress={() => {
-                            const uid = selected?.userId ?? selected?.linkedUserId;
-                            if (!uid) { Alert.alert('Error', 'No user account linked.'); return; }
-                            Alert.alert(
-                              memberUser?.mustChangePassword ? 'Regenerate Password' : 'Generate Temporary Password',
-                              `Generate a temporary password for ${selected?.fullName}?`,
-                              [{ text: 'Cancel', style: 'cancel' }, { text: 'Generate', onPress: () => resetPwdMutation.mutate(uid) }],
-                            );
-                          }}
-                        />
-                      </View>
-                    )}
-                  </>
-                ) : (
-                  /* ── No login: create login section ── */
-                  <Card style={{ marginBottom: 14, borderWidth: 1.5, borderColor: C.gray200 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900, marginBottom: 4 }}>No App Login</Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
-                      This member doesn't have an app account yet. Create one to give them access.
-                    </Text>
-
-                    {clTempPassword ? (
-                      /* Done state — show credentials */
-                      <View style={{ backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, borderWidth: 1.5, borderColor: '#6EE7B7' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#065F46', letterSpacing: 0.5, marginBottom: 10 }}>LOGIN CREATED</Text>
-                        <View style={{ marginBottom: 6 }}>
-                          <Text style={{ fontSize: 11, color: '#047857', marginBottom: 2 }}>USERNAME</Text>
-                          <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, letterSpacing: 1 }}>{clUsername}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, lineHeight: 18 }}>
+                        {latestChitfundRequest.requestKind === 'LINK_EXISTING' ? 'Connect existing ChitWise account' : 'Set up a new ChitWise account'} · expires {new Date(latestChitfundRequest.expiresAt).toLocaleString()}
+                      </Text>
+                      {latestChitfundRequest.status === 'AWAITING_ADMIN' && (
+                        <Button label="Confirm App Access" variant="primary" fullWidth loading={confirmChitfundMutation.isPending} onPress={() => confirmChitfundMutation.mutate()} />
+                      )}
+                      {['PENDING_MEMBER', 'MEMBER_VERIFIED', 'AWAITING_ADMIN'].includes(latestChitfundRequest.status) ? (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity onPress={() => resendChitfundMutation.mutate()} disabled={resendChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.navy, fontWeight: '700' }}>Resend</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => revokeChitfundMutation.mutate()} disabled={revokeChitfundMutation.isPending} style={{ flex: 1, alignItems: 'center', padding: 11, borderRadius: 9, borderWidth: 1, borderColor: C.gray300 }}><Text style={{ color: C.red, fontWeight: '700' }}>Revoke</Text></TouchableOpacity>
                         </View>
-                        <View style={{ marginBottom: 10 }}>
-                          <Text style={{ fontSize: 11, color: '#047857', marginBottom: 2 }}>TEMP PASSWORD</Text>
-                          <Text style={{ fontSize: 22, fontWeight: '800', color: C.gray900, letterSpacing: 3 }}>{clTempPassword}</Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => { Clipboard.setString(`Username: ${clUsername}\nPassword: ${clTempPassword}`); setClCopied(true); setTimeout(() => setClCopied(false), 2500); }}
-                          style={{ backgroundColor: clCopied ? C.green + '20' : '#D1FAE5', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: clCopied ? C.green : '#059669' }}>{clCopied ? '✓ Copied!' : 'Copy Username & Password'}</Text>
-                        </TouchableOpacity>
-                        <Text style={{ fontSize: 11, color: '#047857', marginTop: 8 }}>Share these with the member. They'll be asked to change the password on first login.</Text>
-                      </View>
-                    ) : showCreateLogin ? (
-                      /* Form */
-                      <View style={{ gap: 10 }}>
-                        <View>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700 }}>Username *</Text>
-                            {clUsername.length >= 3 && (
-                              clAvailability === 'checking' ? <Text style={{ fontSize: 11, color: C.gray400 }}>Checking…</Text>
-                              : clAvailability === 'available' ? <Text style={{ fontSize: 11, color: C.green, fontWeight: '700' }}>✓ Available</Text>
-                              : clAvailability === 'taken' ? <Text style={{ fontSize: 11, color: C.red, fontWeight: '700' }}>Already taken</Text>
-                              : null
-                            )}
-                          </View>
-                          <TextInput
-                            value={clUsername}
-                            onChangeText={(val) => {
-                              const cleaned = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
-                              setClUsername(cleaned);
-                              setClAvailability(null);
-                              if (clDebounceRef.current) clearTimeout(clDebounceRef.current);
-                              if (!cleaned || cleaned.length < 3) return;
-                              setClAvailability('checking');
-                              clDebounceRef.current = setTimeout(async () => {
-                                try {
-                                  const data = await checkUsernameAvailability(cleaned);
-                                  setClAvailability(data.available ? 'available' : 'taken');
-                                } catch { setClAvailability(null); }
-                              }, 400);
-                            }}
-                            placeholder="e.g. sai.srinivas" autoCapitalize="none"
-                            placeholderTextColor={C.gray400}
-                            style={{
-                              borderWidth: 1.5,
-                              borderColor: clAvailability === 'taken' ? C.red : clAvailability === 'available' ? C.green : C.gray300,
-                              borderRadius: 10, padding: 11, fontSize: 14, color: C.gray900,
-                            }}
-                          />
-                        </View>
-                        <View>
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Email (optional)</Text>
-                          <TextInput
-                            value={clEmail} onChangeText={setClEmail}
-                            placeholder="email@example.com" keyboardType="email-address" autoCapitalize="none"
-                            placeholderTextColor={C.gray400}
-                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 11, fontSize: 14, color: C.gray900 }}
-                          />
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                          <TouchableOpacity onPress={() => { setShowCreateLogin(false); setClUsername(''); setClEmail(''); setClAvailability(null); }}
-                            style={{ flex: 1, padding: 12, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray300, alignItems: 'center' }}>
-                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray600 }}>Cancel</Text>
-                          </TouchableOpacity>
-                          <Button
-                            label={createLoginMutation.isPending ? 'Creating…' : 'Create Login'}
-                            variant="primary" fullWidth
-                            loading={createLoginMutation.isPending}
-                            disabled={clAvailability !== 'available' || !clUsername.trim()}
-                            onPress={() => createLoginMutation.mutate()}
-                          />
-                        </View>
-                      </View>
-                    ) : (
-                      <Button
-                        label="Create App Login"
-                        variant="outline" fullWidth
-                        onPress={() => { setClUsername(''); setClEmail(selected?.email ?? ''); setShowCreateLogin(true); }}
-                      />
-                    )}
-                  </Card>
-                )}
+                      ) : (
+                        <Button label="Send New Chitfund Request" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
+                      )}
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12, lineHeight: 18 }}>
+                        The member will verify OTP and choose their own username and password. You will confirm access afterward.
+                      </Text>
+                      <Button label="Send ChitWise App Access" variant="outline" fullWidth loading={createLoginMutation.isPending} onPress={() => createLoginMutation.mutate()} />
+                    </>
+                  )}
+                </Card>
 
                 {/* Contact Info */}
                 <Card style={{ marginBottom: 12 }}>
@@ -1190,7 +1066,7 @@ export default function AdminMembersScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: showEditInline ? C.white : C.gray900 }}>Edit Member</Text>
                         <Text style={{ fontSize: 12, color: showEditInline ? C.white + 'cc' : C.gray400, marginTop: 1 }}>
-                          {showEditInline ? 'Tap to close' : 'Update contact, identity, bank details'}
+                          {showEditInline ? 'Tap to close' : selected?.hasAppAccess ? 'Update organization notes' : 'Update contact and identity details'}
                         </Text>
                       </View>
                       <Text style={{ fontSize: 12, color: showEditInline ? C.white : C.navy, fontWeight: '700' }}>
@@ -1207,7 +1083,8 @@ export default function AdminMembersScreen() {
                       borderWidth: 1.5, borderTopWidth: 0,
                       borderColor: C.navy,
                     }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.5 }}>PERSONAL INFO</Text>
+                      {selected?.hasAppAccess && <View style={{ backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12 }}><Text style={{ fontSize: 12, color: '#1D4ED8', lineHeight: 18 }}>This member controls personal, identity and bank details. Use an Account Access ticket for identity problems.</Text></View>}
+                      {!selected?.hasAppAccess && <><Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, letterSpacing: 0.5 }}>PERSONAL INFO</Text>
                       {([
                         { label: 'Full Name *', value: eName, set: setEName, placeholder: 'Full name' },
                         { label: 'Email', value: eEmail, set: setEEmail, placeholder: 'email@example.com', keyboard: 'email-address' as const },
@@ -1233,6 +1110,7 @@ export default function AdminMembersScreen() {
                         onCountryChange={(cc) => { setEPhoneCode(cc); setEPhoneVerified(false); }}
                         onVerified={setEPhoneVerified}
                       />
+                      </>}
                       <View>
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes</Text>
                         <TextInput value={eNotes} onChangeText={setENotes} placeholder="Any notes…" multiline
@@ -1248,7 +1126,7 @@ export default function AdminMembersScreen() {
                             label={updateMutation.isPending ? 'Saving…' : 'Save Changes'}
                             variant="primary"
                             loading={updateMutation.isPending}
-                            disabled={!eName.trim() || (ePhone !== eOriginalPhone && !ePhoneVerified)}
+                            disabled={!selected?.hasAppAccess && (!eName.trim() || (ePhone !== eOriginalPhone && !ePhoneVerified))}
                             onPress={() => updateMutation.mutate()}
                           />
                         </View>
@@ -1521,20 +1399,6 @@ export default function AdminMembersScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
-                  {selected?.hasAppAccess && (memberUser as any)?.mustChangePassword === false && (
-                    <TouchableOpacity
-                      onPress={() => Alert.alert('Resend Setup Link', `Resend the account setup link to ${selected.fullName}?`, [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Resend', onPress: () => resendSetupMutation.mutate() },
-                      ])}
-                      disabled={resendSetupMutation.isPending}
-                      style={{ backgroundColor: C.gray50, borderRadius: 10, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: C.gray200, opacity: resendSetupMutation.isPending ? 0.5 : 1 }}
-                    >
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray600 ?? C.gray500 }}>
-                        {resendSetupMutation.isPending ? 'Sending…' : '🔗 Resend Setup Link'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
 
                 {/* Create Reminder Sheet */}
@@ -1721,17 +1585,10 @@ export default function AdminMembersScreen() {
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
             </View>
-            <AdminPhoneOtpInput
-              label="Phone"
-              required
-              phone={cPhone}
-              countryCode={cPhoneCountryCode}
-              onPhoneChange={(v) => { setCPhone(v); setCPhoneVerified(false); }}
-              onCountryChange={(cc) => { setCPhoneCountryCode(cc); setCPhoneVerified(false); }}
-              onVerified={setCPhoneVerified}
-            />
+            <PhoneInput label="Phone" required phone={cPhone} countryCode={cPhoneCountryCode}
+              onPhoneChange={setCPhone} onCountryChange={setCPhoneCountryCode} />
             <View>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email *</Text>
               <TextInput value={cEmail} onChangeText={setCEmail} placeholder="email@example.com"
                 keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
@@ -1742,6 +1599,16 @@ export default function AdminMembersScreen() {
                 placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
             </View>
+            <TouchableOpacity onPress={() => setCSendAppAccess((v) => !v)}
+              style={{ flexDirection: 'row', gap: 12, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: cSendAppAccess ? C.navy : C.gray200, backgroundColor: cSendAppAccess ? C.navy50 : C.gray50 }}>
+              <View style={{ width: 21, height: 21, borderRadius: 5, borderWidth: 1.5, borderColor: cSendAppAccess ? C.navy : C.gray400, backgroundColor: cSendAppAccess ? C.navy : C.white, alignItems: 'center', justifyContent: 'center' }}>
+                {cSendAppAccess && <Text style={{ color: C.white, fontWeight: '800' }}>✓</Text>}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>Send ChitWise App Access</Text>
+                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 3, lineHeight: 16 }}>The member verifies their phone and chooses their own PIN/password.</Text>
+              </View>
+            </TouchableOpacity>
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Address</Text>
               <TextInput value={cAddress} onChangeText={setCAddress} placeholder="House No, Street, Area"
@@ -1797,7 +1664,7 @@ export default function AdminMembersScreen() {
           </ScrollView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Member" variant="primary" onPress={() => createMutation.mutate()}
-              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone || !cPhoneVerified} fullWidth />
+              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone || !cEmail.trim()} fullWidth />
           </View>
           </KeyboardAvoidingView>
         </SafeAreaView>

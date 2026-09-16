@@ -80,14 +80,15 @@ public class InternalMemberController {
      * the user UUID but payment records are keyed by member profile UUID.
      * Returns 200 {"profileId": "..."} or 200 {} if no linked profile found.
      */
-    @GetMapping("/by-user/{userId}/profile-id")
+    @GetMapping("/by-user/{userId}/tenant/{tenantId}/profile-id")
     public ResponseEntity<Map<String, String>> getProfileIdByUserId(
             @PathVariable UUID userId,
+            @PathVariable String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         }
-        return memberRepository.findByUserId(userId)
+        return memberRepository.findByUserIdAndTenantId(userId, tenantId)
                 .map(m -> ResponseEntity.ok(Map.of("profileId", m.getId().toString())))
                 .orElse(ResponseEntity.ok(Map.of()));
     }
@@ -153,5 +154,57 @@ public class InternalMemberController {
                         m -> m.getUserId().toString()
                 ));
         return ResponseEntity.ok(result);
+    }
+
+    @PutMapping("/{memberId}/app-access")
+    public ResponseEntity<Map<String, Object>> activateAppAccess(
+            @PathVariable UUID memberId,
+            @RequestBody Map<String, String> body,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        String tenantId = body.get("tenantId");
+        String userId = body.get("userId");
+        if (tenantId == null || userId == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "reason", "tenantId and userId are required"));
+        }
+        return memberRepository.findByIdAndTenantId(memberId, tenantId)
+                .filter(member -> member.getDeletedAt() == null)
+                .map(member -> {
+            UUID requestedUserId = UUID.fromString(userId);
+            if (member.getStatus() == MemberStatus.BLACKLISTED) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
+            }
+            if (member.getUserId() != null && !member.getUserId().equals(requestedUserId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.<String, Object>of("success", false, "reason", "member is linked to another user"));
+            }
+            if (memberRepository.existsByUserIdAndTenantId(requestedUserId, tenantId)
+                    && !requestedUserId.equals(member.getUserId())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.<String, Object>of("success", false, "reason", "user is linked to another member"));
+            }
+            member.setUserId(requestedUserId);
+            member.setHasAppAccess(true);
+            memberRepository.save(member);
+            return ResponseEntity.ok(Map.<String, Object>of("success", true));
+        }).orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("success", false, "reason", "member not found in organization")));
+    }
+
+    @GetMapping("/{memberId}/tenant/{tenantId}/exists")
+    public ResponseEntity<Map<String, Boolean>> memberProfileExists(
+            @PathVariable UUID memberId,
+            @PathVariable String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("exists", false));
+        }
+        return ResponseEntity.ok(Map.of("exists",
+                memberRepository.findByIdAndTenantId(memberId, tenantId)
+                        .filter(member -> member.getDeletedAt() == null)
+                        .isPresent()));
     }
 }

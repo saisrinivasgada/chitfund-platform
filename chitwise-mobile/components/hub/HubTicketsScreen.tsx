@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { hubGetTicket, hubGetTicketMessages, hubListTickets, hubMarkTicketRead, hubSendTicketMessage, hubUpdateTicketStatus } from '../../services/api';
+import { hubGetTicket, hubGetTicketMessages, hubListTickets, hubMarkTicketRead, hubSendTicketMessage, hubUpdateTicketStatus, hubGetIdentityCaseByTicket, hubPrepareIdentityCase, hubApproveIdentityCase, hubRejectIdentityCase, hubExecuteIdentityCase } from '../../services/api';
 import { C, T } from '../ui';
+import { useAuthStore } from '../../store/authStore';
 
 const TYPES = ['INQUIRY', 'BILLING', 'CHIT', 'DRAW', 'PAYMENT', 'PAYOUT', 'MEMBER_MGMT', 'ACCOUNT', 'TECHNICAL', 'FEATURE_REQUEST', 'GENERAL'];
 const STATUSES = ['OPEN', 'IN_PROGRESS', 'ON_HOLD', 'RESOLVED', 'CLOSED'];
@@ -25,7 +26,14 @@ function Chip({ text, selected, onPress }: { text: string; selected: boolean; on
 
 function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const qc = useQueryClient();
+  const hubUser = useAuthStore(s => s.user);
   const [draft, setDraft] = useState('');
+  const [caseReason, setCaseReason] = useState('');
+  const [oldUserId, setOldUserId] = useState('');
+  const [phone, setPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [approvedLinks, setApprovedLinks] = useState('');
+  const [decisionReason, setDecisionReason] = useState('');
   const ticketQuery = useQuery({ queryKey: ['hub-ticket', id], queryFn: () => hubGetTicket(id) });
   const messagesQuery = useQuery({ queryKey: ['hub-ticket-messages', id], queryFn: () => hubGetTicketMessages(id), refetchInterval: 30000 });
   useEffect(() => { hubMarkTicketRead(id).catch(() => {}); }, [id]);
@@ -33,6 +41,23 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const status = useMutation({ mutationFn: (next: string) => hubUpdateTicketStatus(id, next), onSuccess: () => { qc.invalidateQueries({ queryKey: ['hub-ticket', id] }); qc.invalidateQueries({ queryKey: ['hub-tickets-mobile'] }); } });
   const ticket: any = ticketQuery.data;
   const messages: any[] = (messagesQuery.data as any)?.items ?? [];
+  const canReadCase = !!hubUser?.canManageIdentityCases || !!hubUser?.platformOwner;
+  const identityQuery = useQuery({ queryKey: ['hub-mobile-identity-case', id], queryFn: () => hubGetIdentityCaseByTicket(id), enabled: ticket?.type === 'ACCOUNT' && canReadCase });
+  const identityCase: any = identityQuery.data;
+  let approvedProposal: any = null;
+  try { approvedProposal = identityCase?.proposalJson ? JSON.parse(identityCase.proposalJson) : null; } catch {}
+  useEffect(() => {
+    if (ticket?.tenantId && ticket?.subjectMemberId && !approvedLinks) setApprovedLinks(`${ticket.tenantId}:${ticket.subjectMemberId}`);
+  }, [ticket?.tenantId, ticket?.subjectMemberId, approvedLinks]);
+  const parsedLinks = approvedLinks.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+    const [tenantId, memberId] = line.split(':').map(value => value.trim());
+    return { tenantId, memberId };
+  }).filter(link => link.tenantId && link.memberId);
+  const refreshIdentity = () => qc.invalidateQueries({ queryKey: ['hub-mobile-identity-case', id] });
+  const prepareCase = useMutation({ mutationFn: () => hubPrepareIdentityCase(identityCase.id, { reason: caseReason.trim(), oldUserId: oldUserId.trim() || undefined, phoneCountryCode: '+91', phone: phone.replace(/\D/g, '') || undefined, email: newEmail.trim().toLowerCase() || undefined, approvedMemberLinks: parsedLinks }), onSuccess: () => { setCaseReason(''); refreshIdentity(); }, onError: (e: any) => Alert.alert('Identity case', e.response?.data?.message ?? 'Could not prepare case') });
+  const approveCase = useMutation({ mutationFn: () => hubApproveIdentityCase(identityCase.id, decisionReason.trim()), onSuccess: refreshIdentity, onError: (e: any) => Alert.alert('Identity case', e.response?.data?.message ?? 'Could not approve case') });
+  const rejectCase = useMutation({ mutationFn: () => hubRejectIdentityCase(identityCase.id, decisionReason.trim()), onSuccess: refreshIdentity, onError: (e: any) => Alert.alert('Identity case', e.response?.data?.message ?? 'Could not reject case') });
+  const executeCase = useMutation({ mutationFn: () => hubExecuteIdentityCase(identityCase.id), onSuccess: refreshIdentity, onError: (e: any) => Alert.alert('Identity case', e.response?.data?.message ?? 'Execution failed; retry remains safe') });
 
   if (ticketQuery.isLoading) return <SafeAreaView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={C.navy} /></SafeAreaView>;
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -49,6 +74,19 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
           <Text style={{ fontSize: 11, color: C.gray400, marginTop: 10 }}>{ticket?.createdByName} · {ticket?.tenantName ?? (ticket?.source === 'PUBLIC' ? 'Public inquiry' : ticket?.tenantId)} · {date(ticket?.createdAt)}</Text>
           {ticket?.source === 'PUBLIC' && <Text style={{ fontSize: 11, color: C.gray500, marginTop: 5 }}>{ticket.requesterEmail}{ticket.requesterPhone ? ` · ${ticket.requesterPhone}` : ''}{ticket.preferredContact ? ` · ${ticket.preferredContact}` : ''}</Text>}
         </View>
+        {ticket?.type === 'ACCOUNT' && !canReadCase && <View style={{ padding: 12, borderRadius: 12, backgroundColor: '#FFFBEB', marginBottom: 12 }}><Text style={{ color: '#92400E', fontSize: 12 }}>Protected identity case — selected investigators and the platform owner only.</Text></View>}
+        {ticket?.type === 'ACCOUNT' && canReadCase && identityCase && <View style={{ backgroundColor: '#EFF6FF', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: '#BFDBFE', marginBottom: 14 }}>
+          <Text style={{ fontSize: 14, fontWeight: '800', color: C.navy }}>Protected Identity Case</Text><Text style={{ fontSize: 11, color: C.gray500, marginTop: 3 }}>{label(identityCase.subtype)} · {label(identityCase.status)}</Text>
+          {!!identityCase.proposalReason && <Text style={{ marginTop: 10, color: C.gray700, fontSize: 13, lineHeight: 19 }}>{identityCase.proposalReason}</Text>}
+          {!!approvedProposal && <View style={{ marginTop: 10, padding: 10, borderRadius: 9, backgroundColor: C.white }}><Text style={{ fontSize: 11, fontWeight: '800', color: C.gray500 }}>EXACT OPERATION</Text><Text style={{ fontSize: 11, color: C.gray700, marginTop: 5 }}>Old user: {approvedProposal.oldUserId}</Text><Text style={{ fontSize: 11, color: C.gray700 }}>Phone: {approvedProposal.phoneCountryCode} {approvedProposal.phone}</Text><Text style={{ fontSize: 11, color: C.gray700 }}>New email: {approvedProposal.email}</Text>{(approvedProposal.approvedMemberLinks ?? []).map((link: any, index: number) => <Text key={`${link.tenantId}:${link.memberId}:${index}`} style={{ fontSize: 10, color: C.gray600, marginTop: 3 }}>{link.tenantId} : {link.memberId}</Text>)}</View>}
+          {['OPEN','INVESTIGATING','REJECTED','EXECUTION_FAILED'].includes(identityCase.status) && canReadCase && <View style={{ gap: 9, marginTop: 12 }}>
+            {identityCase.subtype === 'PHONE_REASSIGNMENT' && <><TextInput value={oldUserId} onChangeText={setOldUserId} placeholder="Old global user ID" style={{ backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><TextInput value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" style={{ backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><TextInput value={newEmail} onChangeText={setNewEmail} keyboardType="email-address" autoCapitalize="none" placeholder="New identity email" style={{ backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><Text style={{ fontSize: 11, fontWeight: '700', color: C.gray600 }}>PROFILES APPROVED FOR FRESH ACCESS</Text><TextInput value={approvedLinks} onChangeText={setApprovedLinks} multiline placeholder="tenant UUID:member UUID, one per line" style={{ minHeight: 70, textAlignVertical: 'top', backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><Text style={{ fontSize: 11, color: C.gray500 }}>Only these profiles receive requests. The new person verifies this email during setup; history remains with the old identity.</Text></>}
+            <TextInput value={caseReason} onChangeText={setCaseReason} multiline placeholder="Investigation findings and exact proposal" style={{ minHeight: 72, textAlignVertical: 'top', backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><TouchableOpacity disabled={!caseReason.trim() || prepareCase.isPending || (identityCase.subtype === 'PHONE_REASSIGNMENT' && (!oldUserId.trim() || !phone.trim() || !newEmail.trim() || parsedLinks.length === 0))} onPress={() => prepareCase.mutate()} style={{ backgroundColor: C.navy, padding: 11, alignItems: 'center', borderRadius: 9, opacity: !caseReason.trim() ? 0.5 : 1 }}><Text style={{ color: C.white, fontWeight: '700' }}>Submit for owner approval</Text></TouchableOpacity>
+          </View>}
+          {hubUser?.platformOwner && identityCase.status === 'PROPOSED' && <View style={{ gap: 9, marginTop: 12 }}><TextInput value={decisionReason} onChangeText={setDecisionReason} multiline placeholder="Mandatory decision reason" style={{ minHeight: 58, textAlignVertical: 'top', backgroundColor: C.white, borderWidth: 1, borderColor: '#BFDBFE', borderRadius: 9, padding: 10 }}/><View style={{ flexDirection: 'row', gap: 8 }}><TouchableOpacity disabled={!decisionReason.trim()} onPress={() => approveCase.mutate()} style={{ flex: 1, backgroundColor: C.green, padding: 11, alignItems: 'center', borderRadius: 9 }}><Text style={{ color: C.white, fontWeight: '700' }}>Approve</Text></TouchableOpacity><TouchableOpacity disabled={!decisionReason.trim()} onPress={() => rejectCase.mutate()} style={{ flex: 1, backgroundColor: C.red, padding: 11, alignItems: 'center', borderRadius: 9 }}><Text style={{ color: C.white, fontWeight: '700' }}>Reject</Text></TouchableOpacity></View></View>}
+          {hubUser?.platformOwner && identityCase.subtype === 'PHONE_REASSIGNMENT' && ['APPROVED','EXECUTION_FAILED'].includes(identityCase.status) && <TouchableOpacity onPress={() => executeCase.mutate()} style={{ marginTop: 12, backgroundColor: C.navy, padding: 11, alignItems: 'center', borderRadius: 9 }}><Text style={{ color: C.white, fontWeight: '700' }}>{identityCase.status === 'EXECUTION_FAILED' ? 'Retry approved operation' : 'Execute approved operation'}</Text></TouchableOpacity>}
+          {identityCase.status === 'EXECUTED' && <Text style={{ color: C.green, fontWeight: '700', marginTop: 12 }}>Completed without transferring historical records.</Text>}
+        </View>}
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CHANGE STATUS</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
           {(VALID_TRANSITIONS[ticket?.status] ?? []).map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => status.mutate(s)} />)}

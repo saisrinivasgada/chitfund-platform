@@ -58,6 +58,7 @@ jwt:
 
 app:
   management-service-url: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+  member-service-url: ${MEMBER_SERVICE_URL:http://localhost:8083}
   cookie:
     secure: ${COOKIE_SECURE:true}
   internal-key: ${INTERNAL_SERVICE_KEY:chitfund-internal-service-key}
@@ -66,12 +67,15 @@ app:
   audit-service-url: ${AUDIT_SERVICE_URL:http://localhost:8088}
   mail:
     from: ${MAIL_FROM:ChitWise <help@thechitwise.com>}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
   sms:
-    enabled: false
+    enabled: ${SMS_ENABLED:false}
   otp:
+    logging-enabled: ${OTP_LOGGING_ENABLED:false}
     max-per-phone-per-day: ${OTP_MAX_PER_DAY:50}
     cooldown:
-      enabled: ${OTP_COOLDOWN_ENABLED:false}
+      enabled: ${OTP_COOLDOWN_ENABLED:true}
 
 management:
   endpoints:

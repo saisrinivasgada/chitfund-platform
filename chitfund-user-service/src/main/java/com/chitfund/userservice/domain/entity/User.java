@@ -50,6 +50,13 @@ public class User implements UserDetails {
     @Column(unique = true)
     private String email;
 
+    @Column(name = "email_verified_at")
+    private LocalDateTime emailVerifiedAt;
+
+    @Column(name = "email_verification_required", nullable = false)
+    @Builder.Default
+    private boolean emailVerificationRequired = false;
+
     @Column(length = 100)
     private String fullName;
 

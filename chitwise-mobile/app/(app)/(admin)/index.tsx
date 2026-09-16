@@ -955,7 +955,7 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
   });
 
   const createMut = useMutation({
-    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim() || undefined }),
+    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim() || undefined, accountCaseSubtype: type === 'ACCOUNT' ? 'APP_ACCESS_FAILURE' : undefined }),
     onSuccess: async (ticket) => {
       Alert.alert('Ticket submitted', "We'll get back to you shortly.");
       setSubject(''); setDescription(''); setType('GENERAL');

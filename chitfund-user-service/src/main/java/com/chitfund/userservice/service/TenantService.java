@@ -110,6 +110,7 @@ public class TenantService {
                 .tempPasswordHash(passwordEncoder.encode(rawPassword))
                 .tempPassword(rawPassword)
                 .mustChangePassword(false)
+                .emailVerificationRequired(true)
                 .role(Role.ADMIN)
                 .tenantId(tenant.getId().toString())
                 .termsAcceptedAt(java.time.LocalDateTime.now())
@@ -212,6 +213,10 @@ public class TenantService {
         }
 
         // Auto-create admin account
+        if (t.getContactEmail() == null || t.getContactEmail().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "An organization email is required before an admin can be created");
+        }
         String rawPassword = generateTempPassword();
         String username = t.getSlug() + ".admin";
         int s = 1;
@@ -229,7 +234,9 @@ public class TenantService {
                 .tempPasswordHash(passwordEncoder.encode(rawPassword))
                 .tempPassword(rawPassword)
                 .mustChangePassword(true)
+                .emailVerificationRequired(true)
                 .role(Role.ADMIN)
+                .tenantId(tenantId.toString())
                 .build();
         userRepository.save(admin);
 
@@ -466,6 +473,10 @@ public class TenantService {
         tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Role role = Role.valueOf(req.getRole().toUpperCase());
+        if (role != Role.ADMIN && role != Role.MANAGER && role != Role.STAFF) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Role must be ADMIN, MANAGER, or STAFF");
+        }
 
         // Generate a temp password if not provided
         String rawPassword = (req.getPassword() != null && !req.getPassword().isBlank())
@@ -489,6 +500,7 @@ public class TenantService {
                 .passwordHash(passwordEncoder.encode(rawPassword))
                 .tempPasswordHash(passwordEncoder.encode(rawPassword))
                 .mustChangePassword(true)
+                .emailVerificationRequired(true)
                 .role(role)
                 .tenantId(tenantId.toString())
                 .build();
@@ -701,21 +713,27 @@ public class TenantService {
 
     public void addUserToTenant(UUID userId, UUID tenantId, Role role, UUID memberId) {
         if (role != Role.MEMBER) return; // only members need a link row
-        if (memberLinkRepository.existsByUserId(userId)) return;
+        MemberUserLink existingForUser = memberLinkRepository.findByUserIdAndTenantId(userId, tenantId)
+                .orElse(null);
+        if (existingForUser != null) {
+            if (existingForUser.getMemberId().equals(memberId)) return; // idempotent retry
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "This account is already connected to a different member in this organization",
+                    HttpStatus.CONFLICT);
+        }
+        memberLinkRepository.findByMemberIdAndTenantId(memberId, tenantId).ifPresent(existing -> {
+            if (!existing.getUserId().equals(userId)) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "This member is already connected to a different ChitWise account",
+                        HttpStatus.CONFLICT);
+            }
+        });
         MemberUserLink link = MemberUserLink.builder()
                 .userId(userId)
                 .tenantId(tenantId)
                 .memberId(memberId)
                 .build();
-        memberLinkRepository.save(link);
-    }
-
-    public void updateMemberId(UUID userId, UUID tenantId, UUID memberId) {
-        memberLinkRepository.findByUserIdAndTenantId(userId, tenantId)
-                .ifPresent(link -> {
-                    link.setMemberId(memberId);
-                    memberLinkRepository.save(link);
-                });
+        memberLinkRepository.saveAndFlush(link);
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────

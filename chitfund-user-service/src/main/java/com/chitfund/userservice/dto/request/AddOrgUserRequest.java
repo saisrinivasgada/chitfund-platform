@@ -2,6 +2,7 @@ package com.chitfund.userservice.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Email;
 import lombok.Data;
 
 @Data
@@ -15,6 +16,8 @@ public class AddOrgUserRequest {
 
     private String phoneCountryCode = "+91";
 
+    @NotBlank(message = "Email is required")
+    @Email(message = "Enter a valid email")
     private String email;
 
     @NotNull(message = "Role is required")

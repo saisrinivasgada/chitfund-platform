@@ -128,17 +128,23 @@ public class MemberController {
         return ResponseEntity.ok(ApiResponse.success(memberService.updateMyProfile(userId, request)));
     }
 
-    /**
-     * Links an existing user account (from user-service) to this member.
-     * Admin creates a login via POST /api/auth/register, then calls this with the returned userId.
-     * Lets the member log in and see their own chits, payments, and payouts.
-     */
+    /** Legacy URL retained to return a clear forbidden response from the service. */
     @PatchMapping("/{id}/link-user")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<MemberResponse>> linkUser(
             @PathVariable UUID id,
             @Valid @RequestBody LinkUserRequest request) {
         return ResponseEntity.ok(ApiResponse.success(memberService.linkUserAccount(id, request)));
+    }
+
+    @PostMapping("/{id}/app-access-request")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> requestAppAccess(
+            @PathVariable UUID id, Authentication auth) {
+        UUID actorId = (UUID) auth.getPrincipal();
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(memberService.requestAppAccess(id, actorId),
+                        "Chitfund Request created"));
     }
 
     /**

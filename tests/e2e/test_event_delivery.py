@@ -43,6 +43,20 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
     })
     assert opened.status_code == 201, opened.text[:300]
 
+    # DRAW_OPENED is one of the direct HTTP audit paths (not SQS). This pins
+    # the Docker service URL wiring so a container cannot silently call its own
+    # localhost and drop the record.
+    direct_audit_count = _wait_until(
+        "direct draw-open audit record",
+        lambda: db.scalar(
+            "chitfund_audit",
+            """SELECT COUNT(*) FROM audit_logs
+               WHERE entity_id=%s AND action='DRAW_OPENED'
+                 AND tenant_id='10000000-0000-0000-0000-000000000001'""",
+            (f"{chit_id}-1",)),
+        lambda count: count == 1)
+    assert direct_audit_count == 1
+
     created = api.as_role("POST", f"{api.payout}/payouts", admin, json={
         "chitId": chit_id,
         "memberId": member_id,
@@ -57,6 +71,17 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
     })
     assert created.status_code in (200, 201), created.text[:300]
     payout_id = created.json()["data"]["id"]
+
+    payout_audit_count = _wait_until(
+        "direct payout-created audit record",
+        lambda: db.scalar(
+            "chitfund_audit",
+            """SELECT COUNT(*) FROM audit_logs
+               WHERE entity_id=%s AND action='PAYOUT_CREATED'
+                 AND tenant_id='10000000-0000-0000-0000-000000000001'""",
+            (payout_id,)),
+        lambda count: count == 1)
+    assert payout_audit_count == 1
 
     outbox = db.query(
         "chitfund_payout",
@@ -104,3 +129,77 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
 
     assert notification_count == 1
     assert reporting_count == 1
+
+
+def test_payment_event_is_audited_once_when_dual_published(api, db, token):
+    admin = token("ADMIN")
+    chit_id = str(uuid.uuid4())
+    member_id = str(uuid.uuid4())
+
+    opened = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
+        "chitId": chit_id,
+        "monthNumber": 1,
+        "dueDate": "2026-10-01",
+        "installmentAmount": "1000.00",
+        "maxCycles": 12,
+        "members": [{"memberId": member_id, "amountDue": "1000.00"}],
+    })
+    assert opened.status_code == 201, opened.text[:300]
+
+    payment = api.as_role(
+        "POST", f"{api.payment}/payments", admin,
+        headers={"X-Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "chitId": chit_id,
+            "memberId": member_id,
+            "amount": "1000.00",
+            "paymentMode": "UPI",
+        })
+    assert payment.status_code == 201, payment.text[:300]
+    batch_id = payment.json()["data"]["id"]
+
+    outbox = db.query(
+        "chitfund_payment",
+        """SELECT delivery_id, event_id, destination, status
+           FROM event_outbox
+           WHERE aggregate_id=%s AND event_type='PAYMENT_COMPLETED'
+           ORDER BY destination""",
+        (batch_id,))
+    assert len(outbox) == 3
+    assert len({row["delivery_id"] for row in outbox}) == 3
+    assert len({row["event_id"] for row in outbox}) == 1
+    assert {row["destination"] for row in outbox} == {
+        "chitfund-audit-events",
+        "chitfund-notification-events",
+        "chitfund-reporting-events",
+    }
+    event_id = outbox[0]["event_id"]
+
+    _wait_until(
+        "all payment outbox deliveries to publish",
+        lambda: db.scalar(
+            "chitfund_payment",
+            """SELECT COUNT(*) FROM event_outbox
+               WHERE aggregate_id=%s AND event_type='PAYMENT_COMPLETED'
+                 AND status='PUBLISHED'""",
+            (batch_id,)),
+        lambda count: count == 3)
+
+    _wait_until(
+        "audit inbox claim",
+        lambda: db.scalar(
+            "chitfund_audit",
+            "SELECT COUNT(*) FROM event_inbox WHERE event_id=%s",
+            (event_id,)),
+        lambda count: count == 1)
+    audit_count = _wait_until(
+        "one immutable audit side effect",
+        lambda: db.scalar(
+            "chitfund_audit",
+            """SELECT COUNT(*) FROM audit_logs
+               WHERE entity_id=%s AND action='PAYMENT_COMPLETED'
+                 AND tenant_id='10000000-0000-0000-0000-000000000001'""",
+            (batch_id,)),
+        lambda count: count == 1)
+
+    assert audit_count == 1

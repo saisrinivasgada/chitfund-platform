@@ -105,6 +105,36 @@ public class JwtTokenProvider {
                 .compact();
     }
 
+    // Email verification pending token — proves the password was already
+    // supplied, but grants no application access by itself.
+    public String generateEmailVerificationToken(User user) {
+        return Jwts.builder()
+                .subject(user.getId().toString())
+                .claim("username", user.getUsername())
+                .claim("role", user.getRole().name())
+                .claim("scope", "EMAIL_VERIFY_PENDING")
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * Short-lived opaque challenge for the public password-recovery flow. The
+     * caller never receives a database user ID, and unknown/ambiguous accounts
+     * receive an indistinguishable signed decoy challenge.
+     */
+    public String generatePasswordRecoveryChallenge(UUID userId, boolean accountResolved) {
+        return Jwts.builder()
+                .subject(userId.toString())
+                .claim("scope", "PASSWORD_RECOVERY_LOOKUP")
+                .claim("accountResolved", accountResolved)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
     // Transfer token for cross-subdomain switching: 30 seconds, opaque UUID stored in Redis/DB
     public String generateRefreshTokenValue() {
         return UUID.randomUUID().toString();

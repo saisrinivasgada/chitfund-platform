@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @Component
 @RequiredArgsConstructor
@@ -59,11 +60,11 @@ public class PayoutEventPublisher {
                         new TransactionSynchronization() {
                             @Override
                             public void afterCommit() {
-                                send.run();
+                                CompletableFuture.runAsync(send);
                             }
                         });
             } else {
-                send.run();
+                CompletableFuture.runAsync(send);
             }
         }
     }

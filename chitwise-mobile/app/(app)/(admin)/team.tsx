@@ -119,7 +119,7 @@ export default function AdminTeamScreen() {
   const createMut = useMutation({
     mutationFn: () => createStaff({
       fullName: cFullName, username: cUsername, password: cPassword,
-      role: cRole, phone: cPhone || undefined, phoneCountryCode: cPhone ? cPhoneCountryCode : undefined, email: cEmail || undefined,
+      role: cRole, phone: cPhone || undefined, phoneCountryCode: cPhone ? cPhoneCountryCode : undefined, email: cEmail.trim(),
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-staff'] });
@@ -833,7 +833,7 @@ export default function AdminTeamScreen() {
               />
             </View>
             <View style={{ marginBottom: 14 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email *</Text>
               <TextInput value={cEmail} onChangeText={setCEmail} placeholder="ravi@example.com"
                 keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
@@ -861,7 +861,7 @@ export default function AdminTeamScreen() {
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <Button label="Create Staff Member" variant="primary" fullWidth
               onPress={() => createMut.mutate()} loading={createMut.isPending}
-              disabled={isExpired || !cFullName || !cUsername || !cPassword || (!!cPhone && !cPhoneVerified)} />
+              disabled={isExpired || !cFullName || !cUsername || !cPassword || !cEmail.trim() || (!!cPhone && !cPhoneVerified)} />
           </View>
         </SafeAreaView>
         </KeyboardAvoidingView>

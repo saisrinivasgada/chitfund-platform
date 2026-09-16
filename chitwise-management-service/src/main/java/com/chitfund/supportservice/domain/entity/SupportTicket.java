@@ -4,6 +4,7 @@ import com.chitfund.supportservice.domain.enums.TicketPriority;
 import com.chitfund.supportservice.domain.enums.TicketStatus;
 import com.chitfund.supportservice.domain.enums.TicketSource;
 import com.chitfund.supportservice.domain.enums.TicketType;
+import com.chitfund.supportservice.domain.enums.AccountCaseSubtype;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,6 +27,16 @@ public class SupportTicket {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TicketType type;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_case_subtype")
+    private AccountCaseSubtype accountCaseSubtype;
+
+    @Column(name = "subject_member_id")
+    private String subjectMemberId;
+
+    @Column(name = "subject_user_id")
+    private String subjectUserId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

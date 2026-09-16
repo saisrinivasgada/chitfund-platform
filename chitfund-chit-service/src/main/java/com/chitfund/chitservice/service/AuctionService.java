@@ -300,9 +300,12 @@ public class AuctionService {
                 .map(e -> new PaymentServiceClient.MemberSpot(e.getKey(), e.getValue().intValue()))
                 .collect(Collectors.toList());
 
-        // Trigger payment record creation in payment-service
-        // TenantContext may be null when called from scheduler (no JWT) — fall back to chit's tenantId
-        String tenantId = TenantContext.get() != null ? TenantContext.get() : chit.getTenantId();
+        // This operation was loaded through tenant-scoped repositories above. Do not
+        // silently substitute an entity tenant when authentication lost its scope.
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank() || !tenantId.equals(auctionTenantId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
+        }
         // Pass the distributable total as well as the per-spot figure: rounding
         // the latter down strands a few paise, and payment-service needs the
         // total to hand them back to members rather than leave them with the fund.

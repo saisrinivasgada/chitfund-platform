@@ -33,6 +33,7 @@ services:
       CHITWISE_EVENTS_MODE: DUAL
       CHITWISE_EVENTS_MAX_ATTEMPTS: 10
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+      AUDIT_SERVICE_URL: http://audit-service:8088
     depends_on:
       localstack:
         condition: service_healthy
@@ -42,9 +43,22 @@ services:
       CHITWISE_EVENTS_MODE: DUAL
       CHITWISE_EVENTS_MAX_ATTEMPTS: 10
       SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+      AUDIT_SERVICE_URL: http://audit-service:8088
     depends_on:
       localstack:
         condition: service_healthy
+
+  user-service:
+    environment:
+      AUDIT_SERVICE_URL: http://audit-service:8088
+
+  member-service:
+    environment:
+      AUDIT_SERVICE_URL: http://audit-service:8088
+
+  chit-service:
+    environment:
+      AUDIT_SERVICE_URL: http://audit-service:8088
 
   notification-service:
     build:
@@ -119,6 +133,41 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [chitwise-test]
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: chitfund-audit-service/Dockerfile
+    container_name: chitwise-test-audit
+    environment:
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+      DB_NAME: chitfund_audit
+      DB_USERNAME: root
+      DB_PASSWORD: testpassword
+      JWT_SECRET: test-only-jwt-secret-not-for-production-min-32-chars
+      INTERNAL_SERVICE_KEY: test-internal-service-key
+      SPRING_PROFILES_ACTIVE: test
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m
+      AWS_REGION: us-east-2
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_EC2_METADATA_DISABLED: "true"
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    ports:
+      - "127.0.0.1:9088:8088"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
       interval: 10s
       timeout: 5s
       retries: 30

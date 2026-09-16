@@ -79,6 +79,8 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/resend-login-otp",
                     "/api/auth/verify-login-otp",
+                    "/api/auth/resend-login-email-otp",
+                    "/api/auth/verify-login-email-otp",
                     "/api/auth/select-tenant",
                     "/api/auth/setup-account",
                     "/api/auth/transfer-token",
@@ -89,6 +91,12 @@ public class SecurityConfig {
                     "/api/auth/reset-password",
                     "/api/auth/mobile-lookup",
                     "/api/auth/login-mobile").permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/chitfund-requests/setup",
+                    "/api/chitfund-requests/setup/email-otp",
+                    "/api/chitfund-requests/recovery/email-otp",
+                    "/api/chitfund-requests/recovery/verify-email-otp").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/chitfund-requests/public").permitAll()
                 .requestMatchers("/api/auth/forgot-password/**").permitAll()
                 .requestMatchers("/api/plans/**").permitAll()
                 .requestMatchers("/api/public/**").permitAll()

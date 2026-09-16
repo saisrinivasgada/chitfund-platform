@@ -17,6 +17,7 @@ import AboutPage from './pages/AboutPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import SelectCompanyPage from './pages/SelectCompanyPage';
 import SetupAccountPage from './pages/SetupAccountPage';
+import ChitfundRequestLandingPage from './pages/ChitfundRequestLandingPage';
 import TransferPage from './pages/TransferPage';
 import RegisterOrgPage from './pages/RegisterOrgPage';
 import ProxyPage from './pages/ProxyPage';
@@ -60,6 +61,7 @@ import MemberPortalPage from './pages/member/MemberPortalPage';
 import MemberProfilePage from './pages/member/MemberProfilePage';
 import MemberChitDetailPage from './pages/member/MemberChitDetailPage';
 import MemberInvitationsPage from './pages/member/MemberInvitationsPage';
+import ChitfundRequestsPage from './pages/member/ChitfundRequestsPage';
 import TransactionDetailPage from './pages/TransactionDetailPage';
 import ErrorPage from './pages/ErrorPage';
 import SessionExpiredPage from './pages/SessionExpiredPage';
@@ -92,6 +94,7 @@ export default function App() {
       <Route path="/register" element={<RegisterOrgPage />} />
       <Route path="/select-company" element={<SelectCompanyPage />} />
       <Route path="/setup-account" element={<SetupAccountPage />} />
+      <Route path="/chitfund-request" element={<ChitfundRequestLandingPage />} />
       <Route path="/auth/transfer" element={<TransferPage />} />
       <Route path="/proxy" element={<ProxyPage />} />
       {/* Forced password change — accessible to any authenticated user */}
@@ -107,6 +110,7 @@ export default function App() {
         <Route path="/member/chits/:chitId" element={<MemberChitDetailPage />} />
         <Route path="/member/transactions/:batchId" element={<TransactionDetailPage />} />
         <Route path="/member/invitations" element={<MemberInvitationsPage />} />
+        <Route path="/member/chitfund-requests" element={<ChitfundRequestsPage />} />
       </Route>
 
       {/* Admin/Staff routes */}

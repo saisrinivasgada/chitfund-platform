@@ -68,6 +68,8 @@ public class HubAuthController {
                 .role(employee.getRole())
                 .active(employee.isActive())
                 .mustChangePassword(employee.isMustChangePassword())
+                .canManageIdentityCases(employee.isCanManageIdentityCases())
+                .platformOwner(employee.isPlatformOwner())
                 .lastLoginAt(employee.getLastLoginAt())
                 .build();
         return ResponseEntity.ok(Map.of("success", true, "data", meResponse));

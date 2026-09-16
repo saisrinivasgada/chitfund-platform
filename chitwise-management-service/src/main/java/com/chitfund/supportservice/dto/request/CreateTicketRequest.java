@@ -1,6 +1,7 @@
 package com.chitfund.supportservice.dto.request;
 
 import com.chitfund.supportservice.domain.enums.TicketType;
+import com.chitfund.supportservice.domain.enums.AccountCaseSubtype;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -22,4 +23,12 @@ public class CreateTicketRequest {
 
     @Pattern(regexp = "^(EMAIL|SMS|BOTH)$", message = "preferredContact must be EMAIL, SMS or BOTH")
     private String preferredContact;
+
+    private AccountCaseSubtype accountCaseSubtype;
+
+    @Size(max = 36)
+    private String memberId;
+
+    @Size(max = 36)
+    private String userId;
 }

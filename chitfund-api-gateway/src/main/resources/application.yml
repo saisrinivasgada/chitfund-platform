@@ -43,6 +43,27 @@ spring:
           predicates:
             - Path=/api/auth/**
 
+        # One-time member setup/recovery links must be usable before login.
+        # Keep these exact public routes before the protected wildcard below.
+        - id: user-service-chitfund-requests-public-get
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/chitfund-requests/public
+            - Method=GET
+
+        - id: user-service-chitfund-requests-public-post
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/chitfund-requests/setup,/api/chitfund-requests/setup/email-otp,/api/chitfund-requests/recovery/email-otp,/api/chitfund-requests/recovery/verify-email-otp
+            - Method=POST
+
+        - id: user-service-chitfund-requests-protected
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/chitfund-requests/**
+          filters:
+            - JwtAuthGatewayFilter
+
         - id: user-service-plans-protected
           uri: ${USER_SERVICE_URL:http://localhost:8081}
           predicates:

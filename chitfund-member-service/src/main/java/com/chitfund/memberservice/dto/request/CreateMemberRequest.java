@@ -19,6 +19,7 @@ public class CreateMemberRequest {
     // E.164 country dialing code, e.g. "+91", "+1". Defaults to "+91" if omitted.
     private String phoneCountryCode;
 
+    @NotBlank(message = "Email is required")
     @Email
     private String email;
 
@@ -41,11 +42,15 @@ public class CreateMemberRequest {
     @Pattern(regexp = "^[A-Z]{4}0[A-Z0-9]{6}$", message = "Enter a valid IFSC code (e.g. HDFC0001234)")
     private String bankIfsc;
 
-    // Optional: link an existing user-service account to this member
+    // Legacy field retained only for a clear validation error. Any non-null
+    // value is rejected; linking requires member-approved Chitfund Requests.
     private UUID userId;
 
     private String notes;
 
     // Optional: which member referred this one
     private UUID referredById;
+
+    // Optional. Creating a member profile never grants app access by itself.
+    private boolean sendAppAccess;
 }

@@ -107,6 +107,7 @@ public class PaymentServiceClient {
      * Keeps treasury balance correct — the disbursed OUT is offset by this reversal IN.
      */
     public void recordPayoutVoidReversal(BigDecimal amount, DisbursementMode mode, UUID payoutId) {
+        String tenantId = requireTenant();
         String accountType = (mode == DisbursementMode.CASH) ? "CASH" : "BANK";
         String description = "Payout voided · reversal of ₹" + amount + " via " + mode + " · payout " + payoutId;
 
@@ -118,7 +119,7 @@ public class PaymentServiceClient {
                 "amount", amount,
                 "accountType", accountType,
                 "description", description,
-                "tenantId", TenantContext.get() != null ? TenantContext.get() : ""
+                "tenantId", tenantId
         );
 
         try {
@@ -139,6 +140,7 @@ public class PaymentServiceClient {
      * Fire-and-forget: treasury mismatch is not worth failing the disbursement over.
      */
     public void recordPayoutDebit(BigDecimal amount, DisbursementMode mode, UUID payoutId, UUID memberId) {
+        String tenantId = requireTenant();
         String accountType = (mode == DisbursementMode.CASH) ? "CASH" : "BANK";
         String description = "Payout disbursed · " + memberId + " via " + mode;
 
@@ -150,7 +152,7 @@ public class PaymentServiceClient {
                 "amount", amount,
                 "accountType", accountType,
                 "description", description,
-                "tenantId", TenantContext.get() != null ? TenantContext.get() : ""
+                "tenantId", tenantId
         );
 
         try {
@@ -163,5 +165,13 @@ public class PaymentServiceClient {
         } catch (Exception e) {
             log.error("Failed to record treasury debit for payout {} — treasury may be out of sync: {}", payoutId, e.getMessage());
         }
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Organization context is required for treasury operations");
+        }
+        return tenantId;
     }
 }

@@ -17,5 +17,7 @@ public class EmployeeMeResponse {
     private String role;
     private boolean active;
     private boolean mustChangePassword;
+    private boolean canManageIdentityCases;
+    private boolean platformOwner;
     private Instant lastLoginAt;
 }

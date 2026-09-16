@@ -84,13 +84,16 @@ public class MemberServiceClient {
      * Cash requests store user UUIDs; payment records store profile UUIDs — this bridges them.
      */
     @SuppressWarnings("unchecked")
-    public UUID getProfileIdByUserId(UUID userId) {
+    public UUID getProfileIdByUserId(UUID userId, String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for cross-organization member lookup");
+        }
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
 
             ResponseEntity<Map> response = restTemplate.exchange(
-                    memberServiceUrl + "/internal/members/by-user/" + userId + "/profile-id",
+                    memberServiceUrl + "/internal/members/by-user/" + userId + "/tenant/" + tenantId + "/profile-id",
                     HttpMethod.GET,
                     new HttpEntity<>(headers),
                     Map.class);

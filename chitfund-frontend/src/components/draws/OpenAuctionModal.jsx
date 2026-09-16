@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import Modal from '../ui/Modal';
@@ -6,88 +6,54 @@ import Button from '../ui/Button';
 import FormField, { Input } from '../ui/FormField';
 import {
   openAuction, getEnrollments, getMembers, getReservations,
-  createMemberLogin, linkMemberUser, checkUsernameAvailability,
+  requestMemberAppAccess,
 } from '../../services/api';
 import { useToastContext } from '../layout/AppLayout';
 import { AlertTriangle, CheckCircle, UserPlus, Gavel } from 'lucide-react';
 
-function toUsername(fullName = '') {
-  return fullName.toLowerCase().replace(/[^a-z0-9]/g, '.').replace(/\.{2,}/g, '.').replace(/^\.|\.$/g, '').slice(0, 20) || 'member';
-}
-
-// Per-member inline account creator used in the pre-check list
-function MemberAccountRow({ member, onCreated }) {
+// Per-member app-access request used in the pre-check list. Administrators
+// never choose or receive a member's credentials.
+function MemberAccountRow({ member, requestSent, onSent }) {
   const toast    = useToastContext();
   const qc       = useQueryClient();
-  const [username, setUsername]   = useState(() => toUsername(member.fullName));
-  const [avail,    setAvail]      = useState(null);
   const [loading,  setLoading]    = useState(false);
-  const [done,     setDone]       = useState(false);
-  const debounce = useRef(null);
 
-  function onUsernameChange(val) {
-    const cleaned = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
-    setUsername(cleaned);
-    setAvail(null);
-    clearTimeout(debounce.current);
-    if (!cleaned || cleaned.length < 3) return;
-    setAvail('checking');
-    debounce.current = setTimeout(async () => {
-      try {
-        const d = await checkUsernameAvailability(cleaned);
-        setAvail(d.available ? 'ok' : 'taken');
-      } catch { setAvail(null); }
-    }, 400);
-  }
-
-  async function create() {
-    if (avail !== 'ok') return;
+  async function sendRequest() {
     setLoading(true);
     try {
-      const loginData = await createMemberLogin({ username, email: member.email ?? undefined });
-      await linkMemberUser({ memberId: member.id, userId: loginData.userId });
+      await requestMemberAppAccess(member.id);
       qc.invalidateQueries({ queryKey: ['members'] });
-      setDone(true);
-      onCreated(member.id, { username, tempPassword: loginData.tempPassword });
+      onSent(member.id);
     } catch (err) {
-      toast.error(err.response?.data?.message ?? 'Failed to create account');
+      toast.error(err.response?.data?.message ?? 'Failed to send Chitfund Request');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${done ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+    <div className={`rounded-xl border px-4 py-3 ${requestSent ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="flex items-center gap-2">
-          {done
+          {requestSent
             ? <CheckCircle size={14} className="text-green-600 flex-shrink-0" />
             : <AlertTriangle size={14} className="text-amber-600 flex-shrink-0" />}
           <p className="text-sm font-semibold text-gray-900">{member.fullName}</p>
           <span className="text-xs text-gray-400">{member.phone}</span>
         </div>
-        {done && <span className="text-xs font-medium text-green-700">Account created</span>}
+        {requestSent && <span className="text-xs font-medium text-green-700">Request sent</span>}
       </div>
-      {!done && (
-        <div className="flex items-center gap-2 mt-2">
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => onUsernameChange(e.target.value)}
-            placeholder="username"
-            className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 font-mono bg-white outline-none focus:border-[#1E3A5F]"
-          />
-          {avail === 'checking' && <span className="text-xs text-gray-400 whitespace-nowrap">Checking…</span>}
-          {avail === 'ok'       && <span className="text-xs text-green-600 font-semibold whitespace-nowrap">✓ OK</span>}
-          {avail === 'taken'    && <span className="text-xs text-red-500 font-semibold whitespace-nowrap">Taken</span>}
+      {!requestSent && (
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <p className="text-xs text-amber-700">The member verifies OTP and creates their own login.</p>
           <button
             type="button"
-            onClick={create}
-            disabled={avail !== 'ok' || loading}
+            onClick={sendRequest}
+            disabled={loading}
             className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#1E3A5F] text-white cursor-pointer disabled:opacity-40 whitespace-nowrap"
           >
             <UserPlus size={11} />
-            {loading ? 'Creating…' : 'Create'}
+            {loading ? 'Sending…' : 'Send Access'}
           </button>
         </div>
       )}
@@ -113,7 +79,7 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
   const toast    = useToastContext();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [createdAccounts, setCreatedAccounts] = useState({});  // memberId → { username, tempPassword }
+  const [sentRequests, setSentRequests] = useState({});
   const [durationMode, setDurationMode] = useState('60');       // '', '30', '60', '120', 'custom'
   const [customClosesAt, setCustomClosesAt] = useState('');
   const [minBidStep, setMinBidStep] = useState('');
@@ -156,11 +122,11 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
   const enrolledIds = [...new Set(enrollments.map((e) => String(e.memberId ?? e.id)))];
   const membersWithoutAccess = enrolledIds
     .map((id) => memberMap[id])
-    .filter((m) => m && !m.hasAppAccess && !createdAccounts[String(m.id)]);
+    .filter((m) => m && !m.hasAppAccess);
   const allAccountsReady = membersWithoutAccess.length === 0;
 
-  function handleCreated(memberId, creds) {
-    setCreatedAccounts((prev) => ({ ...prev, [String(memberId)]: creds }));
+  function handleRequestSent(memberId) {
+    setSentRequests((prev) => ({ ...prev, [String(memberId)]: true }));
   }
 
   function computeClosesAt() {
@@ -297,7 +263,7 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
                   {membersWithoutAccess.length} member{membersWithoutAccess.length > 1 ? 's' : ''} without app account
                 </p>
                 <p className="text-xs text-amber-700 mt-0.5">
-                  Create their accounts now so they can place bids. You can also proceed and create later.
+                  Send app-access requests so they can set up their own login and place bids. You can still open the auction now.
                 </p>
               </div>
             </div>
@@ -306,30 +272,30 @@ export default function OpenAuctionModal({ chitId, chit, draw, onClose }) {
                 <MemberAccountRow
                   key={m.id}
                   member={m}
-                  onCreated={handleCreated}
+                  requestSent={!!sentRequests[String(m.id)]}
+                  onSent={handleRequestSent}
                 />
               ))}
             </div>
           </div>
         )}
 
-        {/* Credentials summary for newly created accounts */}
-        {Object.keys(createdAccounts).length > 0 && (
+        {/* Safe summary: no member credentials are ever shown to the admin. */}
+        {Object.keys(sentRequests).length > 0 && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-3 space-y-1.5">
-            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Accounts Created — Share Credentials</p>
-            {Object.entries(createdAccounts).map(([mId, creds]) => {
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">Chitfund Requests Sent</p>
+            {Object.keys(sentRequests).map((mId) => {
               const m = memberMap[mId];
               return (
-                <div key={mId} className="text-xs text-green-800 font-mono bg-white/70 rounded-lg px-3 py-1.5">
-                  <span className="font-semibold text-gray-700">{m?.fullName}: </span>
-                  {creds.username} / {creds.tempPassword}
+                <div key={mId} className="text-xs text-green-800 bg-white/70 rounded-lg px-3 py-1.5">
+                  <span className="font-semibold text-gray-700">{m?.fullName}</span> — waiting for member verification and admin confirmation
                 </div>
               );
             })}
           </div>
         )}
 
-        {allAccountsReady && membersWithoutAccess.length === 0 && enrolledIds.length > 0 && Object.keys(createdAccounts).length === 0 && (
+        {allAccountsReady && enrolledIds.length > 0 && (
           <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-green-50 border border-green-200">
             <CheckCircle size={14} className="text-green-600 flex-shrink-0" />
             <p className="text-sm text-green-700">All {enrolledIds.length} enrolled members have app accounts.</p>

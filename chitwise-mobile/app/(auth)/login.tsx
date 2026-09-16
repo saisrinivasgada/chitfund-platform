@@ -3,7 +3,7 @@ import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Mo
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, verifyLoginOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
+import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import OtpCodeInput from '../../components/OtpCodeInput';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -334,6 +334,8 @@ export default function LoginScreen() {
   const [showForgot, setShowForgot] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState<{ otpToken: string; maskedPhone: string } | null>(null);
   const [loginOtp, setLoginOtp] = useState('');
+  const [loginEmailState, setLoginEmailState] = useState<{ emailVerificationToken: string; maskedEmail: string } | null>(null);
+  const [loginEmailOtp, setLoginEmailOtp] = useState('');
   const { setUser } = useAuthStore();
   const router  = useRouter();
 
@@ -410,6 +412,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const data = await login(creds.username, creds.password);
+      if (data.requiresEmailVerification && data.emailVerificationToken) {
+        setLoginEmailState({ emailVerificationToken: data.emailVerificationToken, maskedEmail: data.maskedEmail ?? '***' });
+        setLoginEmailOtp('');
+        return;
+      }
       if (data.requiresTenantSelection && data.loginToken) {
         if (data.tenants?.length === 1) {
           const t = data.tenants[0];
@@ -436,6 +443,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const data = await login(username.trim(), password);
+      if (data.requiresEmailVerification && data.emailVerificationToken) {
+        setLoginEmailState({ emailVerificationToken: data.emailVerificationToken, maskedEmail: data.maskedEmail ?? '***' });
+        setLoginEmailOtp('');
+        return;
+      }
       if (data.requiresOtp && data.otpToken) {
         setLoginOtpState({ otpToken: data.otpToken, maskedPhone: data.maskedPhone ?? '****' });
         setLoginOtp('');
@@ -480,6 +492,47 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleLoginEmailOtpSubmit() {
+    if (!loginEmailState || loginEmailOtp.length !== 6) return;
+    setError('');
+    setLoading(true);
+    try {
+      const data = await verifyLoginEmailOtp(loginEmailState.emailVerificationToken, loginEmailOtp);
+      setLoginEmailState(null);
+      setLoginEmailOtp('');
+      if (data.requiresOtp && data.otpToken) {
+        setLoginOtpState({ otpToken: data.otpToken, maskedPhone: data.maskedPhone ?? '****' });
+        setLoginOtp('');
+        return;
+      }
+      if (data.requiresTenantSelection && data.loginToken) {
+        if (data.tenants?.length === 1) {
+          const t = data.tenants[0];
+          await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
+        } else {
+          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
+        }
+        return;
+      }
+      applyAuth(data, true);
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendLoginEmailOtp() {
+    if (!loginEmailState) return;
+    setError(''); setLoading(true);
+    try {
+      await resendLoginEmailOtp(loginEmailState.emailVerificationToken);
+      setLoginEmailOtp('');
+    } catch (err: any) {
+      setError(err.response?.data?.message ?? 'Could not regenerate the email OTP.');
+    } finally { setLoading(false); }
   }
 
   async function handleEnableBiometric() {
@@ -701,6 +754,33 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Mandatory email verification for newly-created organization users */}
+      <Modal visible={!!loginEmailState} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your email</Text>
+              <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+                Enter the 6-digit code generated for {loginEmailState?.maskedEmail}
+              </Text>
+              <OtpCodeInput value={loginEmailOtp} onChangeText={(v) => { setLoginEmailOtp(v); setError(''); }} hasError={!!error} autoFocus />
+              {error ? <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginTop: 12 }}>
+                <Text style={{ color: C.red, fontSize: 13 }}>{error}</Text>
+              </View> : null}
+              <View style={{ height: 20 }} />
+              <Button label="Verify Email & Continue" onPress={handleLoginEmailOtpSubmit} loading={loading}
+                disabled={loginEmailOtp.length !== 6} fullWidth size="lg" />
+              <TouchableOpacity onPress={handleResendLoginEmailOtp} disabled={loading} style={{ marginTop: 14, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: C.navy }}>Generate a new email OTP</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setLoginEmailState(null); setLoginEmailOtp(''); setError(''); }} style={{ marginTop: 14, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Cancel — go back</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 

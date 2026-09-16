@@ -8,6 +8,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -22,11 +23,10 @@ public class PlanLimitChecker {
     private final UserServiceClient userServiceClient;
 
     public void checkCanCreateChit(ChitType chitType) {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return; // super-admin, no limits
+        String tenantId = requireTenant();
 
         Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
-        if (limits == null) return; // fail open if user-service unreachable
+        requireLimits(limits);
 
         checkNotExpiredInternal(limits);
 
@@ -47,11 +47,10 @@ public class PlanLimitChecker {
     }
 
     public void checkCanActivateChit() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return;
+        String tenantId = requireTenant();
 
         Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
-        if (limits == null) return;
+        requireLimits(limits);
 
         checkNotExpiredInternal(limits);
 
@@ -70,11 +69,26 @@ public class PlanLimitChecker {
     }
 
     public void checkNotExpired() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return;
+        String tenantId = requireTenant();
         Map<String, Object> limits = userServiceClient.getEffectiveLimits(tenantId);
-        if (limits == null) return;
+        requireLimits(limits);
         checkNotExpiredInternal(limits);
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        return tenantId;
+    }
+
+    private void requireLimits(Map<String, Object> limits) {
+        if (limits == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
+        }
     }
 
     private void checkNotExpiredInternal(Map<String, Object> limits) {
@@ -86,8 +100,9 @@ public class PlanLimitChecker {
                 throw new BusinessException(ErrorCode.PLAN_EXPIRED,
                         "Your subscription has expired. Please renew your plan to continue.");
             }
-        } catch (java.time.format.DateTimeParseException ignored) {
-            // malformed date — fail open
+        } catch (java.time.format.DateTimeParseException invalidPlanData) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Subscription data is invalid. Please contact support.", HttpStatus.SERVICE_UNAVAILABLE);
         }
     }
 }

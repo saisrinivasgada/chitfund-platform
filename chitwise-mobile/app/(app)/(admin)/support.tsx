@@ -69,7 +69,7 @@ function NewTicketModal({ visible, onClose, onCreate }: {
   const [showTypePicker, setShowTypePicker] = useState(false);
 
   const mut = useMutation({
-    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim() }),
+    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim(), accountCaseSubtype: type === 'ACCOUNT' ? 'APP_ACCESS_FAILURE' : undefined }),
     onSuccess: (ticket) => {
       qc.invalidateQueries({ queryKey: ['my-tickets'] });
       setType('GENERAL'); setSubject(''); setDescription('');

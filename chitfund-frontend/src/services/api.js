@@ -126,6 +126,15 @@ export const resendLoginOtp = async ({ otpToken }) => {
   await api.post('/auth/resend-login-otp', { otpToken });
 };
 
+export const verifyLoginEmailOtp = async ({ emailVerificationToken, code }) => {
+  const res = await api.post('/auth/verify-login-email-otp', { emailVerificationToken, code });
+  return res.data.data;
+};
+
+export const resendLoginEmailOtp = async ({ emailVerificationToken }) => {
+  await api.post('/auth/resend-login-email-otp', { emailVerificationToken });
+};
+
 const DEVICE_TOKEN_KEY = 'chitwise_device_token';
 
 export const getStoredDeviceToken = () => { try { return localStorage.getItem(DEVICE_TOKEN_KEY); } catch { return null; } };
@@ -163,10 +172,24 @@ export const registerOrg = async (body) => {
 };
 
 // Member sets up their account via SMS link token
-export const setupAccount = async ({ token, newPassword, fullName, termsAccepted }) => {
-  const res = await api.post('/auth/setup-account', { token, newPassword, fullName, termsAccepted });
-  return res.data.data; // AuthResponse or LoginResponse
+export const setupAccount = async ({ token, username, newPassword, fullName, phoneOtp, email, emailOtp, termsAccepted }) => {
+  const res = await api.post('/auth/setup-account', {
+    token, username, newPassword, fullName, phoneOtp,
+    email: email || null, emailOtp: emailOtp || null, termsAccepted,
+  });
+  return res.data.data;
 };
+
+export const sendSetupEmailOtp = async ({ token, email }) => {
+  await api.post('/chitfund-requests/setup/email-otp', { token, email });
+};
+export const getPublicChitfundRequest = async (token) =>
+  (await api.get('/chitfund-requests/public', { params: { token } })).data.data;
+export const sendChitfundRequestRecoveryEmailOtp = async (token) => {
+  await api.post('/chitfund-requests/recovery/email-otp', { token });
+};
+export const verifyChitfundRequestRecoveryEmailOtp = async ({ token, code }) =>
+  (await api.post('/chitfund-requests/recovery/verify-email-otp', { token, code })).data.data;
 
 // Generate a short-lived pre-scope token for cross-subdomain org switching.
 // Needs explicit Authorization header because the interceptor skips /auth/ endpoints.
@@ -192,18 +215,6 @@ export const forgotPasswordVerifyOtp = async ({ userId, code }) => {
 };
 export const forgotPasswordResetWithToken = async ({ resetToken, newPassword }) => {
   await api.post('/auth/forgot-password/reset-with-token', { resetToken, newPassword });
-};
-
-// Admin email-OTP password reset (3-step)
-export const adminForgotPassword = async (email) => {
-  await api.post('/auth/forgot-password', { email });
-};
-export const adminVerifyResetOtp = async (email, otp) => {
-  const res = await api.post('/auth/verify-reset-otp', { email, otp });
-  return res.data.data; // { resetToken }
-};
-export const adminResetPassword = async (resetToken, newPassword) => {
-  await api.post('/auth/reset-password', { resetToken, newPassword });
 };
 
 // Legacy (kept for backward compat)
@@ -325,11 +336,6 @@ export const superAdminListOrgUsers = async (tenantId) => {
 export const superAdminAddOrgUser = async (tenantId, userData) => {
   const res = await api.post(`/super-admin/tenants/${tenantId}/users`, userData);
   return res.data.data;
-};
-
-export const superAdminSetupAppAccess = async (userId, username) => {
-  const res = await api.post(`/super-admin/tenants/users/${userId}/setup-app-access`, { username });
-  return res.data.data; // { userId, username, tempPassword }
 };
 
 export const superAdminListOrgChits = async (tenantId, { status } = {}) => {
@@ -459,14 +465,6 @@ export const loginByMobile = async ({ phone, phoneCountryCode, password, role })
 };
 
 // ─── Auth helpers ──────────────────────────────────────────────────────────
-// Admin-only, idempotent: if the email already exists as an unlinked MEMBER account
-// (partial failure from a previous attempt), it reuses that user with a fresh temp
-// password instead of failing with EMAIL_TAKEN.
-export const createMemberLogin = async ({ username, email, phone, phoneCountryCode }) => {
-  const res = await api.post('/users/create-member-login', { username, email, phone, phoneCountryCode });
-  return res.data.data; // { userId, tempPassword }
-};
-
 export const resetMemberPassword = async (userId) => {
   const res = await api.post(`/users/${userId}/reset-password`);
   return res.data.data; // { userId, username, tempPassword }
@@ -543,8 +541,11 @@ export const unlockUser = async (id) => {
   return res.data.data;
 };
 
-export const updateMyMemberProfile = async ({ fullName, phone, phoneCountryCode, email, address, city }) => {
-  const res = await api.patch('/members/me/profile', { fullName, phone, phoneCountryCode, email, address, city });
+export const updateMyMemberProfile = async ({ fullName, phone, phoneCountryCode, email, address, city, aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc }) => {
+  const res = await api.patch('/members/me/profile', {
+    fullName, phone, phoneCountryCode, email, address, city,
+    aadhaarLast4, panNumber, bankName, bankAccountNumber, bankIfsc,
+  });
   return res.data.data; // updated MemberResponse
 };
 
@@ -581,6 +582,22 @@ export const createMember = async (body) => {
   const res = await api.post('/members', body);
   return res.data.data;
 };
+
+export const requestMemberAppAccess = async (memberId) => {
+  const res = await api.post(`/members/${memberId}/app-access-request`);
+  return res.data.data;
+};
+export const getMemberChitfundRequests = async (memberId) => {
+  const res = await api.get(`/chitfund-requests/admin/member/${memberId}`);
+  return res.data.data ?? [];
+};
+export const resendChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/resend`)).data.data;
+export const revokeChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/revoke`)).data.data;
+export const confirmChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/confirm`)).data.data;
+export const getMyChitfundRequests = async () => (await api.get('/chitfund-requests/mine')).data.data ?? [];
+export const sendChitfundRequestOtp = async (requestId) => { await api.post(`/chitfund-requests/${requestId}/otp`); };
+export const acceptChitfundRequest = async ({ requestId, code }) => (await api.post(`/chitfund-requests/${requestId}/accept`, { code })).data.data;
+export const declineChitfundRequest = async (requestId) => (await api.post(`/chitfund-requests/${requestId}/decline`)).data.data;
 
 export const checkMemberPhoneTaken = async ({ phone, countryCode = '+91' }) => {
   const res = await api.get('/members/phone-taken', { params: { phone, countryCode } });
@@ -1632,8 +1649,8 @@ export const superAdminSendContactMessage = async (id, content) => {
 
 // ─── Support Tickets (org admin → ChitWise) ────────────────────────────────
 
-export const createSupportTicket = async ({ type, subject, description }) => {
-  const res = await api.post('/tickets', { type, subject, description });
+export const createSupportTicket = async ({ type, subject, description, accountCaseSubtype, memberId, userId }) => {
+  const res = await api.post('/tickets', { type, subject, description, accountCaseSubtype, memberId, userId });
   return res.data.data;
 };
 
@@ -1887,6 +1904,21 @@ export const hubAssignTicket = async (ticketId, assigneeId) => {
   const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId });
   return res.data.data ?? res.data;
 };
+
+export const hubGetIdentityCaseByTicket = async (ticketId) => {
+  const res = await hubApi.get(`/hub/identity-cases/ticket/${ticketId}`);
+  return res.data.data;
+};
+export const hubPrepareIdentityCase = async (caseId, body) =>
+  (await hubApi.put(`/hub/identity-cases/${caseId}/prepare`, body)).data.data;
+export const hubApproveIdentityCase = async (caseId, reason) =>
+  (await hubApi.put(`/hub/identity-cases/${caseId}/approve`, { reason })).data.data;
+export const hubRejectIdentityCase = async (caseId, reason) =>
+  (await hubApi.put(`/hub/identity-cases/${caseId}/reject`, { reason })).data.data;
+export const hubExecuteIdentityCase = async (caseId) =>
+  (await hubApi.post(`/hub/identity-cases/${caseId}/execute`)).data.data;
+export const hubUpdateIdentityPermissions = async (employeeId, canManageIdentityCases) =>
+  (await hubApi.patch(`/hub/employees/${employeeId}/identity-permissions`, { canManageIdentityCases })).data.data;
 
 // ─── Hub internal DMs ──────────────────────────────────────────────────────
 export const hubStartDm = async (otherEmployeeId) => {

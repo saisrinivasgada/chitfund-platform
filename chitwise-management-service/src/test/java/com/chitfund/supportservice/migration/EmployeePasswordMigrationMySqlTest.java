@@ -10,7 +10,7 @@ import java.sql.DriverManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class EmployeePasswordMigrationMySqlTest {
 
     @Container

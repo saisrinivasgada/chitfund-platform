@@ -5,8 +5,10 @@ import {
   hubGetTicket, hubGetTicketMessages, hubSendTicketMessage,
   hubDeleteTicketMessage, hubUpdateTicketStatus, hubMarkTicketRead,
   hubListEmployees, hubAssignTicket,
+  hubGetIdentityCaseByTicket, hubPrepareIdentityCase, hubApproveIdentityCase, hubRejectIdentityCase, hubExecuteIdentityCase,
 } from '../../services/api';
 import { ArrowLeft, Send, Trash2, ChevronUp, AlertCircle } from 'lucide-react';
+import Button from '../../components/ui/Button';
 
 const STATUS_STYLES = {
   OPEN:        'bg-blue-50 text-blue-700',
@@ -42,6 +44,65 @@ function formatTime(iso) {
 function formatFull(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function IdentityCasePanel({ ticket, hubUser }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState('');
+  const [oldUserId, setOldUserId] = useState(ticket.subjectUserId ?? '');
+  const [phone, setPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [approvedLinks, setApprovedLinks] = useState('');
+  const [decisionReason, setDecisionReason] = useState('');
+  const canRead = hubUser.canManageIdentityCases || hubUser.platformOwner;
+  const { data: identityCase, isLoading } = useQuery({
+    queryKey: ['hub-identity-case', ticket.id],
+    queryFn: () => hubGetIdentityCaseByTicket(ticket.id),
+    enabled: ticket.type === 'ACCOUNT' && canRead,
+  });
+  useEffect(() => {
+    if (ticket.tenantId && ticket.subjectMemberId && !approvedLinks) {
+      setApprovedLinks(`${ticket.tenantId}:${ticket.subjectMemberId}`);
+    }
+  }, [ticket.tenantId, ticket.subjectMemberId, approvedLinks]);
+  const parsedLinks = approvedLinks.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+    const [tenantId, memberId] = line.split(':').map(value => value.trim());
+    return { tenantId, memberId };
+  }).filter(link => link.tenantId && link.memberId);
+  const refresh = () => qc.invalidateQueries({ queryKey: ['hub-identity-case', ticket.id] });
+  const prepare = useMutation({
+    mutationFn: () => hubPrepareIdentityCase(identityCase.id, {
+      reason: reason.trim(), oldUserId: oldUserId.trim() || undefined,
+      phoneCountryCode: '+91', phone: phone.replace(/\D/g, '') || undefined,
+      email: newEmail.trim().toLowerCase() || undefined,
+      approvedMemberLinks: parsedLinks,
+    }),
+    onSuccess: () => { setReason(''); refresh(); },
+  });
+  const approve = useMutation({ mutationFn: () => hubApproveIdentityCase(identityCase.id, decisionReason.trim()), onSuccess: refresh });
+  const reject = useMutation({ mutationFn: () => hubRejectIdentityCase(identityCase.id, decisionReason.trim()), onSuccess: refresh });
+  const execute = useMutation({ mutationFn: () => hubExecuteIdentityCase(identityCase.id), onSuccess: refresh });
+  if (ticket.type !== 'ACCOUNT') return null;
+  if (!canRead) return <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">This Account ticket has a protected identity case. Only selected identity investigators and the platform owner can open it.</div>;
+  if (isLoading) return <div className="mb-4 text-sm text-gray-400">Loading protected identity case…</div>;
+  if (!identityCase) return <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">The structured identity case is missing. Do not resolve this ticket until it is repaired.</div>;
+  let approvedProposal = null;
+  try { approvedProposal = identityCase.proposalJson ? JSON.parse(identityCase.proposalJson) : null; } catch { /* malformed proposals are not rendered */ }
+  const canPrepare = hubUser.canManageIdentityCases || hubUser.platformOwner;
+  return <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50/60 p-5 space-y-4">
+    <div className="flex items-center justify-between"><div><p className="text-sm font-bold text-[#1E3A5F]">Protected Identity Case</p><p className="text-xs text-gray-500 mt-1">{identityCase.subtype?.replaceAll('_', ' ')} · immutable ticket link</p></div><span className="px-2.5 py-1 rounded-full bg-white border border-blue-200 text-xs font-bold text-blue-700">{identityCase.status?.replaceAll('_', ' ')}</span></div>
+    {identityCase.proposalReason && <div className="rounded-xl bg-white border border-blue-100 p-3"><p className="text-xs font-semibold text-gray-500">Investigator proposal</p><p className="text-sm text-gray-800 mt-1 whitespace-pre-wrap">{identityCase.proposalReason}</p></div>}
+    {approvedProposal && <div className="rounded-xl bg-white border border-blue-100 p-3 text-xs text-gray-700"><p className="font-semibold text-gray-500 mb-2">Exact operation awaiting review</p><p>Old user: <span className="font-mono">{approvedProposal.oldUserId}</span></p><p>Phone: {approvedProposal.phoneCountryCode} {approvedProposal.phone}</p><p>New email: {approvedProposal.email}</p><p className="mt-1">Fresh-access profiles:</p><ul className="list-disc pl-5 font-mono">{(approvedProposal.approvedMemberLinks ?? []).map((link, index) => <li key={`${link.tenantId}:${link.memberId}:${index}`}>{link.tenantId} : {link.memberId}</li>)}</ul></div>}
+    {canPrepare && ['OPEN','INVESTIGATING','REJECTED','EXECUTION_FAILED'].includes(identityCase.status) && <div className="space-y-3">
+      {identityCase.subtype === 'PHONE_REASSIGNMENT' && <div className="space-y-3"><div className="grid sm:grid-cols-2 gap-3"><input value={oldUserId} onChange={e => setOldUserId(e.target.value)} placeholder="Old global user ID" className="px-3 py-2 rounded-lg border border-blue-200 text-sm"/><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone number" className="px-3 py-2 rounded-lg border border-blue-200 text-sm"/><input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="New identity email" className="px-3 py-2 rounded-lg border border-blue-200 text-sm"/></div><div><label className="text-xs font-semibold text-gray-600">Profiles approved for fresh app access</label><textarea value={approvedLinks} onChange={e => setApprovedLinks(e.target.value)} rows={3} placeholder="tenant UUID:member UUID (one per line)" className="mt-1 w-full px-3 py-2 rounded-lg border border-blue-200 text-sm font-mono"/><p className="text-xs text-gray-500 mt-1">Only these profiles receive requests. The new person verifies this email during setup; existing history is never transferred.</p></div></div>}
+      <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder="Investigation findings and exact proposed resolution" className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm"/>
+      <Button onClick={() => prepare.mutate()} disabled={!reason.trim() || (identityCase.subtype === 'PHONE_REASSIGNMENT' && (!oldUserId.trim() || !phone.trim() || !newEmail.trim() || parsedLinks.length === 0))} loading={prepare.isPending}>Submit for owner approval</Button>
+    </div>}
+    {hubUser.platformOwner && identityCase.status === 'PROPOSED' && <div className="space-y-3 border-t border-blue-200 pt-4"><textarea value={decisionReason} onChange={e => setDecisionReason(e.target.value)} rows={2} placeholder="Mandatory approval or rejection reason" className="w-full px-3 py-2 rounded-lg border border-blue-200 text-sm"/><div className="flex gap-2"><Button onClick={() => approve.mutate()} disabled={!decisionReason.trim()} loading={approve.isPending}>Approve</Button><Button variant="secondary" onClick={() => reject.mutate()} disabled={!decisionReason.trim()} loading={reject.isPending}>Reject</Button></div><p className="text-xs text-gray-500">Approval does not delete, transfer, or rewrite financial history.</p></div>}
+    {hubUser.platformOwner && ['APPROVED','EXECUTION_FAILED'].includes(identityCase.status) && identityCase.subtype === 'PHONE_REASSIGNMENT' && <Button onClick={() => execute.mutate()} loading={execute.isPending}>{identityCase.status === 'EXECUTION_FAILED' ? 'Retry Approved Operation' : 'Execute Approved Operation'}</Button>}
+    {identityCase.status === 'EXECUTED' && <p className="text-sm font-semibold text-green-700">Completed. The old history stayed with the old identity; approved profiles now have fresh access requests.</p>}
+    {prepare.error || approve.error || reject.error || execute.error ? <p className="text-sm text-red-700">{(prepare.error || approve.error || reject.error || execute.error)?.response?.data?.message ?? 'Identity case action failed'}</p> : null}
+  </div>;
 }
 
 export default function HubTicketDetailPage() {
@@ -216,6 +277,8 @@ export default function HubTicketDetailPage() {
           </div>
         )}
       </div>
+
+      <IdentityCasePanel ticket={ticket} hubUser={hubUser} />
 
       {/* Message thread */}
       <div className="flex-1 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">

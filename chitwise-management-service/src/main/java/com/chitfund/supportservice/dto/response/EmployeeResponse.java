@@ -19,4 +19,6 @@ public class EmployeeResponse {
     private Instant createdAt;
     private boolean invitePending;
     private boolean mustChangePassword;
+    private boolean canManageIdentityCases;
+    private boolean platformOwner;
 }

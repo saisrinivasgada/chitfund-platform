@@ -4,10 +4,11 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import {
   getMember, getMembers, updateMember, patchMemberStatus, getChitsForMember,
   getPaymentHistory, getMemberTotalBalance, getMemberBalance, getMemberCredit,
-  resetMemberPassword, getUserById, sendPaymentReminder, sendWhatsAppReminder,
+  getUserById, sendPaymentReminder, sendWhatsAppReminder, createSupportTicket,
   softDeleteMember, getMemberAuditHistory, getActiveCashRequests, lockUser, unlockUser,
   getMemberSettlements, recordSettlementTransaction, voidSettlement,
-  getMemberPaymentHistoryByChit, createMemberLogin, linkMemberUser, checkUsernameAvailability,
+  getMemberPaymentHistoryByChit, requestMemberAppAccess,
+  getMemberChitfundRequests, resendChitfundRequest, revokeChitfundRequest, confirmChitfundRequest,
   adminUpdateUserPhone,
   sendReminder, getRemindersForMember, getReminderForAdmin, removeReminder,
 } from '../../services/api';
@@ -171,7 +172,7 @@ function StatusSwitcher({ member, disabled }) {
 }
 
 // ─── More actions dropdown ────────────────────────────────────────────────────
-function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onResetPassword, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, reminderPending, whatsappPending, lockPending, unlockPending }) {
+function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogin, onAccountAccess, onReminder, onWhatsApp, onDelete, onHistory, onLock, onUnlock, reminderPending, whatsappPending, lockPending, unlockPending }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const ref = useRef(null);
@@ -208,9 +209,9 @@ function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogi
               </MenuButton>
               <MenuButton
                 icon={<KeyRound size={14} />}
-                onClick={() => { onResetPassword(); setOpen(false); }}
+                onClick={() => { onAccountAccess(); setOpen(false); }}
               >
-                Reset Password
+                Account Access Help
               </MenuButton>
               {(isAdmin || isManager) && (
                 userAccount?.locked ? (
@@ -253,7 +254,7 @@ function MoreActionsMenu({ member, isAdmin, isManager, userAccount, onCreateLogi
               icon={<UserPlus size={14} />}
               onClick={() => { onCreateLogin(); setOpen(false); }}
             >
-              Resend Setup Link
+              Send ChitWise App Access
             </MenuButton>
           )}
           {isAdmin && (
@@ -389,8 +390,13 @@ function EditMemberPanel({ member, onClose }) {
           className="flex-1 overflow-y-auto"
         >
           <div className="px-6 py-5 space-y-5">
+            {member.hasAppAccess && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                This member now controls personal, identity and bank details. You can maintain organization notes and referral information here; use an Account Access ticket for identity problems.
+              </div>
+            )}
             {/* Section: Personal */}
-            <div>
+            {!member.hasAppAccess && <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Personal Information</p>
               <div className="space-y-3">
                 <FormField label="Full Name" required>
@@ -417,10 +423,10 @@ function EditMemberPanel({ member, onClose }) {
                   <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
                 </FormField>
               </div>
-            </div>
+            </div>}
 
             {/* Section: Identity */}
-            <div>
+            {!member.hasAppAccess && <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Identity</p>
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="Aadhaar Last 4">
@@ -430,7 +436,7 @@ function EditMemberPanel({ member, onClose }) {
                   <Input value={form.panNumber} onChange={(e) => set('panNumber', e.target.value.toUpperCase())} placeholder="ABCDE1234F" maxLength={10} />
                 </FormField>
               </div>
-            </div>
+            </div>}
 
             {/* Section: Referral + Notes */}
             <div>
@@ -473,179 +479,61 @@ function EditMemberPanel({ member, onClose }) {
   );
 }
 
-// ─── Temp password display ────────────────────────────────────────────────────
-function TempPasswordDisplay({ tempPassword, username, label }) {
-  const [copied, setCopied] = useState(false);
-  const textToCopy = username
-    ? `Username: ${username}\nPassword: ${tempPassword}`
-    : tempPassword;
-  function copy() {
-    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2500); };
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(textToCopy).then(done).catch(() => fallbackCopy(textToCopy, done));
-    } else {
-      fallbackCopy(textToCopy, done);
-    }
-  }
-  function fallbackCopy(text, done) {
-    const el = document.createElement('textarea');
-    el.value = text;
-    el.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
-    document.body.appendChild(el);
-    el.focus(); el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    done();
-  }
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-3">{label ?? 'Login Credentials'}</p>
-      <div className="space-y-2 mb-3">
-        {username && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-amber-600 w-20 shrink-0">Username</span>
-            <code className="flex-1 text-sm font-mono font-bold text-gray-900">{username}</code>
-          </div>
-        )}
-        <div className="flex items-center gap-2">
-          {username && <span className="text-xs text-amber-600 w-20 shrink-0">Password</span>}
-          <code className={`flex-1 font-mono font-bold text-gray-900 tracking-widest select-all ${username ? 'text-sm' : 'text-lg'}`}>{tempPassword}</code>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={copy}
-        className="flex items-center justify-center gap-1.5 w-full text-xs px-3 py-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 transition-colors font-semibold"
-      >
-        {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> {username ? 'Copy Username & Password' : 'Copy Password'}</>}
-      </button>
-      <p className="text-xs text-amber-600 mt-2">Share these with the member. They must change the password on first login.</p>
-    </div>
-  );
-}
-
-// ─── Resend setup link modal ──────────────────────────────────────────────────
+// ─── Send app-access request modal ────────────────────────────────────────────
 function CreateLoginModal({ member, onClose }) {
   const toast = useToastContext();
   const qc = useQueryClient();
-  const [username, setUsername] = useState('');
-  const [email, setEmail]       = useState('');
-  const [availability, setAvailability] = useState(null); // null | 'checking' | 'available' | 'taken'
-  const [result, setResult]     = useState(null); // { username, tempPassword }
+  const [result, setResult]     = useState(null);
   const [copied, setCopied]     = useState(false);
   const [loading, setLoading]   = useState(false);
-  const debounceRef = useRef(null);
-
-  function handleUsernameChange(val) {
-    const cleaned = val.toLowerCase().replace(/[^a-z0-9._]/g, '');
-    setUsername(cleaned);
-    setAvailability(null);
-    clearTimeout(debounceRef.current);
-    if (!cleaned || cleaned.length < 3) return;
-    setAvailability('checking');
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const data = await checkUsernameAvailability(cleaned);
-        setAvailability(data.available ? 'available' : 'taken');
-      } catch {
-        setAvailability(null);
-      }
-    }, 400);
-  }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (availability !== 'available') return;
     setLoading(true);
     try {
-      const loginData = await createMemberLogin({ username, email: email.trim() || undefined });
-      await linkMemberUser({ memberId: member.id, userId: loginData.userId });
+      const request = await requestMemberAppAccess(member.id);
       qc.invalidateQueries({ queryKey: ['member', member.id] });
       qc.invalidateQueries({ queryKey: ['members'] });
-      setResult({ username, tempPassword: loginData.tempPassword });
+      qc.invalidateQueries({ queryKey: ['chitfund-requests', member.id] });
+      setResult(request);
     } catch (err) {
-      toast.error(err.response?.data?.message ?? 'Failed to create login');
+      toast.error(err.response?.data?.message ?? 'Failed to send Chitfund Request');
     } finally {
       setLoading(false);
     }
   }
 
   if (result) {
-    const text = `Username: ${result.username}\nPassword: ${result.tempPassword}`;
+    const setupUrl = result.setupToken
+      ? `${window.location.origin}/setup-account?token=${result.setupToken}`
+      : result.actionToken ? `${window.location.origin}/chitfund-request?token=${result.actionToken}` : '';
     return (
-      <Modal title="Login Created" onClose={onClose} size="sm">
+      <Modal title="Chitfund Request Sent" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">Share these credentials with <strong>{member.fullName}</strong>. They'll be asked to change the password on first login.</p>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-            <div>
-              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Username</p>
-              <p className="text-lg font-bold text-gray-900 font-mono">{result.username}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Temp Password</p>
-              <p className="text-2xl font-bold text-gray-900 font-mono tracking-widest">{result.tempPassword}</p>
-            </div>
-          </div>
-          <button
+          <p className="text-sm text-gray-600"><strong>{member.fullName}</strong> must verify their phone and choose their own credentials. App access stays disabled until you confirm.</p>
+          {setupUrl && <button
             type="button"
-            onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
+            onClick={() => { navigator.clipboard.writeText(setupUrl); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
           >
-            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy Username & Password</>}
-          </button>
+            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time setup link</>}
+          </button>}
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
       </Modal>
     );
   }
 
-  const statusIcon = availability === 'checking' ? (
-    <span className="text-gray-400 text-xs">Checking…</span>
-  ) : availability === 'available' ? (
-    <span className="flex items-center gap-1 text-green-600 text-xs font-semibold"><Check size={12} /> Available</span>
-  ) : availability === 'taken' ? (
-    <span className="text-red-500 text-xs font-semibold">Already taken</span>
-  ) : null;
-
   return (
-    <Modal title="Create App Login" onClose={onClose} size="sm">
+    <Modal title="Send ChitWise App Access" onClose={onClose} size="sm">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <p className="text-sm text-gray-500">Set a username for <strong>{member.fullName}</strong>. A temporary password will be generated for you to share.</p>
-
-        <FormField label="Username" required>
-          <div className="relative">
-            <Input
-              value={username}
-              onChange={(e) => handleUsernameChange(e.target.value)}
-              placeholder="e.g. sai.srinivas"
-              autoComplete="off"
-              className={availability === 'taken' ? 'border-red-400 focus:ring-red-300' : availability === 'available' ? 'border-green-400 focus:ring-green-300' : ''}
-            />
-            {username.length >= 3 && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">{statusIcon}</div>
-            )}
-          </div>
-          <p className="text-xs text-gray-400 mt-1">Letters, numbers, dots and underscores only.</p>
-        </FormField>
-
-        <FormField label="Email (optional)">
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="member@example.com"
-          />
-        </FormField>
+        <p className="text-sm text-gray-500">Send a consent request to <strong>{member.fullName}</strong> at {formatPhone(member.phoneCountryCode ?? '+91', member.phone)}.</p>
+        <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800">The member—not the administrator—will verify the OTP and choose the permanent username and password.</div>
 
         <div className="flex gap-3 pt-1">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button
-            type="submit"
-            className="flex-1"
-            loading={loading}
-            disabled={availability !== 'available' || !username}
-          >
-            <UserPlus size={14} /> Create Login
+          <Button type="submit" className="flex-1" loading={loading}>
+            <UserPlus size={14} /> Send Request
           </Button>
         </div>
       </form>
@@ -653,30 +541,30 @@ function CreateLoginModal({ member, onClose }) {
   );
 }
 
-// ─── Reset password modal ─────────────────────────────────────────────────────
-function ResetPasswordModal({ member, onClose }) {
+// ─── Account-access support ticket ────────────────────────────────────────────
+function AccountAccessTicketModal({ member, onClose }) {
   const toast = useToastContext();
-  const [step, setStep] = useState('confirm');
-  const [tempPassword, setTempPassword] = useState('');
+  const [description, setDescription] = useState('Member cannot recover or access their ChitWise account. Please investigate without issuing credentials to the organization administrator.');
+  const [done, setDone] = useState(false);
 
-  async function handleReset() {
-    setStep('loading');
-    try {
-      const result = await resetMemberPassword(member.userId);
-      setTempPassword(result?.tempPassword ?? '');
-      setStep('done');
-    } catch (err) {
-      toast.error(err.response?.data?.message ?? 'Failed to reset password');
-      setStep('confirm');
-    }
-  }
+  const mutation = useMutation({
+    mutationFn: () => createSupportTicket({
+      type: 'ACCOUNT',
+      accountCaseSubtype: 'APP_ACCESS_FAILURE',
+      memberId: member.id,
+      userId: member.userId ?? undefined,
+      subject: `Account access help — ${member.fullName}`,
+      description: `${description.trim()}\n\nMember reference: ${member.id}`,
+    }),
+    onSuccess: () => setDone(true),
+    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to create support ticket'),
+  });
 
-  if (step === 'done') {
+  if (done) {
     return (
-      <Modal title="Password Reset" onClose={onClose} size="sm">
+      <Modal title="Account Access Ticket Created" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">Password reset for <strong>{member.fullName}</strong>.</p>
-          {tempPassword && <TempPasswordDisplay tempPassword={tempPassword} label="New Temporary Password" />}
+          <p className="text-sm text-gray-600">Support can now investigate <strong>{member.fullName}</strong>'s account safely. No password or reusable credential was shared with you.</p>
           <Button className="w-full" onClick={onClose}>Done</Button>
         </div>
       </Modal>
@@ -684,19 +572,89 @@ function ResetPasswordModal({ member, onClose }) {
   }
 
   return (
-    <Modal title="Reset Member Password" onClose={onClose} size="sm">
+    <Modal title="Account Access Help" onClose={onClose} size="sm">
       <div className="space-y-4">
-        <p className="text-sm text-gray-500">
-          This will generate a new temporary password for <strong>{member.fullName}</strong> and invalidate their current sessions.
-        </p>
+        <p className="text-sm text-gray-500">Create an Account Access ticket for <strong>{member.fullName}</strong>. Administrators cannot view or reset a member's permanent password.</p>
+        <FormField label="What is the member experiencing?">
+          <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </FormField>
         <div className="flex gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={handleReset} loading={step === 'loading'} className="flex-1 bg-amber-600 hover:bg-amber-700">
-            <KeyRound size={14} /> Reset Password
+          <Button onClick={() => mutation.mutate()} disabled={!description.trim()} loading={mutation.isPending} className="flex-1">
+            <KeyRound size={14} /> Create Ticket
           </Button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+const REQUEST_STATUS = {
+  PENDING_MEMBER: ['Waiting for member', 'bg-amber-50 text-amber-700 border-amber-200'],
+  MEMBER_VERIFIED: ['Member verified', 'bg-blue-50 text-blue-700 border-blue-200'],
+  AWAITING_ADMIN: ['Ready for your confirmation', 'bg-blue-50 text-blue-700 border-blue-200'],
+  ACTIVE: ['App access active', 'bg-green-50 text-green-700 border-green-200'],
+  DECLINED: ['Declined', 'bg-gray-50 text-gray-600 border-gray-200'],
+  EXPIRED: ['Expired', 'bg-red-50 text-red-700 border-red-200'],
+  REVOKED: ['Revoked', 'bg-gray-50 text-gray-600 border-gray-200'],
+  ESCALATED: ['Support review required', 'bg-red-50 text-red-700 border-red-200'],
+};
+
+function ChitfundRequestAdminCard({ member, isAdmin, onSend }) {
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const [resentLink, setResentLink] = useState('');
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['chitfund-requests', member.id],
+    queryFn: () => getMemberChitfundRequests(member.id),
+  });
+  const latest = requests[0];
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['chitfund-requests', member.id] });
+    qc.invalidateQueries({ queryKey: ['member', member.id] });
+    qc.invalidateQueries({ queryKey: ['members'] });
+  };
+  const resend = useMutation({ mutationFn: () => resendChitfundRequest(latest.id), onSuccess: (data) => {
+    refresh();
+    const url = data?.setupToken
+      ? `${window.location.origin}/setup-account?token=${data.setupToken}`
+      : data?.actionToken ? `${window.location.origin}/chitfund-request?token=${data.actionToken}` : '';
+    setResentLink(url);
+    toast.success('Chitfund Request resent');
+  }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not resend request') });
+  const revoke = useMutation({ mutationFn: () => revokeChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Chitfund Request revoked'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not revoke request') });
+  const confirm = useMutation({ mutationFn: () => confirmChitfundRequest(latest.id), onSuccess: () => { refresh(); toast.success('Member app access activated'); }, onError: (e) => toast.error(e.response?.data?.message ?? 'Could not activate app access') });
+  if (isLoading || (!latest && member.hasAppAccess)) return null;
+  if (!latest) return (
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4">
+      <div><p className="text-sm font-semibold text-gray-900">ChitWise App Access</p><p className="text-xs text-gray-500 mt-0.5">No account is connected. The member will verify OTP and choose their own credentials.</p></div>
+      <Button onClick={onSend}><UserPlus size={14} /> Send Request</Button>
+    </div>
+  );
+  const [label, style] = REQUEST_STATUS[latest.status] ?? [latest.status, 'bg-gray-50 text-gray-600 border-gray-200'];
+  const open = ['PENDING_MEMBER', 'MEMBER_VERIFIED', 'AWAITING_ADMIN'].includes(latest.status);
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2"><p className="text-sm font-semibold text-gray-900">Chitfund Request</p><span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${style}`}>{label}</span></div>
+          <p className="text-xs text-gray-500 mt-1">{latest.requestKind === 'LINK_EXISTING' ? 'Connect existing ChitWise account' : 'Set up a new ChitWise account'} · expires {new Date(latest.expiresAt).toLocaleString('en-IN')}</p>
+        </div>
+        <div className="flex gap-2">
+          {latest.status === 'AWAITING_ADMIN' && isAdmin && <Button onClick={() => confirm.mutate()} loading={confirm.isPending}><ShieldCheck size={14} /> Confirm Access</Button>}
+          {open && <Button variant="secondary" onClick={() => resend.mutate()} loading={resend.isPending}>Resend</Button>}
+          {open && <Button variant="secondary" onClick={() => revoke.mutate()} loading={revoke.isPending}>Revoke</Button>}
+          {!open && !member.hasAppAccess && <Button onClick={onSend}><UserPlus size={14} /> New Request</Button>}
+        </div>
+      </div>
+      {resentLink && <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 p-2">
+        <p className="flex-1 text-xs text-blue-800">A fresh one-time link is ready. Share it privately with the member.</p>
+        <button type="button" onClick={async () => {
+          await navigator.clipboard.writeText(resentLink);
+          toast.success('One-time link copied');
+        }} className="text-xs font-semibold text-[#1E3A5F] underline">Copy link</button>
+      </div>}
+    </div>
   );
 }
 
@@ -2376,7 +2334,7 @@ export default function MemberDetailPage() {
   const { hidden } = useHiddenAmounts();
   const [showEdit, setShowEdit] = useState(false);
   const [showCreateLogin, setShowCreateLogin] = useState(false);
-  const [showReset, setShowReset] = useState(false);
+  const [showAccountAccess, setShowAccountAccess] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showProfileHistory, setShowProfileHistory] = useState(false);
   const [showReferralEdit, setShowReferralEdit] = useState(false);
@@ -2686,7 +2644,7 @@ export default function MemberDetailPage() {
               isManager={isManager}
               userAccount={userAccount}
               onCreateLogin={() => setShowCreateLogin(true)}
-              onResetPassword={() => setShowReset(true)}
+              onAccountAccess={() => setShowAccountAccess(true)}
               onReminder={() => setShowReminderModal(true)}
               onWhatsApp={() => whatsappMutation.mutate()}
               onDelete={() => setShowDeleteConfirm(true)}
@@ -2701,6 +2659,8 @@ export default function MemberDetailPage() {
           </div>
         )}
       </div>
+
+      {!isDeleted && <ChitfundRequestAdminCard member={member} isAdmin={isAdmin} onSend={() => setShowCreateLogin(true)} />}
 
       {/* ── Tab bar ───────────────────────────────────────────────────── */}
       <div className="border-b border-gray-200">
@@ -2877,7 +2837,7 @@ export default function MemberDetailPage() {
       {/* Modals + Panels */}
       {showEdit && <EditMemberPanel member={member} onClose={() => setShowEdit(false)} />}
       {showCreateLogin && <CreateLoginModal member={member} onClose={() => setShowCreateLogin(false)} />}
-      {showReset && <ResetPasswordModal member={member} onClose={() => setShowReset(false)} />}
+      {showAccountAccess && <AccountAccessTicketModal member={member} onClose={() => setShowAccountAccess(false)} />}
       {showProfileHistory && (
         <Modal title="Profile Change History" onClose={() => setShowProfileHistory(false)} size="md">
           <ProfileHistorySection memberId={id} flat />

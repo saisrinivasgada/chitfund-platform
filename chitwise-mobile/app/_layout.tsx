@@ -75,7 +75,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!user && inAuth) {
       const expectedLogin = HUB_BUILD ? 'hub-login' : 'login';
-      if (seg[1] !== expectedLogin) router.replace(`/(auth)/${expectedLogin}` as any);
+      const publicMemberFlow = !HUB_BUILD && (seg[1] === 'chitfund-request' || seg[1] === 'setup-account');
+      if (seg[1] !== expectedLogin && !publicMemberFlow) router.replace(`/(auth)/${expectedLogin}` as any);
       return;
     }
 

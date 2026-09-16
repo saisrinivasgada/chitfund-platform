@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, saveDeviceToken } from '../services/api';
+import { login as loginApi, mobileLookup, loginByMobile, selectTenant, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, verifyLoginOtp, resendLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, saveDeviceToken } from '../services/api';
 import Button from '../components/ui/Button';
 import { Input } from '../components/ui/FormField';
 import PhoneInput from '../components/ui/PhoneInput';
@@ -466,7 +466,7 @@ export default function LoginPage() {
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
-  const [step, setStep]           = useState('choose'); // 'choose' | 'login' | 'login-otp'
+  const [step, setStep]           = useState('choose'); // 'choose' | 'login' | 'login-otp' | 'login-email-otp'
   const [selectedRole, setSelectedRole] = useState(null); // one of ROLES
   const [loginMode, setLoginMode] = useState('username');
   const [form, setForm]           = useState({ username: '', password: '' });
@@ -475,6 +475,8 @@ export default function LoginPage() {
   const [showOtpReset, setShowOtpReset] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState(null); // { otpToken, maskedPhone }
   const [loginOtp, setLoginOtp]   = useState('');
+  const [loginEmailState, setLoginEmailState] = useState(null); // { emailVerificationToken, maskedEmail }
+  const [loginEmailOtp, setLoginEmailOtp] = useState('');
   const [rememberDevice, setRememberDevice] = useState(false);
   const [otpResendTimer, setOtpResendTimer] = useState(0);
   const [otpResendBlocked, setOtpResendBlocked] = useState(false);
@@ -517,6 +519,21 @@ export default function LoginPage() {
   }
 
   async function handleLoginResponse(loginResponse) {
+    if (loginResponse.requiresEmailVerification) {
+      setLoginEmailState({
+        emailVerificationToken: loginResponse.emailVerificationToken,
+        maskedEmail: loginResponse.maskedEmail,
+      });
+      setLoginEmailOtp('');
+      setStep('login-email-otp');
+      return;
+    }
+    if (loginResponse.requiresOtp) {
+      setLoginOtpState({ otpToken: loginResponse.otpToken, maskedPhone: loginResponse.maskedPhone });
+      setLoginOtp('');
+      setStep('login-otp');
+      return;
+    }
     if (!loginResponse.requiresTenantSelection && loginResponse.authResponse) {
       await handleScopedAuth(loginResponse.authResponse);
       return;
@@ -553,12 +570,6 @@ export default function LoginPage() {
     setError(''); setLoading(true);
     try {
       const data = await loginApi(form);
-      if (data.requiresOtp) {
-        setLoginOtpState({ otpToken: data.otpToken, maskedPhone: data.maskedPhone });
-        setLoginOtp('');
-        setStep('login-otp');
-        return;
-      }
       await handleLoginResponse(data);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Invalid credentials. Please try again.');
@@ -609,6 +620,32 @@ export default function LoginPage() {
       await handleLoginResponse(data);
     } catch (err) {
       setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleLoginEmailOtpSubmit(e) {
+    e.preventDefault();
+    if (!loginEmailState || loginEmailOtp.length !== 6) return;
+    setError(''); setLoading(true);
+    try {
+      const data = await verifyLoginEmailOtp({
+        emailVerificationToken: loginEmailState.emailVerificationToken,
+        code: loginEmailOtp,
+      });
+      setLoginEmailState(null);
+      await handleLoginResponse(data);
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
+    } finally { setLoading(false); }
+  }
+
+  async function handleResendLoginEmailOtp() {
+    setError(''); setLoading(true);
+    try {
+      await resendLoginEmailOtp({ emailVerificationToken: loginEmailState.emailVerificationToken });
+      setLoginEmailOtp('');
+    } catch (err) {
+      setError(err.response?.data?.message ?? 'Could not regenerate the email OTP.');
     } finally { setLoading(false); }
   }
 
@@ -906,6 +943,38 @@ export default function LoginPage() {
                               className="text-[#1E3A5F] hover:underline cursor-pointer disabled:opacity-50">Didn't receive it? Resend OTP</button>
                       }
                     </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Mandatory recovery-email verification for newly-created org users */}
+              {step === 'login-email-otp' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-8">
+                    <button type="button" onClick={() => { setStep('login'); setLoginEmailState(null); setError(''); }}
+                      className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
+                      <ChevronLeft size={16} /> Back
+                    </button>
+                  </div>
+                  <div className="mb-7">
+                    <h2 className="text-2xl font-bold" style={{ fontFamily: 'Merriweather, serif', color: '#1A202C' }}>
+                      Verify your email
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Enter the 6-digit code generated for <span className="font-semibold">{loginEmailState?.maskedEmail}</span>.
+                    </p>
+                  </div>
+                  <form onSubmit={handleLoginEmailOtpSubmit} className="space-y-5">
+                    <OtpCodeInput value={loginEmailOtp} onChange={(value) => { setLoginEmailOtp(value); setError(''); }}
+                      autoFocus ariaLabel="Email verification OTP" />
+                    {error && <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-100"><p className="text-sm text-red-600">{error}</p></div>}
+                    <Button type="submit" loading={loading} disabled={loginEmailOtp.length !== 6} className="w-full">
+                      Verify Email &amp; Continue
+                    </Button>
+                    <button type="button" onClick={handleResendLoginEmailOtp} disabled={loading}
+                      className="w-full text-xs text-[#1E3A5F] hover:underline cursor-pointer disabled:opacity-50">
+                      Generate a new email OTP
+                    </button>
                   </form>
                 </div>
               )}

@@ -23,6 +23,7 @@ public class RegisterRequest {
     @Pattern(regexp = "^[a-zA-Z0-9_.]+$", message = "Username can only contain letters, numbers, underscores and dots")
     private String username;
 
+    @NotBlank(message = "Email is required")
     @Email(message = "Invalid email format")
     @Size(max = 255)
     private String email;

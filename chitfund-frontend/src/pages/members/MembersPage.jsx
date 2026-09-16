@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMembers, getMembersPage, createMember, getMemberBalanceBulk, getDeletedMembers, getMyTenantLimits, checkMemberPhoneTaken } from '../../services/api';
+import { getMembers, getMembersPage, createMember, getMemberBalanceBulk, getDeletedMembers, getMyTenantLimits } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
 import { useAuth } from '../../context/AuthContext';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
@@ -11,10 +11,9 @@ import Badge, { statusBadge } from '../../components/ui/Badge';
 import Table, { Tr, Td } from '../../components/ui/Table';
 import EmptyState from '../../components/ui/EmptyState';
 import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
-import { formatPhone } from '../../components/ui/PhoneInput';
-import PhoneOtpVerifier from '../../components/ui/PhoneOtpVerifier';
+import PhoneInput, { formatPhone } from '../../components/ui/PhoneInput';
 import { ListSkeleton } from '../../components/ui/Spinner';
-import { Plus, Search, Users, Trash2, Eye, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Users, Trash2, Eye, EyeOff, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
 import { usePlanLimitHandler } from '../../components/ui/PlanLimitModal';
 
 const INITIAL_FORM = {
@@ -28,6 +27,7 @@ const INITIAL_FORM = {
   panNumber: '',
   notes: '',
   referredById: '',
+  sendAppAccess: false,
 };
 
 function AddMemberModal({ onClose }) {
@@ -36,7 +36,8 @@ function AddMemberModal({ onClose }) {
   const { tenantPlan } = useAuth();
   const [form, setForm] = useState(INITIAL_FORM);
   const [fe, setFe] = useState({});
-  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [created, setCreated] = useState(null);
+  const [copied, setCopied] = useState(false);
   const { handleError: handlePlanError, modal: planModal } = usePlanLimitHandler(tenantPlan);
 
   const { data: activeMembers = [] } = useQuery({
@@ -46,10 +47,14 @@ function AddMemberModal({ onClose }) {
 
   const mutation = useMutation({
     mutationFn: createMember,
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['members'] });
       toast.success('Member added successfully');
-      onClose();
+      if (form.sendAppAccess && (data?.setupToken || data?.actionToken)) {
+        setCreated(data);
+      } else {
+        onClose();
+      }
     },
     onError: (err) => {
       if (handlePlanError(err)) return;
@@ -77,6 +82,34 @@ function AddMemberModal({ onClose }) {
     mutation.mutate(payload);
   }
 
+  if (created) {
+    const requestUrl = created.setupToken
+      ? `${window.location.origin}/setup-account?token=${created.setupToken}`
+      : `${window.location.origin}/chitfund-request?token=${created.actionToken}`;
+    return (
+      <Modal title="Member Added — App Access Sent" onClose={onClose} size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            The member profile is ready for normal organization work. App access remains pending until the member verifies and you confirm it.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(requestUrl);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2500);
+            }}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-[#1E3A5F] text-[#1E3A5F] text-sm font-semibold cursor-pointer hover:bg-[#EFF4FA] transition-colors"
+          >
+            {copied ? <><Check size={14} className="text-green-600" /> Copied!</> : <><Copy size={14} /> Copy one-time member link</>}
+          </button>
+          <p className="text-xs text-gray-500">Share this link privately. It expires and does not contain a password.</p>
+          <Button className="w-full" onClick={onClose}>Done</Button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <>
     {planModal}
@@ -95,29 +128,24 @@ function AddMemberModal({ onClose }) {
           </FormField>
 
           <div className="col-span-2">
-            <PhoneOtpVerifier
+            <PhoneInput
               label="Phone *"
               phone={form.phone}
               countryCode={form.phoneCountryCode}
-              originalPhone={null}
-              onPhoneChange={(v) => { set('phone', v); setPhoneVerified(false); }}
+              onPhoneChange={(v) => set('phone', v)}
               onCountryChange={(code) => set('phoneCountryCode', code)}
-              onVerified={setPhoneVerified}
-              onBeforeSend={async () => {
-                const result = await checkMemberPhoneTaken({ phone: form.phone, countryCode: form.phoneCountryCode });
-                if (result.taken) throw new Error('A member with this phone number already exists in your organisation.');
-              }}
-              fieldError={fe.phone}
+              error={fe.phone}
               required
             />
           </div>
 
-          <FormField label="Email" error={fe.email}>
+          <FormField label="Email" required error={fe.email}>
             <Input
               type="email"
               placeholder="email@example.com"
               value={form.email}
               onChange={(e) => set('email', e.target.value)}
+              required
             />
           </FormField>
           <FormField label="City" error={fe.city}>
@@ -159,6 +187,16 @@ function AddMemberModal({ onClose }) {
           />
         </FormField>
 
+        <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 cursor-pointer">
+          <input type="checkbox" checked={form.sendAppAccess}
+            onChange={(e) => set('sendAppAccess', e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-[#1E3A5F]" />
+          <span>
+            <span className="block text-sm font-semibold text-gray-800">Send ChitWise App Access</span>
+            <span className="block text-xs text-gray-500 mt-1">The member verifies their phone and chooses their own PIN/password. You confirm access afterward.</span>
+          </span>
+        </label>
+
         <FormField label="Referred By">
           <Select
             value={form.referredById}
@@ -182,9 +220,8 @@ function AddMemberModal({ onClose }) {
           <Button
             type="submit"
             loading={mutation.isPending}
-            disabled={!!form.phone && !phoneVerified}
+            disabled={!form.phone}
             className="flex-1"
-            title={form.phone && !phoneVerified ? 'Verify the phone number first' : undefined}
           >
             Add Member
           </Button>

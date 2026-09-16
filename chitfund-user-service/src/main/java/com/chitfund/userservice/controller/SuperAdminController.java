@@ -148,8 +148,9 @@ public class SuperAdminController {
     public ResponseEntity<ApiResponse<ResetPasswordResponse>> setupAppAccess(
             @PathVariable UUID userId,
             @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(ApiResponse.success(
-                tenantService.setupAppAccess(userId, body.get("username")), "App access set up"));
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED",
+                "Member credentials cannot be created by Hub. Use the organization's Chitfund Request workflow."));
     }
 
     @PutMapping("/{tenantId}")

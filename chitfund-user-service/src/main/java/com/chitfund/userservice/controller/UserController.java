@@ -16,7 +16,6 @@ import com.chitfund.userservice.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
 import com.chitfund.userservice.dto.response.AuthResponse;
 import com.chitfund.userservice.dto.response.CreateMemberLoginResponse;
-import com.chitfund.userservice.dto.response.ResetPasswordResponse;
 import com.chitfund.userservice.dto.response.BillingInfoResponse;
 import com.chitfund.userservice.dto.response.UserResponse;
 import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
@@ -68,26 +67,21 @@ public class UserController {
 
     @GetMapping("/me/billing-info")
     public ResponseEntity<ApiResponse<BillingInfoResponse>> getMyBillingInfo() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 tenantService.getBillingInfo(java.util.UUID.fromString(tenantId))));
     }
 
     @GetMapping("/me/effective-limits")
     public ResponseEntity<ApiResponse<EffectiveLimitsResponse>> getMyEffectiveLimits() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 tenantService.getEffectiveLimits(tenantId)));
     }
 
     @GetMapping("/me/referral")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getMyReferralInfo() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) {
-            return ResponseEntity.ok(ApiResponse.success(Map.of()));
-        }
+        String tenantId = requireTenant();
         UUID tid = UUID.fromString(tenantId);
         String code = promotionService.getReferralCode(tid);
         java.math.BigDecimal credit = promotionService.getCreditBalance(tid);
@@ -100,14 +94,7 @@ public class UserController {
     // Returns effective plan limits for the current user's tenant (for frontend gating)
     @GetMapping("/me/tenant-limits")
     public ResponseEntity<ApiResponse<EffectiveLimitsResponse>> getMyTenantLimits() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) {
-            return ResponseEntity.ok(ApiResponse.success(
-                    EffectiveLimitsResponse.builder().plan("UNLIMITED").maxActiveChits(-1)
-                            .maxMembers(-1).maxStaff(-1)
-                            .enabledCapabilities(planService.getAllCapabilityKeys())
-                            .analyticsEnabled(true).prioritySupport(true).chatEnabled(true).build()));
-        }
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(tenantService.getEffectiveLimits(tenantId)));
     }
 
@@ -131,14 +118,13 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.success(userService.unlockUser(id, caller), "User account unlocked"));
     }
 
-    /**
-     * Admin generates a new temp password for a member who forgot theirs.
-     * Returns the plaintext password — shown to admin once, never stored again.
-     */
+    /** Legacy admin-managed member password reset is intentionally retired. */
     @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasAuthority('ADMIN') or hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<ResetPasswordResponse>> resetPassword(@PathVariable UUID id) {
-        return ResponseEntity.ok(ApiResponse.success(authService.resetPassword(id), "Temporary password generated"));
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@PathVariable UUID id) {
+        return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
+                "AUTH_FLOW_RETIRED",
+                "Members recover access with mobile OTP or the Account Access ticket workflow."));
     }
 
     /**
@@ -234,7 +220,7 @@ public class UserController {
             return ResponseEntity.status(429).body(ApiResponse.error("RATE_LIMIT_001", "Too many requests. Please wait before trying again."));
         }
         User user = (User) auth.getPrincipal();
-        otpService.verifyOtp(req.getPhone(), "PHONE_CHANGE", req.getCode());
+        otpService.verifyOtp(req.getPhone(), "PHONE_CHANGE", user.getId().toString(), req.getCode());
         String cc = req.getCountryCode() != null ? req.getCountryCode() : "+91";
         return ResponseEntity.ok(ApiResponse.success(userService.updatePhone(user.getId(), req.getPhone(), cc)));
     }
@@ -260,14 +246,13 @@ public class UserController {
         String code = body.get("code");
         String countryCode = body.getOrDefault("countryCode", "+91");
         otpService.verifyOtp(phone, "SUPPORT_NUMBER", code);
-        tenantService.saveSupportPhoneNumber(TenantContext.get(), phone, countryCode);
+        tenantService.saveSupportPhoneNumber(requireTenant(), phone, countryCode);
         return ResponseEntity.ok(ApiResponse.success(null, "Support number saved"));
     }
 
     @GetMapping("/tenant/support-contact")
     public ResponseEntity<ApiResponse<Map<String, String>>> getSupportContact() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(tenantService.getSupportContact(tenantId)));
     }
 
@@ -276,8 +261,7 @@ public class UserController {
     @GetMapping("/me/org-settings")
     @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getOrgSettings() {
-        String tenantId = TenantContext.get();
-        if (tenantId == null) return ResponseEntity.ok(ApiResponse.success(null));
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(tenantService.getOrgSettings(tenantId)));
     }
 
@@ -287,7 +271,7 @@ public class UserController {
             @RequestBody Map<String, String> body) {
         String orgName = body.get("orgName");
         String businessRegNumber = body.get("businessRegNumber");
-        tenantService.updateAdminOrgDetails(TenantContext.get(), orgName, businessRegNumber);
+        tenantService.updateAdminOrgDetails(requireTenant(), orgName, businessRegNumber);
         return ResponseEntity.ok(ApiResponse.success(null, "Organization details updated"));
     }
 
@@ -302,8 +286,8 @@ public class UserController {
     @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<ApiResponse<CreateMemberLoginResponse>> createMemberLogin(
             @Valid @RequestBody CreateMemberLoginRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(authService.createMemberLogin(request), "Member login created"));
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error("AUTH_FLOW_RETIRED", "Use Send ChitWise App Access and the Chitfund Request workflow."));
     }
 
     /**
@@ -314,10 +298,8 @@ public class UserController {
     @PostMapping("/{userId}/resend-setup-link")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<Map<String, String>>> resendSetupLink(@PathVariable UUID userId) {
-        String token = authService.generateSetupToken(userId);
-        return ResponseEntity.ok(ApiResponse.success(
-                Map.of("setupToken", token, "userId", userId.toString()),
-                "Setup link regenerated"));
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ApiResponse.error("AUTH_FLOW_RETIRED", "Resend the member's active Chitfund Request instead."));
     }
 
     // ── Staff management (ADMIN / MANAGER / WORKER accounts) ─────────────────
@@ -353,8 +335,7 @@ public class UserController {
         }
         // Enforce staff limit for non-ADMIN accounts
         if (request.getRole() != Role.ADMIN) {
-            String tenantId = TenantContext.get();
-            if (tenantId != null) planService.checkStaffLimit(tenantId);
+            planService.checkStaffLimit(requireTenant());
         }
         User actor = (User) authentication.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -415,5 +396,14 @@ public class UserController {
         String realIp = request.getHeader("X-Real-IP");
         if (realIp != null && !realIp.isBlank()) return realIp.trim();
         return request.getRemoteAddr();
+    }
+
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        return tenantId;
     }
 }

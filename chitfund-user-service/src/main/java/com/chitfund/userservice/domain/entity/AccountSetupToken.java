@@ -22,6 +22,9 @@ public class AccountSetupToken {
     @Column(name = "user_id", nullable = false, columnDefinition = "char(36)")
     private UUID userId;
 
+    @Column(name = "chitfund_request_id", columnDefinition = "char(36)")
+    private UUID chitfundRequestId;
+
     // SHA-256 of the raw token that was sent via SMS — raw token is never stored
     @Column(name = "token_hash", nullable = false, length = 64, unique = true)
     private String tokenHash;

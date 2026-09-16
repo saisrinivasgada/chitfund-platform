@@ -53,6 +53,7 @@ export default function MemberLayout() {
       {/* ── Hidden (accessible via More or deep links) ───────────── */}
       <Tabs.Screen name="payments"    options={{ href: null }} />
       <Tabs.Screen name="invitations" options={{ href: null }} />
+      <Tabs.Screen name="chitfund-requests" options={{ href: null }} />
       <Tabs.Screen name="payouts"     options={{ href: null }} />
       <Tabs.Screen name="messages"    options={{ href: null }} />
       <Tabs.Screen name="groups"      options={{ href: null }} />

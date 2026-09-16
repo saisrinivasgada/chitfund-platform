@@ -15,6 +15,8 @@ public interface MemberUserLinkRepository extends JpaRepository<MemberUserLink, 
 
     boolean existsByUserId(UUID userId);
 
+    boolean existsByUserIdAndTenantId(UUID userId, UUID tenantId);
+
     List<MemberUserLink> findAllByTenantId(UUID tenantId);
 
     long countByTenantId(UUID tenantId);

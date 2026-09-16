@@ -16,6 +16,8 @@ public class UserResponse {
     private String phone;
     private String phoneCountryCode;
     private String email;
+    private LocalDateTime emailVerifiedAt;
+    private boolean emailVerificationRequired;
     private Role role;
     private boolean enabled;
     private boolean locked;

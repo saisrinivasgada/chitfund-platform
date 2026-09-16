@@ -64,7 +64,7 @@ function NewTicketModal({ visible, onClose, onCreate }: {
   const [showTypePicker, setShowTypePicker] = useState(false);
 
   const mut = useMutation({
-    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim() }),
+    mutationFn: () => createSupportTicket({ type, subject: subject.trim(), description: description.trim(), accountCaseSubtype: type === 'ACCOUNT' ? 'PASSWORD_RECOVERY' : undefined }),
     onSuccess: (ticket) => {
       qc.invalidateQueries({ queryKey: ['member-tickets'] });
       setType('GENERAL'); setSubject(''); setDescription('');
