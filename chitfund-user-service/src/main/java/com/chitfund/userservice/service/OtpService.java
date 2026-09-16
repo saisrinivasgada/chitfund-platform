@@ -61,7 +61,7 @@ public class OtpService {
         PhoneOtp record = PhoneOtp.builder()
                 .phone(phone)
                 .countryCode(countryCode != null ? countryCode : "+91")
-                .otpHash(AuthService.sha256Value(otp))
+                .otpHash(otp)
                 .purpose(purpose)
                 .userId(userId)
                 .expiresAt(LocalDateTime.now().plusMinutes(OTP_TTL_MINUTES))
@@ -87,7 +87,7 @@ public class OtpService {
 
         record.setAttempts(record.getAttempts() + 1);
 
-        if (!AuthService.sha256Value(code).equals(record.getOtpHash())) {
+        if (!code.equals(record.getOtpHash())) {
             otpRepo.save(record);
             int remaining = MAX_ATTEMPTS - record.getAttempts();
             throw new BusinessException(ErrorCode.OTP_INVALID,
@@ -117,7 +117,7 @@ public class OtpService {
                     "Too many incorrect attempts. Please request a new OTP.");
         }
         record.setAttempts(record.getAttempts() + 1);
-        if (!AuthService.sha256Value(code).equals(record.getOtpHash())) {
+        if (!code.equals(record.getOtpHash())) {
             otpRepo.save(record);
             int remaining = MAX_ATTEMPTS - record.getAttempts();
             throw new BusinessException(ErrorCode.OTP_INVALID,
