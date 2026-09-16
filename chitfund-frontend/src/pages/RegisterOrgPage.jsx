@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { registerOrg, getPublicPlans, sendRegistrationOtp, verifyRegistrationOtp, validatePromoCode, checkSlugAvailability } from '../services/api';
 import {
   BookOpen, Building2, CheckCircle, ChevronRight, ChevronLeft,
-  Zap, Shield, Users, BarChart2, Check,
+  Zap, Shield, Users, BarChart2, Check, HelpCircle,
 } from 'lucide-react';
 import OtpInput from '../components/ui/OtpInput';
 
@@ -22,8 +22,47 @@ const COUNTRY_CODES = [
   { code: '+971',label: '🇦🇪 +971' },
 ];
 
+const RESERVED_SLUGS = new Set([
+  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
+  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
+  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
+]);
+
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-');
+}
+
+function SlugTooltip() {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex items-center ml-1.5">
+      <button
+        type="button"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="text-gray-400 hover:text-gray-600 cursor-help transition-colors"
+        aria-label="What is a subdomain?"
+      >
+        <HelpCircle size={14} />
+      </button>
+      {open && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-64 bg-gray-900 text-white text-xs rounded-xl px-3 py-2.5 shadow-lg pointer-events-none">
+          <p className="font-semibold mb-1">What is a subdomain?</p>
+          <p className="text-gray-300 leading-relaxed mb-2">
+            Your subdomain is the unique address for your organization's login page —
+            e.g. <span className="text-white font-medium">yourname.thechitwise.com</span>. Members and staff use this to access your portal.
+          </p>
+          <p className="text-gray-400">
+            <span className="text-amber-400 font-medium">Reserved (unavailable):</span>{' '}
+            hub, www, api, app, admin, support, help, login, staging, demo, test &amp; others
+          </p>
+          <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0" style={{ borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid #111827' }} />
+        </div>
+      )}
+    </span>
+  );
 }
 
 function FieldLabel({ children, required }) {
@@ -137,6 +176,12 @@ export default function RegisterOrgPage() {
     if (slugAbortRef.current) slugAbortRef.current.abort();
     if (!slug || slug.length < 3) return;
 
+    if (RESERVED_SLUGS.has(slug)) {
+      setSlugStatus('taken');
+      setFe((f) => ({ ...f, slug: `"${slug}" is a reserved name and cannot be used.` }));
+      return;
+    }
+
     setSlugStatus('checking');
     slugDebounceRef.current = setTimeout(async () => {
       const controller = new AbortController();
@@ -217,6 +262,10 @@ export default function RegisterOrgPage() {
     setError('');
     if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(form.slug)) {
       setError('Slug must be lowercase letters, numbers, and hyphens (2–64 chars).');
+      return;
+    }
+    if (RESERVED_SLUGS.has(form.slug)) {
+      setFe((f) => ({ ...f, slug: `"${form.slug}" is a reserved name and cannot be used.` }));
       return;
     }
     if (slugStatus === 'taken') {
@@ -452,7 +501,10 @@ export default function RegisterOrgPage() {
                 </div>
                 <div data-field="slug">
                   <FieldLabel required>
-                    Subdomain slug
+                    <span className="inline-flex items-center gap-1">
+                      Subdomain
+                      <SlugTooltip />
+                    </span>
                     <span className="text-gray-400 font-normal ml-1 text-xs">— your login URL</span>
                   </FieldLabel>
                   <div className={`flex items-stretch rounded-xl border overflow-hidden transition-all focus-within:ring-2 ${

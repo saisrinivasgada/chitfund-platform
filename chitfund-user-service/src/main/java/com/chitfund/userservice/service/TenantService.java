@@ -58,6 +58,10 @@ public class TenantService {
     // ── Public org self-registration ─────────────────────────────────────────
 
     public TenantResponse registerOrg(RegisterOrgRequest req) {
+        if (RESERVED_SLUGS.contains(req.getSlug().toLowerCase())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Subdomain '" + req.getSlug() + "' is reserved and cannot be used", HttpStatus.CONFLICT);
+        }
         if (tenantRepository.existsBySlugAndStatusNot(req.getSlug(), "REJECTED")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Subdomain '" + req.getSlug() + "' is already taken", HttpStatus.CONFLICT);
@@ -258,7 +262,14 @@ public class TenantService {
         return toResponse(t);
     }
 
+    private static final java.util.Set<String> RESERVED_SLUGS = java.util.Set.of(
+            "hub", "www", "api", "app", "mail", "admin", "support", "help",
+            "status", "cdn", "static", "assets", "login", "signup", "register",
+            "dashboard", "billing", "dev", "staging", "test", "demo"
+    );
+
     public boolean slugExists(String slug) {
+        if (RESERVED_SLUGS.contains(slug.toLowerCase())) return true;
         return tenantRepository.existsBySlugAndStatusNot(slug, "REJECTED");
     }
 
