@@ -12,6 +12,18 @@ import software.amazon.awssdk.services.ses.model.*;
 @Slf4j
 public class EmployeeInvitationMailer {
 
+    private static final String LOGO_URL     = "https://thechitwise.com/logo.png";
+    private static final String HUB_LOGO_URL = "https://thechitwise.com/hub-icon.png";
+
+    // Envelope / mail icon for hub invite
+    private static final String ICON_INVITE =
+        "<svg width=\"26\" height=\"26\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+        "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
+        "<path d=\"M12 14l-8-5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3l-8 5z\" fill=\"white\" fill-opacity=\"0.9\"/>" +
+        "<path d=\"M4 9l8 5 8-5M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z\" " +
+        "stroke=\"white\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>" +
+        "</svg>";
+
     private final SesClient sesClient;
 
     @Value("${app.hub-url}")
@@ -31,8 +43,8 @@ public class EmployeeInvitationMailer {
     }
 
     public void sendInvitation(String email, String fullName, String rawToken) {
-        String baseUrl = hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
-        String setupUrl = baseUrl + "/hub/accept-invite?token=" + rawToken;
+        String base = hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
+        String setupUrl = base + "/hub/accept-invite?token=" + rawToken;
         String name = fullName != null && !fullName.isBlank() ? fullName : "there";
 
         if (!emailEnabled) {
@@ -78,43 +90,54 @@ public class EmployeeInvitationMailer {
     }
 
     private static String hubInviteHtml(String name, String setupUrl) {
-        String bodyContent = """
-                <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px;">
+        String body = """
+                <!-- Hub logo -->
+                <div style="text-align:center;margin-bottom:24px;">
+                  <img src="%s" width="72" height="72" alt="ChitWise Hub"
+                       style="display:inline-block;border-radius:16px;border:0;outline:none;" />
+                </div>
+
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
                   Hi <strong>%s</strong>,<br><br>
-                  Welcome to the team! You've been invited to join <strong>ChitWise Hub</strong> as an employee.
+                  Welcome to the team! You've been invited to join <strong>ChitWise Hub</strong>.
                   Click the button below to set up your username and password and activate your account.
                 </p>
 
                 <!-- CTA button -->
-                <table width="100%%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0;">
+                <table width="100%%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="margin:28px 0;">
                   <tr>
                     <td align="center">
                       <a href="%s"
-                         style="display:inline-block;background:#0F172A;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:8px;letter-spacing:0.2px;">
-                        Activate your account &rarr;
+                         style="display:inline-block;background:#0F172A;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:700;padding:15px 40px;border-radius:8px;letter-spacing:0.2px;">
+                        Activate my account &rarr;
                       </a>
                     </td>
                   </tr>
                 </table>
 
-                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0 0 8px;">
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0 0 6px;">
                   Or copy this link into your browser:
                 </p>
                 <p style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px 14px;font-size:12px;font-family:'Courier New',Courier,monospace;color:#475569;word-break:break-all;margin:0 0 20px;">
                   %s
                 </p>
 
-                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
-                  &#8987; This link expires in <strong>7 days</strong> and can only be used once.
-                  If you weren't expecting this invitation, you can safely ignore this email or contact
-                  <a href="mailto:help@thechitwise.com" style="color:#0F172A;text-decoration:none;">help@thechitwise.com</a>.
-                </p>
-                """.formatted(name, setupUrl, setupUrl);
+                <div style="background:#F0FDF4;border-left:4px solid #22C55E;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 20px;">
+                  <p style="color:#15803D;font-size:13px;margin:0;line-height:1.5;">
+                    This link expires in <strong>7 days</strong> and can only be used once.
+                  </p>
+                </div>
 
-        return baseTemplate("&#127970;", "Hub Invitation", "#0EA5E9", bodyContent);
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Weren't expecting this? Ignore this email or contact
+                  <a href="mailto:help@thechitwise.com" style="color:#0F172A;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(HUB_LOGO_URL, name, setupUrl, setupUrl);
+
+        return baseTemplate(LOGO_URL, ICON_INVITE, "Hub Invitation", "#0EA5E9", body);
     }
 
-    static String baseTemplate(String iconHtml, String title, String accentColor, String bodyContent) {
+    static String baseTemplate(String logoUrl, String iconSvg, String title, String accentColor, String bodyContent) {
         return """
                 <!DOCTYPE html>
                 <html lang="en">
@@ -122,22 +145,31 @@ public class EmployeeInvitationMailer {
                   <meta charset="UTF-8">
                   <meta name="viewport" content="width=device-width,initial-scale=1">
                   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+                  <title>ChitWise Hub</title>
                 </head>
                 <body style="margin:0;padding:0;background-color:#F1F5F9;font-family:Arial,Helvetica,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0" role="presentation">
                     <tr>
                       <td align="center" style="padding:40px 16px;">
-                        <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%%;">
+                        <table width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;width:100%%;">
 
                           <!-- Header -->
                           <tr>
-                            <td style="background:#0F172A;border-radius:14px 14px 0 0;padding:30px 36px;text-align:center;">
-                              <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                            <td style="background:#0F172A;border-radius:14px 14px 0 0;padding:28px 36px;">
+                              <table width="100%%" cellpadding="0" cellspacing="0" border="0" role="presentation">
                                 <tr>
-                                  <td align="center">
-                                    <div style="display:inline-block;background:rgba(255,255,255,0.08);border-radius:50%%;width:54px;height:54px;line-height:54px;text-align:center;font-size:26px;margin-bottom:12px;">%s</div><br>
-                                    <span style="color:#FFFFFF;font-size:22px;font-weight:700;letter-spacing:-0.3px;">ChitWise</span><br>
-                                    <span style="color:#94A3B8;font-size:13px;margin-top:4px;display:inline-block;">%s</span>
+                                  <td valign="middle" width="52">
+                                    <img src="%s" width="48" height="48" alt="ChitWise"
+                                         style="display:block;border-radius:10px;border:0;outline:none;" />
+                                  </td>
+                                  <td valign="middle" style="padding-left:14px;">
+                                    <span style="color:#FFFFFF;font-size:20px;font-weight:700;letter-spacing:-0.3px;display:block;">ChitWise</span>
+                                    <span style="color:#94A3B8;font-size:12px;display:block;margin-top:2px;">%s</span>
+                                  </td>
+                                  <td align="right" valign="middle">
+                                    <div style="background:rgba(255,255,255,0.1);border-radius:50%%;width:46px;height:46px;line-height:46px;text-align:center;">
+                                      %s
+                                    </div>
                                   </td>
                                 </tr>
                               </table>
@@ -145,13 +177,11 @@ public class EmployeeInvitationMailer {
                           </tr>
 
                           <!-- Accent bar -->
-                          <tr>
-                            <td style="height:4px;background:%s;"></td>
-                          </tr>
+                          <tr><td style="height:4px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>
 
                           <!-- Body -->
                           <tr>
-                            <td style="background:#FFFFFF;padding:36px 36px 28px;">
+                            <td style="background:#FFFFFF;padding:36px 36px 32px;">
                               %s
                             </td>
                           </tr>
@@ -159,9 +189,12 @@ public class EmployeeInvitationMailer {
                           <!-- Footer -->
                           <tr>
                             <td style="background:#F8FAFC;border-radius:0 0 14px 14px;padding:20px 36px;text-align:center;border-top:1px solid #E2E8F0;">
-                              <p style="color:#94A3B8;font-size:12px;line-height:1.6;margin:0;">
-                                &copy; 2025 ChitWise Hub &nbsp;·&nbsp;
+                              <p style="color:#94A3B8;font-size:12px;line-height:1.6;margin:0 0 4px;">
+                                &copy; 2025 ChitWise Hub &nbsp;&middot;&nbsp;
                                 <a href="mailto:help@thechitwise.com" style="color:#94A3B8;text-decoration:none;">help@thechitwise.com</a>
+                              </p>
+                              <p style="color:#CBD5E1;font-size:11px;margin:0;">
+                                This is an automated message — please do not reply directly to this email.
                               </p>
                             </td>
                           </tr>
@@ -172,6 +205,6 @@ public class EmployeeInvitationMailer {
                   </table>
                 </body>
                 </html>
-                """.formatted(iconHtml, title, accentColor, bodyContent);
+                """.formatted(logoUrl, title, iconSvg, accentColor, bodyContent);
     }
 }
