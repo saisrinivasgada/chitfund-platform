@@ -135,7 +135,7 @@ public class EmailService {
                 </p>
                 <div style="background:#FEF2F2;border:2px solid #FECACA;border-radius:12px;padding:28px;text-align:center;margin:24px 0;">
                   <p style="color:#991B1B;font-size:11px;font-weight:700;letter-spacing:2px;margin:0 0 12px;text-transform:uppercase;">One-Time Password</p>
-                  <span style="font-size:42px;font-weight:800;letter-spacing:16px;color:#111827;font-family:'Courier New',Courier,monospace;">%s</span>
+                  <span style="display:block;white-space:nowrap;font-size:36px;font-weight:800;letter-spacing:12px;color:#111827;font-family:'Courier New',Courier,monospace;">%s</span>
                   <p style="color:#B91C1C;font-size:12px;margin:12px 0 0;">Expires in 10 minutes</p>
                 </div>
                 <div style="background:#FFF7ED;border-left:4px solid #F97316;border-radius:0 8px 8px 0;padding:12px 16px;margin:0 0 20px;">
@@ -160,7 +160,7 @@ public class EmailService {
                 </p>
                 <div style="background:#EFF6FF;border:2px solid #BFDBFE;border-radius:12px;padding:28px;text-align:center;margin:24px 0;">
                   <p style="color:#1E40AF;font-size:11px;font-weight:700;letter-spacing:2px;margin:0 0 12px;text-transform:uppercase;">Verification Code</p>
-                  <span style="font-size:42px;font-weight:800;letter-spacing:16px;color:#111827;font-family:'Courier New',Courier,monospace;">%s</span>
+                  <span style="display:block;white-space:nowrap;font-size:36px;font-weight:800;letter-spacing:12px;color:#111827;font-family:'Courier New',Courier,monospace;">%s</span>
                   <p style="color:#1D4ED8;font-size:12px;margin:12px 0 0;">Expires in 10 minutes</p>
                 </div>
                 <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
