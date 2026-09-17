@@ -8,11 +8,13 @@ import com.chitfund.supportservice.dto.request.CreatePublicInquiryRequest;
 import com.chitfund.supportservice.dto.request.CreateTicketRequest;
 import com.chitfund.supportservice.repository.*;
 import com.chitfund.supportservice.websocket.TicketWebSocketController;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Year;
 import java.util.Optional;
@@ -30,6 +32,11 @@ class TicketServiceTest {
     @Mock TicketNumberSeqRepository seqRepository;
     @Mock TenantSupportClient tenantSupportClient;
     @InjectMocks TicketService ticketService;
+
+    @BeforeEach
+    void wireSelf() {
+        ReflectionTestUtils.setField(ticketService, "self", ticketService);
+    }
 
     @Test
     void organizationPriorityIsSnapshottedFromTrustedPlanEntitlement() {
