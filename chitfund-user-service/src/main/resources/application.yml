@@ -37,16 +37,10 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: false
 
-  mail:
-    host: ${MAIL_HOST:smtp.office365.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:help@thechitwise.com}
-    password: ${MAIL_PASSWORD:}
-    properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
-      mail.smtp.starttls.required: true
-      mail.smtp.ssl.trust: smtp.office365.com
+cloud:
+  aws:
+    region:
+      static: ${AWS_REGION:us-east-2}
 
 server:
   port: 8081
@@ -86,8 +80,8 @@ management:
     health:
       show-details: when-authorized
   health:
-    mail:
-      enabled: false
+    defaults:
+      enabled: true
 
 logging:
   level:
