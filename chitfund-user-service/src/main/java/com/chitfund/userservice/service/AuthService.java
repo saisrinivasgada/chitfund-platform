@@ -105,7 +105,7 @@ public class AuthService {
                 request.getPhone(), request.getPhoneCountryCode());
         if (accounts.isEmpty()) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND,
-                    "No account found for this mobile number");
+                    "Invalid credentials");
         }
         User user;
         if (accounts.size() == 1) {
@@ -120,7 +120,7 @@ public class AuthService {
                     .filter(u -> u.getRole() == request.getRole())
                     .findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
-                            "No " + request.getRole() + " account for this number"));
+                            "Invalid credentials"));
         }
 
         rejectLegacySuperAdminLogin(user);
@@ -769,7 +769,7 @@ public class AuthService {
                             "Your account has been locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. Contact your administrator.");
                 }
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Invalid password", HttpStatus.UNAUTHORIZED);
+                        "Invalid credentials", HttpStatus.UNAUTHORIZED);
             }
         }
         return user;
