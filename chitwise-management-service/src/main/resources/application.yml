@@ -43,18 +43,17 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: true
 
-cloud:
-  aws:
-    region:
-      static: ${AWS_REGION:us-east-2}
-
-spring:
   websocket:
     allowed-origins: >
       http://localhost:3000,
       http://localhost:5173,
       https://thechitwise.com,
       https://hub.thechitwise.com
+
+cloud:
+  aws:
+    region:
+      static: ${AWS_REGION:us-east-2}
 
 server:
   port: 8091
