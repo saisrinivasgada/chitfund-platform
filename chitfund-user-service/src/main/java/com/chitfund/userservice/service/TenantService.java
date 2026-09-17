@@ -1,5 +1,6 @@
 package com.chitfund.userservice.service;
 
+import lombok.extern.slf4j.Slf4j;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.client.AuditClient;
@@ -41,6 +42,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class TenantService {
 
     private final TenantRepository tenantRepository;
@@ -121,6 +123,19 @@ public class TenantService {
                 .termsVersion("1.0")
                 .build();
         userRepository.save(admin);
+
+        try {
+            String html = EmailService.buildRegistrationConfirmationHtml(
+                    req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
+            String text = EmailService.buildRegistrationConfirmationText(
+                    req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
+            notificationServiceClient.sendEmail(
+                    req.getAdminEmail(),
+                    "Your ChitWise registration is under review — " + req.getOrgName(),
+                    html, text);
+        } catch (Exception e) {
+            log.warn("Registration confirmation email could not be sent for {}: {}", req.getAdminEmail(), e.getMessage());
+        }
 
         return toResponse(tenant);
     }

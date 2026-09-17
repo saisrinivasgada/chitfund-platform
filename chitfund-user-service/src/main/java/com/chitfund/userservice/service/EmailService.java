@@ -242,6 +242,77 @@ public class EmailService {
                 """.formatted(logoUrl, title, iconSvg, accentColor, bodyContent);
     }
 
+    // ── Registration confirmation (built here, delivered via notification-service) ─
+
+    private static final String ICON_CHECKMARK =
+        "<svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+        "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
+        "<circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"white\" fill-opacity=\"0.9\"/>" +
+        "<path d=\"M7 12l3 3 7-7\" stroke=\"#0F172A\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>" +
+        "</svg>";
+
+    public static String buildRegistrationConfirmationHtml(String adminName, String orgName, String slug, String plan) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        String portalUrl = "https://" + slug + ".thechitwise.com";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  Thank you for registering <strong>%s</strong> on ChitWise! Your application has been received and is now under review.
+                </p>
+                <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:24px 0;">
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;width:130px;">Organization</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Your portal</td>
+                      <td style="padding:6px 0;font-size:13px;">
+                        <a href="%s" style="color:#059669;font-weight:600;text-decoration:none;">%s</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:6px 0;color:#6B7280;font-size:13px;">Plan</td>
+                      <td style="padding:6px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                  </table>
+                </div>
+                <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 16px;"><strong>What happens next?</strong></p>
+                <ol style="color:#4B5563;font-size:14px;line-height:2;margin:0 0 20px;padding-left:20px;">
+                  <li>Our team reviews your registration — usually within 1 business day</li>
+                  <li>You'll receive an activation email to set your password</li>
+                  <li>Log in and start managing your chit fund immediately</li>
+                </ol>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Questions? We're here at
+                  <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, orgName, orgName, portalUrl, portalUrl, plan);
+        return baseTemplate(LOGO_URL, ICON_CHECKMARK, "Registration Received", "#059669", bodyContent);
+    }
+
+    public static String buildRegistrationConfirmationText(String adminName, String orgName, String slug, String plan) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        return """
+                Hi %s,
+
+                Thank you for registering %s on ChitWise! Your application is under review.
+
+                Organization: %s
+                Your portal: https://%s.thechitwise.com
+                Plan: %s
+
+                What happens next?
+                1. Our team reviews your registration (usually within 1 business day)
+                2. You'll receive an activation email to set your password
+                3. Log in and start managing your chit fund
+
+                Questions? Reach us at help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, orgName, orgName, slug, plan);
+    }
+
     private static String maskEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         String[] parts = email.split("@", 2);

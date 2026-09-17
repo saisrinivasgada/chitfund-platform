@@ -67,4 +67,25 @@ public class NotificationServiceClient {
             log.warn("notification-service push unreachable for user {}: {}", userId, e.getMessage());
         }
     }
+
+    public void sendEmail(String toEmail, String subject, String htmlBody, String textBody) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("toEmail", toEmail);
+            body.put("subject", subject);
+            body.put("htmlBody", htmlBody);
+            body.put("textBody", textBody);
+
+            restTemplate.postForObject(
+                    notificationServiceUrl + "/internal/notify/email",
+                    new HttpEntity<>(body, headers),
+                    Void.class);
+        } catch (RestClientException e) {
+            log.warn("notification-service email unreachable for {}: {}", toEmail, e.getMessage());
+        }
+    }
 }

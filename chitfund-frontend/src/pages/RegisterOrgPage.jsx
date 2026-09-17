@@ -340,6 +340,9 @@ export default function RegisterOrgPage() {
             <p className="text-white/70 text-sm">
               <strong className="text-white">{form.orgName}</strong> has been submitted for review.
             </p>
+            <p className="text-white/60 text-xs mt-2">
+              A confirmation email has been sent to <strong className="text-white/80">{form.adminEmail}</strong>
+            </p>
           </div>
 
           {/* Steps */}
