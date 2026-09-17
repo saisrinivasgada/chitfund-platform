@@ -538,7 +538,7 @@ export default function LoginPage() {
 
   const [step, setStep]           = useState('choose'); // 'choose' | 'login' | 'login-otp' | 'login-email-otp'
   const [selectedRole, setSelectedRole] = useState(null); // one of ROLES
-  const [loginMode, setLoginMode] = useState('username');
+  const [loginMode, setLoginMode] = useState('mobile');
   const [form, setForm]           = useState({ username: '', password: '' });
   const [error, setError]         = useState('');
   const [loading, setLoading]     = useState(false);
@@ -723,7 +723,7 @@ export default function LoginPage() {
     setSelectedRole(r);
     setStep('login');
     setError('');
-    setLoginMode(r.key === 'member' ? 'mobile' : 'username');
+    setLoginMode('mobile');
   }
 
   const roleObj = selectedRole ?? ROLES[0];
@@ -893,7 +893,7 @@ export default function LoginPage() {
                           className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
                           <ChevronLeft size={16} /> Back
                         </button>
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
+                        <div className="flex items-center gap-2 ml-auto px-3 py-1.5 rounded-full text-xs font-bold"
                           style={{ backgroundColor: roleObj.bg, color: roleObj.color }}>
                           <roleObj.icon size={12} />
                           {roleObj.title}
