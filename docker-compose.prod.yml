@@ -142,6 +142,9 @@ services:
       WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-NOT_CONFIGURED}
+      # Transactional outbox rollout: LEGACY (default) → DUAL (shadow-write) → OUTBOX (full).
+      # Do NOT advance beyond LEGACY in production without validating DUAL mode first.
+      CHITWISE_EVENTS_MODE: ${CHITWISE_EVENTS_MODE:-LEGACY}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
       interval: 30s
@@ -161,6 +164,7 @@ services:
       DB_NAME: chitfund_payout
       PAYMENT_SERVICE_URL: http://payment-service:8084
       AUDIT_SERVICE_URL: http://audit-service:8088
+      CHITWISE_EVENTS_MODE: ${CHITWISE_EVENTS_MODE:-LEGACY}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8085/actuator/health"]
       interval: 30s
