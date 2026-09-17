@@ -1,25 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { setHubToken, clearHubToken, setHubSaasToken, clearHubSaasToken } from '../../services/api';
-import {
-  TicketIcon, UsersIcon, MessageSquare, LogOut, Settings,
-  PanelLeftClose, PanelLeftOpen,
-} from 'lucide-react';
+import { TicketIcon, UsersIcon, MessageSquare, LogOut, Settings } from 'lucide-react';
 
-const INACTIVITY_MS = 15 * 60 * 1000; // 15 minutes
+const INACTIVITY_MS = 15 * 60 * 1000;
 
 export default function HubLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [hubUser, setHubUser] = useState(null);
   const [ready, setReady] = useState(false);
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('hub_sidebar_collapsed') === 'true',
-  );
   const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
-    // Clean up stale localStorage token from older deployments
     localStorage.removeItem('hub_token');
 
     const token = sessionStorage.getItem('hub_token');
@@ -52,13 +45,11 @@ export default function HubLayout() {
     }
   }, [location.pathname, navigate]);
 
-  // Inactivity timeout — redirect to login after 15 min of no user activity
   useEffect(() => {
     if (!ready) return;
     const resetTimer = () => { lastActivityRef.current = Date.now(); };
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
     events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
-
     const interval = setInterval(() => {
       if (Date.now() - lastActivityRef.current >= INACTIVITY_MS) {
         sessionStorage.removeItem('hub_token');
@@ -68,8 +59,7 @@ export default function HubLayout() {
         clearHubSaasToken();
         navigate('/hub-login?reason=inactivity', { replace: true });
       }
-    }, 60_000); // check every minute
-
+    }, 60_000);
     return () => {
       events.forEach((e) => window.removeEventListener(e, resetTimer));
       clearInterval(interval);
@@ -89,91 +79,88 @@ export default function HubLayout() {
   const isSaasAdministration = location.pathname.startsWith('/superadmin');
 
   const HUB_NAV = [
-    { label: 'Platform Console', to: '/superadmin', icon: Settings, show: isSuperAdmin },
-    { label: 'Tickets', to: '/hub/tickets', icon: TicketIcon, show: true },
-    { label: 'Team Chat',       to: '/hub/chat',    icon: MessageSquare, show: true },
-    { label: 'Employees',       to: '/hub/employees', icon: UsersIcon, show: isSuperAdmin },
+    { label: 'Platform Console', to: '/superadmin',    icon: Settings,     show: isSuperAdmin },
+    { label: 'Tickets',          to: '/hub/tickets',   icon: TicketIcon,   show: true },
+    { label: 'Team Chat',        to: '/hub/chat',      icon: MessageSquare, show: true },
+    { label: 'Employees',        to: '/hub/employees', icon: UsersIcon,    show: isSuperAdmin },
   ];
 
-  function toggleSidebar() {
-    setCollapsed((current) => {
-      localStorage.setItem('hub_sidebar_collapsed', String(!current));
-      return !current;
-    });
-  }
+  const initials = hubUser?.username ? hubUser.username[0].toUpperCase() : 'H';
 
   if (!ready) return <div className="min-h-screen bg-gray-50" />;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top navbar */}
-      <header className="h-14 bg-white border-b border-gray-100 flex items-center px-6 gap-4 flex-shrink-0 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <img src="/hub-logo.svg" alt="ChitWise Hub" className="w-8 h-8 rounded-lg" />
-          <span className="font-bold text-gray-900 text-sm" style={{ fontFamily: 'Merriweather, serif' }}>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+        {/* Logo */}
+        <div className="py-4 px-4 border-b border-gray-100 flex items-center gap-2.5 flex-shrink-0">
+          <img
+            src="/hub-logo.svg"
+            alt="ChitWise Hub"
+            className="w-8 h-8 rounded-lg"
+            onError={(e) => { e.target.style.display = 'none'; }}
+          />
+          <h1
+            className="text-base font-bold leading-tight"
+            style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
+          >
             ChitWise Hub
-          </span>
+          </h1>
         </div>
-        <div className="flex-1" />
-        {hubUser && (
-          <span className="text-sm text-gray-500">
-            {hubUser.username}
-            {hubUser.role && (
-              <span className="ml-1.5 text-xs bg-[#1E3A5F]/10 text-[#1E3A5F] px-2 py-0.5 rounded-full font-medium">
-                {hubUser.role.replace('_', ' ')}
-              </span>
-            )}
-          </span>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors"
-        >
-          <LogOut size={15} />
-          Sign out
-        </button>
-      </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className={`${collapsed ? 'w-16' : 'w-56'} bg-white border-r border-gray-100 flex flex-col py-3 flex-shrink-0 transition-[width] duration-200`}>
-          <div className={`flex ${collapsed ? 'justify-center' : 'justify-end'} px-3 pb-3`}>
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-[#1E3A5F] hover:bg-gray-50 transition-colors"
+        {/* Nav */}
+        <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
+          {HUB_NAV.filter(n => n.show).map(({ label, to, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                  isActive
+                    ? 'bg-[#1E3A5F] text-white'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`
+              }
             >
-              {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-            </button>
-          </div>
-          <nav className="flex flex-col gap-1 px-2">
-            {HUB_NAV.filter(n => n.show).map(({ label, to, icon: Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                title={collapsed ? label : undefined}
-                className={({ isActive }) =>
-                  `flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-3'} py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-[#1E3A5F] text-white'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`
-                }
-              >
-                <Icon size={17} className="flex-shrink-0" />
-                {!collapsed && <span>{label}</span>}
-              </NavLink>
-            ))}
-          </nav>
-        </aside>
+              <Icon size={17} className="flex-shrink-0" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-        {/* Main content */}
-        <main className={`flex-1 overflow-auto ${isSaasAdministration ? 'p-0' : 'p-6'}`}>
-          <Outlet />
-        </main>
-      </div>
+        {/* Footer */}
+        <div className="py-4 px-3 border-t border-gray-100 flex-shrink-0 space-y-1">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #1E3A5F, #2a4f7c)' }}
+            >
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{hubUser?.username}</p>
+              {hubUser?.role && (
+                <p className="text-xs font-medium text-[#1E3A5F] leading-tight">
+                  {hubUser.role.replace('_', ' ')}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
+          >
+            <LogOut size={16} className="flex-shrink-0" />
+            <span>Sign out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className={`flex-1 overflow-auto ${isSaasAdministration ? 'p-0' : 'p-6'}`}>
+        <Outlet />
+      </main>
     </div>
   );
 }

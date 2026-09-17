@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.controller.hub;
 
+import com.chitfund.supportservice.dto.request.AssignCustomRoleRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
@@ -93,6 +94,16 @@ public class HubEmployeeController {
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> reactivate(@PathVariable String id, Authentication auth) {
         EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), true);
+        return ResponseEntity.ok(Map.of("success", true, "data", employee));
+    }
+
+    @PatchMapping("/{id}/custom-role")
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    public ResponseEntity<?> assignCustomRole(@PathVariable String id,
+                                              Authentication auth,
+                                              @RequestBody AssignCustomRoleRequest body) {
+        EmployeeResponse employee = employeeService.assignCustomRole(
+                id, (String) auth.getPrincipal(), body.getCustomRoleId());
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 

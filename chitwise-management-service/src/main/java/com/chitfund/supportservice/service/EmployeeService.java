@@ -2,15 +2,18 @@ package com.chitfund.supportservice.service;
 
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
+import com.chitfund.supportservice.dto.request.AssignCustomRoleRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.dto.request.UpdateIdentityPermissionsRequest;
+import com.chitfund.supportservice.dto.request.UpdateMeRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.domain.entity.HubRefreshSession;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
@@ -39,6 +42,7 @@ import java.util.UUID;
 public class EmployeeService {
 
     private final EmployeeRepository employeeRepository;
+    private final HubCustomRoleRepository roleRepository;
     private final HubJwtTokenProvider jwtTokenProvider;
     private final OrgJwtTokenProvider orgJwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
@@ -357,8 +361,43 @@ public class EmployeeService {
         }
     }
 
+    @Transactional
+    public EmployeeResponse updateMe(String employeeId, UpdateMeRequest req) {
+        Employee employee = getById(employeeId);
+        if (req.getFullName() != null && !req.getFullName().isBlank()) {
+            employee.setFullName(req.getFullName().trim());
+        }
+        if (req.getEmail() != null && !req.getEmail().isBlank()) {
+            if (!req.getEmail().equalsIgnoreCase(employee.getEmail())
+                    && employeeRepository.existsByEmail(req.getEmail())) {
+                throw new IllegalStateException("Email already in use");
+            }
+            employee.setEmail(req.getEmail().trim());
+        }
+        return toResponse(employeeRepository.save(employee));
+    }
+
+    @Transactional
+    public EmployeeResponse assignCustomRole(String employeeId, String actorId, String customRoleId) {
+        if (employeeId.equals(actorId)) {
+            throw new IllegalArgumentException("You cannot change your own custom role");
+        }
+        Employee employee = getById(employeeId);
+        if (customRoleId != null && !roleRepository.existsById(customRoleId)) {
+            throw new IllegalArgumentException("Custom role not found");
+        }
+        employee.setCustomRoleId(customRoleId);
+        return toResponse(employeeRepository.save(employee));
+    }
+
     private EmployeeResponse toResponse(Employee e) {
         String employeeId = formatCardId(e);
+        String customRoleName = null;
+        if (e.getCustomRoleId() != null) {
+            customRoleName = roleRepository.findById(e.getCustomRoleId())
+                    .map(r -> r.getName())
+                    .orElse(null);
+        }
         return EmployeeResponse.builder()
                 .id(e.getId())
                 .employeeId(employeeId)
@@ -366,6 +405,8 @@ public class EmployeeService {
                 .email(e.getEmail())
                 .username(e.getUsername())
                 .role(e.getRole())
+                .customRoleId(e.getCustomRoleId())
+                .customRoleName(customRoleName)
                 .active(e.isActive())
                 .lastLoginAt(e.getLastLoginAt())
                 .createdAt(e.getCreatedAt())

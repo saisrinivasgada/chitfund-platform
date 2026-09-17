@@ -50,6 +50,9 @@ public class Employee {
     @Column(nullable = false)
     private String role;
 
+    @Column(name = "custom_role_id")
+    private String customRoleId;
+
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 

@@ -21,4 +21,6 @@ public class EmployeeResponse {
     private boolean mustChangePassword;
     private boolean canManageIdentityCases;
     private boolean platformOwner;
+    private String customRoleId;
+    private String customRoleName;
 }

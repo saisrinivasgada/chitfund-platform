@@ -12,6 +12,7 @@ import {
 import { BookOpen } from 'lucide-react';
 import SuperAdminProfileModal from './SuperAdminProfileModal';
 import SignOutConfirmModal from './SignOutConfirmModal';
+import HubProfileModal from '../hub/HubProfileModal';
 
 const NAV = [
   { label: 'Home',       to: '/superadmin' },
@@ -88,12 +89,56 @@ export default function SuperAdminLayout({ embedded = false }) {
   }
 
   function handleProfile() {
-    if (embedded) navigate('/hub/change-password');
-    else setShowProfile(true);
+    setShowProfile(true);
+  }
+
+  if (embedded) {
+    return (
+      <div className="min-h-full bg-[#F5F7FA]">
+        <div className="bg-white border-b border-gray-100 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-30">
+          <nav className="flex items-center gap-0.5 sm:gap-1">
+            {NAV.map(({ label, to, badge }) => (
+              <Link
+                key={to}
+                to={to}
+                className={`px-2.5 sm:px-3 py-3 text-xs sm:text-sm transition-colors whitespace-nowrap flex items-center gap-1 border-b-2 ${
+                  isActive(to)
+                    ? 'font-semibold text-[#1E3A5F] border-[#1E3A5F]'
+                    : 'text-gray-500 hover:text-gray-800 border-transparent'
+                }`}
+              >
+                {label}
+                {badge && alertCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                    {alertCount > 99 ? '99+' : alertCount}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </nav>
+          <button
+            type="button"
+            onClick={handleProfile}
+            title="Edit profile"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold hover:opacity-80 cursor-pointer my-1"
+            style={{ background: 'linear-gradient(135deg, #1E3A5F, #2a4f7c)' }}
+          >
+            {user?.username ? user.username[0].toUpperCase() : 'S'}
+          </button>
+        </div>
+
+        {showProfile && <HubProfileModal onClose={() => setShowProfile(false)} />}
+        {showSignOut && (
+          <SignOutConfirmModal onConfirm={handleSignOut} onCancel={() => setShowSignOut(false)} />
+        )}
+
+        <Outlet />
+      </div>
+    );
   }
 
   return (
-    <div className={`${embedded ? 'min-h-full' : 'min-h-screen'} bg-[#F5F7FA]`}>
+    <div className={`min-h-screen bg-[#F5F7FA]`}>
       <header className="bg-white border-b border-gray-100 px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto scrollbar-none">
           <div className="flex items-center gap-3 flex-shrink-0">
@@ -146,7 +191,7 @@ export default function SuperAdminLayout({ embedded = false }) {
         </div>
       </header>
 
-      {!embedded && showProfile && <SuperAdminProfileModal onClose={() => setShowProfile(false)} />}
+      {showProfile && <SuperAdminProfileModal onClose={() => setShowProfile(false)} />}
       {showSignOut && (
         <SignOutConfirmModal
           onConfirm={handleSignOut}

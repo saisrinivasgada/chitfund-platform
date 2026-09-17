@@ -2053,4 +2053,13 @@ export const removeReminder = async (reminderId) => {
   return res.data.data ?? res.data;
 };
 
+export const hubGetMe = () => hubApi.get('/hub/auth/me').then(r => r.data?.data ?? r.data);
+export const hubUpdateMe = (data) => hubApi.patch('/hub/auth/me', data).then(r => r.data?.data ?? r.data);
+export const hubListRoles = () => hubApi.get('/hub/roles').then(r => r.data?.data ?? r.data);
+export const hubCreateRole = (data) => hubApi.post('/hub/roles', data).then(r => r.data?.data ?? r.data);
+export const hubUpdateRole = (id, data) => hubApi.put(`/hub/roles/${id}`, data).then(r => r.data?.data ?? r.data);
+export const hubDeleteRole = (id) => hubApi.delete(`/hub/roles/${id}`).then(r => r.data);
+export const hubAssignCustomRole = (employeeId, customRoleId) =>
+  hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId }).then(r => r.data?.data ?? r.data);
+
 export default api;

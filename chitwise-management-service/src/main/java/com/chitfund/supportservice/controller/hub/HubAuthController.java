@@ -5,8 +5,10 @@ import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.HubRefreshRequest;
+import com.chitfund.supportservice.dto.request.UpdateMeRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
 import com.chitfund.supportservice.dto.response.EmployeeMeResponse;
+import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +55,14 @@ public class HubAuthController {
     public ResponseEntity<?> changePassword(Authentication auth,
                                             @Valid @RequestBody ChangeEmployeePasswordRequest request) {
         EmployeeLoginResponse response = employeeService.changePassword((String) auth.getPrincipal(), request);
+        return ResponseEntity.ok(Map.of("success", true, "data", response));
+    }
+
+    @PatchMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> updateMe(Authentication auth,
+                                      @Valid @RequestBody UpdateMeRequest request) {
+        EmployeeResponse response = employeeService.updateMe((String) auth.getPrincipal(), request);
         return ResponseEntity.ok(Map.of("success", true, "data", response));
     }
 
