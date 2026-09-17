@@ -1,8 +1,8 @@
 package com.chitfund.userservice.service;
 
 import com.chitfund.userservice.client.MemberServiceClient;
-import com.chitfund.userservice.client.NotificationServiceClient;
 import com.chitfund.userservice.domain.enums.Role;
+import com.chitfund.userservice.event.NotificationEventPublisher;
 import com.chitfund.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +17,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class IdentityNotificationListener {
-    private final NotificationServiceClient notificationClient;
+    private final NotificationEventPublisher eventPublisher;
     private final MemberServiceClient memberServiceClient;
     private final UserRepository userRepository;
 
@@ -26,8 +26,6 @@ public class IdentityNotificationListener {
         try {
             deliver(event);
         } catch (RuntimeException ex) {
-            // The identity transaction is already committed. Notification failure
-            // must be visible but must never make the caller retry the money/identity operation.
             log.error("Post-commit identity notification failed for type {}: {}",
                     event.type(), ex.getClass().getSimpleName());
         }
@@ -37,10 +35,10 @@ public class IdentityNotificationListener {
         switch (event.type()) {
             case CHITFUND_REQUEST_CREATED -> {
                 String org = event.organizationName() == null ? "An organization" : event.organizationName();
-                notificationClient.createInApp(event.recipientUserId(), "New Chitfund Request",
+                eventPublisher.publishInApp(event.recipientUserId(), "New Chitfund Request",
                         org + " asked to connect a member profile to your ChitWise account.",
-                        "CHITFUND_REQUEST", "/member/chitfund-requests");
-                notificationClient.sendPushWithData(event.recipientUserId(), "New Chitfund Request",
+                        "CHITFUND_REQUEST", null, "/member/chitfund-requests");
+                eventPublisher.publishPush(event.recipientUserId(), "New Chitfund Request",
                         org + " sent an app-access request.",
                         Map.of("type", "CHITFUND_REQUEST", "requestId", event.requestId().toString()));
             }
@@ -55,22 +53,22 @@ public class IdentityNotificationListener {
                                 event.requestId(), ex.getMessage());
                     }
                 }
-                notificationClient.createInApp(
+                eventPublisher.publishInApp(
                         event.recipientUserId(), "Chitfund Access Active",
                         "Your verified member profile is now active for " + event.organizationName() + ".",
-                        "CHITFUND_REQUEST", "/member/chitfund-requests");
+                        "CHITFUND_REQUEST", null, "/member/chitfund-requests");
             }
             case PHONE_IDENTITY_REASSIGNED -> {
-                notificationClient.createInApp(event.recipientUserId(), "Account identity updated",
+                eventPublisher.publishInApp(event.recipientUserId(), "Account identity updated",
                         "A support-approved phone identity change was completed. Your historical organization and financial records were not transferred or deleted.",
-                        "ACCOUNT_ACCESS", "/member/support");
+                        "ACCOUNT_ACCESS", null, "/member/support");
                 for (var tenantId : event.affectedTenantIds() == null ? List.<java.util.UUID>of() : event.affectedTenantIds()) {
                     userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
                                     tenantId.toString(), List.of(Role.ADMIN))
-                            .forEach(admin -> notificationClient.createInApp(admin.getId(),
+                            .forEach(admin -> eventPublisher.publishInApp(admin.getId(),
                                     "Member identity access updated",
                                     "ChitWise Support completed an approved identity-access change affecting a member profile in your organization. Financial history was not changed.",
-                                    "ACCOUNT_ACCESS", "/support"));
+                                    "ACCOUNT_ACCESS", null, "/support"));
                 }
             }
         }

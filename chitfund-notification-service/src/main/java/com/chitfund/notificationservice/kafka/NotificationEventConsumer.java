@@ -7,6 +7,7 @@ import com.chitfund.notificationservice.client.UserServiceClient;
 import com.chitfund.notificationservice.domain.enums.NotificationEventType;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.repository.EventInboxRepository;
+import com.chitfund.notificationservice.sender.EmailSender;
 import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
@@ -32,6 +33,7 @@ public class NotificationEventConsumer {
     private final NotificationService notificationService;
     private final com.chitfund.notificationservice.service.InAppNotificationService inAppService;
     private final ExpoPushService pushService;
+    private final EmailSender emailSender;
     private final ObjectMapper objectMapper;
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
@@ -70,6 +72,12 @@ public class NotificationEventConsumer {
                     onMemberUpdated(objectMapper.readValue(envelope.payload(), MemberUpdatedEvent.class));
                 case SqsQueues.EVT_CASH_REQUEST_EVENT ->
                     onCashRequestEvent(objectMapper.readValue(envelope.payload(), CashRequestEvent.class));
+                case SqsQueues.EVT_TRANSACTIONAL_EMAIL ->
+                    onTransactionalEmail(objectMapper.readValue(envelope.payload(), TransactionalEmailEvent.class));
+                case SqsQueues.EVT_IN_APP_NOTIFICATION ->
+                    onInAppNotification(objectMapper.readValue(envelope.payload(), InAppNotificationEvent.class));
+                case SqsQueues.EVT_PUSH_NOTIFICATION ->
+                    onPushNotification(objectMapper.readValue(envelope.payload(), PushNotificationEvent.class));
                 default -> throw new IllegalStateException("Validated event type was not handled");
             }
         } catch (Exception e) {
@@ -95,7 +103,10 @@ public class NotificationEventConsumer {
                 || SqsQueues.EVT_PAYOUT_CREATED.equals(eventType)
                 || SqsQueues.EVT_PAYOUT_DISBURSED.equals(eventType)
                 || SqsQueues.EVT_MEMBER_UPDATED.equals(eventType)
-                || SqsQueues.EVT_CASH_REQUEST_EVENT.equals(eventType);
+                || SqsQueues.EVT_CASH_REQUEST_EVENT.equals(eventType)
+                || SqsQueues.EVT_TRANSACTIONAL_EMAIL.equals(eventType)
+                || SqsQueues.EVT_IN_APP_NOTIFICATION.equals(eventType)
+                || SqsQueues.EVT_PUSH_NOTIFICATION.equals(eventType);
     }
 
     private String canonicalEventId(String eventId) {
@@ -616,6 +627,48 @@ public class NotificationEventConsumer {
             inAppService.create(UUID.fromString(userId), title, message, type, metadata, link);
             pushService.sendToUserWithData(UUID.fromString(userId), title, message,
                     Map.of("screen", "payments"));
+        }
+    }
+
+    // ── Transactional email (registration confirmation, hub invites, etc.) ────────
+
+    private void onTransactionalEmail(TransactionalEmailEvent event) {
+        try {
+            emailSender.send(event.toEmail(), event.subject(), event.textBody(), event.htmlBody());
+        } catch (Exception e) {
+            log.error("Failed to send transactional email to {}: {}", event.toEmail(), e.getMessage(), e);
+            throw new IllegalStateException("TRANSACTIONAL_EMAIL processing failed", e);
+        }
+    }
+
+    // ── In-app notification ───────────────────────────────────────────────────────
+
+    private void onInAppNotification(InAppNotificationEvent event) {
+        try {
+            inAppService.create(
+                    UUID.fromString(event.recipientId()),
+                    event.title(), event.message(), event.type(),
+                    event.metadata(), event.link());
+            broadcaster.broadcast("IN_APP_UPDATED");
+        } catch (Exception e) {
+            log.error("Failed to create in-app notification for {}: {}", event.recipientId(), e.getMessage(), e);
+            throw new IllegalStateException("IN_APP_NOTIFICATION processing failed", e);
+        }
+    }
+
+    // ── Push notification ─────────────────────────────────────────────────────────
+
+    private void onPushNotification(PushNotificationEvent event) {
+        try {
+            if (event.data() != null && !event.data().isEmpty()) {
+                pushService.sendToUserWithData(
+                        UUID.fromString(event.userId()), event.title(), event.body(), event.data());
+            } else {
+                pushService.sendToUser(UUID.fromString(event.userId()), event.title(), event.body());
+            }
+        } catch (Exception e) {
+            log.error("Failed to send push notification to {}: {}", event.userId(), e.getMessage(), e);
+            throw new IllegalStateException("PUSH_NOTIFICATION processing failed", e);
         }
     }
 

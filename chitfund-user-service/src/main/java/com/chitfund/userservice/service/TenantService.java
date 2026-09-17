@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.client.AuditClient;
-import com.chitfund.userservice.client.NotificationServiceClient;
+import com.chitfund.userservice.event.NotificationEventPublisher;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.entity.MemberUserLink;
@@ -53,7 +53,7 @@ public class TenantService {
     private final PromotionRepository promotionRepository;
     private final PasswordEncoder passwordEncoder;
     private final PromotionService promotionService;
-    private final NotificationServiceClient notificationServiceClient;
+    private final NotificationEventPublisher notificationEventPublisher;
     private final AuditClient auditClient;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -129,12 +129,12 @@ public class TenantService {
                     req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
             String text = EmailService.buildRegistrationConfirmationText(
                     req.getAdminFullName(), req.getOrgName(), req.getSlug(), plan);
-            notificationServiceClient.sendEmail(
+            notificationEventPublisher.publishEmail(
                     req.getAdminEmail(),
                     "Your ChitWise registration is under review — " + req.getOrgName(),
                     html, text);
         } catch (Exception e) {
-            log.warn("Registration confirmation email could not be sent for {}: {}", req.getAdminEmail(), e.getMessage());
+            log.warn("Registration confirmation email could not be queued for {}: {}", req.getAdminEmail(), e.getMessage());
         }
 
         return toResponse(tenant);
@@ -382,11 +382,11 @@ public class TenantService {
 
         // Notify all super-admin accounts
         userRepository.findByRoleIn(java.util.List.of(com.chitfund.userservice.domain.enums.Role.SUPER_ADMIN))
-                .forEach(admin -> notificationServiceClient.createInApp(
+                .forEach(admin -> notificationEventPublisher.publishInApp(
                         admin.getId(),
                         "Renewal Request",
                         t.getName() + " (" + t.getPlan() + " plan) has requested a renewal.",
-                        "RENEWAL_REQUEST",
+                        "RENEWAL_REQUEST", null,
                         "/superadmin/tenants/" + tenantId));
     }
 

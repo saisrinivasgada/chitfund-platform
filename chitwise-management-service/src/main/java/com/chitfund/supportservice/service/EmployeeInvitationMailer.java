@@ -1,15 +1,18 @@
 package com.chitfund.supportservice.service;
 
+import com.chitfund.common.event.SqsEventEnvelope;
+import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.event.TransactionalEmailEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.sqs.operations.SqsTemplate;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.Map;
+import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class EmployeeInvitationMailer {
 
@@ -24,20 +27,11 @@ public class EmployeeInvitationMailer {
         "stroke=\"white\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>" +
         "</svg>";
 
-    private final RestTemplate restTemplate;
+    private final SqsTemplate sqsTemplate;
+    private final ObjectMapper objectMapper;
 
-    @Value("${app.hub-url}")
+    @org.springframework.beans.factory.annotation.Value("${app.hub-url}")
     private String hubUrl;
-
-    @Value("${app.notification-service-url:http://localhost:8086}")
-    private String notificationServiceUrl;
-
-    @Value("${app.internal-key:chitfund-internal-service-key}")
-    private String internalKey;
-
-    public EmployeeInvitationMailer(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
 
     public void sendInvitation(String email, String fullName, String rawToken) {
         String base = hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
@@ -63,23 +57,15 @@ public class EmployeeInvitationMailer {
         String html = hubInviteHtml(name, setupUrl);
 
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("X-Internal-Key", internalKey);
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            restTemplate.postForObject(
-                    notificationServiceUrl + "/internal/notify/email",
-                    new HttpEntity<>(Map.of(
-                            "toEmail",  email,
-                            "subject",  subject,
-                            "htmlBody", html,
-                            "textBody", text
-                    ), headers),
-                    Void.class);
-
-            log.info("Hub invite email dispatched for {}", email);
-        } catch (RestClientException e) {
-            log.error("Failed to dispatch hub invite email for {}: {}", email, e.getMessage());
+            String payloadJson = objectMapper.writeValueAsString(
+                    new TransactionalEmailEvent(email, subject, html, text));
+            String envelopeJson = objectMapper.writeValueAsString(
+                    new SqsEventEnvelope(UUID.randomUUID().toString(),
+                            SqsQueues.EVT_TRANSACTIONAL_EMAIL, payloadJson));
+            sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelopeJson);
+            log.info("Hub invite email queued for {}", email);
+        } catch (Exception e) {
+            log.error("Failed to queue hub invite email for {}: {}", email, e.getMessage());
             throw new RuntimeException("Failed to send invitation email. Please try again.");
         }
     }

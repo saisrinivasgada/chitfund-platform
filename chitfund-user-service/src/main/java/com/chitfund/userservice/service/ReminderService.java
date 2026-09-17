@@ -1,6 +1,6 @@
 package com.chitfund.userservice.service;
 
-import com.chitfund.userservice.client.NotificationServiceClient;
+import com.chitfund.userservice.event.NotificationEventPublisher;
 import com.chitfund.userservice.domain.entity.MemberReminder;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.SendReminderRequest;
@@ -34,7 +34,7 @@ public class ReminderService {
     private final MemberReminderRepository reminderRepo;
     private final UserRepository userRepo;
     private final MemberUserLinkRepository memberUserLinkRepo;
-    private final NotificationServiceClient notificationClient;
+    private final NotificationEventPublisher notificationEventPublisher;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -91,10 +91,10 @@ public class ReminderService {
         if (req.getReminderTime() != null && !req.getReminderTime().isBlank()) {
             pushData.put("reminderTime", req.getReminderTime()); // HH:MM
         }
-        notificationClient.sendPushWithData(member.getId(), pushTitle, pushBody, pushData);
+        notificationEventPublisher.publishPush(member.getId(), pushTitle, pushBody, pushData);
 
         // In-app notification for web members (and as fallback for mobile)
-        notificationClient.createInApp(member.getId(), pushTitle, pushBody, "REMINDER", null);
+        notificationEventPublisher.publishInApp(member.getId(), pushTitle, pushBody, "REMINDER", null, null);
 
         return toResponse(reminder);
     }
