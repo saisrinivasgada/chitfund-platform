@@ -184,6 +184,8 @@ services:
       DB_NAME: chitfund_notification
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
       NOTIFICATION_SENDER_MODE: ${NOTIFICATION_SENDER_MODE:-LOGGING}
+      MAIL_FROM: ${MAIL_FROM:-noreply@thechitwise.com}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
       MEMBER_SERVICE_URL: http://member-service:8083
       USER_SERVICE_URL: http://user-service:8081
       CHIT_SERVICE_URL: http://chit-service:8082
