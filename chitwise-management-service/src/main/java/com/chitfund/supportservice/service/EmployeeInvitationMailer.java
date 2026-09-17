@@ -2,11 +2,12 @@ package com.chitfund.supportservice.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.ses.SesClient;
-import software.amazon.awssdk.services.ses.model.*;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -15,7 +16,6 @@ public class EmployeeInvitationMailer {
     private static final String LOGO_URL     = "https://thechitwise.com/logo.png";
     private static final String HUB_LOGO_URL = "https://thechitwise.com/hub-icon.png";
 
-    // Envelope / mail icon for hub invite
     private static final String ICON_INVITE =
         "<svg width=\"26\" height=\"26\" viewBox=\"0 0 24 24\" fill=\"none\" " +
         "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
@@ -24,33 +24,25 @@ public class EmployeeInvitationMailer {
         "stroke=\"white\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>" +
         "</svg>";
 
-    private final SesClient sesClient;
+    private final RestTemplate restTemplate;
 
     @Value("${app.hub-url}")
     private String hubUrl;
 
-    @Value("${app.mail.from:ChitWise <help@thechitwise.com>}")
-    private String fromAddress;
+    @Value("${app.notification-service-url:http://localhost:8086}")
+    private String notificationServiceUrl;
 
-    @Value("${app.email.enabled:false}")
-    private boolean emailEnabled;
+    @Value("${app.internal-key:chitfund-internal-service-key}")
+    private String internalKey;
 
-    public EmployeeInvitationMailer(@Value("${cloud.aws.region.static:us-east-2}") String region) {
-        this.sesClient = SesClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(DefaultCredentialsProvider.create())
-                .build();
+    public EmployeeInvitationMailer(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
     }
 
     public void sendInvitation(String email, String fullName, String rawToken) {
         String base = hubUrl.endsWith("/") ? hubUrl.substring(0, hubUrl.length() - 1) : hubUrl;
         String setupUrl = base + "/hub/accept-invite?token=" + rawToken;
         String name = fullName != null && !fullName.isBlank() ? fullName : "there";
-
-        if (!emailEnabled) {
-            log.warn("Hub invite email disabled — accept-invite URL for {}: {}", email, setupUrl);
-            return;
-        }
 
         String subject = "You're invited to ChitWise Hub";
         String text = """
@@ -71,20 +63,23 @@ public class EmployeeInvitationMailer {
         String html = hubInviteHtml(name, setupUrl);
 
         try {
-            sesClient.sendEmail(SendEmailRequest.builder()
-                    .source(fromAddress)
-                    .destination(Destination.builder().toAddresses(email).build())
-                    .message(Message.builder()
-                            .subject(Content.builder().data(subject).charset("UTF-8").build())
-                            .body(Body.builder()
-                                    .text(Content.builder().data(text).charset("UTF-8").build())
-                                    .html(Content.builder().data(html).charset("UTF-8").build())
-                                    .build())
-                            .build())
-                    .build());
-            log.info("Hub invite email sent to {}", email);
-        } catch (SesException e) {
-            log.error("SES send failed for Hub invite to {}: {}", email, e.awsErrorDetails().errorMessage());
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            restTemplate.postForObject(
+                    notificationServiceUrl + "/internal/notify/email",
+                    new HttpEntity<>(Map.of(
+                            "toEmail",  email,
+                            "subject",  subject,
+                            "htmlBody", html,
+                            "textBody", text
+                    ), headers),
+                    Void.class);
+
+            log.info("Hub invite email dispatched for {}", email);
+        } catch (RestClientException e) {
+            log.error("Failed to dispatch hub invite email for {}: {}", email, e.getMessage());
             throw new RuntimeException("Failed to send invitation email. Please try again.");
         }
     }

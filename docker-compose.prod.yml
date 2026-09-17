@@ -267,8 +267,6 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitwise_management
       MANAGEMENT_JWT_SECRET: ${MANAGEMENT_JWT_SECRET}
-      MAIL_FROM: ${MAIL_FROM:-ChitWise <help@thechitwise.com>}
-      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       FRONTEND_URL: https://thechitwise.com
       HUB_URL: https://hub.thechitwise.com
       NOTIFICATION_SERVICE_URL: http://notification-service:8086
