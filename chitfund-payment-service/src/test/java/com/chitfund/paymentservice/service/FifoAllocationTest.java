@@ -69,6 +69,7 @@ class FifoAllocationTest {
     @Mock private NotificationService notificationService;
     @Mock private MemberCreditService memberCreditService;
     @Mock private ChitMonthDrawService chitMonthDrawService;
+    @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
 
     @InjectMocks private PaymentService service;
 
