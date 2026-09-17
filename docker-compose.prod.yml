@@ -78,6 +78,8 @@ services:
       DB_NAME: chitfund_user
       MANAGEMENT_SERVICE_URL: http://management-service:8091
       AUDIT_SERVICE_URL: http://audit-service:8088
+      MAIL_FROM: ${MAIL_FROM:-noreply@thechitwise.com}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s
