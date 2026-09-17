@@ -57,6 +57,14 @@ notification:
   sender:
     mode: ${NOTIFICATION_SENDER_MODE:LOGGING}
 
+app:
+  mail:
+    from: ${MAIL_FROM:noreply@thechitwise.com}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
+  otp:
+    logging-enabled: ${OTP_LOGGING_ENABLED:false}
+
   # Production SMS provider (MSG91 — popular in India)
   # sms:
   #   provider: MSG91

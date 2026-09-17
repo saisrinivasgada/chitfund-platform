@@ -5,6 +5,7 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
+import com.chitfund.notificationservice.sender.EmailSender;
 import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.InAppNotificationService;
 import com.chitfund.notificationservice.service.NotificationService;
@@ -35,6 +36,7 @@ public class InternalNotifyController {
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
     private final ExpoPushService expoPushService;
+    private final EmailSender emailSender;
 
     @Value("${notification.internal-key}")
     private String internalKey;
@@ -189,5 +191,41 @@ public class InternalNotifyController {
         log.info("Bulk notification sent: {} recipients, event={}",
                 results.size(), request.getEventType());
         return ResponseEntity.ok(ApiResponse.success(results));
+    }
+
+    /**
+     * Generic transactional email endpoint for other services.
+     * Accepts pre-built subject + HTML/text body — the caller owns template construction.
+     * Body: { toEmail, subject, htmlBody, textBody }
+     */
+    @PostMapping("/email")
+    public ResponseEntity<ApiResponse<Void>> sendEmail(
+            @RequestHeader("X-Internal-Key") String key,
+            @RequestBody Map<String, Object> body) {
+
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+
+        String toEmail  = (String) body.get("toEmail");
+        String subject  = (String) body.get("subject");
+        String htmlBody = (String) body.get("htmlBody");
+        String textBody = (String) body.getOrDefault("textBody", "");
+
+        if (toEmail == null || toEmail.isBlank() || subject == null || subject.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("GENERAL_400", "toEmail and subject are required"));
+        }
+
+        try {
+            emailSender.send(toEmail, subject, textBody, htmlBody);
+            log.info("Transactional email dispatched to {}", toEmail.replaceAll("(?<=.).(?=[^@]*@)", "*"));
+            return ResponseEntity.ok(ApiResponse.success(null));
+        } catch (Exception e) {
+            log.error("Failed to send transactional email to {}: {}", toEmail, e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("GENERAL_500", "Email delivery failed"));
+        }
     }
 }
