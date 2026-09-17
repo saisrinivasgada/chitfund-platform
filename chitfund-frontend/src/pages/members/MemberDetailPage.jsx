@@ -510,7 +510,7 @@ function CreateLoginModal({ member, onClose }) {
     return (
       <Modal title="Chitfund Request Sent" onClose={onClose} size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600"><strong>{member.fullName}</strong> must verify their phone and choose their own credentials. App access stays disabled until you confirm.</p>
+          <p className="text-sm text-gray-600"><strong>{member.fullName}</strong> will receive app access as soon as they verify their phone and set their credentials. No further action needed from you.</p>
           {setupUrl && <button
             type="button"
             onClick={() => { navigator.clipboard.writeText(setupUrl); setCopied(true); setTimeout(() => setCopied(false), 2500); }}
@@ -592,7 +592,7 @@ function AccountAccessTicketModal({ member, onClose }) {
 const REQUEST_STATUS = {
   PENDING_MEMBER: ['Waiting for member', 'bg-amber-50 text-amber-700 border-amber-200'],
   MEMBER_VERIFIED: ['Member verified', 'bg-blue-50 text-blue-700 border-blue-200'],
-  AWAITING_ADMIN: ['Ready for your confirmation', 'bg-blue-50 text-blue-700 border-blue-200'],
+  AWAITING_ADMIN: ['Pending activation', 'bg-blue-50 text-blue-700 border-blue-200'],
   ACTIVE: ['App access active', 'bg-green-50 text-green-700 border-green-200'],
   DECLINED: ['Declined', 'bg-gray-50 text-gray-600 border-gray-200'],
   EXPIRED: ['Expired', 'bg-red-50 text-red-700 border-red-200'],

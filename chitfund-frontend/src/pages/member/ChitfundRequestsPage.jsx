@@ -37,7 +37,7 @@ export default function ChitfundRequestsPage() {
         <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center"><Building2 className="text-[#1E3A5F]" size={20}/></div>
         <div className="flex-1"><p className="font-semibold text-gray-900">{r.organizationName}</p><p className="text-xs text-gray-500 mt-1">Phone {r.maskedPhone} · expires {new Date(r.expiresAt).toLocaleString()}</p><p className="text-xs font-semibold text-amber-700 mt-2">{r.status.replaceAll('_',' ')}</p></div>
         {r.status === 'PENDING_MEMBER' && <div className="flex gap-2"><Button variant="secondary" onClick={() => decline.mutate(r.id)}><XCircle size={14}/> Decline</Button><Button onClick={() => accept.mutate(r)} loading={accept.isPending}>Verify & Accept</Button></div>}
-        {r.status === 'AWAITING_ADMIN' && <span className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">Waiting for admin</span>}
+        {r.status === 'AWAITING_ADMIN' && <span className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">Activating…</span>}
       </div>)}
     {selected && <Modal title="Verify Chitfund Request" onClose={() => setSelected(null)} size="sm"><div className="space-y-4"><p className="text-sm text-gray-600">Enter the OTP sent to your registered phone. This does not share information from your other organizations.</p><OtpCodeInput value={otp} onChange={setOtp} length={6}/>{error && <p className="text-sm text-red-600">{error}</p>}<Button className="w-full" disabled={otp.length !== 6} loading={verify.isPending} onClick={() => verify.mutate()}>Accept Request</Button></div></Modal>}
   </div>;

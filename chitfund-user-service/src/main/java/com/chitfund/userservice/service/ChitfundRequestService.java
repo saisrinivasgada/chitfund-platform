@@ -201,7 +201,7 @@ public class ChitfundRequestService {
         }
         if (request.getStatus() == ChitfundRequestStatus.AWAITING_ADMIN) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "Your request is awaiting administrator approval. You will be notified when you can proceed.");
+                    "Your request is already verified and being activated. You will be notified shortly.");
         }
         otpService.sendOtp(request.getRequestedPhone(), request.getPhoneCountryCode(),
                 ACCEPT_OTP, request.getId().toString());
@@ -232,12 +232,8 @@ public class ChitfundRequestService {
             return toResponse(request, null);
         }
         otpService.verifyOtp(request.getRequestedPhone(), ACCEPT_OTP, request.getId().toString(), code);
-        ChitfundRequestStatus previous = request.getStatus();
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
-        requestRepository.save(request);
-        audit(request, "MEMBER_VERIFIED", previous, request.getStatus(), userId,
-                "MEMBER", "Existing account accepted with a fresh phone OTP");
+        activateAccess(request, userId, "MEMBER", "Existing account linked after member phone OTP");
         return toResponse(request, null);
     }
 
@@ -317,14 +313,22 @@ public class ChitfundRequestService {
         rejectExpired(requestId);
         ChitfundAccessRequest request = tenantRequestForUpdate(requestId);
         if (request.getStatus() == ChitfundRequestStatus.ACTIVE) return toResponse(request, null);
+        // Legacy path: rows that reached AWAITING_ADMIN before auto-activation was introduced.
         if (request.getStatus() != ChitfundRequestStatus.AWAITING_ADMIN) {
             throw conflict("The member must complete verification before app access can be activated");
         }
-        // Establish and flush the local uniqueness guard before asking the
-        // member service to expose app access. If the link conflicts, no
-        // cross-service state has been changed. A member-service failure rolls
-        // this local transaction back; the member endpoint is itself
-        // idempotent for safe retries.
+        activateAccess(request, adminId, "ORG_ADMIN", "Organization manually activated member app access");
+        return toResponse(request, null);
+    }
+
+    // Establish the member_user_links row, flip hasAppAccess, and fire the post-commit
+    // member-service notification. Called automatically after member verification so
+    // neither path (NEW_ACCOUNT setup nor LINK_EXISTING accept) parks in AWAITING_ADMIN.
+    private void activateAccess(ChitfundAccessRequest request, UUID actorId,
+                                 String actorType, String auditDetail) {
+        ChitfundRequestStatus previous = request.getStatus();
+        // Establish and flush the uniqueness guard before touching member-service.
+        // A conflict here means the account is already linked in this org — idempotently safe.
         try {
             tenantService.addUserToTenant(request.getCandidateUserId(), request.getTenantId(),
                     Role.MEMBER, request.getMemberId());
@@ -336,21 +340,19 @@ public class ChitfundRequestService {
         user.setHasAppAccess(true);
         userRepository.save(user);
         request.setAdminConfirmedAt(LocalDateTime.now());
-        request.setAdminConfirmedBy(adminId);
+        request.setAdminConfirmedBy(actorId);
         request.setStatus(ChitfundRequestStatus.ACTIVE);
         request.setMemberActionTokenHash(null);
         requestRepository.save(request);
-        audit(request, "ACCESS_ACTIVATED", ChitfundRequestStatus.AWAITING_ADMIN,
-                request.getStatus(), adminId, "ORG_ADMIN", "Organization activated member app access");
-        // activateAppAccess is called post-commit via IdentityNotificationListener to avoid
-        // holding a DB connection during the HTTP call and to prevent state divergence if
-        // the DB write succeeds but the TX rolls back. The member-service endpoint is idempotent.
+        audit(request, "ACCESS_ACTIVATED", previous, ChitfundRequestStatus.ACTIVE,
+                actorId, actorType, auditDetail);
+        // Post-commit: avoids holding a DB connection during the HTTP call to member-service.
+        // The member-service endpoint is idempotent so safe to retry on failure.
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED,
                 request.getCandidateUserId(), request.getId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                 List.of(), request.getTenantId(), request.getMemberId()));
-        return toResponse(request, null);
     }
 
     @Transactional
@@ -414,11 +416,7 @@ public class ChitfundRequestService {
         token.setUsedAt(LocalDateTime.now());
         setupTokenRepository.save(token);
         request.setMemberVerifiedAt(LocalDateTime.now());
-        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
-        requestRepository.save(request);
-        audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
-                request.getStatus(), user.getId(), "MEMBER",
-                "New account completed phone and recovery-email verification");
+        activateAccess(request, user.getId(), "MEMBER", "New account setup completed — app access granted automatically");
         ChitfundRequestResponse response = toResponse(request, null);
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
