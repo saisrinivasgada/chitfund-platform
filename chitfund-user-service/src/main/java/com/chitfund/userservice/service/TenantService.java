@@ -225,7 +225,7 @@ public class TenantService {
             return ActivationResponse.builder()
                     .tenant(toResponse(t))
                     .adminUsername(existingAdmin.getUsername())
-                    .adminTempPassword(existingAdmin.getTempPassword())
+                    .adminTempPassword(null)
                     .adminUserId(existingAdmin.getId().toString())
                     .adminAlreadyExisted(true)
                     .build();
