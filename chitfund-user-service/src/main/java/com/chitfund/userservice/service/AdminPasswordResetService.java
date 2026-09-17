@@ -41,30 +41,29 @@ public class AdminPasswordResetService {
 
     /**
      * Step 1: send OTP to admin's registered email.
-     * Always returns without leaking whether the email exists.
+     * Returns userId (opaque to caller) needed for step 2.
+     * Always returns the same response shape to avoid leaking whether email exists.
      */
     @Transactional
-    public void sendOtp(String email) {
-        if (email == null || email.isBlank()) return;
+    public String sendOtp(String email) {
+        if (email == null || email.isBlank()) return "";
 
-        userRepository.findByEmail(email.trim().toLowerCase())
+        return userRepository.findByEmail(email.trim().toLowerCase())
                 .filter(u -> u.getDeletedAt() == null)
                 .filter(u -> u.getRole() == Role.ADMIN)
-                .ifPresent(user -> {
-                    // Rate limit: max 3 OTPs per hour per user
+                .map(user -> {
                     long recentCount = otpRepository.countByUserIdAndCreatedAtAfter(
                             user.getId().toString(),
                             LocalDateTime.now().minusHours(1));
                     if (recentCount >= MAX_OTP_PER_HOUR) {
-                        // Silently ignore (don't leak that they've hit the rate limit via a specific error)
                         log.warn("Admin OTP rate limit hit for user {}", user.getId());
-                        return;
+                        return user.getId().toString();
                     }
 
                     String otp = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
                     EmailResetOtp record = EmailResetOtp.builder()
                             .userId(user.getId().toString())
-                            .otpHash(sha256(otp))
+                            .otpCode(otp)
                             .expiresAt(LocalDateTime.now().plusMinutes(OTP_EXPIRY_MINUTES))
                             .used(false)
                             .attempts(0)
@@ -74,20 +73,31 @@ public class AdminPasswordResetService {
                             user.getEmail(),
                             user.getFullName() != null ? user.getFullName() : user.getUsername(),
                             otp);
-                });
+                    return user.getId().toString();
+                })
+                .orElse("");
     }
 
     /**
      * Step 2: verify OTP → return a short-lived resetToken.
+     * Accepts userId (UUID) so the endpoint doesn't need to re-send email.
      */
     @Transactional
-    public String verifyOtp(String email, String otp) {
-        if (email == null || otp == null) {
+    public String verifyOtp(String userId, String otp) {
+        if (userId == null || otp == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Invalid or expired OTP", HttpStatus.BAD_REQUEST);
         }
 
-        User user = userRepository.findByEmail(email.trim().toLowerCase())
+        UUID id;
+        try {
+            id = UUID.fromString(userId.trim());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Invalid or expired OTP", HttpStatus.BAD_REQUEST);
+        }
+
+        User user = userRepository.findById(id)
                 .filter(u -> u.getDeletedAt() == null)
                 .filter(u -> u.getRole() == Role.ADMIN)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -106,7 +116,7 @@ public class AdminPasswordResetService {
 
         record.setAttempts(record.getAttempts() + 1);
 
-        if (!sha256(otp).equals(record.getOtpHash())) {
+        if (!otp.equals(record.getOtpCode())) {
             otpRepository.save(record);
             int remaining = MAX_OTP_ATTEMPTS - record.getAttempts();
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,

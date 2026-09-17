@@ -34,6 +34,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final RateLimiterService rateLimiter;
+    private final com.chitfund.userservice.service.AdminPasswordResetService adminPasswordResetService;
     private final com.chitfund.userservice.service.ChitfundRequestService chitfundRequestService;
 
     // ── Public: org self-registration ────────────────────────────────────────
@@ -285,6 +286,31 @@ public class AuthController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.status(HttpStatus.GONE).body(ApiResponse.error(
                 "AUTH_FLOW_RETIRED", "Update the app and use the account recovery flow."));
+    }
+
+    // ── Admin email-OTP password reset ──────────────────────────────────────
+
+    @PostMapping("/admin/forgot-password")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminForgotPasswordSendOtp(
+            @RequestBody java.util.Map<String, String> body) {
+        String userId = adminPasswordResetService.sendOtp(body.get("email"));
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("userId", userId)));
+    }
+
+    @PostMapping("/admin/verify-reset-otp")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> adminVerifyResetOtp(
+            @RequestBody java.util.Map<String, String> body) {
+        String userId = body.get("userId");
+        String otp    = body.get("code");
+        String resetToken = adminPasswordResetService.verifyOtp(userId, otp);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("resetToken", resetToken)));
+    }
+
+    @PostMapping("/admin/reset-password")
+    public ResponseEntity<ApiResponse<Void>> adminResetPasswordWithToken(
+            @RequestBody java.util.Map<String, String> body) {
+        adminPasswordResetService.resetPassword(body.get("resetToken"), body.get("newPassword"));
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     // ── Retired admin email-OTP password reset ──────────────────────────────

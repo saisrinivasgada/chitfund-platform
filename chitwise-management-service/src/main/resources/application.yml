@@ -43,14 +43,10 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: true
 
-  mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:noreply@thechitwise.com}
-    password: ${MAIL_PASSWORD:}
-    properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
+cloud:
+  aws:
+    region:
+      static: ${AWS_REGION:us-east-2}
 
   websocket:
     allowed-origins: >
@@ -79,6 +75,10 @@ app:
   notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
   user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
   message-delete-window-seconds: 300
+  mail:
+    from: ${MAIL_FROM:ChitWise <help@thechitwise.com>}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
 
 management:
   endpoints:
@@ -89,12 +89,8 @@ management:
     health:
       show-details: when-authorized
   health:
-    # The mail indicator opens a real SMTP connection, so an unreachable or
-    # unauthenticated relay reports DOWN and marks the container unhealthy
-    # while the service itself is fine. user-service disables it for the
-    # same reason.
-    mail:
-      enabled: false
+    defaults:
+      enabled: true
 
 logging:
   level:

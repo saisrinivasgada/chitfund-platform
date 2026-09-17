@@ -21,8 +21,8 @@ public class EmailResetOtp {
     @Column(name = "user_id", nullable = false, length = 36)
     private String userId;
 
-    @Column(name = "otp_hash", nullable = false, length = 64)
-    private String otpHash;
+    @Column(name = "otp_code", nullable = false, length = 10)
+    private String otpCode;
 
     @Column(nullable = false)
     private int attempts;
