@@ -15,11 +15,15 @@ import org.springframework.web.client.RestTemplate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class AuditClient {
+
+    private static final int MAX_ATTEMPTS = 3;
+    private static final long RETRY_DELAY_MS = 2_000;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -51,13 +55,36 @@ public class AuditClient {
                 headers.setContentType(MediaType.APPLICATION_JSON);
                 headers.set("X-Internal-Key", internalKey);
 
-                restTemplate.postForObject(
-                        auditServiceUrl + "/internal/audit",
-                        new HttpEntity<>(body, headers),
-                        Void.class);
-            } catch (RestClientException | JsonProcessingException e) {
-                log.warn("Audit log failed for {} {} action={}: {}", entityType, entityId, action, e.getMessage());
+                HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+                sendWithRetry(request, entityType, entityId, action);
+            } catch (JsonProcessingException e) {
+                log.error("AUDIT_SERIALIZATION_FAILURE: cannot serialize audit event entity={} id={} action={}: {}",
+                        entityType, entityId, action, e.getMessage());
             }
         });
+    }
+
+    private void sendWithRetry(HttpEntity<Map<String, Object>> request,
+                                String entityType, String entityId, String action) {
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                restTemplate.postForObject(auditServiceUrl + "/internal/audit", request, Void.class);
+                return;
+            } catch (RestClientException e) {
+                if (attempt < MAX_ATTEMPTS) {
+                    log.warn("Audit log attempt {}/{} failed for {} {} action={}: {}",
+                            attempt, MAX_ATTEMPTS, entityType, entityId, action, e.getMessage());
+                    try { TimeUnit.MILLISECONDS.sleep(RETRY_DELAY_MS * attempt); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } else {
+                    log.error("AUDIT_FAILURE: all {} attempts exhausted for entity={} id={} action={} tenant={}: {}",
+                            MAX_ATTEMPTS, entityType, entityId, action,
+                            request.getBody() != null ? request.getBody().get("tenantId") : "?",
+                            e.getMessage());
+                }
+            }
+        }
     }
 }
