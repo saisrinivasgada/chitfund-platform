@@ -1,6 +1,5 @@
 package com.chitfund.supportservice.controller.hub;
 
-import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
@@ -69,19 +68,7 @@ public class HubAuthController {
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<?> me(Authentication auth) {
-        Employee employee = employeeService.getById((String) auth.getPrincipal());
-        EmployeeMeResponse meResponse = EmployeeMeResponse.builder()
-                .id(employee.getId())
-                .email(employee.getEmail())
-                .fullName(employee.getFullName())
-                .username(employee.getUsername())
-                .role(employee.getRole())
-                .active(employee.isActive())
-                .mustChangePassword(employee.isMustChangePassword())
-                .canManageIdentityCases(employee.isCanManageIdentityCases())
-                .platformOwner(employee.isPlatformOwner())
-                .lastLoginAt(employee.getLastLoginAt())
-                .build();
+        EmployeeMeResponse meResponse = employeeService.getMe((String) auth.getPrincipal());
         return ResponseEntity.ok(Map.of("success", true, "data", meResponse));
     }
 }

@@ -10,6 +10,7 @@ import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.dto.request.UpdateIdentityPermissionsRequest;
 import com.chitfund.supportservice.dto.request.UpdateMeRequest;
 import com.chitfund.supportservice.dto.response.EmployeeLoginResponse;
+import com.chitfund.supportservice.dto.response.EmployeeMeResponse;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.repository.HubCustomRoleRepository;
@@ -30,9 +31,11 @@ import java.security.SecureRandom;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Base64;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -293,12 +296,20 @@ public class EmployeeService {
                 .authVersion(employee.getAuthVersion())
                 .expiresAt(Instant.now().plusSeconds(refreshTokenExpiryDays * 24 * 3600))
                 .build());
+        Set<String> customPermissions = resolveCustomPermissions(employee);
+        boolean hasPlatformAccess = customPermissions.contains("PLATFORM_CONSOLE_ACCESS");
+        String saasToken = null;
+        if (!employee.isMustChangePassword()) {
+            if ("SUPER_ADMIN".equals(employee.getRole())) {
+                saasToken = orgJwtTokenProvider.generateHubSuperAdminToken(employee);
+            } else if (hasPlatformAccess) {
+                saasToken = orgJwtTokenProvider.generateHubPlatformAccessToken(employee);
+            }
+        }
         return EmployeeLoginResponse.builder()
                 .token(jwtTokenProvider.generateToken(employee))
                 .refreshToken(refreshToken)
-                .saasToken("SUPER_ADMIN".equals(employee.getRole()) && !employee.isMustChangePassword()
-                        ? orgJwtTokenProvider.generateHubSuperAdminToken(employee)
-                        : null)
+                .saasToken(saasToken)
                 .id(employee.getId())
                 .employeeId(formatCardId(employee))
                 .username(employee.getUsername())
@@ -308,7 +319,15 @@ public class EmployeeService {
                 .mustChangePassword(employee.isMustChangePassword())
                 .canManageIdentityCases(employee.isCanManageIdentityCases())
                 .platformOwner(employee.isPlatformOwner())
+                .customPermissions(customPermissions.isEmpty() ? null : customPermissions)
                 .build();
+    }
+
+    private Set<String> resolveCustomPermissions(Employee employee) {
+        if (employee.getCustomRoleId() == null) return Collections.emptySet();
+        return roleRepository.findById(employee.getCustomRoleId())
+                .map(r -> r.getPermissions())
+                .orElse(Collections.emptySet());
     }
 
     private void validatePassword(String password) {
@@ -358,6 +377,24 @@ public class EmployeeService {
         } else {
             send.run();
         }
+    }
+
+    public EmployeeMeResponse getMe(String employeeId) {
+        Employee employee = getById(employeeId);
+        Set<String> customPermissions = resolveCustomPermissions(employee);
+        return EmployeeMeResponse.builder()
+                .id(employee.getId())
+                .email(employee.getEmail())
+                .fullName(employee.getFullName())
+                .username(employee.getUsername())
+                .role(employee.getRole())
+                .active(employee.isActive())
+                .mustChangePassword(employee.isMustChangePassword())
+                .canManageIdentityCases(employee.isCanManageIdentityCases())
+                .platformOwner(employee.isPlatformOwner())
+                .lastLoginAt(employee.getLastLoginAt())
+                .customPermissions(customPermissions.isEmpty() ? null : customPermissions)
+                .build();
     }
 
     @Transactional

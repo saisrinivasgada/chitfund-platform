@@ -40,7 +40,8 @@ const PERMISSION_GROUPS = [
   {
     group: 'Access',
     items: [
-      { key: 'PROXY_ACCESS', label: 'Proxy access (impersonate org accounts)' },
+      { key: 'PROXY_ACCESS',             label: 'Proxy access (impersonate org accounts)' },
+      { key: 'PLATFORM_CONSOLE_ACCESS',  label: 'Platform Console access (full org management)' },
     ],
   },
 ];

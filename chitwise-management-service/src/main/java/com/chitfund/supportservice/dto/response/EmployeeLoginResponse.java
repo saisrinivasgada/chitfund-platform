@@ -3,6 +3,8 @@ package com.chitfund.supportservice.dto.response;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.Set;
+
 @Data
 @Builder
 public class EmployeeLoginResponse {
@@ -18,4 +20,5 @@ public class EmployeeLoginResponse {
     private boolean mustChangePassword;
     private boolean canManageIdentityCases;
     private boolean platformOwner;
+    private Set<String> customPermissions;
 }

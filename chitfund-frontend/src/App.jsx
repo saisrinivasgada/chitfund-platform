@@ -70,8 +70,7 @@ import HubLayout from './components/hub/HubLayout';
 import HubLoginPage from './pages/hub/HubLoginPage';
 import HubChangePasswordPage from './pages/hub/HubChangePasswordPage';
 import HubAcceptInvitePage from './pages/hub/HubAcceptInvitePage';
-import HubTicketsPage from './pages/hub/HubTicketsPage';
-import HubTicketDetailPage from './pages/hub/HubTicketDetailPage';
+import HubTicketWorkspace from './pages/hub/HubTicketWorkspace';
 import HubEmployeesPage from './pages/hub/HubEmployeesPage';
 import HubChatPage from './pages/hub/HubChatPage';
 
@@ -154,8 +153,8 @@ export default function App() {
       <Route path="/hub/accept-invite" element={<HubAcceptInvitePage />} />
       <Route element={<HubLayout />}>
         <Route index path="/hub" element={<Navigate to="/hub/tickets" replace />} />
-        <Route path="/hub/tickets" element={<HubTicketsPage />} />
-        <Route path="/hub/tickets/:id" element={<HubTicketDetailPage />} />
+        <Route path="/hub/tickets" element={<HubTicketWorkspace />} />
+        <Route path="/hub/tickets/:id" element={<HubTicketWorkspace />} />
         <Route path="/hub/employees" element={<HubEmployeesPage />} />
         <Route path="/hub/chat" element={<HubChatPage />} />
         <Route path="/superadmin/helpdesk" element={<Navigate to="/hub/tickets" replace />} />

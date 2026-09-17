@@ -34,8 +34,13 @@ export default function HubLayout() {
         navigate('/hub-login', { replace: true });
         return;
       }
-      if (parsed.role !== 'SUPER_ADMIN' && location.pathname.startsWith('/superadmin')) {
+      const perms = new Set(parsed.customPermissions ?? []);
+      if (location.pathname.startsWith('/superadmin') && !saasToken && !perms.has('PLATFORM_CONSOLE_ACCESS')) {
         navigate('/hub', { replace: true });
+        return;
+      }
+      if (location.pathname.startsWith('/superadmin') && perms.has('PLATFORM_CONSOLE_ACCESS') && !saasToken) {
+        navigate('/hub-login', { replace: true });
         return;
       }
       setHubUser(parsed);
@@ -76,10 +81,13 @@ export default function HubLayout() {
   }
 
   const isSuperAdmin = hubUser?.role === 'SUPER_ADMIN';
+  const customPermissions = new Set(hubUser?.customPermissions ?? []);
+  const hasPlatformAccess = isSuperAdmin || customPermissions.has('PLATFORM_CONSOLE_ACCESS');
   const isSaasAdministration = location.pathname.startsWith('/superadmin');
+  const isWorkspace = location.pathname.startsWith('/hub/tickets');
 
   const HUB_NAV = [
-    { label: 'Platform Console', to: '/superadmin',    icon: Settings,     show: isSuperAdmin },
+    { label: 'Platform Console', to: '/superadmin',    icon: Settings,     show: hasPlatformAccess },
     { label: 'Tickets',          to: '/hub/tickets',   icon: TicketIcon,   show: true },
     { label: 'Team Chat',        to: '/hub/chat',      icon: MessageSquare, show: true },
     { label: 'Employees',        to: '/hub/employees', icon: UsersIcon,    show: isSuperAdmin },
@@ -90,7 +98,7 @@ export default function HubLayout() {
   if (!ready) return <div className="min-h-screen bg-gray-50" />;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
         {/* Logo */}
@@ -158,7 +166,7 @@ export default function HubLayout() {
       </aside>
 
       {/* Main content */}
-      <main className={`flex-1 overflow-auto ${isSaasAdministration ? 'p-0' : 'p-6'}`}>
+      <main className={`flex-1 ${isSaasAdministration || isWorkspace ? 'overflow-hidden p-0' : 'overflow-auto p-6'}`}>
         <Outlet />
       </main>
     </div>

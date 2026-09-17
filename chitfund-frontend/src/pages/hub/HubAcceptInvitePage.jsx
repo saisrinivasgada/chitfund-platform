@@ -33,6 +33,7 @@ export default function HubAcceptInvitePage() {
         fullName: data.fullName,
         email: data.email,
         role: data.role,
+        customPermissions: data.customPermissions ?? [],
       }));
       navigate('/hub', { replace: true });
     } catch (err) {

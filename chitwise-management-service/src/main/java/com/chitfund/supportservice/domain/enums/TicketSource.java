@@ -1,6 +1,6 @@
 package com.chitfund.supportservice.domain.enums;
 
 public enum TicketSource {
-    ORGANIZATION, PUBLIC
+    ORGANIZATION, PUBLIC, HUB_CREATED
 }
 

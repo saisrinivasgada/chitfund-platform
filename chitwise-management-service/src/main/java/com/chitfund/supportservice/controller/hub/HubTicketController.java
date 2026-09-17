@@ -5,6 +5,7 @@ import com.chitfund.supportservice.domain.enums.TicketStatus;
 import com.chitfund.supportservice.domain.enums.TicketPriority;
 import com.chitfund.supportservice.domain.enums.TicketType;
 import com.chitfund.supportservice.dto.request.AssignTicketRequest;
+import com.chitfund.supportservice.dto.request.CreateHubTicketRequest;
 import com.chitfund.supportservice.dto.request.SendMessageRequest;
 import com.chitfund.supportservice.dto.request.UpdateStatusRequest;
 import com.chitfund.supportservice.dto.response.PagedResponse;
@@ -31,6 +32,19 @@ public class HubTicketController {
 
     private final TicketService ticketService;
     private final EmployeeService employeeService;
+
+    @PostMapping
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
+    public ResponseEntity<?> createTicket(@Valid @RequestBody CreateHubTicketRequest request,
+                                           Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        var employee = employeeService.getById(employeeId);
+        TicketResponse ticket = ticketService.createTicketByHub(
+                employeeId, employee.getFullName() != null ? employee.getFullName() : employee.getUsername(),
+                request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("success", true, "data", ticket));
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")

@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.Set;
 
 @Getter
 @Builder
@@ -20,4 +21,5 @@ public class EmployeeMeResponse {
     private boolean canManageIdentityCases;
     private boolean platformOwner;
     private Instant lastLoginAt;
+    private Set<String> customPermissions;
 }

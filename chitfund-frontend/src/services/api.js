@@ -2061,4 +2061,7 @@ export const hubDeleteRole = (id) => hubApi.delete(`/hub/roles/${id}`).then(r =>
 export const hubAssignCustomRole = (employeeId, customRoleId) =>
   hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId }).then(r => r.data?.data ?? r.data);
 
+export const hubCreateTicket = (data) => hubApi.post('/hub/tickets', data).then(r => r.data?.data ?? r.data);
+export const hubListTenants = (q) => hubApi.get('/hub/tenants', { params: q ? { q } : {} }).then(r => r.data?.data ?? r.data);
+
 export default api;

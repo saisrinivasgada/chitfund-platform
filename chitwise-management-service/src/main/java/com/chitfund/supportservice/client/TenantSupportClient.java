@@ -2,10 +2,14 @@ package com.chitfund.supportservice.client;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+
+import java.util.Collections;
+import java.util.List;
 
 @Component
 @Slf4j
@@ -36,8 +40,27 @@ public class TenantSupportClient {
         }
     }
 
+    public List<TenantSummary> listActiveTenants(String query) {
+        try {
+            String uri = query != null && !query.isBlank()
+                    ? "/internal/tenants?q=" + java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8)
+                    : "/internal/tenants";
+            List<TenantSummary> result = restClient.get()
+                    .uri(uri)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            return result != null ? result : Collections.emptyList();
+        } catch (RestClientException ex) {
+            log.warn("Unable to list tenants: {}", ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     public record SupportContext(String tenantName, boolean prioritySupport) {
         public static SupportContext fallback() { return new SupportContext(null, false); }
     }
+
+    public record TenantSummary(String id, String name, String status) {}
 }
 

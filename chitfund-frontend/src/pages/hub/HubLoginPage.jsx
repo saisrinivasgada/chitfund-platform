@@ -32,6 +32,7 @@ export default function HubLoginPage() {
         mustChangePassword: data.mustChangePassword === true,
         canManageIdentityCases: data.canManageIdentityCases === true,
         platformOwner: data.platformOwner === true,
+        customPermissions: data.customPermissions ?? [],
       }));
       navigate(data.mustChangePassword
         ? '/hub/change-password'

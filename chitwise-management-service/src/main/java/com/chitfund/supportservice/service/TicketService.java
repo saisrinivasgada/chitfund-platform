@@ -10,6 +10,7 @@ import com.chitfund.supportservice.domain.enums.TicketSource;
 import com.chitfund.supportservice.domain.enums.TicketType;
 import com.chitfund.supportservice.dto.request.CreatePublicInquiryRequest;
 import com.chitfund.supportservice.dto.request.AssignTicketRequest;
+import com.chitfund.supportservice.dto.request.CreateHubTicketRequest;
 import com.chitfund.supportservice.dto.request.CreateTicketRequest;
 import com.chitfund.supportservice.dto.request.SendMessageRequest;
 import com.chitfund.supportservice.dto.request.UpdateStatusRequest;
@@ -102,6 +103,34 @@ public class TicketService {
 
         wsController.notifyNewTicket(ticket);
 
+        return toResponse(ticket, 0);
+    }
+
+    @Transactional
+    public TicketResponse createTicketByHub(String employeeId, String employeeName,
+                                            CreateHubTicketRequest request) {
+        String desc = request.getDescription() != null ? request.getDescription().trim() : "";
+        if (request.getCallerName() != null && !request.getCallerName().isBlank()) {
+            String callerLine = "Caller: " + request.getCallerName().trim();
+            desc = desc.isEmpty() ? callerLine : callerLine + "\n\n" + desc;
+        }
+        SupportTicket ticket = SupportTicket.builder()
+                .id(UUID.randomUUID().toString())
+                .ticketNumber(generateTicketNumber())
+                .type(request.getType())
+                .source(TicketSource.HUB_CREATED)
+                .tenantId(request.getTenantId().trim())
+                .tenantName(request.getTenantName().trim())
+                .createdBy(employeeId)
+                .createdByName(employeeName)
+                .requesterEmail(blankToNull(request.getCallerEmail()))
+                .requesterPhone(blankToNull(request.getCallerPhone()))
+                .priority(request.getPriority())
+                .subject(request.getSubject().trim())
+                .description(desc.isEmpty() ? null : desc)
+                .build();
+        ticket = ticketRepository.save(ticket);
+        wsController.notifyNewTicket(ticket);
         return toResponse(ticket, 0);
     }
 

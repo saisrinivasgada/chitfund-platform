@@ -63,6 +63,9 @@ export default function HubChangePasswordPage() {
         email: data.email,
         role: data.role,
         mustChangePassword: false,
+        canManageIdentityCases: data.canManageIdentityCases === true,
+        platformOwner: data.platformOwner === true,
+        customPermissions: data.customPermissions ?? [],
       };
       localStorage.setItem('hub_user', JSON.stringify(hubUser));
       navigate(data.role === 'SUPER_ADMIN' ? '/superadmin' : '/hub', { replace: true });

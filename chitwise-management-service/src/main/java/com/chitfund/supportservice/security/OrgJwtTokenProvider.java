@@ -38,6 +38,18 @@ public class OrgJwtTokenProvider {
         if (!"SUPER_ADMIN".equals(employee.getRole())) {
             throw new IllegalArgumentException("Only Hub super admins receive SaaS access");
         }
+        return buildHubSaasToken(employee);
+    }
+
+    /**
+     * Issues a SaaS-scoped token for a SUPPORT_AGENT employee who has been
+     * explicitly granted PLATFORM_CONSOLE_ACCESS by a SUPER_ADMIN.
+     */
+    public String generateHubPlatformAccessToken(Employee employee) {
+        return buildHubSaasToken(employee);
+    }
+
+    private String buildHubSaasToken(Employee employee) {
         String actorId = UUID.nameUUIDFromBytes(
                 ("chitwise-hub:" + employee.getId()).getBytes(StandardCharsets.UTF_8)).toString();
         return Jwts.builder()
