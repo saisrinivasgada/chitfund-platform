@@ -118,10 +118,6 @@ public class User implements UserDetails {
     // Lets the user choose which credential to use; only temp-password login forces a change.
     private String tempPasswordHash;
 
-    // Plain-text copy of the temp password — visible to super-admin until admin sets their own.
-    // Cleared when mustChangePassword is satisfied.
-    private String tempPassword;
-
     // Single-use token for self-service password reset via OTP. Expires in 15 minutes.
     @Column(length = 64)
     private String passwordResetToken;

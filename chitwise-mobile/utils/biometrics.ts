@@ -23,8 +23,8 @@ export async function isBiometricEnabled(): Promise<boolean> {
   }
 }
 
-export async function enableBiometric(username: string, password: string): Promise<void> {
-  await SecureStore.setItemAsync(BIOMETRIC_CREDS_KEY, JSON.stringify({ username, password }));
+export async function enableBiometric(username: string, refreshToken: string): Promise<void> {
+  await SecureStore.setItemAsync(BIOMETRIC_CREDS_KEY, JSON.stringify({ username, refreshToken }));
   await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, 'true');
 }
 
@@ -33,7 +33,7 @@ export async function disableBiometric(): Promise<void> {
   await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
 }
 
-export async function promptBiometric(): Promise<{ username: string; password: string } | null> {
+export async function promptBiometric(): Promise<{ username: string; refreshToken: string } | null> {
   try {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage:           'Sign in to ChitWise',

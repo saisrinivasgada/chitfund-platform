@@ -3,7 +3,7 @@ import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Mo
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken } from '../../services/api';
+import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import OtpCodeInput from '../../components/OtpCodeInput';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -329,7 +329,7 @@ export default function LoginScreen() {
   const [biometricOn, setBiometricOn]       = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('Biometric');
   const [showEnablePrompt, setShowEnablePrompt] = useState(false);
-  const [pendingCreds, setPendingCreds] = useState<{ username: string; password: string } | null>(null);
+  const [pendingCreds, setPendingCreds] = useState<{ username: string; refreshToken: string } | null>(null);
   const [tenantPicker, setTenantPicker] = useState<{ loginToken: string; tenants: TenantOption[] } | null>(null);
   const [showForgot, setShowForgot] = useState(false);
   const [loginOtpState, setLoginOtpState] = useState<{ otpToken: string; maskedPhone: string } | null>(null);
@@ -381,8 +381,8 @@ export default function LoginScreen() {
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });
-    if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword) {
-      setPendingCreds({ username: username.trim(), password });
+    if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
+      setPendingCreds({ username: username.trim(), refreshToken: data.refreshToken });
       setShowEnablePrompt(true);
     }
   }
@@ -411,24 +411,12 @@ export default function LoginScreen() {
     if (!creds) return;
     setLoading(true);
     try {
-      const data = await login(creds.username, creds.password);
-      if (data.requiresEmailVerification && data.emailVerificationToken) {
-        setLoginEmailState({ emailVerificationToken: data.emailVerificationToken, maskedEmail: data.maskedEmail ?? '***' });
-        setLoginEmailOtp('');
-        return;
-      }
-      if (data.requiresTenantSelection && data.loginToken) {
-        if (data.tenants?.length === 1) {
-          const t = data.tenants[0];
-          await handleTenantSelect(data.loginToken, t.tenantId, t.status, t.name);
-        } else {
-          setTenantPicker({ loginToken: data.loginToken, tenants: data.tenants ?? [] });
-        }
-        return;
-      }
+      const data = await refreshAuthToken(creds.refreshToken);
       applyAuth(data);
     } catch {
-      setError('Biometric login failed. Please use your password.');
+      await disableBiometric();
+      setBiometricOn(false);
+      setError('Biometric session expired. Please sign in with your password.');
     } finally {
       setLoading(false);
     }
@@ -544,7 +532,7 @@ export default function LoginScreen() {
       disableDeviceFallback: false,
     });
     if (!result.success) { setPendingCreds(null); return; }
-    await enableBiometric(pendingCreds.username, pendingCreds.password);
+    await enableBiometric(pendingCreds.username, pendingCreds.refreshToken);
     setBiometricOn(true);
     setPendingCreds(null);
   }
@@ -660,27 +648,6 @@ export default function LoginScreen() {
                       <Text style={{ fontSize: 12, color: '#9CA3AF' }}>Disable {biometricLabel} login</Text>
                     </TouchableOpacity>
                   </>
-                ) : (
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (username && password) {
-                        setPendingCreds({ username: username.trim(), password });
-                        setShowEnablePrompt(true);
-                      } else {
-                        setError('Enter your credentials first, then enable ' + biometricLabel + '.');
-                      }
-                    }}
-                    disabled={loading}
-                    style={{
-                      alignItems: 'center', paddingVertical: 13,
-                      borderRadius: 12, borderWidth: 1.5,
-                      borderColor: '#E5E7EB',
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#9CA3AF' }}>
-                      {biometricLabel === 'Face ID' ? '🪪' : '👆'} Set up {biometricLabel} login
-                    </Text>
-                  </TouchableOpacity>
                 )}
               </>
             )}

@@ -113,7 +113,6 @@ public class TenantService {
                 .phoneCountryCode(req.getAdminPhoneCountryCode())
                 .passwordHash(passwordEncoder.encode(rawPassword))
                 .tempPasswordHash(passwordEncoder.encode(rawPassword))
-                .tempPassword(rawPassword)
                 .mustChangePassword(false)
                 .emailVerificationRequired(true)
                 .role(Role.ADMIN)
@@ -237,7 +236,6 @@ public class TenantService {
                 .phoneCountryCode("+91")
                 .passwordHash(passwordEncoder.encode(rawPassword))
                 .tempPasswordHash(passwordEncoder.encode(rawPassword))
-                .tempPassword(rawPassword)
                 .mustChangePassword(true)
                 .emailVerificationRequired(true)
                 .role(Role.ADMIN)
@@ -578,7 +576,7 @@ public class TenantService {
                 .role(Role.ADMIN.name())
                 .enabled(admin.isEnabled())
                 .joinedAt(admin.getCreatedAt())
-                .tempPassword(admin.getTempPassword())
+                .tempPassword(null)
                 .build();
     }
 

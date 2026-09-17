@@ -329,6 +329,14 @@ export const logoutAccount = async (refreshToken: string) => {
   try { await api.post('/auth/logout', { refreshToken }); } catch {}
 };
 
+export const refreshAuthToken = async (refreshToken: string): Promise<LoginResponse> => {
+  const res = await api.post('/auth/refresh', { refreshToken });
+  const d = res.data.data ?? res.data;
+  const auth = d.accessToken ? d : d.authResponse;
+  if (auth?.accessToken && auth?.user) return parseAuthResponse(auth);
+  return d;
+};
+
 export const logoutAllDevices = async () => {
   await api.post('/auth/logout-all');
 };
