@@ -30,6 +30,9 @@ public final class SqsQueues {
     public static final String EVT_PAYOUT_DISBURSED        = "PAYOUT_DISBURSED";
     public static final String EVT_MEMBER_UPDATED          = "MEMBER_UPDATED";
     public static final String EVT_CASH_REQUEST_EVENT      = "CASH_REQUEST_EVENT";
+    // ── Audit events (from any service → audit-service) ──────────────────────────
+    public static final String EVT_AUDIT_LOG                = "AUDIT_LOG";
+
     // ── Notification delivery events (from any service → notification-service) ──
     public static final String EVT_TRANSACTIONAL_EMAIL      = "TRANSACTIONAL_EMAIL";
     public static final String EVT_IN_APP_NOTIFICATION      = "IN_APP_NOTIFICATION";

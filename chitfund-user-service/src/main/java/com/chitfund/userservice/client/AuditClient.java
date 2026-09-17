@@ -1,18 +1,15 @@
 package com.chitfund.userservice.client;
 
+import com.chitfund.common.event.AuditLogEvent;
+import com.chitfund.common.event.SqsEventEnvelope;
+import com.chitfund.common.event.SqsQueues;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Component
@@ -20,42 +17,29 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 public class AuditClient {
 
-    private final RestTemplate restTemplate;
+    private final SqsTemplate sqsTemplate;
     private final ObjectMapper objectMapper;
-
-    @Value("${app.audit-service-url:http://localhost:8088}")
-    private String auditServiceUrl;
-
-    @Value("${app.internal-key:chitfund-internal-service-key}")
-    private String internalKey;
 
     public void log(String entityType, String entityId,
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId) {
         CompletableFuture.runAsync(() -> {
             try {
-                Map<String, Object> body = new HashMap<>();
-                body.put("serviceName", "user-service");
-                body.put("entityType", entityType);
-                body.put("entityId", entityId);
-                body.put("action", action);
-                if (actorId != null)   body.put("actorId", actorId);
-                if (actorRole != null) body.put("actorRole", actorRole);
-                if (before != null)    body.put("beforeState", objectMapper.writeValueAsString(before));
-                if (after  != null)    body.put("afterState",  objectMapper.writeValueAsString(after));
-                if (tenantId != null)  body.put("tenantId", tenantId);
-
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                headers.set("X-Internal-Key", internalKey);
-
-                restTemplate.postForObject(
-                        auditServiceUrl + "/internal/audit",
-                        new HttpEntity<>(body, headers),
-                        Void.class);
-            } catch (RestClientException | com.fasterxml.jackson.core.JsonProcessingException e) {
-                log.warn("Audit log failed for {} {} action={}: {}", entityType, entityId, action, e.getMessage());
+                String beforeJson = before != null ? objectMapper.writeValueAsString(before) : null;
+                String afterJson  = after  != null ? objectMapper.writeValueAsString(after)  : null;
+                publish(new AuditLogEvent("user-service", entityType, entityId, null,
+                        action, actorId, actorRole, null, beforeJson, afterJson, null, tenantId));
+            } catch (Exception e) {
+                log.error("AUDIT_FAILURE: failed to queue audit event entity={} id={} action={}: {}",
+                        entityType, entityId, action, e.getMessage());
             }
         });
+    }
+
+    private void publish(AuditLogEvent event) throws Exception {
+        String payload  = objectMapper.writeValueAsString(event);
+        String envelope = objectMapper.writeValueAsString(
+                new SqsEventEnvelope(UUID.randomUUID().toString(), SqsQueues.EVT_AUDIT_LOG, payload));
+        sqsTemplate.send(SqsQueues.AUDIT_EVENTS, envelope);
     }
 }

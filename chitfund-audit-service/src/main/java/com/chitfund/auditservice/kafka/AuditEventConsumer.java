@@ -1,6 +1,8 @@
 package com.chitfund.auditservice.kafka;
 
-import com.chitfund.common.event.*;
+import com.chitfund.common.event.AuditLogEvent;
+import com.chitfund.common.event.SqsEventEnvelope;
+import com.chitfund.common.event.SqsQueues;
 import com.chitfund.auditservice.dto.AuditLogRequest;
 import com.chitfund.auditservice.repository.EventInboxRepository;
 import com.chitfund.auditservice.service.AuditService;
@@ -15,20 +17,6 @@ import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.UUID;
 
-/**
- * Consumes platform events from the consolidated audit SQS queue and writes
- * immutable audit records.
- *
- * WHY one queue instead of per-event queues?
- * With 10 queues polled continuously, the app was generating ~2.6M SQS requests
- * per month — over the 1M free-tier limit. One queue per consumer service drops
- * this to ~260K requests/month (2 queues × 3 polls/min × 60 × 24 × 30).
- *
- * WHY only CASH_COLLECTED and PAYMENT_COMPLETED here?
- * All other events (draws, payouts, org reservations, member updates) are audited
- * via direct HTTP calls from the originating service to /internal/audit. Only
- * events that need both notification and audit fan-out go through SQS.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -43,7 +31,7 @@ public class AuditEventConsumer {
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
-            if (!supports(envelope.eventType())) {
+            if (!SqsQueues.EVT_AUDIT_LOG.equals(envelope.eventType())) {
                 log.warn("Unknown audit event type: {}", envelope.eventType());
                 return;
             }
@@ -52,13 +40,14 @@ public class AuditEventConsumer {
                         envelope.eventId(), envelope.eventType());
                 return;
             }
-            switch (envelope.eventType()) {
-                case SqsQueues.EVT_CASH_COLLECTED ->
-                    onCashCollected(objectMapper.readValue(envelope.payload(), CashCollectedEvent.class));
-                case SqsQueues.EVT_PAYMENT_COMPLETED ->
-                    onPaymentCompleted(objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class));
-                default -> throw new IllegalStateException("Validated event type was not handled");
-            }
+            AuditLogEvent event = objectMapper.readValue(envelope.payload(), AuditLogEvent.class);
+            auditService.record(new AuditLogRequest(
+                    event.serviceName(), event.entityType(), event.entityId(),
+                    event.chitId(), event.action(),
+                    event.actorId(), event.actorRole(), event.actorIp(),
+                    event.beforeState(), event.afterState(),
+                    event.metadata(), event.tenantId()
+            ));
         } catch (Exception e) {
             log.error("Failed to process audit event: {}", e.getMessage(), e);
             throw new IllegalStateException("Audit event processing failed", e);
@@ -74,41 +63,11 @@ public class AuditEventConsumer {
                 eventId, envelope.eventType(), LocalDateTime.now()) == 0;
     }
 
-    private boolean supports(String eventType) {
-        return SqsQueues.EVT_CASH_COLLECTED.equals(eventType)
-                || SqsQueues.EVT_PAYMENT_COMPLETED.equals(eventType);
-    }
-
     private String canonicalEventId(String eventId) {
         String canonical = UUID.fromString(eventId).toString();
         if (!canonical.equals(eventId.toLowerCase(Locale.ROOT))) {
             throw new IllegalArgumentException("eventId must be a canonical UUID");
         }
         return canonical;
-    }
-
-    private void onCashCollected(CashCollectedEvent event) {
-        auditService.record(new AuditLogRequest(
-                "payment-service", "PAYMENT_BATCH", event.batchId(),
-                event.chitId(), "CASH_COLLECTED",
-                event.collectedByUserId(), "ROLE_STAFF", null,
-                null,
-                "{\"amount\":" + event.amount() + ",\"memberId\":\"" + event.memberId() + "\"}",
-                null,
-                event.tenantId()
-        ));
-    }
-
-    private void onPaymentCompleted(PaymentCompletedEvent event) {
-        auditService.record(new AuditLogRequest(
-                "payment-service", "PAYMENT_BATCH", event.batchId(),
-                event.chitId(), "PAYMENT_COMPLETED",
-                event.completedByUserId(), "ROLE_ADMIN", null,
-                null,
-                "{\"amount\":" + event.amount() + ",\"mode\":\"" + event.paymentMode()
-                        + "\",\"memberId\":\"" + event.memberId() + "\"}",
-                null,
-                event.tenantId()
-        ));
     }
 }
