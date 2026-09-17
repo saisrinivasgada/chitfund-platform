@@ -48,6 +48,7 @@ cloud:
     region:
       static: ${AWS_REGION:us-east-2}
 
+spring:
   websocket:
     allowed-origins: >
       http://localhost:3000,
