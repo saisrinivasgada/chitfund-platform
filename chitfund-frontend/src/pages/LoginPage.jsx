@@ -893,7 +893,7 @@ export default function LoginPage() {
                           className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 cursor-pointer transition-colors">
                           <ChevronLeft size={16} /> Back
                         </button>
-                        <div className="flex items-center gap-2 ml-auto px-3 py-1.5 rounded-full text-xs font-bold"
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
                           style={{ backgroundColor: roleObj.bg, color: roleObj.color }}>
                           <roleObj.icon size={12} />
                           {roleObj.title}
@@ -914,8 +914,8 @@ export default function LoginPage() {
                       {/* Login mode tabs */}
                       <div className="flex rounded-xl border border-gray-200 overflow-hidden mb-6">
                         {[
-                          { key: 'username', label: 'Username' },
                           { key: 'mobile',   label: 'Mobile number' },
+                          { key: 'username', label: 'Username' },
                         ].map(({ key, label }) => (
                           <button key={key} type="button"
                             onClick={() => { setLoginMode(key); setError(''); }}
