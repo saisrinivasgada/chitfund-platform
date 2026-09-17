@@ -16,7 +16,7 @@ export const clearHubSaasToken = () => { _hubSaasToken = null; };
 api.interceptors.request.use((config) => {
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
-    const token = sessionStorage.getItem('token') ?? _authToken;
+    const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;

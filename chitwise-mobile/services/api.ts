@@ -6,7 +6,7 @@ import { useUIStore } from '../store/uiStore';
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
-const hubApi = axios.create({ baseURL: `${API_BASE_URL}/api`, timeout: 20_000 });
+const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync('chitwise_token');
@@ -26,7 +26,7 @@ async function refreshHubSession() {
   hubRefreshing = (async () => {
     const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
     if (!refreshToken) throw new Error('no_hub_refresh');
-    const response = await axios.post(`${API_BASE_URL}/api/hub/auth/refresh`, { refreshToken });
+    const response = await axios.post(`${API_BASE_URL}/hub/auth/refresh`, { refreshToken });
     const data = response.data?.data ?? response.data;
     const current = useAuthStore.getState().user;
     if (!current || current.authSource !== 'HUB') throw new Error('not_hub_session');
