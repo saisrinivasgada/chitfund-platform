@@ -2808,6 +2808,7 @@ function CollectPaymentModal({ paymentRecord, member, chitId, onClose }) {
       return recordPayment({ chitId, memberId: paymentRecord.memberId, amount: amtNum, paymentMode, notes: notes || undefined, idempotencyKey });
     },
     onSuccess: () => {
+      setIdempotencyKey(crypto.randomUUID());
       invalidate();
       toast.success(
         usingCredit ? 'Credits applied — draw settled' :
