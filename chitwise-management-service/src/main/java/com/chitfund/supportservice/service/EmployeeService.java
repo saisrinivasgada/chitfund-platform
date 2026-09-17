@@ -2,7 +2,6 @@ package com.chitfund.supportservice.service;
 
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.dto.request.AcceptInviteRequest;
-import com.chitfund.supportservice.dto.request.AssignCustomRoleRequest;
 import com.chitfund.supportservice.dto.request.ChangeEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.EmployeeLoginRequest;
 import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
