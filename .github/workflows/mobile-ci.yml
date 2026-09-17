@@ -1,0 +1,43 @@
+name: Mobile CI
+
+on:
+  push:
+    branches: [main, test]
+    paths:
+      - 'chitwise-mobile/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'chitwise-mobile/**'
+
+defaults:
+  run:
+    working-directory: chitwise-mobile
+
+jobs:
+  type-check:
+    name: TypeScript & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: chitwise-mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npm run type-check
+
+      - name: Dependency security audit
+        # Fail on high or critical severity advisories; warn on moderate
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+      - name: Expo Doctor
+        # Expo Doctor checks SDK/native compatibility; soft-fail (known peer mismatches)
+        run: npx expo-doctor || true
