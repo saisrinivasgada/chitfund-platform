@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 const P = '#1E3A5F';
-const UPDATED = 'August 2026';
+const UPDATED = 'September 2026';
 
 const SECTIONS = [
   { id: 's1',  num: '1',  title: 'Acceptance of Terms',                     icon: FileText      },
@@ -344,8 +344,8 @@ export default function TermsPage() {
               <li>You may cancel your subscription at any time through account settings or by contacting us</li>
               <li>Your account and data remain accessible until the end of the current billing period</li>
               <li>After the billing period ends, your account will be deactivated</li>
-              <li>Your data will be retained for 30 days after closure to allow for final exports</li>
-              <li>After 30 days, all your organisation's data will be permanently deleted</li>
+              <li>Your data remains accessible for export until your account is formally closed</li>
+              <li>To request deletion of all data, contact <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>help@thechitwise.com</a> — we will confirm scope and timeline</li>
             </ul>
           </S>
 
@@ -359,9 +359,15 @@ export default function TermsPage() {
 
           <S id="s16" title="16. Data After Cancellation" icon={Clock} r={sectionRefs}>
             <p>
-              Upon account closure, your data is retained for 30 days for final export. Please export
-              any records you need before this period expires. After 30 days, data is permanently deleted
-              and cannot be recovered. ChitWise is not liable for data loss due to cancellation.
+              Upon account closure, your data remains accessible until the account is fully deactivated.
+              Please export any records you need before deactivation. To request permanent deletion of
+              your organisation's data, submit a deletion request to{' '}
+              <a href="mailto:help@thechitwise.com" className="underline" style={{ color: P }}>
+                help@thechitwise.com
+              </a>
+              . We will confirm the scope and timeline before proceeding. Data subject to a legal hold
+              or statutory retention obligation may be retained for the required period.
+              ChitWise is not liable for data loss resulting from voluntary account closure.
             </p>
           </S>
 
