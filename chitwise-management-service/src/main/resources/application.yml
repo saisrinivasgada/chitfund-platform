@@ -50,10 +50,10 @@ spring:
       https://thechitwise.com,
       https://hub.thechitwise.com
 
-cloud:
-  aws:
-    region:
-      static: ${AWS_REGION:us-east-2}
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:ap-south-1}
 
 server:
   port: 8091

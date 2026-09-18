@@ -43,6 +43,10 @@ services:
       MAIL_PORT: 2525
       MAIL_USERNAME: test
       MAIL_PASSWORD: test
+      AWS_REGION: us-east-2
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_EC2_METADATA_DISABLED: "true"
     ports:
       - "127.0.0.1:9091:8091"
     depends_on:
