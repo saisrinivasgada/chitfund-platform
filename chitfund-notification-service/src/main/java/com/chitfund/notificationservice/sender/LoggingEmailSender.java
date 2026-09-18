@@ -1,11 +1,11 @@
 package com.chitfund.notificationservice.sender;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnMissingBean(EmailSender.class)
+@ConditionalOnProperty(name = "app.email.enabled", havingValue = "false", matchIfMissing = true)
 @Slf4j
 public class LoggingEmailSender implements EmailSender {
 
