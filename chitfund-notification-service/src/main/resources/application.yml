@@ -45,6 +45,12 @@ app:
   member-service-url: ${MEMBER_SERVICE_URL:http://localhost:8083}
   user-service-url: ${USER_SERVICE_URL:http://localhost:8081}
   chit-service-url: ${CHIT_SERVICE_URL:http://localhost:8082}
+  mail:
+    from: ${MAIL_FROM:noreply@thechitwise.com}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
+  otp:
+    logging-enabled: ${OTP_LOGGING_ENABLED:false}
 
 # Internal service key — other services include this as X-Internal-Key header
 # when calling /internal/notify endpoints (no JWT needed for service-to-service calls)
@@ -56,14 +62,6 @@ notification:
   # To switch to real SMS: set mode=SMS and configure provider below.
   sender:
     mode: ${NOTIFICATION_SENDER_MODE:LOGGING}
-
-app:
-  mail:
-    from: ${MAIL_FROM:noreply@thechitwise.com}
-  email:
-    enabled: ${EMAIL_ENABLED:false}
-  otp:
-    logging-enabled: ${OTP_LOGGING_ENABLED:false}
 
   # Production SMS provider (MSG91 — popular in India)
   # sms:
