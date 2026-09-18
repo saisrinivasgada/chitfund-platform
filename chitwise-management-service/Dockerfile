@@ -16,11 +16,12 @@ COPY chitfund-audit-service/pom.xml chitfund-audit-service/
 COPY chitfund-reporting-service/pom.xml chitfund-reporting-service/
 COPY chitwise-management-service/pom.xml chitwise-management-service/
 
-RUN mvn -pl chitwise-management-service dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
+RUN mvn -pl chitfund-common,chitwise-management-service dependency:go-offline -q --no-transfer-progress 2>/dev/null || true
 
+COPY chitfund-common/src chitfund-common/src
 COPY chitwise-management-service/src chitwise-management-service/src
 
-RUN mvn -pl chitwise-management-service package -DskipTests -q --no-transfer-progress
+RUN mvn -pl chitfund-common,chitwise-management-service -am package -DskipTests -q --no-transfer-progress
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM eclipse-temurin:21-jre-alpine
