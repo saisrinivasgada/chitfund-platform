@@ -1,0 +1,35 @@
+# Local development infrastructure — LocalStack only.
+#
+# Run this alongside your existing MySQL to get SQS working locally.
+# Services are started from IntelliJ/terminal with SPRING_PROFILES_ACTIVE=local,
+# which points them at localhost:4566 (see application-local.yml in each service).
+#
+#   docker compose -f docker-compose.localdev.yml up -d --wait
+#
+# Then run any service with:
+#   SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run -pl <service>
+# Or set it in your IntelliJ run configuration environment variables.
+#
+# Verify queues were created:
+#   docker exec chitwise-localdev awslocal sqs list-queues
+
+name: chitwise-localdev
+
+services:
+  localstack:
+    image: localstack/localstack:3.8.1
+    container_name: chitwise-localdev
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      EAGER_SERVICE_LOADING: "1"
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - ./scripts/localstack/init-sqs.sh:/etc/localstack/init/ready.d/10-init-sqs.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs get-queue-url --queue-name chitfund-reporting-events >/dev/null 2>&1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s

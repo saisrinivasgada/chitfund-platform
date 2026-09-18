@@ -50,15 +50,24 @@ services:
 
   user-service:
     environment:
-      AUDIT_SERVICE_URL: http://audit-service:8088
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
 
   member-service:
     environment:
-      AUDIT_SERVICE_URL: http://audit-service:8088
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
 
   chit-service:
     environment:
-      AUDIT_SERVICE_URL: http://audit-service:8088
+      SPRING_CLOUD_AWS_SQS_ENDPOINT: http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
 
   notification-service:
     build:
