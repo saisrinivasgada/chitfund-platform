@@ -232,8 +232,12 @@ public class ChitfundRequestService {
             return toResponse(request, null);
         }
         otpService.verifyOtp(request.getRequestedPhone(), ACCEPT_OTP, request.getId().toString(), code);
+        ChitfundRequestStatus previous = request.getStatus();
         request.setMemberVerifiedAt(LocalDateTime.now());
-        activateAccess(request, userId, "MEMBER", "Existing account linked after member phone OTP");
+        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
+        requestRepository.save(request);
+        audit(request, "MEMBER_VERIFIED", previous, request.getStatus(), userId,
+                "MEMBER", "Existing account accepted with a fresh phone OTP");
         return toResponse(request, null);
     }
 
