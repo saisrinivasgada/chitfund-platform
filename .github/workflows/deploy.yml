@@ -396,9 +396,16 @@ jobs:
         run: |
           docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
             -f docker-compose.events-test.yml ps
+          echo "=== notification-service (full) ==="
+          docker logs chitwise-test-notification 2>&1 || true
+          echo "=== reporting-service (full) ==="
+          docker logs chitwise-test-reporting 2>&1 || true
+          echo "=== audit-service (full) ==="
+          docker logs chitwise-test-audit 2>&1 || true
+          echo "=== all services (tail 200) ==="
           docker compose -f docker-compose.test.yml -f docker-compose.identity-test.yml \
             -f docker-compose.events-test.yml \
-            logs --no-color --tail=300
+            logs --no-color --tail=200
       - name: Tear down disposable stack
         if: always()
         run: |
