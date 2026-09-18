@@ -2,15 +2,11 @@ package com.chitfund.auditservice.kafka;
 
 import com.chitfund.auditservice.repository.EventInboxRepository;
 import com.chitfund.auditservice.service.AuditService;
-import com.chitfund.common.event.PaymentCompletedEvent;
+import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -57,7 +53,7 @@ class AuditEventConsumerTest {
                 mock(AuditService.class), new ObjectMapper(), inbox);
 
         assertThatThrownBy(() -> consumer.onEvent("""
-                {"eventId":"not-a-uuid","eventType":"PAYMENT_COMPLETED","payload":"{}"}
+                {"eventId":"not-a-uuid","eventType":"AUDIT_LOG","payload":"{}"}
                 """))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("processing failed");
@@ -73,14 +69,13 @@ class AuditEventConsumerTest {
                 .when(auditService).record(any());
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         AuditEventConsumer consumer = new AuditEventConsumer(auditService, mapper, inbox);
-        PaymentCompletedEvent event = new PaymentCompletedEvent(
-                "batch", "chit", "member", BigDecimal.ONE, "UPI",
-                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ZERO,
-                1, 0, 0, 0, LocalDate.of(2026, 9, 10),
-                "admin", Instant.parse("2026-09-10T00:00:00Z"), "tenant");
+        AuditLogEvent event = new AuditLogEvent(
+                "test-service", "PAYMENT", "entity-id", "chit-id",
+                "TEST_ACTION", "actor-id", "ADMIN", null,
+                null, null, null, "tenant");
         String raw = mapper.writeValueAsString(new SqsEventEnvelope(
                 "44444444-4444-4444-4444-444444444444",
-                SqsQueues.EVT_PAYMENT_COMPLETED,
+                SqsQueues.EVT_AUDIT_LOG,
                 mapper.writeValueAsString(event)));
 
         assertThatThrownBy(() -> consumer.onEvent(raw))

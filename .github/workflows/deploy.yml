@@ -299,7 +299,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
       - name: Compile & test
-        run: mvn -pl chitwise-management-service test --no-transfer-progress
+        run: mvn -pl chitfund-common,chitwise-management-service -am test --no-transfer-progress
       - name: Require the MySQL 8 employee migration test to run
         run: |
           report="chitwise-management-service/target/surefire-reports/TEST-com.chitfund.supportservice.migration.EmployeePasswordMigrationMySqlTest.xml"
