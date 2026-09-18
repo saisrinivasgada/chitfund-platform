@@ -1,5 +1,10 @@
 package com.chitfund.chitservice.client;
 
+import com.chitfund.common.event.BulkInAppByMemberIdsEvent;
+import com.chitfund.common.event.SqsEventEnvelope;
+import com.chitfund.common.event.SqsQueues;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,9 +18,9 @@ import org.springframework.web.client.RestTemplate;
 import java.util.*;
 
 /**
- * Fire-and-forget HTTP client for pushing notifications.
- * sendBulk() → payment-service (legacy, for role-based push in payment DB)
- * notifyUsersInApp() → notification-service (in-app bell notifications by member IDs)
+ * sendBulk() → payment-service (legacy, role-based push in payment DB)
+ * notifyUsersInApp() → SQS NOTIFICATION_EVENTS (notification-service resolves memberIds → userIds)
+ * closeDrawsForChit() → payment-service (business operation)
  */
 @Component
 @RequiredArgsConstructor
@@ -23,12 +28,11 @@ import java.util.*;
 public class NotificationClient {
 
     private final RestTemplate restTemplate;
+    private final SqsTemplate sqsTemplate;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.payment-service-url:http://localhost:8084}")
     private String paymentServiceUrl;
-
-    @Value("${app.notification-service-url:http://localhost:8086}")
-    private String notificationServiceUrl;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -47,32 +51,20 @@ public class NotificationClient {
         }
     }
 
-    /**
-     * Push in-app notifications to all members in a chit by their member profile IDs.
-     * notification-service resolves memberIds → userIds internally via member-service.
-     */
     public void notifyUsersInApp(List<String> memberIds, String type, String title,
                                   String message, String link) {
         if (memberIds == null || memberIds.isEmpty()) return;
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Key", internalKey);
-
-            Map<String, Object> body = new HashMap<>();
-            body.put("memberIds", memberIds);
-            body.put("type", type);
-            body.put("title", title);
-            body.put("message", message);
-            if (link != null) body.put("link", link);
-
-            restTemplate.postForObject(
-                    notificationServiceUrl + "/internal/notify/in-app/bulk-by-member-ids",
-                    new HttpEntity<>(body, headers),
-                    Void.class);
-            log.info("Sent in-app notification '{}' to {} member(s)", type, memberIds.size());
-        } catch (RestClientException e) {
-            log.warn("Could not deliver in-app notifications to notification-service: {}", e.getMessage());
+            BulkInAppByMemberIdsEvent event = new BulkInAppByMemberIdsEvent(
+                    memberIds, type, title, message, null, link);
+            String payload  = objectMapper.writeValueAsString(event);
+            String envelope = objectMapper.writeValueAsString(
+                    new SqsEventEnvelope(UUID.randomUUID().toString(),
+                            SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS, payload));
+            sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelope);
+            log.info("Queued bulk in-app notification '{}' for {} member(s)", type, memberIds.size());
+        } catch (Exception e) {
+            log.warn("Could not queue bulk in-app notification: {}", e.getMessage());
         }
     }
 

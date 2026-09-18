@@ -34,7 +34,8 @@ public final class SqsQueues {
     public static final String EVT_AUDIT_LOG                = "AUDIT_LOG";
 
     // ── Notification delivery events (from any service → notification-service) ──
-    public static final String EVT_TRANSACTIONAL_EMAIL      = "TRANSACTIONAL_EMAIL";
-    public static final String EVT_IN_APP_NOTIFICATION      = "IN_APP_NOTIFICATION";
-    public static final String EVT_PUSH_NOTIFICATION        = "PUSH_NOTIFICATION";
+    public static final String EVT_TRANSACTIONAL_EMAIL           = "TRANSACTIONAL_EMAIL";
+    public static final String EVT_IN_APP_NOTIFICATION           = "IN_APP_NOTIFICATION";
+    public static final String EVT_PUSH_NOTIFICATION             = "PUSH_NOTIFICATION";
+    public static final String EVT_BULK_IN_APP_BY_MEMBER_IDS     = "BULK_IN_APP_BY_MEMBER_IDS";
 }

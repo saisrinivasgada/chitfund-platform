@@ -78,6 +78,8 @@ public class NotificationEventConsumer {
                     onInAppNotification(objectMapper.readValue(envelope.payload(), InAppNotificationEvent.class));
                 case SqsQueues.EVT_PUSH_NOTIFICATION ->
                     onPushNotification(objectMapper.readValue(envelope.payload(), PushNotificationEvent.class));
+                case SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS ->
+                    onBulkInAppByMemberIds(objectMapper.readValue(envelope.payload(), BulkInAppByMemberIdsEvent.class));
                 default -> throw new IllegalStateException("Validated event type was not handled");
             }
         } catch (Exception e) {
@@ -106,7 +108,8 @@ public class NotificationEventConsumer {
                 || SqsQueues.EVT_CASH_REQUEST_EVENT.equals(eventType)
                 || SqsQueues.EVT_TRANSACTIONAL_EMAIL.equals(eventType)
                 || SqsQueues.EVT_IN_APP_NOTIFICATION.equals(eventType)
-                || SqsQueues.EVT_PUSH_NOTIFICATION.equals(eventType);
+                || SqsQueues.EVT_PUSH_NOTIFICATION.equals(eventType)
+                || SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS.equals(eventType);
     }
 
     private String canonicalEventId(String eventId) {
@@ -653,6 +656,27 @@ public class NotificationEventConsumer {
         } catch (Exception e) {
             log.error("Failed to create in-app notification for {}: {}", event.recipientId(), e.getMessage(), e);
             throw new IllegalStateException("IN_APP_NOTIFICATION processing failed", e);
+        }
+    }
+
+    // ── Bulk in-app by member IDs (chit-service uses member IDs, not user IDs) ───
+
+    private void onBulkInAppByMemberIds(BulkInAppByMemberIdsEvent event) {
+        try {
+            if (event.memberIds() == null || event.memberIds().isEmpty()) return;
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            for (String memberId : event.memberIds()) {
+                String userId = userIdMap.get(memberId);
+                if (userId != null) {
+                    inAppService.create(UUID.fromString(userId),
+                            event.title(), event.message(), event.type(),
+                            event.metadata(), event.link());
+                }
+            }
+            broadcaster.broadcast("IN_APP_UPDATED");
+        } catch (Exception e) {
+            log.error("Failed to process BULK_IN_APP_BY_MEMBER_IDS event: {}", e.getMessage(), e);
+            throw new IllegalStateException("BULK_IN_APP_BY_MEMBER_IDS processing failed", e);
         }
     }
 
