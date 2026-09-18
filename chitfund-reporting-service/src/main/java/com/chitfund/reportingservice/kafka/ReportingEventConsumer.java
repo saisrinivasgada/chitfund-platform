@@ -34,13 +34,13 @@ public class ReportingEventConsumer {
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
-            if (!supports(envelope.eventType())) {
-                log.warn("Unknown reporting event type: {}", envelope.eventType());
-                return;
-            }
             if (isDuplicate(envelope)) {
                 log.info("Ignoring duplicate reporting event {} ({})",
                         envelope.eventId(), envelope.eventType());
+                return;
+            }
+            if (!supports(envelope.eventType())) {
+                log.warn("Unknown reporting event type: {}", envelope.eventType());
                 return;
             }
             switch (envelope.eventType()) {

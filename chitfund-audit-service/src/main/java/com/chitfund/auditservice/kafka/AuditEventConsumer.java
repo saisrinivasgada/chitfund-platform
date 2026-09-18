@@ -1,6 +1,7 @@
 package com.chitfund.auditservice.kafka;
 
 import com.chitfund.common.event.AuditLogEvent;
+import com.chitfund.common.event.PaymentCompletedEvent;
 import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.chitfund.auditservice.dto.AuditLogRequest;
@@ -31,23 +32,33 @@ public class AuditEventConsumer {
     public void onEvent(String raw) {
         try {
             SqsEventEnvelope envelope = objectMapper.readValue(raw, SqsEventEnvelope.class);
-            if (!SqsQueues.EVT_AUDIT_LOG.equals(envelope.eventType())) {
-                log.warn("Unknown audit event type: {}", envelope.eventType());
-                return;
-            }
             if (isDuplicate(envelope)) {
                 log.info("Ignoring duplicate audit event {} ({})",
                         envelope.eventId(), envelope.eventType());
                 return;
             }
-            AuditLogEvent event = objectMapper.readValue(envelope.payload(), AuditLogEvent.class);
-            auditService.record(new AuditLogRequest(
-                    event.serviceName(), event.entityType(), event.entityId(),
-                    event.chitId(), event.action(),
-                    event.actorId(), event.actorRole(), event.actorIp(),
-                    event.beforeState(), event.afterState(),
-                    event.metadata(), event.tenantId()
-            ));
+            switch (envelope.eventType()) {
+                case SqsQueues.EVT_AUDIT_LOG -> {
+                    AuditLogEvent event = objectMapper.readValue(envelope.payload(), AuditLogEvent.class);
+                    auditService.record(new AuditLogRequest(
+                            event.serviceName(), event.entityType(), event.entityId(),
+                            event.chitId(), event.action(),
+                            event.actorId(), event.actorRole(), event.actorIp(),
+                            event.beforeState(), event.afterState(),
+                            event.metadata(), event.tenantId()
+                    ));
+                }
+                case SqsQueues.EVT_PAYMENT_COMPLETED -> {
+                    PaymentCompletedEvent event = objectMapper.readValue(envelope.payload(), PaymentCompletedEvent.class);
+                    auditService.record(new AuditLogRequest(
+                            "payment-service", "PAYMENT_BATCH", event.batchId(),
+                            event.chitId(), "PAYMENT_COMPLETED",
+                            event.completedByUserId(), null, null,
+                            null, null, null, event.tenantId()
+                    ));
+                }
+                default -> log.warn("Unhandled audit event type: {}", envelope.eventType());
+            }
         } catch (Exception e) {
             log.error("Failed to process audit event: {}", e.getMessage(), e);
             throw new IllegalStateException("Audit event processing failed", e);
