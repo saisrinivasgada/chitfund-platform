@@ -57,7 +57,7 @@ public class PaymentEventPublisher {
 
     public void publish(PaymentCompletedEvent event) {
         route(SqsQueues.EVT_PAYMENT_COMPLETED, event, "PAYMENT_BATCH", event.batchId(), List.of(
-                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.REPORTING_EVENTS));
+                SqsQueues.NOTIFICATION_EVENTS, SqsQueues.AUDIT_EVENTS, SqsQueues.REPORTING_EVENTS));
     }
 
     public void publish(CashRequestEvent event) {

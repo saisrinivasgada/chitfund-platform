@@ -9,6 +9,7 @@ import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
@@ -37,6 +38,7 @@ import static org.mockito.Mockito.when;
 class EmployeeServiceTest {
 
     @Mock EmployeeRepository repository;
+    @Mock HubCustomRoleRepository hubCustomRoleRepository;
     @Mock HubJwtTokenProvider tokenProvider;
     @Mock OrgJwtTokenProvider orgTokenProvider;
     @Mock PasswordEncoder passwordEncoder;
@@ -267,8 +269,9 @@ class EmployeeServiceTest {
     }
 
     private EmployeeService service() {
-        EmployeeService service = new EmployeeService(repository, tokenProvider, orgTokenProvider,
-                passwordEncoder, invitationMailer, refreshSessionRepository);
+        EmployeeService service = new EmployeeService(repository, hubCustomRoleRepository,
+                tokenProvider, orgTokenProvider, passwordEncoder, invitationMailer,
+                refreshSessionRepository);
         ReflectionTestUtils.setField(service, "refreshTokenExpiryDays", 30L);
         return service;
     }
