@@ -313,7 +313,6 @@ public class ChitfundRequestService {
         rejectExpired(requestId);
         ChitfundAccessRequest request = tenantRequestForUpdate(requestId);
         if (request.getStatus() == ChitfundRequestStatus.ACTIVE) return toResponse(request, null);
-        // Legacy path: rows that reached AWAITING_ADMIN before auto-activation was introduced.
         if (request.getStatus() != ChitfundRequestStatus.AWAITING_ADMIN) {
             throw conflict("The member must complete verification before app access can be activated");
         }
@@ -322,8 +321,7 @@ public class ChitfundRequestService {
     }
 
     // Establish the member_user_links row, flip hasAppAccess, and fire the post-commit
-    // member-service notification. Called automatically after member verification so
-    // neither path (NEW_ACCOUNT setup nor LINK_EXISTING accept) parks in AWAITING_ADMIN.
+    // member-service notification. Called by confirm() (admin triggers) and accept() (member-OTP path).
     private void activateAccess(ChitfundAccessRequest request, UUID actorId,
                                  String actorType, String auditDetail) {
         ChitfundRequestStatus previous = request.getStatus();
@@ -416,7 +414,11 @@ public class ChitfundRequestService {
         token.setUsedAt(LocalDateTime.now());
         setupTokenRepository.save(token);
         request.setMemberVerifiedAt(LocalDateTime.now());
-        activateAccess(request, user.getId(), "MEMBER", "New account setup completed — app access granted automatically");
+        request.setStatus(ChitfundRequestStatus.AWAITING_ADMIN);
+        requestRepository.save(request);
+        audit(request, "ACCOUNT_SETUP_VERIFIED", ChitfundRequestStatus.PENDING_MEMBER,
+                request.getStatus(), user.getId(), "MEMBER",
+                "New account completed phone and recovery-email verification");
         ChitfundRequestResponse response = toResponse(request, null);
         requestRepository.findAllByCandidateUserIdAndStatusInOrderByCreatedAtDesc(user.getId(), OPEN)
                 .stream()
