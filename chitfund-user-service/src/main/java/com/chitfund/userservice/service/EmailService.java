@@ -496,7 +496,8 @@ public class EmailService {
     // ── Org approval / rejection / suspension ─────────────────────────────────
 
     public static String buildApprovalEmailHtml(String adminName, String orgName, String slug,
-                                                String username, String tempPassword) {
+                                                String username, String tempPassword,
+                                                com.chitfund.userservice.domain.entity.PlanLimits planLimits) {
         String name = adminName != null && !adminName.isBlank() ? adminName : "there";
         String portalUrl = "https://" + slug + ".thechitwise.com";
         String hero = statusHero(
@@ -546,11 +547,13 @@ public class EmailService {
                     </table>
                   </div>
                   """.formatted(username, portalUrl, portalUrl);
+        String planBlock = buildPlanSummaryBlock(planLimits);
         String bodyContent = hero + """
                 <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
                   Hi <strong>%s</strong>,<br><br>
                   Great news! Your <strong>%s</strong> account on ChitWise has been approved and is now active.
                 </p>
+                %s
                 %s
                 <table cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 20px;">
                   <tr>
@@ -565,17 +568,19 @@ public class EmailService {
                   Need help getting started? Reach us at
                   <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
                 </p>
-                """.formatted(name, orgName, credentialsBlock, portalUrl);
+                """.formatted(name, orgName, credentialsBlock, planBlock, portalUrl);
         return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Approved", "#059669", bodyContent);
     }
 
     public static String buildApprovalEmailText(String adminName, String orgName, String slug,
-                                                String username, String tempPassword) {
+                                                String username, String tempPassword,
+                                                com.chitfund.userservice.domain.entity.PlanLimits planLimits) {
         String name = adminName != null && !adminName.isBlank() ? adminName : "there";
         String credentials = tempPassword != null
                 ? "Username: " + username + "\nTemporary password: " + tempPassword +
                   "\n(You will be asked to change your password on first login.)"
                 : "Username: " + username;
+        String planText = buildPlanSummaryText(planLimits);
         return """
                 Hi %s,
 
@@ -584,12 +589,70 @@ public class EmailService {
                 %s
                 Portal: https://%s.thechitwise.com
 
-                Click the link above to log in and get started.
+                %sClick the link above to log in and get started.
 
                 Questions? Reach us at help@thechitwise.com.
 
                 — The ChitWise Team
-                """.formatted(name, orgName, credentials, slug);
+                """.formatted(name, orgName, credentials, slug, planText);
+    }
+
+    private static String buildPlanSummaryBlock(com.chitfund.userservice.domain.entity.PlanLimits p) {
+        if (p == null) return "";
+        String price = p.getPriceMonthlyInr() == 0
+                ? "<strong style=\"color:#059669;\">Free</strong>"
+                : "<strong>&#8377;" + (p.getPriceMonthlyInr() / 100) + "/month</strong>";
+        String chits   = p.getMaxActiveChits()  == -1 ? "Unlimited" : String.valueOf(p.getMaxActiveChits());
+        String members = p.getMaxMembers()       == -1 ? "Unlimited" : "Up to " + p.getMaxMembers();
+        String staff   = p.getMaxStaff()         == -1 ? "Unlimited"
+                       : p.getMaxStaff()          ==  0 ? "None"
+                       : String.valueOf(p.getMaxStaff());
+        return """
+                <div style="border:1.5px solid #E2E8F0;border-radius:12px;padding:20px 24px;margin:0 0 20px;background:#F8FAFC;">
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding-bottom:14px;">
+                        <span style="color:#111827;font-size:15px;font-weight:700;">Your Plan &mdash; %s</span>
+                        &nbsp;&nbsp;
+                        <span style="background:#F0FDF4;color:#166534;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:3px 10px;border-radius:100px;">%s</span>
+                        &nbsp;
+                        <span style="color:#6B7280;font-size:13px;">%s</span>
+                      </td>
+                    </tr>
+                  </table>
+                  <div style="height:1px;background:#E2E8F0;margin:0 0 14px;"></div>
+                  <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="padding:4px 0;color:#6B7280;font-size:13px;width:160px;">Active chit groups</td>
+                      <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 0;color:#6B7280;font-size:13px;">Members per chit</td>
+                      <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:4px 0;color:#6B7280;font-size:13px;">Staff accounts</td>
+                      <td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">%s</td>
+                    </tr>
+                  </table>
+                </div>
+                """.formatted(
+                p.getDisplayName(),
+                p.getPriceMonthlyInr() == 0 ? "FREE" : p.getPlan(),
+                price,
+                chits, members, staff);
+    }
+
+    private static String buildPlanSummaryText(com.chitfund.userservice.domain.entity.PlanLimits p) {
+        if (p == null) return "";
+        String price   = p.getPriceMonthlyInr() == 0 ? "Free" : "₹" + (p.getPriceMonthlyInr() / 100) + "/month";
+        String chits   = p.getMaxActiveChits()  == -1 ? "Unlimited" : String.valueOf(p.getMaxActiveChits());
+        String members = p.getMaxMembers()       == -1 ? "Unlimited" : "Up to " + p.getMaxMembers();
+        String staff   = p.getMaxStaff()         == -1 ? "Unlimited" : p.getMaxStaff() == 0 ? "None" : String.valueOf(p.getMaxStaff());
+        return "Your Plan: " + p.getDisplayName() + " (" + price + ")\n" +
+               "  • Active chit groups: " + chits + "\n" +
+               "  • Members per chit: " + members + "\n" +
+               "  • Staff accounts: " + staff + "\n\n";
     }
 
     public static String buildRejectionEmailHtml(String adminName, String orgName) {
