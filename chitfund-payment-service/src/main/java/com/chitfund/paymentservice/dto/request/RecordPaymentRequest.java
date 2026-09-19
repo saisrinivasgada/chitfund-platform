@@ -20,9 +20,14 @@ public class RecordPaymentRequest {
     @DecimalMin(value = "0.00", message = "Amount cannot be negative")
     private BigDecimal amount;
 
-    // CASH is not allowed here — use POST /payments/collect for cash
+    // Admin-direct CASH is completed immediately; staff cash collection uses
+    // POST /payments/collect and remains pending until remittance.
     @NotNull
     private PaymentMode paymentMode;
 
     private String notes;
+
+    /** UPI UTR, bank transaction reference, or cheque number. */
+    @Size(max = 100, message = "Payment reference must not exceed 100 characters")
+    private String paymentReference;
 }

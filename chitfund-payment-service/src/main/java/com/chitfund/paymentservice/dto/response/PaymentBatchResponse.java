@@ -32,6 +32,7 @@ public class PaymentBatchResponse {
     private String voidReason;
 
     private String notes;
+    private String paymentReference;
     private LocalDateTime createdAt;
 
     // How this batch's amount was distributed across months (FIFO order)

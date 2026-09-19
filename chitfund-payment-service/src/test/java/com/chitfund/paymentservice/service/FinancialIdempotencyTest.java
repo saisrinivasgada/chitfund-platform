@@ -90,6 +90,34 @@ class FinancialIdempotencyTest {
     }
 
     @Test
+    void duplicateExternalPaymentReferenceIsRejectedWithinTenantAndMode() {
+        TenantContext.set("tenant-a");
+        RecordPaymentRequest request = paymentRequest(new BigDecimal("100.00"));
+        request.setPaymentReference("  upi-ref-42  ");
+        when(batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                "tenant-a", "RECORD_PAYMENT", "request-2"))
+                .thenReturn(Optional.empty());
+        when(batchRepository.findByTenantIdAndPaymentModeAndPaymentReference(
+                "tenant-a", PaymentMode.UPI, "UPI-REF-42"))
+                .thenReturn(Optional.of(PaymentBatch.builder().id(UUID.randomUUID()).build()));
+
+        PaymentService service = new PaymentService(
+                batchRepository, paymentRecordRepository, allocationRepository,
+                planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
+                adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
+                auditClient);
+
+        assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "request-2"))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(ex.getMessage()).contains("reference");
+                });
+
+        assertThat(request.getPaymentReference()).isEqualTo("UPI-REF-42");
+        verify(batchRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void settlementTransactionStoresTrustedTenantAndRequestFingerprint() {
         TenantContext.set("tenant-a");
         UUID settlementId = UUID.randomUUID();
@@ -182,6 +210,7 @@ class FinancialIdempotencyTest {
         request.setMemberId(UUID.randomUUID());
         request.setAmount(amount);
         request.setPaymentMode(PaymentMode.UPI);
+        request.setPaymentReference("UPI-TEST-1");
         request.setNotes("monthly payment");
         return request;
     }
