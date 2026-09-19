@@ -15,6 +15,7 @@ Both were fixed. These exist so they cannot come back unnoticed.
     pytest tests/e2e/test_authorization.py -v
 """
 
+import json
 import uuid
 
 import pytest
@@ -120,6 +121,49 @@ class TestRoleSeparation:
         assert r.status_code == 200, (
             f"ADMIN could not read the treasury ({r.status_code}); the refusals "
             "above may be masking a broken endpoint rather than proving anything")
+
+
+class TestPlanCapabilities:
+    """Financial feature gates must agree with the tenant metadata source."""
+
+    def test_existing_plan_retains_settlement_access(self, api, token):
+        capabilities = api.internal(
+            "GET",
+            f"{api.user}/internal/capabilities/tenants/"
+            "10000000-0000-0000-0000-000000000001")
+        assert capabilities.status_code == 200, capabilities.text[:200]
+        assert "settlement" in capabilities.json()
+
+        response = api.as_role(
+            "GET", f"{api.payment}/settlement/all", token("ADMIN"))
+        assert response.status_code == 200, response.text[:300]
+
+    def test_custom_plan_without_settlement_is_denied(self, api, token, db):
+        tenant_id = str(uuid.uuid4())
+        db.query(
+            "chitfund_user",
+            """INSERT INTO tenants
+               (id,name,slug,status,plan,created_at,updated_at)
+               VALUES (%s,'No Settlement Test',%s,'ACTIVE','CUSTOM',
+                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))""",
+            (tenant_id, f"no-settlement-{tenant_id[:8]}"),
+        )
+        db.query(
+            "chitfund_user",
+            """INSERT INTO tenant_custom_limits
+               (tenant_id,max_active_chits,max_members,max_staff,capabilities,
+                allowed_chit_types,price_monthly_inr,notes,created_at,updated_at,
+                plan_code)
+               VALUES (%s,1,10,0,%s,'STANDARD',0,NULL,
+                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),'CUSTOM')""",
+            (tenant_id, json.dumps([])),
+        )
+
+        response = api.as_role(
+            "GET", f"{api.payment}/settlement/all",
+            token("ADMIN", tenant=tenant_id))
+        assert response.status_code == 403, response.text[:300]
+        assert response.json().get("errorCode") == "CAPABILITY_REQUIRED"
 
 
 class TestPayoutOwnership:

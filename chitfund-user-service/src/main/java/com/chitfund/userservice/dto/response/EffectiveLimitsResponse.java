@@ -19,6 +19,7 @@ public class EffectiveLimitsResponse {
     private boolean analyticsEnabled;  // derived: enabledCapabilities.contains("full_analytics")
     private boolean prioritySupport;   // derived: enabledCapabilities.contains("priority_support")
     private boolean chatEnabled;       // derived: enabledCapabilities.contains("live_chat")
+    private boolean settlementEnabled; // derived: enabledCapabilities.contains("settlement")
     private String notes;
     private String planExpiresAt;   // ISO string, null = never expires
 }
