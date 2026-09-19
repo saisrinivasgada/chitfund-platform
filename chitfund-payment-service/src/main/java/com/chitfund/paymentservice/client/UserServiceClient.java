@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -42,6 +44,30 @@ public class UserServiceClient {
             }
         } catch (RestClientException e) {
             log.warn("Could not fetch effective limits for tenant {}: {}", tenantId, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Returns the capability keys enabled for the given tenant.
+     * Returns null when user-service is unreachable so callers can fail open.
+     */
+    @SuppressWarnings("unchecked")
+    public List<String> getTenantCapabilities(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return null;
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            ResponseEntity<List> resp = restTemplate.exchange(
+                    userServiceUrl + "/internal/capabilities/tenants/" + tenantId,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    List.class);
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                return new ArrayList<>(resp.getBody());
+            }
+        } catch (RestClientException e) {
+            log.warn("Could not fetch capabilities for tenant {}: {}", tenantId, e.getMessage());
         }
         return null;
     }

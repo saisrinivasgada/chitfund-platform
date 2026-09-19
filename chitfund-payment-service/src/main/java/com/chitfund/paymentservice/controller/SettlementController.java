@@ -1,6 +1,8 @@
 package com.chitfund.paymentservice.controller;
 
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.dto.request.ConfirmSettlementRequest;
 import com.chitfund.paymentservice.dto.request.RecordSettlementTransactionRequest;
 import com.chitfund.paymentservice.dto.request.SettlementPreviewRequest;
@@ -11,11 +13,14 @@ import com.chitfund.paymentservice.service.SettlementService;
 import com.chitfund.paymentservice.service.SettlementTransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -39,10 +44,30 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/settlement")
 @RequiredArgsConstructor
+@Slf4j
 public class SettlementController {
 
     private final SettlementService settlementService;
     private final SettlementTransactionService settlementTransactionService;
+    private final UserServiceClient userServiceClient;
+
+    /** Fail-open capability guard: deny only when user-service confirms the capability is absent. */
+    private boolean settlementCapabilityDenied() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null) return false;
+        try {
+            List<String> caps = userServiceClient.getTenantCapabilities(tenantId);
+            return caps != null && !caps.contains("settlement");
+        } catch (Exception e) {
+            log.warn("Settlement capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
+            return false;
+        }
+    }
+
+    private static final ResponseEntity<ApiResponse<Object>> SETTLEMENT_DENIED =
+            ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("CAPABILITY_REQUIRED",
+                            "Settlement is not included in your current plan. Contact support to upgrade."));
 
     /**
      * Computes the settlement preview for a member across their chits.
@@ -53,8 +78,9 @@ public class SettlementController {
      */
     @PostMapping("/preview")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<SettlementPreviewResponse>> preview(
+    public ResponseEntity<?> preview(
             @Valid @RequestBody SettlementPreviewRequest request) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         return ResponseEntity.ok(ApiResponse.success(settlementService.preview(request)));
     }
 
@@ -65,10 +91,11 @@ public class SettlementController {
      */
     @PostMapping("/confirm")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<SettlementResponse>> confirm(
+    public ResponseEntity<?> confirm(
             @Valid @RequestBody ConfirmSettlementRequest request,
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         UUID adminId = (UUID) auth.getPrincipal();
         SettlementResponse response = settlementService.confirm(request, adminId, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response, "Settlement confirmed"));
@@ -79,10 +106,11 @@ public class SettlementController {
      */
     @GetMapping("/member/{memberId}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getMemberSettlements(
+    public ResponseEntity<?> getMemberSettlements(
             @PathVariable UUID memberId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
         return ResponseEntity.ok(ApiResponse.success(settlementService.getSettlementsForMember(memberId, pr)));
     }
@@ -92,8 +120,9 @@ public class SettlementController {
      */
     @GetMapping("/{settlementId}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<SettlementResponse>> getById(
+    public ResponseEntity<?> getById(
             @PathVariable UUID settlementId) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         return ResponseEntity.ok(ApiResponse.success(settlementService.getById(settlementId)));
     }
 
@@ -109,10 +138,11 @@ public class SettlementController {
      */
     @PostMapping("/{settlementId}/transactions")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<SettlementTransactionResponse>> recordTransaction(
+    public ResponseEntity<?> recordTransaction(
             @PathVariable UUID settlementId,
             @Valid @RequestBody RecordSettlementTransactionRequest request,
             Authentication auth) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         UUID adminId = (UUID) auth.getPrincipal();
         SettlementTransactionResponse response =
                 settlementTransactionService.recordTransaction(settlementId, request, adminId);
@@ -126,8 +156,9 @@ public class SettlementController {
      */
     @GetMapping("/{settlementId}/transactions")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<List<SettlementTransactionResponse>>> getTransactions(
+    public ResponseEntity<?> getTransactions(
             @PathVariable UUID settlementId) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         return ResponseEntity.ok(
                 ApiResponse.success(settlementTransactionService.getTransactions(settlementId)));
     }
@@ -138,9 +169,10 @@ public class SettlementController {
      */
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getAllSettlements(
+    public ResponseEntity<?> getAllSettlements(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
         return ResponseEntity.ok(ApiResponse.success(settlementService.getAllSettlements(pr)));
     }
@@ -151,9 +183,10 @@ public class SettlementController {
      */
     @PostMapping("/{settlementId}/void")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<ApiResponse<SettlementResponse>> voidSettlement(
+    public ResponseEntity<?> voidSettlement(
             @PathVariable UUID settlementId,
             Authentication auth) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
                 settlementService.voidSettlement(settlementId, adminId), "Settlement voided"));
@@ -198,9 +231,10 @@ public class SettlementController {
      */
     @GetMapping("/pending-payments")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<Page<SettlementResponse>>> getPendingPayments(
+    public ResponseEntity<?> getPendingPayments(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
         PageRequest pr = PageRequest.of(page, size, Sort.by("settledAt").descending());
         return ResponseEntity.ok(
                 ApiResponse.success(settlementTransactionService.getPendingSettlements(pr)));
