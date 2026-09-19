@@ -62,10 +62,11 @@ public class TenantSupportClient {
      * Returns enabled capability keys for the tenant.
      * Returns null when user-service is unreachable so callers can fail open.
      */
+    @SuppressWarnings("unchecked")
     public List<String> getCapabilities(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return null;
         try {
-            List<?> result = restClient.get()
+            List<String> result = restClient.get()
                     .uri("/internal/capabilities/tenants/{tenantId}", tenantId)
                     .header("X-Internal-Key", internalKey)
                     .retrieve()
