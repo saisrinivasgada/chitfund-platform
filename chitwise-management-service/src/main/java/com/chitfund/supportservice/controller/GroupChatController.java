@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.controller;
 
+import com.chitfund.supportservice.client.TenantSupportClient;
 import com.chitfund.supportservice.dto.request.AddGroupMemberRequest;
 import com.chitfund.supportservice.dto.request.CreateGroupRequest;
 import com.chitfund.supportservice.dto.request.SendGroupMessageRequest;
@@ -12,25 +13,32 @@ import com.chitfund.supportservice.service.GroupChatService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/groups")
 @RequiredArgsConstructor
+@Slf4j
 public class GroupChatController {
 
     private final GroupChatService groupChatService;
+    private final TenantSupportClient tenantSupportClient;
 
     @PostMapping
-    public ResponseEntity<ChatGroupResponse> createGroup(
+    public ResponseEntity<?> createGroup(
             HttpServletRequest req,
             @Valid @RequestBody CreateGroupRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminOrManager(ctx);
+        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
         String name = ctx.getUserName() != null ? ctx.getUserName() : ctx.getUserId();
         ChatGroupResponse group = groupChatService.createGroup(
                 ctx.getTenantId(), ctx.getUserId(), name, ctx.getRole(), body);
@@ -94,11 +102,12 @@ public class GroupChatController {
     }
 
     @PostMapping("/{id}/messages")
-    public ResponseEntity<ChatGroupMessageResponse> sendMessage(
+    public ResponseEntity<?> sendMessage(
             HttpServletRequest req,
             @PathVariable String id,
             @Valid @RequestBody SendGroupMessageRequest body) {
         OrgRequestContext ctx = orgCtx(req);
+        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
         String name = ctx.getUserName() != null ? ctx.getUserName() : ctx.getUserId();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(groupChatService.sendMessage(
@@ -127,5 +136,22 @@ public class GroupChatController {
         if (!"ADMIN".equals(ctx.getRole()) && !"MANAGER".equals(ctx.getRole())) {
             throw new SecurityException("Only admins and managers can perform this action");
         }
+    }
+
+    /** Fail-open: only deny when user-service explicitly confirms live_chat is absent. */
+    private boolean chatCapabilityDenied(String tenantId) {
+        try {
+            List<String> caps = tenantSupportClient.getCapabilities(tenantId);
+            return caps != null && !caps.contains("live_chat");
+        } catch (Exception e) {
+            log.warn("live_chat capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
+            return false;
+        }
+    }
+
+    private static ResponseEntity<Map<String, String>> chatDenied() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "CAPABILITY_REQUIRED",
+                        "message", "Live chat is not included in your current plan."));
     }
 }

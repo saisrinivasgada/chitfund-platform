@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.controller;
 
+import com.chitfund.supportservice.client.TenantSupportClient;
 import com.chitfund.supportservice.dto.request.SendChatMessageRequest;
 import com.chitfund.supportservice.dto.request.StartConversationRequest;
 import com.chitfund.supportservice.dto.response.ChatMessageResponse;
@@ -10,15 +11,22 @@ import com.chitfund.supportservice.service.ConversationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/conversations")
 @RequiredArgsConstructor
+@Slf4j
 public class OrgConversationController {
 
     private final ConversationService conversationService;
+    private final TenantSupportClient tenantSupportClient;
 
     // ── Admin/Manager endpoints ───────────────────────────────────────────────
 
@@ -35,11 +43,12 @@ public class OrgConversationController {
 
     /** Start or retrieve a DM with a specific member (idempotent). */
     @PostMapping
-    public ResponseEntity<ConversationResponse> startConversation(
+    public ResponseEntity<?> startConversation(
             HttpServletRequest req,
             @Valid @RequestBody StartConversationRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminOrManager(ctx);
+        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
         return ResponseEntity.ok(conversationService.startOrGetConversation(
                 ctx.getTenantId(), ctx.getUserId(), body));
     }
@@ -89,12 +98,13 @@ public class OrgConversationController {
     }
 
     @PostMapping("/{id}/messages")
-    public ResponseEntity<ChatMessageResponse> sendMessage(
+    public ResponseEntity<?> sendMessage(
             HttpServletRequest req,
             @PathVariable String id,
             @Valid @RequestBody SendChatMessageRequest body) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminManagerOrMember(ctx);
+        if (chatCapabilityDenied(ctx.getTenantId())) return chatDenied();
         boolean isMember = "MEMBER".equals(ctx.getRole());
         return ResponseEntity.ok(conversationService.sendMessage(
                 id, ctx.getTenantId(), ctx.getUserId(), ctx.getUserName(),
@@ -147,5 +157,21 @@ public class OrgConversationController {
         if (!"ADMIN".equals(role) && !"MANAGER".equals(role) && !"MEMBER".equals(role)) {
             throw new SecurityException("Access denied");
         }
+    }
+
+    private boolean chatCapabilityDenied(String tenantId) {
+        try {
+            List<String> caps = tenantSupportClient.getCapabilities(tenantId);
+            return caps != null && !caps.contains("live_chat");
+        } catch (Exception e) {
+            log.warn("live_chat capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
+            return false;
+        }
+    }
+
+    private static ResponseEntity<Map<String, String>> chatDenied() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "CAPABILITY_REQUIRED",
+                        "message", "Live chat is not included in your current plan."));
     }
 }

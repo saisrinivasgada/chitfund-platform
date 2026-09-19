@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -54,6 +55,25 @@ public class TenantSupportClient {
         } catch (RestClientException ex) {
             log.warn("Unable to list tenants: {}", ex.getMessage());
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Returns enabled capability keys for the tenant.
+     * Returns null when user-service is unreachable so callers can fail open.
+     */
+    public List<String> getCapabilities(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return null;
+        try {
+            List<?> result = restClient.get()
+                    .uri("/internal/capabilities/tenants/{tenantId}", tenantId)
+                    .header("X-Internal-Key", internalKey)
+                    .retrieve()
+                    .body(List.class);
+            return result != null ? new ArrayList<>(result) : null;
+        } catch (RestClientException ex) {
+            log.warn("Could not fetch capabilities for tenant [{}]: {}", tenantId, ex.getMessage());
+            return null;
         }
     }
 
