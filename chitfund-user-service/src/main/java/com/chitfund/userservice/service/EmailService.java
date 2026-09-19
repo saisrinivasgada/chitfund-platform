@@ -405,6 +405,173 @@ public class EmailService {
                 """.formatted(name, orgName);
     }
 
+    // ── Org approval / rejection / suspension (delivered via notification-service) ─
+
+    private static final String ICON_WARNING =
+        "<svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+        "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
+        "<path d=\"M12 3L2 21h20L12 3z\" fill=\"white\" fill-opacity=\"0.9\"/>" +
+        "<path d=\"M12 10v4\" stroke=\"#0F172A\" stroke-width=\"2\" stroke-linecap=\"round\"/>" +
+        "<circle cx=\"12\" cy=\"17\" r=\"1\" fill=\"#0F172A\"/>" +
+        "</svg>";
+
+    public static String buildApprovalEmailHtml(String adminName, String orgName, String slug,
+                                                String username, String tempPassword) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        String portalUrl = "https://" + slug + ".thechitwise.com";
+        String credentialsBlock = tempPassword != null
+                ? """
+                  <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:24px 0;">
+                    <p style="color:#166534;font-size:12px;font-weight:700;letter-spacing:1.5px;margin:0 0 14px;text-transform:uppercase;">Your login credentials</p>
+                    <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:5px 0;color:#6B7280;font-size:13px;width:120px;">Username</td>
+                        <td style="padding:5px 0;color:#111827;font-size:14px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;color:#6B7280;font-size:13px;">Temp password</td>
+                        <td style="padding:5px 0;color:#111827;font-size:14px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;color:#6B7280;font-size:13px;">Your portal</td>
+                        <td style="padding:5px 0;font-size:13px;">
+                          <a href="%s" style="color:#059669;font-weight:600;text-decoration:none;">%s</a>
+                        </td>
+                      </tr>
+                    </table>
+                    <p style="color:#166534;font-size:12px;margin:14px 0 0;">You will be asked to set a new password on first login.</p>
+                  </div>
+                  """.formatted(username, tempPassword, portalUrl, portalUrl)
+                : """
+                  <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;margin:24px 0;">
+                    <table width="100%%" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:5px 0;color:#6B7280;font-size:13px;width:120px;">Username</td>
+                        <td style="padding:5px 0;color:#111827;font-size:14px;font-weight:700;font-family:'Courier New',monospace;">%s</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:5px 0;color:#6B7280;font-size:13px;">Your portal</td>
+                        <td style="padding:5px 0;font-size:13px;">
+                          <a href="%s" style="color:#059669;font-weight:600;text-decoration:none;">%s</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+                  """.formatted(username, portalUrl, portalUrl);
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  Great news! Your <strong>%s</strong> account on ChitWise has been approved and is now active.
+                </p>
+                %s
+                <table cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;">
+                  <tr>
+                    <td style="border-radius:8px;background:#059669;">
+                      <a href="%s" style="display:inline-block;padding:13px 28px;color:#FFFFFF;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">
+                        Log in to ChitWise →
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Need help getting started? Reach us at
+                  <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, orgName, credentialsBlock, portalUrl);
+        return baseTemplate(LOGO_URL, ICON_ROCKET, "Account Approved", "#059669", bodyContent);
+    }
+
+    public static String buildApprovalEmailText(String adminName, String orgName, String slug,
+                                                String username, String tempPassword) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        String credentials = tempPassword != null
+                ? "Username: " + username + "\nTemporary password: " + tempPassword + "\n(You will be asked to change your password on first login.)"
+                : "Username: " + username;
+        return """
+                Hi %s,
+
+                Great news! Your %s account on ChitWise has been approved and is now active.
+
+                %s
+                Portal: https://%s.thechitwise.com
+
+                Click the link above to log in and get started.
+
+                Questions? Reach us at help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, orgName, credentials, slug);
+    }
+
+    public static String buildRejectionEmailHtml(String adminName, String orgName) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  Thank you for your interest in ChitWise. After reviewing your registration for <strong>%s</strong>, we are unable to approve it at this time.
+                </p>
+                <div style="background:#FEF2F2;border:2px solid #FECACA;border-radius:12px;padding:20px 24px;margin:24px 0;">
+                  <p style="color:#991B1B;font-size:14px;margin:0;line-height:1.6;">
+                    If you believe this is an error or would like to discuss further, please contact our team and we'll be happy to help.
+                  </p>
+                </div>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Write to us at
+                  <a href="mailto:help@thechitwise.com" style="color:#DC2626;text-decoration:none;font-weight:600;">help@thechitwise.com</a>
+                  and mention your organization name so we can look up your application.
+                </p>
+                """.formatted(name, orgName);
+        return baseTemplate(LOGO_URL, ICON_CROSS, "Registration Update", "#DC2626", bodyContent);
+    }
+
+    public static String buildRejectionEmailText(String adminName, String orgName) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        return """
+                Hi %s,
+
+                Thank you for your interest in ChitWise. After reviewing your registration for %s, we are unable to approve it at this time.
+
+                If you believe this is an error or would like to discuss further, please write to help@thechitwise.com and mention your organization name.
+
+                — The ChitWise Team
+                """.formatted(name, orgName);
+    }
+
+    public static String buildSuspensionEmailHtml(String adminName, String orgName) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  Your ChitWise account for <strong>%s</strong> has been temporarily suspended.
+                  Access to your portal and data is restricted until the suspension is lifted.
+                </p>
+                <div style="background:#FFFBEB;border:2px solid #FDE68A;border-radius:12px;padding:20px 24px;margin:24px 0;">
+                  <p style="color:#92400E;font-size:14px;margin:0;line-height:1.6;">
+                    If you have questions about this suspension or need to resolve the issue, please contact our support team as soon as possible.
+                  </p>
+                </div>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Reach us at
+                  <a href="mailto:help@thechitwise.com" style="color:#D97706;text-decoration:none;font-weight:600;">help@thechitwise.com</a>
+                  — please include your organization name in your message.
+                </p>
+                """.formatted(name, orgName);
+        return baseTemplate(LOGO_URL, ICON_WARNING, "Account Suspended", "#D97706", bodyContent);
+    }
+
+    public static String buildSuspensionEmailText(String adminName, String orgName) {
+        String name = adminName != null && !adminName.isBlank() ? adminName : "there";
+        return """
+                Hi %s,
+
+                Your ChitWise account for %s has been temporarily suspended. Access to your portal is restricted until the suspension is lifted.
+
+                If you have questions or need to resolve this, please write to help@thechitwise.com with your organization name.
+
+                — The ChitWise Team
+                """.formatted(name, orgName);
+    }
+
     private static String maskEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         String[] parts = email.split("@", 2);
