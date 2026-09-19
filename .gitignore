@@ -31,3 +31,6 @@ aws-resources.txt
 # Logs
 logs/
 *.log
+
+# Expo device history and local development-server state
+chitwise-mobile/.expo/
