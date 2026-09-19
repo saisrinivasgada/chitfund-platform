@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, Linking } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
@@ -13,12 +13,16 @@ import {
 import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
+import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const qc = useQueryClient();
   const [showProfile, setShowProfile] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: supportContact } = useQuery({
     queryKey: ['admin-support-contact'],
@@ -40,7 +44,10 @@ export default function ManagerDashboardScreen() {
   const { data: staff = [] }                                       = useQuery({ queryKey: ['staff'],         queryFn: listStaff, staleTime: 120_000 });
 
   const isLoading = l1 || l2 || l3 || l4 || l5;
-  function onRefresh() { r1(); r2(); r3(); r4(); r5(); r6(); }
+  async function onRefresh() {
+    setIsRefreshing(true);
+    try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
+  }
 
   // Payment-service stores memberId as the member's userId on some rows, so index
   // by both ids to keep name lookups working across endpoints.
@@ -79,7 +86,7 @@ export default function ManagerDashboardScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
@@ -100,6 +107,8 @@ export default function ManagerDashboardScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        <SyncStatusCard />
 
         {/* Treasury balance */}
         <View style={{

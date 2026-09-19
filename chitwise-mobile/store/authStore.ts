@@ -255,7 +255,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const accounts = await loadAccounts();
     const updated = accounts.filter((a) => a.accountId !== accountId);
     await saveAccounts(updated);
-    set({ accounts: updated });
+    const current = get().user;
+    const removingCurrent = !!current
+      && accountStorageId(current.id, current.tenantId, current.authSource ?? 'ORGANIZATION') === accountId;
+    if (removingCurrent) {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+      await SecureStore.deleteItemAsync(USER_KEY);
+      await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
+    }
+    set((state) => ({ accounts: updated, user: removingCurrent ? null : state.user }));
   },
 
   updateTokenForAccount: async (accountId: string, token: string, refreshToken?: string) => {

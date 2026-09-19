@@ -19,6 +19,8 @@ import {
 } from '../../../services/api';
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
+import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
@@ -33,6 +35,7 @@ export default function AdminDashboard() {
   const [nrAmount, setNrAmount] = useState('');
   const [nrNotes, setNrNotes] = useState('');
   const [showNotifs, setShowNotifs] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: cashRequests = [], isLoading: crLoading, refetch: refetchCR } = useQuery({ queryKey: ['m-cash-requests'], queryFn: getActiveCashRequests });
   const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
@@ -127,7 +130,16 @@ export default function AdminDashboard() {
   });
 
   const isLoading = crLoading || chitsLoading || membersLoading;
-  function onRefresh() { refetchCR(); refetchChits(); refetchMembers(); refetchWallet(); refetchActivity(); refetchBatches(); refetchDraws(); refetchPayouts(); refetchOrgReservations(); refetchSummary(); refetchSettlements(); refetchPendingPayouts(); refetchRemittance(); }
+  async function onRefresh() {
+    setIsRefreshing(true);
+    try {
+      await syncCurrentAccount(qc);
+    } catch (error) {
+      Alert.alert('Sync failed', error instanceof Error ? error.message : 'Please try again');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   const activeChits     = (chits as any[]).filter((c) => c.status === 'ACTIVE');
   const activeMembers   = (members as any[]).filter((m) => m.status !== 'INACTIVE' && m.status !== 'DELETED');
@@ -174,7 +186,7 @@ export default function AdminDashboard() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={C.navy} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
@@ -203,6 +215,8 @@ export default function AdminDashboard() {
             <ProfileAvatarButton size={36} />
           </View>
         </View>
+
+        <SyncStatusCard />
 
         {/* Over-limit warning — usage exceeds the plan */}
         {limitViolations.length > 0 && (

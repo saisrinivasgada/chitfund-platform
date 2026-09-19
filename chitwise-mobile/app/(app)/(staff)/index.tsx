@@ -16,6 +16,8 @@ import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, Lo
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { toast } from '../../../components/Toast';
+import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 const PAGE_SIZE = 10;
 
@@ -540,6 +542,7 @@ export default function StaffTasksScreen() {
 
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [page, setPage] = useState(1);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: tasks = [], isLoading, refetch } = useQuery({
     queryKey: ['staff-tasks'],
@@ -626,12 +629,18 @@ export default function StaffTasksScreen() {
   const pagedAssigned = assigned.slice(0, page * PAGE_SIZE);
   const hasMore = pagedAssigned.length < assigned.length;
 
+  async function onRefresh() {
+    setIsRefreshing(true);
+    setPage(1);
+    try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
         data={pagedAssigned}
         keyExtractor={(t: any) => t.id}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => { refetch(); setPage(1); }} tintColor={C.navy} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         ListHeaderComponent={
           <>
@@ -648,6 +657,8 @@ export default function StaffTasksScreen() {
                 <ProfileAvatarButton />
               </View>
             </View>
+
+            <SyncStatusCard />
 
             {/* Cash ledger cards */}
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>

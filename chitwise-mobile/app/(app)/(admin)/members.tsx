@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tansta
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
-  getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit, recordPayment,
+  getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   getUserById, getAuditLogs, getAllCashRequests, requestMemberAppAccess,
   getMemberChitfundRequests, resendChitfundRequest, revokeChitfundRequest, confirmChitfundRequest,
   createSupportTicket,
@@ -18,6 +18,7 @@ import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
+import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
 
@@ -120,6 +121,7 @@ export default function AdminMembersScreen() {
   const [collectAmount, setCollectAmount] = useState('');
   const [collectMode, setCollectMode] = useState('CASH');
   const [collectNotes, setCollectNotes] = useState('');
+  const [collectReference, setCollectReference] = useState('');
   const [useCredits, setUseCredits] = useState(false);
 
   // Create form - all fields matching web + backend
@@ -277,22 +279,23 @@ export default function AdminMembersScreen() {
   });
 
   const collectMutation = useMutation({
-    mutationFn: () => recordPayment({
+    mutationFn: () => recordPaymentOfflineCapable({
       memberId: selected?.id,
       chitId: collectChitId,
       amount: useCredits ? 0 : Number(collectAmount),
       paymentMode: useCredits ? 'CREDIT' : collectMode,
       notes: collectNotes || undefined,
+      paymentReference: collectReference || undefined,
       idempotencyKey: collectIdempotencyKey,
     }),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       setCollectIdempotencyKey(crypto.randomUUID());
       setShowCollect(false);
-      setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setUseCredits(false);
+      setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setCollectReference(''); setUseCredits(false);
       qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
       qc.invalidateQueries({ queryKey: ['m-member-balance', selected?.id] });
       qc.invalidateQueries({ queryKey: ['m-member-credit', selected?.id] });
-      toast.saved(useCredits ? 'Credits applied — outstanding settled' : 'Payment recorded');
+      toast.saved(useCredits ? 'Credits applied — outstanding settled' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -1481,6 +1484,7 @@ export default function AdminMembersScreen() {
                         ])} />
                   )}
                 </View>
+
               </>
             )}
           </ScrollView>
@@ -1541,7 +1545,7 @@ export default function AdminMembersScreen() {
                 <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                   {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((m) => (
-                    <TouchableOpacity key={m} onPress={() => setCollectMode(m)}
+                    <TouchableOpacity key={m} onPress={() => { setCollectMode(m); setCollectReference(''); }}
                       style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
                         borderColor: collectMode === m ? C.navy : C.gray300,
                         backgroundColor: collectMode === m ? C.navy50 : C.white }}>
@@ -1551,6 +1555,20 @@ export default function AdminMembersScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
+
+                {['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(collectMode) && (
+                  <>
+                    <Text style={{ ...T.label, marginBottom: 6 }}>Transaction Reference *</Text>
+                    <TextInput
+                      value={collectReference}
+                      onChangeText={setCollectReference}
+                      autoCapitalize="characters"
+                      placeholder={collectMode === 'UPI' ? 'UPI UTR / transaction ID' : collectMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                      placeholderTextColor={C.gray400}
+                      style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 14 }}
+                    />
+                  </>
+                )}
               </>
             )}
 
@@ -1562,7 +1580,7 @@ export default function AdminMembersScreen() {
             <Button
               label={useCredits ? `Apply ₹${collectOutstanding.toLocaleString('en-IN')} Credits` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
               variant="success" fullWidth size="lg"
-              disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0))}
+              disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(collectMode) && !collectReference.trim())))}
               loading={collectMutation.isPending}
               onPress={() => collectMutation.mutate()} />
           </View>

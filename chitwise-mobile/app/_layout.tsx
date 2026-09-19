@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAuthStore } from '../store/authStore';
 import { LoadingScreen } from '../components/ui';
@@ -8,13 +9,34 @@ import { ToastRoot } from '../components/Toast';
 import { useRealtimeUpdates } from '../hooks/useRealtimeUpdates';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { TutorialProvider } from '../tutorials/TutorialProvider';
+import { getAccountScope } from '../offline/accountScope';
+import { createOfflineQueryClient, offlinePersistenceOptions } from '../offline/queryPersistence';
+import { SyncRuntime } from '../offline/SyncRuntime';
 
-const queryClient = new QueryClient({
+const hubQueryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 2 },
   },
 });
 const HUB_BUILD = process.env.EXPO_PUBLIC_APP_VARIANT === 'hub';
+
+function ScopedQueryProvider({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((state) => state.user);
+  const scope = getAccountScope(user);
+  const queryClient = useMemo(() => createOfflineQueryClient(), [scope]);
+  const persistence = useMemo(() => scope ? offlinePersistenceOptions(scope) : null, [scope]);
+
+  if (HUB_BUILD || !scope || !persistence) {
+    return <QueryClientProvider client={HUB_BUILD ? hubQueryClient : queryClient}>{children}</QueryClientProvider>;
+  }
+
+  return (
+    <PersistQueryClientProvider key={scope} client={queryClient} persistOptions={persistence}>
+      <SyncRuntime />
+      {children}
+    </PersistQueryClientProvider>
+  );
+}
 
 // Maps each role to the ONLY route group that role is allowed to access.
 const ROLE_GROUP: Record<string, string> = {
@@ -111,7 +133,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
+      <ScopedQueryProvider>
         <RealtimeUpdater />
         <AuthGuard>
           <TutorialProvider>
@@ -119,7 +141,7 @@ export default function RootLayout() {
           </TutorialProvider>
         </AuthGuard>
         <ToastRoot />
-      </QueryClientProvider>
+      </ScopedQueryProvider>
     </GestureHandlerRootView>
   );
 }

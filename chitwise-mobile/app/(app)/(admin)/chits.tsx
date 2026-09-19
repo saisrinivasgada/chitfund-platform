@@ -14,7 +14,7 @@ import {
   getReservations, addReservationSlot, removeReservationSlot,
   swapReservationSlots, shiftReservations, markSlotProcessed,
   updateReservationSlot, hardDeleteReservationSlot,
-  recordPayment, createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
+  createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
   pauseChit, resumeChit, getDeletedChits, deleteChit,
@@ -22,6 +22,7 @@ import {
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
 import { toast } from '../../../components/Toast';
+import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 
 // Statuses that count as "cleared" (no payment needed)
 const CLEARED_STATUSES = new Set(['SETTLED', 'SETTLEMENT_CLEARED', 'WAIVED', 'PAYOUT_DEDUCTED', 'CREDIT_COVERED', 'PARTIAL_CREDIT']);
@@ -239,6 +240,8 @@ export default function AdminChitsScreen() {
   const [cpAmount, setCpAmount] = useState('');
   const [cpMode, setCpMode] = useState('CASH');
   const [cpNotes, setCpNotes] = useState('');
+  const [cpReference, setCpReference] = useState('');
+  const [cpIdempotencyKey, setCpIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // ── Void payment batch ─────────────────────────────────────────────────────
   const [voidBatchId, setVoidBatchId] = useState('');
@@ -675,23 +678,26 @@ export default function AdminChitsScreen() {
 
   // ── Mutation: collect payment for a draw ──────────────────────────────────
   const collectPayMut = useMutation({
-    mutationFn: () => recordPayment({
+    mutationFn: () => recordPaymentOfflineCapable({
       chitId: selected.id,
       memberId: cpMemberId,
       amount: Number(cpAmount),
       paymentMode: cpMode,
       drawNumber: cpDraw?.drawNumber,
       notes: cpNotes || undefined,
+      paymentReference: cpReference || undefined,
+      idempotencyKey: cpIdempotencyKey,
     }),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      setCpIdempotencyKey(crypto.randomUUID());
       setShowCollectPay(false);
-      setCpDraw(null); setCpMemberId(''); setCpAmount(''); setCpMode('CASH'); setCpNotes('');
+      setCpDraw(null); setCpMemberId(''); setCpAmount(''); setCpMode('CASH'); setCpNotes(''); setCpReference('');
       qc.invalidateQueries({ predicate: (q: any) => q.queryKey[0] === 'draw-payments' });
       if (selected?.id) {
         qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
         qc.invalidateQueries({ queryKey: ['a-payment-history', selected.id, cpMemberId] });
       }
-      toast.saved('Payment recorded');
+      toast.saved(data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Payment failed'),
   });
@@ -3820,7 +3826,7 @@ export default function AdminChitsScreen() {
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 8 }}>PAYMENT MODE</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((mode) => (
-                    <TouchableOpacity key={mode} onPress={() => setCpMode(mode)}
+                    <TouchableOpacity key={mode} onPress={() => { setCpMode(mode); setCpReference(''); }}
                       style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
                         borderColor: cpMode === mode ? C.navy : C.gray300,
                         backgroundColor: cpMode === mode ? C.navy50 : C.white }}>
@@ -3831,6 +3837,21 @@ export default function AdminChitsScreen() {
                   ))}
                 </View>
               </View>
+
+              {['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && (
+                <View>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>TRANSACTION REFERENCE *</Text>
+                  <TextInput
+                    value={cpReference}
+                    onChangeText={setCpReference}
+                    autoCapitalize="characters"
+                    placeholder={cpMode === 'UPI' ? 'UPI UTR / transaction ID' : cpMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                    placeholderTextColor={C.gray400}
+                    style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+                  />
+                  <Text style={{ fontSize: 11, color: C.gray500, marginTop: 5 }}>Prevents duplicate recording across devices.</Text>
+                </View>
+              )}
 
               <View>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.6, marginBottom: 6 }}>NOTES (OPTIONAL)</Text>
@@ -3846,7 +3867,7 @@ export default function AdminChitsScreen() {
                 <View style={{ flex: 2 }}>
                   <Button label={`Record ₹${Number(cpAmount || 0).toLocaleString('en-IN')}`}
                     variant="success" size="lg"
-                    disabled={!cpMemberId || !cpAmount}
+                    disabled={!cpMemberId || !cpAmount || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(cpMode) && !cpReference.trim())}
                     loading={collectPayMut.isPending}
                     onPress={() => collectPayMut.mutate()} />
                 </View>
