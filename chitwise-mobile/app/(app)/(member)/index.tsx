@@ -162,16 +162,16 @@ export default function MemberHomeScreen() {
           )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>ACTIVE CHITS</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{activeChits.length}</Text>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>ACTIVE CHITS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{activeChits.length}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>COMPLETED</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{completedChits.length}</Text>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>COMPLETED</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{completedChits.length}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>PICKUPS</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>PICKUPS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }} numberOfLines={1} adjustsFontSizeToFit>
                 {pendingReqs.length}
               </Text>
             </View>

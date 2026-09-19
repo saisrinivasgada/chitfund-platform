@@ -7,6 +7,7 @@ import { LoadingScreen } from '../components/ui';
 import { ToastRoot } from '../components/Toast';
 import { useRealtimeUpdates } from '../hooks/useRealtimeUpdates';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { TutorialProvider } from '../tutorials/TutorialProvider';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,7 +114,9 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RealtimeUpdater />
         <AuthGuard>
-          <Stack screenOptions={{ headerShown: false }} />
+          <TutorialProvider>
+            <Stack screenOptions={{ headerShown: false }} />
+          </TutorialProvider>
         </AuthGuard>
         <ToastRoot />
       </QueryClientProvider>

@@ -12,6 +12,7 @@ import {
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
+import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
@@ -89,12 +90,15 @@ export default function ManagerDashboardScreen() {
             <Text style={T.h1}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
             <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(new Date().toISOString())}</Text>
           </View>
-          <TouchableOpacity onPress={() => setShowProfile(true)}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: C.white }}>
-              {(user?.fullName ?? user?.username ?? '?')[0].toUpperCase()}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TutorialHelpButton />
+            <TouchableOpacity onPress={() => setShowProfile(true)}
+              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: C.white }}>
+                {(user?.fullName ?? user?.username ?? '?')[0].toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Treasury balance */}
@@ -108,16 +112,16 @@ export default function ManagerDashboardScreen() {
           </Text>
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 16 }}>
             <View style={{ backgroundColor: C.white + '1A', borderRadius: 10, padding: 10, flex: 1 }}>
-              <Text style={{ fontSize: 10, color: C.white + '80' }}>ACTIVE CHITS</Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }}>{activeChits}</Text>
+              <Text style={{ fontSize: 10, color: C.white + '80' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>ACTIVE CHITS</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit>{activeChits}</Text>
             </View>
             <View style={{ backgroundColor: C.white + '1A', borderRadius: 10, padding: 10, flex: 1 }}>
-              <Text style={{ fontSize: 10, color: C.white + '80' }}>MEMBERS</Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }}>{activeMembers}</Text>
+              <Text style={{ fontSize: 10, color: C.white + '80' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>MEMBERS</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit>{activeMembers}</Text>
             </View>
             <View style={{ backgroundColor: C.white + '1A', borderRadius: 10, padding: 10, flex: 1 }}>
-              <Text style={{ fontSize: 10, color: C.white + '80' }}>TODAY ₹</Text>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: todayCollected > 0 ? C.goldLight : C.white, marginTop: 2 }}>
+              <Text style={{ fontSize: 10, color: C.white + '80' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>TODAY ₹</Text>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: todayCollected > 0 ? C.goldLight : C.white, marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
                 ₹{Number(todayCollected).toLocaleString('en-IN')}
               </Text>
             </View>

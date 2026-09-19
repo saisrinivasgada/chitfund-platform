@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { C, T } from '../../../components/ui';
 import { useAuthStore } from '../../../store/authStore';
 import { getMemberConversationUnread, getMyChitfundRequests } from '../../../services/api';
+import { TutorialSettingsRow } from '../../../tutorials/TutorialProvider';
 
 interface NavItem {
   emoji: string;
@@ -160,6 +161,7 @@ export default function MemberMoreScreen() {
               </View>
             </TouchableOpacity>
           ))}
+          <TutorialSettingsRow />
         </View>
 
         {/* Footer */}

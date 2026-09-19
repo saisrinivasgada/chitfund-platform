@@ -280,8 +280,22 @@ export function StatCard({ label, value, sub, accent, onPress, glass = false }: 
 }) {
   const content = (
     <>
-      <Text style={{ fontSize: 11, fontWeight: '600', color: glass ? 'rgba(100,120,150,0.9)' : C.gray400, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Text>
-      <Text style={{ fontSize: 22, fontWeight: '700', color: accent ?? C.navy, marginTop: 4 }}>{value}</Text>
+      <Text
+        style={{ fontSize: 11, fontWeight: '600', color: glass ? 'rgba(100,120,150,0.9)' : C.gray400, textTransform: 'uppercase', letterSpacing: 0.5 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.65}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{ fontSize: 22, fontWeight: '700', color: accent ?? C.navy, marginTop: 4 }}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {value}
+      </Text>
       {sub && <Text style={{ fontSize: 12, color: glass ? 'rgba(80,100,120,0.8)' : C.gray500, marginTop: 2 }}>{sub}</Text>}
     </>
   );

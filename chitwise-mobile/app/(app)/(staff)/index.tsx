@@ -14,6 +14,7 @@ import {
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
+import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { toast } from '../../../components/Toast';
 
 const PAGE_SIZE = 10;
@@ -642,7 +643,10 @@ export default function StaffTasksScreen() {
                   {user?.fullName?.split(' ')[0] ?? 'Staff'}
                 </Text>
               </View>
-              <ProfileAvatarButton />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TutorialHelpButton />
+                <ProfileAvatarButton />
+              </View>
             </View>
 
             {/* Cash ledger cards */}
@@ -652,8 +656,8 @@ export default function StaffTasksScreen() {
                 backgroundColor: holdingAmt > 0 ? '#FFFBEB' : C.gray50,
                 borderWidth: 1.5, borderColor: holdingAmt > 0 ? C.amber : C.gray200,
               }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: holdingAmt > 0 ? C.amber : C.gray400, letterSpacing: 0.5, marginBottom: 4 }}>HOLDING</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: holdingAmt > 0 ? C.amber : C.gray400 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: holdingAmt > 0 ? C.amber : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>HOLDING</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: holdingAmt > 0 ? C.amber : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
                   ₹{holdingAmt.toLocaleString('en-IN')}
                 </Text>
                 <Text style={{ fontSize: 10, color: holdingAmt > 0 ? '#92400E' : C.gray400, marginTop: 2 }}>
@@ -666,8 +670,8 @@ export default function StaffTasksScreen() {
                 backgroundColor: assigned.length > 0 ? C.navy50 : C.gray50,
                 borderWidth: 1.5, borderColor: assigned.length > 0 ? C.navy : C.gray200,
               }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: assigned.length > 0 ? C.navy : C.gray400, letterSpacing: 0.5, marginBottom: 4 }}>TO COLLECT</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: assigned.length > 0 ? C.navy : C.gray400 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: assigned.length > 0 ? C.navy : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>TO COLLECT</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: assigned.length > 0 ? C.navy : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
                   ₹{needAmt.toLocaleString('en-IN')}
                 </Text>
                 <Text style={{ fontSize: 10, color: assigned.length > 0 ? C.navy + 'AA' : C.gray400, marginTop: 2 }}>
@@ -680,8 +684,8 @@ export default function StaffTasksScreen() {
                 backgroundColor: todayAmt > 0 ? '#F0FDF4' : C.gray50,
                 borderWidth: 1.5, borderColor: todayAmt > 0 ? C.green : C.gray200,
               }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: todayAmt > 0 ? C.green : C.gray400, letterSpacing: 0.5, marginBottom: 4 }}>TODAY</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: todayAmt > 0 ? C.green : C.gray400 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: todayAmt > 0 ? C.green : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>TODAY</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: todayAmt > 0 ? C.green : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
                   ₹{todayAmt.toLocaleString('en-IN')}
                 </Text>
                 <Text style={{ fontSize: 10, color: todayAmt > 0 ? '#166534' : C.gray400, marginTop: 2 }}>
