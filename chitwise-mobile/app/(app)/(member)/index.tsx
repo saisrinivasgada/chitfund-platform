@@ -1,12 +1,14 @@
 import React from 'react';
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
-import { useQuery, useQueries } from '@tanstack/react-query';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../../store/authStore';
 import { getMyChits, getMyRequests, getMyMemberProfile, getMemberTotalBalance, getMySettlements, getMySettlementById, getMyInvitations, getAdminSupportContact, listAuctions } from '../../../services/api';
 import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScreen, SectionHeader } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
+import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#2D5490', UNKNOWN: '#9CA3AF' };
 const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown' };
@@ -14,9 +16,11 @@ const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1
 export default function MemberHomeScreen() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const qc = useQueryClient();
   const [detailSettlement, setDetailSettlement] = React.useState<any>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [contactOpen, setContactOpen] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   const { data: adminContact } = useQuery({
     queryKey: ['admin-support-contact'],
@@ -105,14 +109,17 @@ export default function MemberHomeScreen() {
     }
   }
 
-  function onRefresh() { refetchChits(); refetchReqs(); refetchSettlements(); }
+  async function onRefresh() {
+    setIsRefreshing(true);
+    try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
+  }
 
   if (isLoading) return <LoadingScreen />;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
+        refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
@@ -162,21 +169,23 @@ export default function MemberHomeScreen() {
           )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>ACTIVE CHITS</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{activeChits.length}</Text>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>ACTIVE CHITS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{activeChits.length}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>COMPLETED</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }}>{completedChits.length}</Text>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>COMPLETED</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{completedChits.length}</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
-              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }}>PICKUPS</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }}>
+              <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>PICKUPS</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }} numberOfLines={1} adjustsFontSizeToFit>
                 {pendingReqs.length}
               </Text>
             </View>
           </View>
         </View>
+
+        <SyncStatusCard />
 
         {/* Action required — staff collected a partial amount */}
         {needsApproval.length > 0 && (

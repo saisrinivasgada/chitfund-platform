@@ -6,15 +6,13 @@ jwt:
 
 app:
   internal-key: ${INTERNAL_SERVICE_KEY}
-
-notification:
-  internal-key: ${INTERNAL_SERVICE_KEY}
-
-app:
   mail:
     from: ${MAIL_FROM}
   email:
     enabled: ${EMAIL_ENABLED:true}
+
+notification:
+  internal-key: ${INTERNAL_SERVICE_KEY}
 
 spring:
   datasource:

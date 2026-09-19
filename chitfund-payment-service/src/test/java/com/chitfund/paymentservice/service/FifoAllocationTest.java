@@ -145,6 +145,7 @@ class FifoAllocationTest {
         req.setMemberId(memberId);
         req.setAmount(new BigDecimal(amount));
         req.setPaymentMode(PaymentMode.UPI);   // completes immediately, FIFO applied inline
+        req.setPaymentReference("UPI-FIFO-1");
         service.recordPayment(req, UUID.randomUUID());
     }
 
@@ -360,7 +361,8 @@ class FifoAllocationTest {
                 .idempotencyOperation("RECORD_PAYMENT")
                 .idempotencyKey("key-1")
                 .idempotencyRequestHash(IdempotencyFingerprint.of(
-                        chitA, memberId, new BigDecimal("1000"), PaymentMode.UPI, null))
+                        chitA, memberId, new BigDecimal("1000"), PaymentMode.UPI, null,
+                        "UPI-FIFO-IDEMPOTENT"))
                 .build();
         when(batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                 TENANT, "RECORD_PAYMENT", "key-1"))
@@ -371,6 +373,7 @@ class FifoAllocationTest {
         req.setMemberId(memberId);
         req.setAmount(new BigDecimal("1000"));
         req.setPaymentMode(PaymentMode.UPI);
+        req.setPaymentReference("UPI-FIFO-IDEMPOTENT");
 
         service.recordPayment(req, UUID.randomUUID(), "key-1");
 

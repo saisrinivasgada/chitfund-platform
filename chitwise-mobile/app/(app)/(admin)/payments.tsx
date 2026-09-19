@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
   getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
-  getMembers, getChits, getChitsForMember, collectPayment, recordPayment,
+  getMembers, getChits, getChitsForMember, collectPayment,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
@@ -20,6 +20,9 @@ import {
 import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { useUIStore } from '../../../store/uiStore';
+import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
+import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
 const TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof TABS[number];
@@ -758,6 +761,7 @@ function RecordPaymentTab() {
   const [mode, setMode] = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF');
   const [notes, setNotes] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
   const [voidBatchId, setVoidBatchId] = useState('');
   const [voidReason, setVoidReason] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
@@ -815,16 +819,18 @@ function RecordPaymentTab() {
   const recordMut = useMutation({
     mutationFn: () => workerCollect
       ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy, idempotencyKey })
-      : recordPayment({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined, idempotencyKey }),
-    onSuccess: () => {
+      : recordPaymentOfflineCapable({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined, paymentReference: paymentReference || undefined, idempotencyKey }),
+    onSuccess: (data: any) => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
         : workerCollect
         ? 'Recorded — awaiting remittance from staff'
-        : 'Payment recorded — treasury credited';
+        : data?.offlineQueued
+          ? 'Payment saved securely — pending sync'
+          : 'Payment recorded — treasury credited';
       toast.saved(msg);
       setIdempotencyKey(crypto.randomUUID());
-      setAmount(''); setNotes(''); setCollectedBy('SELF');
+      setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
       if (isCredit) setMode('CASH');
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
@@ -877,6 +883,9 @@ function RecordPaymentTab() {
     const q = memberSearch.toLowerCase();
     return !q || (m.fullName ?? '').toLowerCase().includes(q) || (m.phone ?? '').includes(q);
   });
+  const paymentMemberNames = Object.fromEntries(
+    (members as any[]).map((member: any) => [member.id, member.fullName ?? member.name ?? 'Member']),
+  );
 
   const submitLabel = isCredit
     ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
@@ -887,6 +896,9 @@ function RecordPaymentTab() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+
+      <SyncStatusCard compact />
+      <PendingPaymentQueueCard memberNames={paymentMemberNames} />
 
       {/* ── Member picker ──────────────────────────────────────────────────── */}
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
@@ -1050,7 +1062,7 @@ function RecordPaymentTab() {
           <View style={{ gap: 6, marginBottom: 16 }}>
             {MODES.map((m) => (
               <TouchableOpacity key={m}
-                onPress={() => { setMode(m); if (m !== 'CASH') setCollectedBy('SELF'); }}
+                onPress={() => { setMode(m); setPaymentReference(''); if (m !== 'CASH') setCollectedBy('SELF'); }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 2, borderColor: mode === m ? C.navy : C.gray300, backgroundColor: mode === m ? C.navy50 : C.white }}>
                 <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: mode === m ? C.navy : C.gray300, backgroundColor: mode === m ? C.navy : 'transparent', flexShrink: 0 }} />
                 <View style={{ flex: 1 }}>
@@ -1061,6 +1073,23 @@ function RecordPaymentTab() {
             ))}
           </View>
           </>)}
+
+          {!isCredit && ['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && (
+            <>
+              <Text style={{ ...T.label, marginBottom: 6 }}>Transaction Reference *</Text>
+              <TextInput
+                value={paymentReference}
+                onChangeText={setPaymentReference}
+                autoCapitalize="characters"
+                placeholder={mode === 'UPI' ? 'UPI UTR / transaction ID' : mode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                placeholderTextColor={C.gray400}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 6 }}
+              />
+              <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 14 }}>
+                Used to prevent the same transfer being recorded twice.
+              </Text>
+            </>
+          )}
 
           {/* Collected By — CASH mode only ──────────────────────────────────── */}
           {isCash && (
@@ -1121,7 +1150,7 @@ function RecordPaymentTab() {
             label={submitLabel}
             variant={isCredit ? 'success' : workerCollect ? 'primary' : 'success'}
             fullWidth
-            disabled={isExpired || (isCredit ? !creditCoversAll : (!amount || amtNum <= 0))}
+            disabled={isExpired || (isCredit ? !creditCoversAll : (!amount || amtNum <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim())))}
             loading={recordMut.isPending}
             onPress={() => {
               const workerName = workerCollect

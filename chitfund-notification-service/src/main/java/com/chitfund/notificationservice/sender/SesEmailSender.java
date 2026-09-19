@@ -23,7 +23,7 @@ public class SesEmailSender implements EmailSender {
     @Value("${app.mail.from}")
     private String fromAddress;
 
-    public SesEmailSender(@Value("${cloud.aws.region.static:ap-south-1}") String region) {
+    public SesEmailSender(@Value("${spring.cloud.aws.region.static:us-east-2}") String region) {
         this.sesClient = SesClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create())

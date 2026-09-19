@@ -62,6 +62,9 @@ public class PaymentBatch {
     @Column(columnDefinition = "text")
     private String notes;
 
+    @Column(name = "payment_reference", length = 100)
+    private String paymentReference;
+
     @Column(length = 64)
     private String idempotencyKey;
 

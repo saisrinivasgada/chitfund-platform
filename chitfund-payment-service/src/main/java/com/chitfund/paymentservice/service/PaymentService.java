@@ -184,9 +184,11 @@ public class PaymentService {
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
         planExpiryChecker.assertNotExpired();
         String tenantId = tenantId();
+        String paymentReference = normalizePaymentReference(request.getPaymentReference());
+        request.setPaymentReference(paymentReference);
         String requestHash = IdempotencyFingerprint.of(
                 request.getChitId(), request.getMemberId(), request.getAmount(),
-                request.getPaymentMode(), request.getNotes());
+                request.getPaymentMode(), request.getNotes(), paymentReference);
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
@@ -195,6 +197,13 @@ public class PaymentService {
                 assertMatchingIdempotencyRequest(b.getIdempotencyRequestHash(), requestHash);
                 return toBatchResponse(b, allocationRepository.findByBatchId(b.getId()));
             }
+        }
+        if (paymentReference != null && batchRepository
+                .findByTenantIdAndPaymentModeAndPaymentReference(
+                        tenantId, request.getPaymentMode(), paymentReference)
+                .isPresent()) {
+            throw new BusinessException(ErrorCode.DUPLICATE_PAYMENT,
+                    "This payment reference has already been recorded", HttpStatus.CONFLICT);
         }
         if (!memberServiceClient.isMemberActive(request.getMemberId())
                 && !paymentRecordRepository.existsByMemberIdAndChitId(request.getMemberId(), request.getChitId())) {
@@ -212,6 +221,7 @@ public class PaymentService {
                 .paymentMode(request.getPaymentMode())
                 .status(BatchStatus.COMPLETED)
                 .notes(request.getNotes())
+                .paymentReference(paymentReference)
                 .collectedAt(request.getPaymentMode() == PaymentMode.CASH ? LocalDateTime.now() : null)
                 .collectedBy(request.getPaymentMode() == PaymentMode.CASH ? adminId : null)
                 .recordedBy(adminId)
@@ -247,6 +257,11 @@ public class PaymentService {
                     "Idempotency key was already used with different payment details",
                     HttpStatus.CONFLICT);
         }
+    }
+
+    private static String normalizePaymentReference(String reference) {
+        if (reference == null || reference.isBlank()) return null;
+        return reference.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -961,6 +976,7 @@ public class PaymentService {
                 .voidedBy(batch.getVoidedBy())
                 .voidReason(batch.getVoidReason())
                 .notes(batch.getNotes())
+                .paymentReference(batch.getPaymentReference())
                 .createdAt(batch.getCreatedAt())
                 .allocations(allocations.stream()
                         .map(a -> PaymentBatchResponse.AllocationDetail.builder()

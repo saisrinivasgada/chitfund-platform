@@ -133,7 +133,7 @@ public class ChitfundRequestService {
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     candidate.getId(), request.getId(),
                     tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization"),
-                    List.of(), null, null));
+                    List.of(), null, null, null));
         }
         return toResponse(request, setupToken, actionToken);
     }
@@ -293,7 +293,7 @@ public class ChitfundRequestService {
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     request.getCandidateUserId(), request.getId(),
                     tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
-                    List.of(), null, null));
+                    List.of(), null, null, null));
         }
         return toResponse(request, setupToken, actionToken);
     }
@@ -309,6 +309,11 @@ public class ChitfundRequestService {
         requestRepository.save(request);
         audit(request, "REQUEST_REVOKED", previous, request.getStatus(), null,
                 "ORG_ADMIN", "Organization revoked app-access request");
+        eventPublisher.publishEvent(new IdentityNotificationEvent(
+                IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED,
+                request.getCandidateUserId(), request.getId(),
+                tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
+                List.of(), null, null, request.getRequestedEmail()));
         return toResponse(request, null);
     }
 
@@ -354,7 +359,8 @@ public class ChitfundRequestService {
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED,
                 request.getCandidateUserId(), request.getId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
-                List.of(), request.getTenantId(), request.getMemberId()));
+                List.of(), request.getTenantId(), request.getMemberId(),
+                request.getRequestedEmail()));
     }
 
     @Transactional

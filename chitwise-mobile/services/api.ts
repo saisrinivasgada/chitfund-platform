@@ -512,8 +512,18 @@ export const realizeOrgPayout = async (chitId: string, reservationId: string) =>
   unwrapObj(await api.post(`/chits/${chitId}/reservations/${reservationId}/realize-org`));
 
 // ── Payments (installments) ────────────────────────────────────────────────────
-export const collectPayment = async (body: any) => unwrapObj(await api.post('/payments/collect', body));
-export const recordPayment = async (body: any) => unwrapObj(await api.post('/payments', body));
+export const collectPayment = async (body: any) => {
+  const { idempotencyKey, ...payload } = body ?? {};
+  return unwrapObj(await api.post('/payments/collect', payload, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {},
+  }));
+};
+export const recordPayment = async (body: any) => {
+  const { idempotencyKey, ...payload } = body ?? {};
+  return unwrapObj(await api.post('/payments', payload, {
+    headers: idempotencyKey ? { 'X-Idempotency-Key': idempotencyKey } : {},
+  }));
+};
 export const getPaymentHistory = async (memberId: string, chitId: string) =>
   unwrapList(await api.get('/payments/history', { params: { memberId, chitId } }));
 export const getPaymentBatches = async (memberId?: string, chitId?: string) =>

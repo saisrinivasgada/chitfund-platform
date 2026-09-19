@@ -626,7 +626,7 @@ export default function LoginScreen() {
                   <Text style={{ marginHorizontal: 12, fontSize: 12, color: '#9CA3AF' }}>or</Text>
                   <View style={{ flex: 1, height: 1, backgroundColor: '#E5E7EB' }} />
                 </View>
-                {biometricOn ? (
+                {biometricOn && (
                   <>
                     <TouchableOpacity
                       onPress={handleBiometricLogin}

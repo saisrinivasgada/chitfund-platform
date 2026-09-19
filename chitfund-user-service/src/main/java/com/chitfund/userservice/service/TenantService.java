@@ -222,6 +222,18 @@ public class TenantService {
 
         if (!admins.isEmpty()) {
             User existingAdmin = admins.get(0);
+            try {
+                String html = EmailService.buildApprovalEmailHtml(
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null);
+                String text = EmailService.buildApprovalEmailText(
+                        existingAdmin.getFullName(), t.getName(), t.getSlug(), existingAdmin.getUsername(), null);
+                notificationEventPublisher.publishEmail(
+                        t.getContactEmail(),
+                        "Your ChitWise account is now active — " + t.getName(),
+                        html, text);
+            } catch (Exception e) {
+                log.warn("Approval email could not be queued for tenant {}: {}", tenantId, e.getMessage());
+            }
             return ActivationResponse.builder()
                     .tenant(toResponse(t))
                     .adminUsername(existingAdmin.getUsername())
@@ -258,6 +270,19 @@ public class TenantService {
                 .build();
         userRepository.save(admin);
 
+        try {
+            String html = EmailService.buildApprovalEmailHtml(
+                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword);
+            String text = EmailService.buildApprovalEmailText(
+                    admin.getFullName(), t.getName(), t.getSlug(), username, rawPassword);
+            notificationEventPublisher.publishEmail(
+                    t.getContactEmail(),
+                    "Your ChitWise account is approved — login credentials inside",
+                    html, text);
+        } catch (Exception e) {
+            log.warn("Approval email with credentials could not be queued for tenant {}: {}", tenantId, e.getMessage());
+        }
+
         return ActivationResponse.builder()
                 .tenant(toResponse(t))
                 .adminUsername(username)
@@ -272,6 +297,7 @@ public class TenantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         t.setStatus("SUSPENDED");
         tenantRepository.save(t);
+        sendStatusEmail(t, "SUSPENDED");
         return toResponse(t);
     }
 
@@ -301,6 +327,9 @@ public class TenantService {
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "UNKNOWN"),
                 java.util.Map.of("status", upper),
                 tenantId.toString());
+        if (!upper.equals(prevStatus)) {
+            sendStatusEmail(t, upper);
+        }
         return toResponse(t);
     }
 
@@ -960,6 +989,37 @@ public class TenantService {
         String digits = phone.replaceAll("[^0-9]", "");
         tenant.setSupportPhoneNumber(cc + digits);
         tenantRepository.save(tenant);
+    }
+
+    private void sendStatusEmail(Tenant t, String newStatus) {
+        if (t.getContactEmail() == null || t.getContactEmail().isBlank()) return;
+        try {
+            String html, text, subject;
+            switch (newStatus) {
+                case "ACTIVE" -> {
+                    String adminUsername = userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
+                            t.getId().toString(), List.of(Role.ADMIN))
+                            .stream().findFirst().map(User::getUsername).orElse(null);
+                    html = EmailService.buildApprovalEmailHtml(null, t.getName(), t.getSlug(), adminUsername, null);
+                    text = EmailService.buildApprovalEmailText(null, t.getName(), t.getSlug(), adminUsername, null);
+                    subject = "Your ChitWise account is now active — " + t.getName();
+                }
+                case "REJECTED" -> {
+                    html = EmailService.buildRejectionEmailHtml(null, t.getName());
+                    text = EmailService.buildRejectionEmailText(null, t.getName());
+                    subject = "Update on your ChitWise registration — " + t.getName();
+                }
+                case "SUSPENDED" -> {
+                    html = EmailService.buildSuspensionEmailHtml(null, t.getName());
+                    text = EmailService.buildSuspensionEmailText(null, t.getName());
+                    subject = "Your ChitWise account has been suspended — " + t.getName();
+                }
+                default -> { return; }
+            }
+            notificationEventPublisher.publishEmail(t.getContactEmail(), subject, html, text);
+        } catch (Exception e) {
+            log.warn("Status-change email ({}) could not be queued for tenant {}: {}", newStatus, t.getId(), e.getMessage());
+        }
     }
 
     private String generateUsername(String email, String slug) {

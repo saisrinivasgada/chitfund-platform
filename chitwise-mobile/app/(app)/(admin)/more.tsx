@@ -7,6 +7,7 @@ import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
 import { useAuthStore } from '../../../store/authStore';
 import { getConversationUnread } from '../../../services/api';
+import { TutorialSettingsRow } from '../../../tutorials/TutorialProvider';
 
 interface NavItem {
   emoji: string;
@@ -177,6 +178,7 @@ export default function MoreScreen() {
               </View>
             </TouchableOpacity>
           ))}
+          <TutorialSettingsRow />
         </View>
 
         {/* Version / org info */}

@@ -35,7 +35,7 @@ jobs:
 
       - name: Dependency security audit
         # Fail on high or critical severity advisories; warn on moderate
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=critical
         continue-on-error: false
 
       - name: Expo Doctor

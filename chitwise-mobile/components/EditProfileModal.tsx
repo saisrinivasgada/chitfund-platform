@@ -13,6 +13,8 @@ import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
 import OtpCodeInput from './OtpCodeInput';
+import { getStoredAccountScope } from '../offline/accountScope';
+import { getSyncCounts, purgeAccountOfflineData } from '../offline/database';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
 function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint, editable = true }: {
@@ -156,7 +158,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Cancel', 'Logout', 'Delete Account'],
+          options: ['Cancel', 'Logout', 'Remove from Device'],
           destructiveButtonIndex: 2,
           cancelButtonIndex: 0,
         },
@@ -169,7 +171,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
       Alert.alert(acc.fullName || acc.username, `@${acc.username} · ${acc.role}`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Logout', onPress: () => doLogoutAccount(acc) },
-        { text: 'Delete Account', style: 'destructive', onPress: () => doDeleteAccount(acc) },
+        { text: 'Remove from Device', style: 'destructive', onPress: () => doDeleteAccount(acc) },
       ]);
     }
   }
@@ -182,10 +184,35 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
   }
 
   async function doDeleteAccount(acc: StoredAccount) {
-    if (acc.refreshToken) {
-      try { await logoutAccount(acc.refreshToken); } catch {}
+    const scope = getStoredAccountScope(acc);
+    let pending = 0;
+    try {
+      const counts = await getSyncCounts(scope);
+      pending = counts.pending + counts.conflicts + counts.failed;
+    } catch {
+      // No encrypted database exists in online-only/Expo Go environments.
     }
-    await removeAccount(acc.accountId);
+
+    Alert.alert(
+      'Remove account from this device?',
+      pending > 0
+        ? `${pending} saved payment ${pending === 1 ? 'change has' : 'changes have'} not finished syncing. Removing this account will permanently discard ${pending === 1 ? 'it' : 'them'} from this device.`
+        : 'This removes the saved login and encrypted offline data from this device. It does not delete the ChitWise account.',
+      [
+        { text: 'Keep Account', style: 'cancel' },
+        {
+          text: pending > 0 ? 'Discard & Remove' : 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            if (acc.refreshToken) {
+              try { await logoutAccount(acc.refreshToken); } catch {}
+            }
+            try { await purgeAccountOfflineData(scope); } catch {}
+            await removeAccount(acc.accountId);
+          },
+        },
+      ],
+    );
   }
 
   async function handleLogoutAll() {
