@@ -15,6 +15,7 @@ import EditProfileModal from '../../../components/EditProfileModal';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+import RoleLogo from '../../../components/RoleLogo';
 
 export default function ManagerDashboardScreen() {
   const { user } = useAuthStore();
@@ -92,10 +93,13 @@ export default function ManagerDashboardScreen() {
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <View>
-            <Text style={{ fontSize: 13, color: C.gray500 }}>Manager View</Text>
-            <Text style={T.h1}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
-            <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(new Date().toISOString())}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <RoleLogo role="MANAGER" size={46} />
+            <View style={{ flexShrink: 1 }}>
+              <Text style={{ fontSize: 13, color: C.gray500 }}>Manager View</Text>
+              <Text style={T.h1} numberOfLines={1}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
+              <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(new Date().toISOString())}</Text>
+            </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TutorialHelpButton />

@@ -3,13 +3,14 @@ import { Outlet, Navigate, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getMe, mobileLookup, loginByMobile, generateTransferToken, selectTenant, getMemberConversationUnread, getMyChitfundRequests } from '../../services/api';
-import { BookOpen, LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus } from 'lucide-react';
+import { LogOut, RefreshCw, Eye, EyeOff, Building2, ChevronDown, MessageSquare, Phone, Mail, UserPlus } from 'lucide-react';
 import NotificationBell from '../notifications/NotificationBell';
 import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
+import RoleLogo from '../brand/RoleLogo';
 
 function SignOutModal({ onConfirm, onClose }) {
   return (
@@ -226,11 +227,8 @@ function SwitchOrgModal({ currentTenantId, currentTenantName, onClose }) {
                       : 'border-gray-200 hover:border-[#1E3A5F] hover:bg-[#EFF4FA] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
                   }`}
                 >
-                  <div
-                    className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0"
-                    style={{ backgroundColor: isBlocked ? '#9CA3AF' : '#1E3A5F', color: 'white' }}
-                  >
-                    {(tenant.name ?? '?').slice(0, 2).toUpperCase()}
+                  <div className={isBlocked ? 'opacity-50 grayscale' : ''}>
+                    <RoleLogo role="MEMBER" className="w-9 h-9" title={`${tenant.name} member account`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{tenant.name}</p>
@@ -326,12 +324,7 @@ export default function MemberPortalLayout() {
       <header className="print:hidden bg-white border-b border-gray-100 px-4 sm:px-8 sticky top-0 z-20">
         <div className="flex items-center justify-between h-14">
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate('/member')}>
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: '#1E3A5F' }}
-            >
-              <BookOpen size={14} className="text-white" />
-            </div>
+            <RoleLogo role="MEMBER" className="w-8 h-8" />
             <span
               className="text-base font-bold"
               style={{ color: '#1E3A5F', fontFamily: 'Merriweather, serif' }}
@@ -421,9 +414,10 @@ export default function MemberPortalLayout() {
                 className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-[#1E3A5F] hover:text-[#1E3A5F] hover:bg-[#EFF4FA] transition-colors cursor-pointer"
                 title={`Switch to ${altLabel} account`}
               >
-                <RefreshCw size={13} />
+                <RoleLogo role={altRole} className="w-6 h-6" />
                 <span className="hidden sm:inline">Switch to {altLabel}</span>
                 <span className="sm:hidden">{altLabel}</span>
+                <RefreshCw size={12} />
               </button>
             )}
 

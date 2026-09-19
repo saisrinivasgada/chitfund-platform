@@ -20,6 +20,7 @@ import {
 import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import RoleLogo from '../../../components/RoleLogo';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 export default function AdminDashboard() {
@@ -192,14 +193,14 @@ export default function AdminDashboard() {
       >
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={T.h1}>Dashboard</Text>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: C.navy50 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy }}>{user?.role}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <RoleLogo role={user?.role} size={44} />
+            <View style={{ flexShrink: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={T.h1}>Dashboard</Text>
               </View>
+              <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>Hello, {user?.fullName?.split(' ')[0]} 👋</Text>
             </View>
-            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Hello, {user?.fullName?.split(' ')[0]} 👋</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <EyeToggle />

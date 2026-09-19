@@ -6,11 +6,12 @@ import Toast from '../ui/Toast';
 import NotificationBell from '../notifications/NotificationBell';
 import useToast from '../../hooks/useToast';
 import { createContext, useContext } from 'react';
-import { Menu, BookOpen, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Menu, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 import { useRealtimeUpdates } from '../../hooks/useRealtimeUpdates';
+import RoleLogo from '../brand/RoleLogo';
 
 const ToastContext = createContext(null);
 // eslint-disable-next-line react-refresh/only-export-components
@@ -125,12 +126,7 @@ export default function AppLayout() {
 
             {/* Centre: logo + org name */}
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/dashboard')}>
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: '#1E3A5F' }}
-              >
-                <BookOpen size={14} className="text-white" />
-              </div>
+              <RoleLogo role={user?.role} className="w-8 h-8" />
               <div className="flex flex-col leading-tight">
                 <span
                   className="text-base font-bold"

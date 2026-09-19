@@ -11,6 +11,7 @@ import Button from '../ui/Button';
 import { Input } from '../ui/FormField';
 import ContactChitWiseModal from './ContactChitWiseModal';
 import UnifiedMessagesPanel from '../messaging/UnifiedMessagesPanel';
+import RoleLogo from '../brand/RoleLogo';
 import {
   LayoutDashboard,
   Users,
@@ -610,12 +611,7 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
       {/* ── Logo row ─────────────────────────────────────────────────────── */}
       <div className={`py-4 border-b border-gray-100 flex items-center flex-shrink-0 ${collapsed ? 'lg:justify-center lg:px-0 px-4 justify-between' : 'px-4 justify-between'}`}>
         <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => navigate('/dashboard')}>
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: '#1E3A5F' }}
-          >
-            <BookOpen size={16} className="text-white" />
-          </div>
+          <RoleLogo role={role} className="w-9 h-9" />
           {!collapsed && (
             <div className="hidden lg:block">
               <h1
@@ -805,8 +801,9 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
               onClick={() => setShowSwitch(true)}
               className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm font-medium text-gray-600 hover:bg-[#EFF4FA] hover:text-[#1E3A5F] transition-colors cursor-pointer mb-2"
             >
-              <RefreshCw size={16} />
-              Switch to Member
+              <RoleLogo role="MEMBER" className="w-7 h-7" />
+              <span className="flex-1 text-left">Switch to Member</span>
+              <RefreshCw size={14} />
             </button>
           )}
 

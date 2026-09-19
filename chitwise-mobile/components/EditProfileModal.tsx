@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { useAuthStore, StoredAccount } from '../store/authStore';
+import { accountStorageId, useAuthStore, StoredAccount } from '../store/authStore';
 import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
@@ -15,6 +15,7 @@ import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiome
 import OtpCodeInput from './OtpCodeInput';
 import { getStoredAccountScope } from '../offline/accountScope';
 import { getSyncCounts, purgeAccountOfflineData } from '../offline/database';
+import RoleLogo from './RoleLogo';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
 function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint, editable = true }: {
@@ -629,8 +630,10 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                 </Text>
 
                 {accounts.map((acc: StoredAccount) => {
-                  const isCurrent = acc.userId === user?.id;
-                  const initials = (acc.fullName || acc.username || '?')[0].toUpperCase();
+                  const currentAccountId = user
+                    ? accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION')
+                    : null;
+                  const isCurrent = acc.accountId === currentAccountId;
                   const needsLogin = !acc.sessionValid;
                   const roleBadgeColor: Record<string, string> = {
                     ADMIN: '#1D4ED8', MANAGER: '#7C3AED', STAFF: '#059669',
@@ -655,22 +658,26 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                   })();
 
                   return (
-                    <View key={acc.userId} style={{
+                    <View key={acc.accountId} style={{
                       backgroundColor: isCurrent ? C.navy50 : needsLogin ? '#FFFBEB' : C.white,
                       borderRadius: 16, padding: 14, marginBottom: 10,
                       borderWidth: 1.5,
                       borderColor: isCurrent ? C.navy + '40' : needsLogin ? '#FCD34D' : C.gray200,
                     }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        {/* Avatar */}
-                        <View style={{
-                          width: 46, height: 46, borderRadius: 23,
-                          backgroundColor: isCurrent ? C.navy : needsLogin ? '#FCD34D' : C.gray200,
-                          alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <Text style={{ fontSize: 17, fontWeight: '800', color: isCurrent ? '#fff' : needsLogin ? '#92400E' : C.gray500 }}>
-                            {needsLogin ? '!' : initials}
-                          </Text>
+                        {/* The same role mark is used throughout the app so
+                            saved accounts remain recognizable at a glance. */}
+                        <View style={{ position: 'relative' }}>
+                          <RoleLogo role={acc.role} size={48} style={needsLogin ? { opacity: 0.6 } : undefined} />
+                          {needsLogin && (
+                            <View style={{
+                              position: 'absolute', top: -4, right: -4, width: 18, height: 18,
+                              borderRadius: 9, backgroundColor: '#F59E0B', borderWidth: 2,
+                              borderColor: C.white, alignItems: 'center', justifyContent: 'center',
+                            }}>
+                              <Text style={{ fontSize: 10, fontWeight: '900', color: C.white }}>!</Text>
+                            </View>
+                          )}
                         </View>
 
                         {/* Info */}

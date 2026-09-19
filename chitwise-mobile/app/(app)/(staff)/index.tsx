@@ -17,6 +17,7 @@ import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
+import RoleLogo from '../../../components/RoleLogo';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 const PAGE_SIZE = 10;
@@ -646,11 +647,14 @@ export default function StaffTasksScreen() {
           <>
             {/* Header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <View>
-                <Text style={T.h1}>My Tasks</Text>
-                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>
-                  {user?.fullName?.split(' ')[0] ?? 'Staff'}
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <RoleLogo role="STAFF" size={44} />
+                <View style={{ flexShrink: 1 }}>
+                  <Text style={T.h1}>My Tasks</Text>
+                  <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>
+                    {user?.fullName?.split(' ')[0] ?? 'Staff'}
+                  </Text>
+                </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <TutorialHelpButton />

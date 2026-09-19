@@ -9,6 +9,7 @@ import { C, T, Badge, Amount, GlassCard, Card, fmtDate, fmtDateTime, LoadingScre
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+import RoleLogo from '../../../components/RoleLogo';
 
 const CASE_COLOR: Record<string, string> = { CASE_A: '#F59E0B', CASE_B1: '#1E3A5F', CASE_B2: '#2D5490', UNKNOWN: '#9CA3AF' };
 const CASE_LABEL: Record<string, string> = { CASE_A: 'Case A', CASE_B1: 'Case B1', CASE_B2: 'Case B2', UNKNOWN: 'Unknown' };
@@ -133,11 +134,14 @@ export default function MemberHomeScreen() {
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(255,255,255,0.08)', borderTopLeftRadius: 20, borderTopRightRadius: 20 }} />
           <View style={{ position: 'absolute', top: -24, left: -24, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.07)' }} />
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <View>
-              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', fontWeight: '500' }}>Welcome back</Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }}>
-                {user?.fullName?.split(' ')[0] ?? 'Member'}
-              </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, flex: 1 }}>
+              <RoleLogo role="MEMBER" size={46} />
+              <View style={{ flexShrink: 1 }}>
+                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: '500' }}>Welcome back</Text>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }} numberOfLines={1}>
+                  {user?.fullName?.split(' ')[0] ?? 'Member'}
+                </Text>
+              </View>
             </View>
             <ProfileAvatarButton size={44} />
           </View>
