@@ -57,6 +57,31 @@ public class IdentityNotificationListener {
                         event.recipientUserId(), "Chitfund Access Active",
                         "Your verified member profile is now active for " + event.organizationName() + ".",
                         "CHITFUND_REQUEST", null, "/member/chitfund-requests");
+                String approvalEmail = resolveEmail(event);
+                if (approvalEmail != null) {
+                    String org = event.organizationName() == null ? "the organization" : event.organizationName();
+                    String name = resolveDisplayName(event);
+                    eventPublisher.publishEmail(approvalEmail,
+                            "Your ChitWise app access is active — " + org,
+                            EmailService.buildApprovalHtml(name, org),
+                            EmailService.buildApprovalText(name, org));
+                }
+            }
+            case CHITFUND_REQUEST_REVOKED -> {
+                eventPublisher.publishInApp(
+                        event.recipientUserId(), "App Access Request Cancelled",
+                        (event.organizationName() == null ? "The organization" : event.organizationName())
+                                + " has cancelled your app-access request.",
+                        "CHITFUND_REQUEST", null, "/member/chitfund-requests");
+                String revocationEmail = resolveEmail(event);
+                if (revocationEmail != null) {
+                    String org = event.organizationName() == null ? "the organization" : event.organizationName();
+                    String name = resolveDisplayName(event);
+                    eventPublisher.publishEmail(revocationEmail,
+                            "Your ChitWise app-access request was cancelled — " + org,
+                            EmailService.buildRevocationHtml(name, org),
+                            EmailService.buildRevocationText(name, org));
+                }
             }
             case PHONE_IDENTITY_REASSIGNED -> {
                 eventPublisher.publishInApp(event.recipientUserId(), "Account identity updated",
@@ -72,5 +97,17 @@ public class IdentityNotificationListener {
                 }
             }
         }
+    }
+
+    private String resolveEmail(IdentityNotificationEvent event) {
+        return userRepository.findById(event.recipientUserId())
+                .map(u -> u.getEmail() != null ? u.getEmail() : event.requestedEmail())
+                .orElse(event.requestedEmail());
+    }
+
+    private String resolveDisplayName(IdentityNotificationEvent event) {
+        return userRepository.findById(event.recipientUserId())
+                .map(u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : null)
+                .orElse(null);
     }
 }

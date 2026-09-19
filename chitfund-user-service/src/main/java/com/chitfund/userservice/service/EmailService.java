@@ -313,6 +313,98 @@ public class EmailService {
                 """.formatted(name, orgName, orgName, slug, plan);
     }
 
+    // ── App-access approved (delivered via notification-service) ─────────────
+
+    private static final String ICON_ROCKET =
+        "<svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+        "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
+        "<path d=\"M12 2C12 2 7 6 7 13h10c0-7-5-11-5-11z\" fill=\"white\" fill-opacity=\"0.9\"/>" +
+        "<path d=\"M9 13v5l3 2 3-2v-5\" fill=\"white\" fill-opacity=\"0.7\"/>" +
+        "<circle cx=\"12\" cy=\"10\" r=\"1.5\" fill=\"#0F172A\"/>" +
+        "</svg>";
+
+    public static String buildApprovalHtml(String memberName, String orgName) {
+        String name = memberName != null && !memberName.isBlank() ? memberName : "there";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  Great news! <strong>%s</strong> has approved your ChitWise app-access request.
+                  You can now log in and view your chit fund details.
+                </p>
+                <div style="background:#F0FDF4;border:2px solid #BBF7D0;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
+                  <p style="color:#166534;font-size:13px;font-weight:700;letter-spacing:1px;margin:0 0 8px;text-transform:uppercase;">Access Active</p>
+                  <p style="color:#15803D;font-size:15px;margin:0;">Your member profile is now connected to <strong>%s</strong>.</p>
+                </div>
+                <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 16px;">
+                  Open the ChitWise app and log in to get started.
+                </p>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Questions? Reach us at
+                  <a href="mailto:help@thechitwise.com" style="color:#059669;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, orgName, orgName);
+        return baseTemplate(LOGO_URL, ICON_ROCKET, "Access Approved", "#059669", bodyContent);
+    }
+
+    public static String buildApprovalText(String memberName, String orgName) {
+        String name = memberName != null && !memberName.isBlank() ? memberName : "there";
+        return """
+                Hi %s,
+
+                Great news! %s has approved your ChitWise app-access request.
+                Your member profile is now active. Open the ChitWise app and log in to get started.
+
+                Questions? Reach us at help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, orgName);
+    }
+
+    // ── App-access revoked (delivered via notification-service) ──────────────
+
+    private static final String ICON_CROSS =
+        "<svg width=\"28\" height=\"28\" viewBox=\"0 0 24 24\" fill=\"none\" " +
+        "xmlns=\"http://www.w3.org/2000/svg\" style=\"display:inline-block;vertical-align:middle;\">" +
+        "<circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"white\" fill-opacity=\"0.9\"/>" +
+        "<path d=\"M8 8l8 8M16 8l-8 8\" stroke=\"#0F172A\" stroke-width=\"2\" stroke-linecap=\"round\"/>" +
+        "</svg>";
+
+    public static String buildRevocationHtml(String memberName, String orgName) {
+        String name = memberName != null && !memberName.isBlank() ? memberName : "there";
+        String bodyContent = """
+                <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 20px;">
+                  Hi <strong>%s</strong>,<br><br>
+                  <strong>%s</strong> has cancelled your ChitWise app-access request.
+                </p>
+                <div style="background:#FEF2F2;border:2px solid #FECACA;border-radius:12px;padding:24px;margin:24px 0;">
+                  <p style="color:#991B1B;font-size:13px;font-weight:700;letter-spacing:1px;margin:0 0 8px;text-transform:uppercase;">Request Cancelled</p>
+                  <p style="color:#B91C1C;font-size:14px;margin:0;">Your pending app-access request for <strong>%s</strong> has been cancelled.</p>
+                </div>
+                <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 16px;">
+                  If you believe this was a mistake, please contact your organization administrator directly.
+                </p>
+                <p style="color:#6B7280;font-size:13px;line-height:1.6;margin:0;">
+                  Need help? Reach us at
+                  <a href="mailto:help@thechitwise.com" style="color:#DC2626;text-decoration:none;font-weight:600;">help@thechitwise.com</a>.
+                </p>
+                """.formatted(name, orgName, orgName);
+        return baseTemplate(LOGO_URL, ICON_CROSS, "Request Cancelled", "#DC2626", bodyContent);
+    }
+
+    public static String buildRevocationText(String memberName, String orgName) {
+        String name = memberName != null && !memberName.isBlank() ? memberName : "there";
+        return """
+                Hi %s,
+
+                %s has cancelled your ChitWise app-access request.
+
+                If you believe this was a mistake, please contact your organization administrator directly.
+                Need help? Reach us at help@thechitwise.com.
+
+                — The ChitWise Team
+                """.formatted(name, orgName);
+    }
+
     private static String maskEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         String[] parts = email.split("@", 2);
