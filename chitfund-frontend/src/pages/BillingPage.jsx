@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMyBillingInfo, requestRenewal, requestPlanUpgrade, applyDowngrade, getPublicPlans, getMembersPage, getChitsPage, listStaff, getMyTenantLimits, myBillingPayments, myBillingUpgradePreview, cancelSubscription, resumeSubscription } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToastContext } from '../components/layout/AppLayout';
-import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle, HeadphonesIcon, Lock, MessageSquare, BarChart2, Headphones } from 'lucide-react';
+import { Receipt, CheckCircle, RefreshCw, Copy, Clock, Percent, ArrowUpCircle, X, Check, ShoppingCart, Banknote, Info, ChevronRight, Printer, AlertTriangle, HeadphonesIcon, Lock, MessageSquare, BarChart2, Headphones, HandCoins } from 'lucide-react';
 import ContactChitWiseModal from '../components/layout/ContactChitWiseModal';
 
 const PLAN_LABELS = { BASIC: 'Basic', GROWTH: 'Growth', ENTERPRISE: 'Enterprise', CUSTOM: 'Custom' };
@@ -816,9 +816,10 @@ export default function BillingPage() {
           {/* ── Capabilities card ── */}
           {effectiveLimits && (() => {
             const ALL_CAPS = [
-              { key: 'live_chat',        label: 'Member Messaging & Group Chat', desc: 'Members and admins can chat in real time', icon: MessageSquare },
-              { key: 'full_analytics',   label: 'Full Analytics & Reports',      desc: 'Advanced reports and export tools',         icon: BarChart2 },
-              { key: 'priority_support', label: 'Priority Support',              desc: 'Faster response times from our team',       icon: Headphones },
+              { key: 'live_chat',        label: 'Member Messaging & Group Chat',    desc: 'Members and admins can chat in real time',                 icon: MessageSquare },
+              { key: 'settlement',       label: 'Member Early-Exit Settlement',     desc: 'Calculate and record member exit settlements automatically', icon: HandCoins },
+              { key: 'full_analytics',   label: 'Full Analytics & Reports',         desc: 'Advanced reports and export tools',                         icon: BarChart2 },
+              { key: 'priority_support', label: 'Priority Support',                 desc: 'Faster response times from our team',                       icon: Headphones },
             ];
             const enabled = new Set(effectiveLimits.enabledCapabilities ?? []);
             const missingAny = ALL_CAPS.some(c => !enabled.has(c.key));

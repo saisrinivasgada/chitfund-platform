@@ -28,6 +28,7 @@ export function AuthProvider({ children }) {
   const [planExpiresAt, setPlanExpiresAt] = useState(() => localStorage.getItem('planExpiresAt') ?? null);
   const [analyticsEnabled, setAnalyticsEnabled] = useState(() => localStorage.getItem('analyticsEnabled') !== 'false');
   const [chatEnabled, setChatEnabled] = useState(() => localStorage.getItem('chatEnabled') === 'true');
+  const [settlementEnabled, setSettlementEnabled] = useState(() => localStorage.getItem('settlementEnabled') !== 'false');
   const [adminPhone, setAdminPhone] = useState(() => localStorage.getItem('adminPhone') ?? null);
   const [adminEmail, setAdminEmail] = useState(() => localStorage.getItem('adminEmail') ?? null);
   // True while restoring session from HttpOnly refresh cookie on page load
@@ -38,7 +39,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     clearAuthToken();
-    ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','adminPhone','adminEmail']
+    ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
       .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
     sessionStorage.removeItem('token'); // clear proxy session token if any
     setToken(null);
@@ -51,6 +52,7 @@ export function AuthProvider({ children }) {
     setPlanExpiresAt(null);
     setAnalyticsEnabled(true);
     setChatEnabled(true);
+    setSettlementEnabled(true);
     setAdminPhone(null);
     setAdminEmail(null);
     setIsProxySession(false);
@@ -174,6 +176,10 @@ export function AuthProvider({ children }) {
       store.setItem('chatEnabled', String(tenantData.chatEnabled));
       setChatEnabled(tenantData.chatEnabled);
     }
+    if (tenantData.settlementEnabled !== undefined) {
+      store.setItem('settlementEnabled', String(tenantData.settlementEnabled));
+      setSettlementEnabled(tenantData.settlementEnabled);
+    }
     if (tenantData.adminPhone !== undefined) {
       if (tenantData.adminPhone) { store.setItem('adminPhone', tenantData.adminPhone); setAdminPhone(tenantData.adminPhone); }
       else { store.removeItem('adminPhone'); setAdminPhone(null); }
@@ -197,7 +203,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, adminPhone, adminEmail,
+      token, user, tenantId, tenantSlug, tenantName, tenantPlan, tenantStatus, planExpiresAt, analyticsEnabled, chatEnabled, settlementEnabled, adminPhone, adminEmail,
       login, logout, updateUser,
       isAuthenticated: !!token,
       isSuperAdmin: user?.role === 'SUPER_ADMIN',

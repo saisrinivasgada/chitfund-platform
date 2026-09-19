@@ -36,6 +36,7 @@ import {
   Building2,
   MessageSquare,
   MoreHorizontal,
+  Lock,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -48,9 +49,9 @@ const ALL_NAV = [
   { to: '/payments',  icon: CreditCard,      label: 'Payments',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
-  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], requiresAnalytics: true },
+  { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], capability: 'analytics' },
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
-  { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'] },
+  { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'], capability: 'settlement' },
   { to: '/myorg',      icon: Building2,       label: 'My Organization', roles: ['ADMIN', 'MANAGER'] },
 ];
 
@@ -511,7 +512,7 @@ function SignOutModal({ onConfirm, onClose }) {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar({ open = false, onClose, collapsed = false, onToggleCollapse }) {
-  const { user, logout, analyticsEnabled, chatEnabled, tenantName } = useAuth();
+  const { user, logout, analyticsEnabled, chatEnabled, settlementEnabled, tenantName } = useAuth();
   const navigate = useNavigate();
   const { hidden, toggle: toggleHidden } = useHiddenAmounts();
   const role = user?.role ?? 'ADMIN';
@@ -576,11 +577,13 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
   const memberAccount = lookup?.accounts?.find((a) => a.role === 'MEMBER');
   const altPhone = me?.phone;
 
-  const nav = ALL_NAV.filter((item) => {
-    if (item.roles && !item.roles.includes(role)) return false;
-    if (item.requiresAnalytics && !analyticsEnabled) return false;
-    return true;
-  });
+  const capabilityEnabled = { analytics: analyticsEnabled, settlement: settlementEnabled };
+  const nav = ALL_NAV
+    .filter((item) => !item.roles || item.roles.includes(role))
+    .map((item) => ({
+      ...item,
+      locked: item.capability ? !capabilityEnabled[item.capability] : false,
+    }));
 
   return (
     <aside
@@ -690,7 +693,27 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
         className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto min-h-0"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
-        {nav.map(({ to, icon: Icon, label }) => (
+        {nav.map(({ to, icon: Icon, label, locked }) => locked ? (
+          <div
+            key={to + label}
+            title={collapsed ? `${label} — Not in your plan` : undefined}
+            className={`flex items-center py-3 lg:py-2.5 rounded-lg text-sm font-medium select-none ${
+              collapsed ? 'justify-center px-2' : 'gap-3 px-3'
+            } text-gray-300 cursor-not-allowed`}
+          >
+            <Icon size={18} className="flex-shrink-0 text-gray-300" />
+            {!collapsed && (
+              <span className="hidden lg:flex items-center gap-1.5 flex-1 min-w-0">
+                <span className="text-gray-300">{label}</span>
+                <span className="ml-auto flex items-center gap-0.5 bg-gray-100 text-gray-400 text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                  <Lock size={8} />
+                  Not in plan
+                </span>
+              </span>
+            )}
+            <span className="lg:hidden text-gray-300">{label}</span>
+          </div>
+        ) : (
           <NavLink
             key={to + label}
             to={to}
@@ -806,6 +829,18 @@ export default function Sidebar({ open = false, onClose, collapsed = false, onTo
                   </span>
                 )}
               </button>
+            )}
+            {canSeeMessages && !chatEnabled && (
+              <div
+                title="Messages — Not in your plan"
+                className="flex-1 h-[52px] flex flex-col items-center justify-center gap-0.5 bg-gray-50 rounded-xl border border-gray-100 text-gray-300 cursor-not-allowed select-none relative"
+              >
+                <MessageSquare size={16} className="text-gray-300" />
+                <span className="text-[9px] font-medium text-gray-300">Messages</span>
+                <span className="flex items-center gap-0.5 text-[8px] text-gray-400 font-semibold">
+                  <Lock size={7} />Not in plan
+                </span>
+              </div>
             )}
             {/* More — Support + Sign out slide OUT to the RIGHT */}
             <div className="relative flex-1" ref={moreRef}>

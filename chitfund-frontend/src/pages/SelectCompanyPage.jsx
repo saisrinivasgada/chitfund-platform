@@ -104,6 +104,7 @@ export default function SelectCompanyPage() {
         planExpiresAt: tenant.planExpiresAt ?? null,
         analyticsEnabled: tenant.analyticsEnabled !== false,
         chatEnabled: tenant.chatEnabled === true,
+        settlementEnabled: tenant.settlementEnabled !== false,
         adminPhone: tenant.adminPhone ?? null,
         adminEmail: tenant.adminEmail ?? null,
       });

@@ -577,6 +577,7 @@ export default function LoginPage() {
           tenantStatus:  tenantInfo.status ?? 'ACTIVE',
           analyticsEnabled: tenantInfo.analyticsEnabled !== false,
           chatEnabled: tenantInfo.chatEnabled === true,
+          settlementEnabled: tenantInfo.settlementEnabled !== false,
           adminPhone: tenantInfo.adminPhone ?? null,
           adminEmail: tenantInfo.adminEmail ?? null,
           planExpiresAt: tenantInfo.planExpiresAt ?? null,
