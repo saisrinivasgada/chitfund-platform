@@ -17,6 +17,7 @@ import com.chitfund.paymentservice.domain.enums.WalletEntryType;
 import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
 import com.chitfund.paymentservice.dto.request.CollectCashRequest;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
+import com.chitfund.paymentservice.dto.request.RequestedChitAllocation;
 import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.MemberBalanceResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.LinkedHashSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -190,11 +192,22 @@ public class PaymentService {
         // Keep the legacy fingerprint for older clients that do not send a
         // recorded time; otherwise an in-flight retry across this deployment
         // would be rejected even though its money fields are identical.
-        String requestHash = request.getRecordedAt() == null
-                ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                        request.getPaymentMode(), request.getNotes(), paymentReference)
-                : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
-                        request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt());
+        String requestHash;
+        // Preserve the exact legacy fingerprint for older idempotency records.
+        // The allocation shape is appended only for the new explicit-allocation
+        // contract, so a retry from an older client remains idempotent.
+        if (request.getAllocations() == null || request.getAllocations().isEmpty()) {
+            requestHash = request.getRecordedAt() == null
+                    ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), paymentReference)
+                    : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                            request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt());
+        } else {
+            String allocationFingerprint = allocationFingerprint(request.getAllocations());
+            requestHash = IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                    request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt(),
+                    allocationFingerprint);
+        }
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
@@ -239,7 +252,9 @@ public class PaymentService {
                 .build();
         batchRepository.saveAndFlush(batch);
 
-        List<PaymentAllocation> allocations = applyFifo(batch, adminId);
+        List<PaymentAllocation> allocations = request.getAllocations() == null || request.getAllocations().isEmpty()
+                ? applyFifo(batch, adminId)
+                : applyExplicitChitAllocations(batch, request.getAllocations(), adminId);
 
         log.info("Payment recorded: batchId={} member={} chit={} amount={} mode={} allocations={} recordedBy={}",
                 batch.getId(), request.getMemberId(), request.getChitId(),
@@ -281,6 +296,14 @@ public class PaymentService {
                     HttpStatus.BAD_REQUEST);
         }
         return value;
+    }
+
+    private static String allocationFingerprint(List<RequestedChitAllocation> requested) {
+        if (requested == null || requested.isEmpty()) return "<legacy-fifo>";
+        return requested.stream()
+                .sorted(java.util.Comparator.comparing(a -> a.getChitId().toString()))
+                .map(a -> a.getChitId() + "=" + a.getAmount().stripTrailingZeros().toPlainString())
+                .collect(java.util.stream.Collectors.joining(","));
     }
 
     /**
@@ -754,6 +777,68 @@ public class PaymentService {
                     }
                 });
 
+        return allocations;
+    }
+
+    /**
+     * Applies an operator-selected multi-chit payment. Each selected chit is
+     * FIFO within itself, but no amount may spill into an unselected chit or
+     * become global credit. The whole operation is transactional, so a bad
+     * allocation rolls back the batch and every record change.
+     */
+    private List<PaymentAllocation> applyExplicitChitAllocations(
+            PaymentBatch batch, List<RequestedChitAllocation> requested, UUID actorId) {
+        if (batch.getPaymentMode() == PaymentMode.CREDIT) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Credit payments cannot use explicit cash allocations", HttpStatus.BAD_REQUEST);
+        }
+
+        Set<UUID> seenChits = new LinkedHashSet<>();
+        BigDecimal requestedTotal = BigDecimal.ZERO;
+        for (RequestedChitAllocation entry : requested) {
+            if (entry == null || entry.getChitId() == null || entry.getAmount() == null
+                    || entry.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Every allocation must include a positive chit and amount", HttpStatus.BAD_REQUEST);
+            }
+            if (!seenChits.add(entry.getChitId())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "A chit may appear only once in a payment allocation", HttpStatus.BAD_REQUEST);
+            }
+            requestedTotal = requestedTotal.add(entry.getAmount());
+        }
+        if (requestedTotal.compareTo(batch.getTotalAmount()) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Allocation total must exactly equal the payment amount", HttpStatus.BAD_REQUEST);
+        }
+
+        List<RequestedChitAllocation> ordered = requested.stream()
+                .sorted(java.util.Comparator.comparing(a -> a.getChitId().toString()))
+                .toList();
+        List<PaymentAllocation> allocations = new ArrayList<>();
+        List<PaymentRecordStatus> pendingStatuses =
+                List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
+
+        // Locks are acquired in deterministic chit-id order to avoid deadlocks
+        // when two admins pay the same member's chits concurrently.
+        for (RequestedChitAllocation entry : ordered) {
+            List<PaymentRecord> records = paymentRecordRepository
+                    .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                            batch.getMemberId(), entry.getChitId(), pendingStatuses);
+            BigDecimal remainder = applyToRecords(records, entry.getAmount(), batch.getId(), allocations);
+            if (remainder.compareTo(BigDecimal.ZERO) > 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Allocation exceeds the selected chit outstanding balance", HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        allocations.stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        a -> a.getChitId().toString() + ":" + a.getMonthNumber()))
+                .forEach((key, allocs) -> {
+                    PaymentAllocation first = allocs.get(0);
+                    chitMonthDrawService.autoCloseIfAllSettled(first.getChitId(), first.getMonthNumber());
+                });
         return allocations;
     }
 

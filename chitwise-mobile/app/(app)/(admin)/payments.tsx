@@ -758,6 +758,7 @@ function RecordPaymentTab() {
   const qc = useQueryClient();
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
+  const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF');
@@ -792,11 +793,32 @@ function RecordPaymentTab() {
   const payableChits = (memberChits as any[]).filter((c: any) =>
     ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status)
   );
+  const { data: multiBalances = {} } = useQuery({
+    queryKey: ['m-pay-multi-balances', memberId, payableChits.map((c: any) => c.id).join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(payableChits.map(async (c: any) => {
+        try {
+          const result: any = await getMemberBalance(memberId, c.id);
+          return [String(c.id), Number(result?.totalOutstanding ?? result?.outstanding ?? result?.balance ?? 0)];
+        } catch {
+          return [String(c.id), 0];
+        }
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: !!memberId && payableChits.length > 0,
+    staleTime: 30_000,
+  });
   const selectedChit = payableChits.find((c: any) => c.id === chitId);
-  const bal = (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
+  const bal = (balance as any)?.totalOutstanding ?? (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
   const isCash = mode === 'CASH';
   const isCredit = mode === 'CREDIT';
   const workerCollect = isCash && collectedBy !== 'SELF';
+  const isExplicitMode = !isCredit && !workerCollect;
+  const allocationEntries = Object.entries(selectedAllocations)
+    .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
+    .filter((entry) => entry.amount > 0);
+  const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const amtNum = isCredit ? 0 : (Number(amount) || 0);
   const isOverpay = amtNum > 0 && bal != null && bal > 0 && amtNum > bal;
 
@@ -816,11 +838,41 @@ function RecordPaymentTab() {
     }
   }, [creditBalance, outstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (isExplicitMode && Object.keys(selectedAllocations).length > 0) {
+      setAmount(allocationTotal > 0 ? allocationTotal.toFixed(2) : '');
+    }
+  }, [allocationTotal, isExplicitMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleChitAllocation = (chit: any) => {
+    setSelectedAllocations((current) => {
+      if (current[chit.id] !== undefined) {
+        const next = { ...current };
+        delete next[chit.id];
+        setChitId(Object.keys(next)[0] ?? '');
+        return next;
+      }
+      const due = Number((multiBalances as any)[chit.id] ?? 0);
+      const suggested = due > 0 ? due : Number(chit.installmentAmount ?? 0);
+      setChitId((previous) => previous || chit.id);
+      return { ...current, [chit.id]: suggested > 0 ? suggested.toFixed(2) : '' };
+    });
+  };
+
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
     mutationFn: () => workerCollect
       ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy, idempotencyKey })
-      : recordPaymentOfflineCapable({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined, paymentReference: paymentReference || undefined, idempotencyKey }),
+      : recordPaymentOfflineCapable({
+        chitId: allocationEntries[0]?.chitId ?? chitId,
+        memberId,
+        amount: isCredit ? 0 : amtNum,
+        paymentMode: mode,
+        notes: notes || undefined,
+        paymentReference: paymentReference || undefined,
+        allocations: isExplicitMode && allocationEntries.length > 0 ? allocationEntries : undefined,
+        idempotencyKey,
+      }),
     onSuccess: (data: any) => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
@@ -832,6 +884,7 @@ function RecordPaymentTab() {
       toast.saved(msg);
       setIdempotencyKey(Crypto.randomUUID());
       setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
+      setSelectedAllocations({});
       if (isCredit) setMode('CASH');
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
@@ -917,7 +970,7 @@ function RecordPaymentTab() {
       <ScrollView style={{ maxHeight: 160, marginBottom: 16, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
         {filteredMembers.map((m: any) => (
           <TouchableOpacity key={m.id}
-            onPress={() => { setMemberId(m.id); setChitId(''); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
+            onPress={() => { setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
             style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
               {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
@@ -962,6 +1015,42 @@ function RecordPaymentTab() {
           <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit Fund</Text>
           {payableChits.length === 0 ? (
             <Text style={{ color: C.gray400, marginBottom: 16 }}>No active chits for this member</Text>
+          ) : isExplicitMode ? (
+            <View style={{ marginBottom: 16, gap: 8 }}>
+              <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 2 }}>
+                Select one or more chits. Amounts are applied FIFO within the selected chits only.
+              </Text>
+              {payableChits.map((c: any) => {
+                const checked = selectedAllocations[c.id] !== undefined;
+                const due = (multiBalances as any)[c.id];
+                return (
+                  <View key={c.id} style={{ borderWidth: 1.5, borderColor: checked ? C.navy : C.gray300, borderRadius: 12, padding: 11, backgroundColor: checked ? C.navy50 : C.white }}>
+                    <TouchableOpacity onPress={() => toggleChitAllocation(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                      <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: checked ? C.navy : C.gray300, backgroundColor: checked ? C.navy : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {checked && <Text style={{ color: C.white, fontSize: 12, fontWeight: '800' }}>✓</Text>}
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: checked ? C.navy : C.gray900 }}>{c.name}</Text>
+                      <Text style={{ fontSize: 11, color: C.gray500 }}>{due == null ? 'Loading…' : due > 0 ? `₹${due.toLocaleString('en-IN')} due` : 'No dues'}</Text>
+                    </TouchableOpacity>
+                    {checked && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginLeft: 27 }}>
+                        <Text style={{ fontSize: 11, color: C.gray500 }}>Allocate ₹</Text>
+                        <TextInput
+                          value={selectedAllocations[c.id]}
+                          onChangeText={(value) => setSelectedAllocations((current) => ({ ...current, [c.id]: value }))}
+                          keyboardType="numeric"
+                          style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.white }}
+                        />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Total payment</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.navy }}>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+            </View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1042,12 +1131,15 @@ function RecordPaymentTab() {
           {!isCredit && (
             <>
           <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
-          <TextInput value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0"
+          <TextInput value={amount} onChangeText={setAmount} editable={!isExplicitMode} keyboardType="numeric" placeholder="0"
             placeholderTextColor={C.gray400}
             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900, marginBottom: 8, fontWeight: '700' }} />
 
           {/* Overpay warning */}
-          {isOverpay && (
+          {isExplicitMode && allocationEntries.length > 0 && (
+            <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 10 }}>Payment total is calculated from the selected chit allocations above.</Text>
+          )}
+          {!isExplicitMode && isOverpay && (
             <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#F59E0B' }}>
               <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
                 ₹{amtNum.toLocaleString('en-IN')} exceeds outstanding ₹{bal!.toLocaleString('en-IN')} — this will create a credit balance.
@@ -1151,7 +1243,10 @@ function RecordPaymentTab() {
             label={submitLabel}
             variant={isCredit ? 'success' : workerCollect ? 'primary' : 'success'}
             fullWidth
-            disabled={isExpired || (isCredit ? !creditCoversAll : (!amount || amtNum <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim())))}
+            disabled={isExpired || (isCredit
+              ? !creditCoversAll
+              : (isExplicitMode ? allocationTotal <= 0 : (!amount || amtNum <= 0))
+                || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim()))}
             loading={recordMut.isPending}
             onPress={() => {
               const workerName = workerCollect

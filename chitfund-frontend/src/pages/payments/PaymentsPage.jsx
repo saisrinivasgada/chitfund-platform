@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1082,6 +1082,7 @@ export function RecordPaymentTab() {
 
   const [memberId, setMemberId]     = useState('');
   const [chitId, setChitId]         = useState('');
+  const [selectedAllocations, setSelectedAllocations] = useState({});
   const [amount, setAmount]         = useState('');
   const [notes, setNotes]           = useState('');
   const [paymentMode, setMode]      = useState('CASH');
@@ -1122,6 +1123,12 @@ export function RecordPaymentTab() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      const allocationEntries = Object.entries(selectedAllocations)
+        .map(([selectedChitId, selectedAmount]) => ({
+          chitId: selectedChitId,
+          amount: Number(selectedAmount || 0),
+        }))
+        .filter((entry) => entry.amount > 0);
       if (isCredit) {
         return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, idempotencyKey });
       }
@@ -1130,7 +1137,15 @@ export function RecordPaymentTab() {
         return collectPayment({ chitId, memberId, amount: Number(amount), notes: notes || null, overrideCollectedBy: collectedBy }, idempotencyKey);
       } else {
         // Admin direct (cash/upi/bank) → COMPLETED immediately
-        return recordPayment({ chitId, memberId, amount: Number(amount), paymentMode, notes: notes || null, idempotencyKey });
+        return recordPayment({
+          chitId: allocationEntries[0]?.chitId ?? chitId,
+          memberId,
+          amount: Number(amount),
+          paymentMode,
+          notes: notes || null,
+          allocations: allocationEntries.length > 0 ? allocationEntries : undefined,
+          idempotencyKey,
+        });
       }
     },
     onSuccess: () => {
@@ -1156,6 +1171,7 @@ export function RecordPaymentTab() {
         qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       }
       setMemberId(''); setChitId(''); setAmount(''); setNotes('');
+      setSelectedAllocations({});
       setMode('CASH'); setCollectedBy('SELF');
       setIdempotencyKey(crypto.randomUUID());
     },
@@ -1185,22 +1201,59 @@ export function RecordPaymentTab() {
   });
   const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
 
-  // Managers don't record direct payments — redirect to cash requests
+  const selectedChit = collectableChits.find((c) => c.id === chitId);
+  const isCash = paymentMode === 'CASH';
+  const isExplicitMode = !isCredit && !isWorkerCollect;
+  const allocationEntries = Object.entries(selectedAllocations)
+    .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
+    .filter((entry) => entry.amount > 0);
+  const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
+
+  useEffect(() => {
+    if (isExplicitMode && Object.keys(selectedAllocations).length > 0) {
+      setAmount(allocationTotal > 0 ? allocationTotal.toFixed(2) : '');
+    }
+  }, [allocationTotal, isExplicitMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Managers don't record direct payments — redirect to cash requests.
+  // This comes after all hooks so role changes never alter hook ordering.
   if (user?.role === 'MANAGER') {
     return <Navigate to="/payments/cash-requests" replace />;
   }
 
-  const selectedChit = collectableChits.find((c) => c.id === chitId);
-  const isCash = paymentMode === 'CASH';
+  function toggleChitAllocation(chit) {
+    setSelectedAllocations((current) => {
+      if (current[chit.id] !== undefined) {
+        const next = { ...current };
+        delete next[chit.id];
+        const nextFirst = Object.keys(next)[0] ?? '';
+        setChitId(nextFirst);
+        return next;
+      }
+      const outstandingForChit = Number(balanceMap[chit.id] ?? 0);
+      const suggested = outstandingForChit > 0
+        ? outstandingForChit
+        : Number(chit.installmentAmount ?? 0);
+      setChitId((previous) => previous || chit.id);
+      return { ...current, [chit.id]: suggested > 0 ? suggested.toFixed(2) : '' };
+    });
+  }
+
+  function updateChitAllocation(chitIdToUpdate, value) {
+    setSelectedAllocations((current) => ({
+      ...current,
+      [chitIdToUpdate]: value,
+    }));
+  }
 
   const outstanding = chitId ? (balanceMap[chitId] ?? null) : null;
   const amtNum = Number(amount || 0);
   const creditCoversAll = chitId && outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
   // Effective amount after credit auto-applies
   const effectiveAmount = amtNum + creditBalance;
-  const isOverpay = !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
+  const isOverpay = !isExplicitMode && !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
   // Cross-chit overpayment: amount exceeds member's total outstanding across ALL chits
-  const totalOverpayAmt = !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
+  const totalOverpayAmt = !isExplicitMode && !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
     ? Math.max(0, amtNum - memberTotalBalance)
     : 0;
 
@@ -1279,11 +1332,55 @@ export function RecordPaymentTab() {
         </FormField>
 
         {/* Chit */}
-        <FormField label="Chit" required>
+        <FormField label={isExplicitMode ? 'Chits to allocate payment' : 'Chit'} required>
           {!memberId ? (
             <Select disabled><option>— Select a member first —</option></Select>
           ) : collectableChits.length === 0 ? (
             <p className="text-xs text-gray-400 py-2">No active chits found for this member.</p>
+          ) : isExplicitMode ? (
+            <div className="space-y-2 rounded-lg border border-gray-200 p-3 bg-gray-50">
+              <p className="text-xs text-gray-500 mb-2">
+                Select one or more chits. Each amount is applied FIFO within that chit only.
+                Nothing is silently moved to another chit.
+              </p>
+              {collectableChits.map((c) => {
+                const checked = selectedAllocations[c.id] !== undefined;
+                const bal = balanceMap[c.id];
+                return (
+                  <div key={c.id} className={`rounded-lg border px-3 py-2 ${checked ? 'border-[#1E3A5F] bg-white' : 'border-gray-200 bg-white'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleChitAllocation(c)}
+                        className="accent-[#1E3A5F]"
+                      />
+                      <span className="text-sm font-medium text-gray-700 flex-1">{c.name}</span>
+                      <span className="text-xs text-gray-500">
+                        {bal == null ? 'Loading…' : bal > 0 ? `₹${bal.toLocaleString('en-IN')} due` : 'No dues'}
+                      </span>
+                    </label>
+                    {checked && (
+                      <div className="mt-2 ml-6 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Allocate ₹</span>
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={selectedAllocations[c.id]}
+                          onChange={(e) => updateChitAllocation(c.id, e.target.value)}
+                          className="!py-1.5 !text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-semibold text-gray-700">
+                <span>Total payment</span>
+                <span>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
           ) : (
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)} required>
               <option value="">— Select chit —</option>
@@ -1296,7 +1393,7 @@ export function RecordPaymentTab() {
           )}
         </FormField>
 
-        {selectedChit && (
+        {selectedChit && !isExplicitMode && (
           <div className="bg-gray-50 rounded-lg px-4 py-2.5 text-xs text-gray-500 space-y-1.5">
             <div className="flex items-center gap-3 flex-wrap">
               <ChitStatusDot status={selectedChit.status} />
@@ -1323,6 +1420,7 @@ export function RecordPaymentTab() {
               placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              readOnly={isExplicitMode}
               required
             />
             {outstanding > 0 && (
@@ -1330,6 +1428,9 @@ export function RecordPaymentTab() {
                 className="mt-1 text-xs font-semibold hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
                 Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
               </button>
+            )}
+            {isExplicitMode && allocationEntries.length > 0 && (
+              <p className="mt-1.5 text-xs text-gray-500">Payment total is calculated from the selected chit allocations above.</p>
             )}
             {isOverpay && (
               <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2" style={{ color: '#1E3A5F', background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
@@ -1391,7 +1492,9 @@ export function RecordPaymentTab() {
         <Button
           onClick={() => mutation.mutate()}
           loading={mutation.isPending}
-          disabled={isExpired || !memberId || !chitId || (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0))}
+          disabled={isExpired || !memberId || (!isExplicitMode && !chitId) || (isExplicitMode
+            ? allocationTotal <= 0
+            : (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0)))}
           className="w-full"
           title={isExpired ? 'Plan expired — renew to record payments' : undefined}
         >

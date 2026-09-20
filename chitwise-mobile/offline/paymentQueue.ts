@@ -24,6 +24,7 @@ export interface RecordPaymentPayload {
   drawNumber?: number;
   idempotencyKey?: string;
   recordedAt?: string;
+  allocations?: Array<{ chitId: string; amount: number }>;
 }
 
 export type ProcessOperationResult =
@@ -62,6 +63,11 @@ function normalizePayload(input: RecordPaymentPayload): RecordPaymentPayload {
     recordedAt: input.recordedAt ?? new Date().toISOString(),
   };
   if (input.drawNumber != null) payload.drawNumber = input.drawNumber;
+  if (input.allocations?.length) {
+    payload.allocations = input.allocations
+      .map((allocation) => ({ chitId: allocation.chitId, amount: Number(allocation.amount) }))
+      .sort((a, b) => a.chitId.localeCompare(b.chitId));
+  }
   return payload;
 }
 

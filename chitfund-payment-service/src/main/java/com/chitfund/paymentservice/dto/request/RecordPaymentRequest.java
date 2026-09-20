@@ -1,11 +1,13 @@
 package com.chitfund.paymentservice.dto.request;
 
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -34,4 +36,15 @@ public class RecordPaymentRequest {
 
     /** Device-captured business time. Server validates the acceptable offline window. */
     private Instant recordedAt;
+
+    /**
+     * Optional explicit chit-level allocation. When supplied, the amount must
+     * equal the sum of these entries and each entry is applied FIFO only within
+     * that selected chit. This prevents an overpayment from silently moving to
+     * another chit or becoming credit without the operator choosing that result.
+     *
+     * Null/empty preserves the legacy FIFO behaviour for older clients.
+     */
+    @Valid
+    private List<RequestedChitAllocation> allocations;
 }

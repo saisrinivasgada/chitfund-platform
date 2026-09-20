@@ -8,6 +8,7 @@ import com.chitfund.paymentservice.domain.PaymentRecord;
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
 import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
+import com.chitfund.paymentservice.dto.request.RequestedChitAllocation;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.PaymentAllocationRepository;
 import com.chitfund.paymentservice.repository.PaymentBatchRepository;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -146,6 +148,24 @@ class FifoAllocationTest {
         req.setAmount(new BigDecimal(amount));
         req.setPaymentMode(PaymentMode.UPI);   // completes immediately, FIFO applied inline
         req.setPaymentReference("UPI-FIFO-1");
+        service.recordPayment(req, UUID.randomUUID());
+    }
+
+    private void payExplicit(String amount, UUID... chits) {
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chits[0]);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal(amount));
+        req.setPaymentMode(PaymentMode.UPI);
+        List<RequestedChitAllocation> requested = new ArrayList<>();
+        BigDecimal each = new BigDecimal(amount).divide(BigDecimal.valueOf(chits.length));
+        for (UUID chit : chits) {
+            RequestedChitAllocation allocation = new RequestedChitAllocation();
+            allocation.setChitId(chit);
+            allocation.setAmount(each);
+            requested.add(allocation);
+        }
+        req.setAllocations(requested);
         service.recordPayment(req, UUID.randomUUID());
     }
 
@@ -348,6 +368,48 @@ class FifoAllocationTest {
         ArgumentCaptor<BigDecimal> amt = ArgumentCaptor.forClass(BigDecimal.class);
         verify(memberCreditService).addCredit(eq(memberId), amt.capture(), any(), any(), any(), anyString());
         assertThat(amt.getValue()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    @DisplayName("explicit multi-chit allocation never spills into an unselected chit")
+    void explicitAllocationStaysWithinSelectedChits() {
+        PaymentRecord a1 = outstanding(chitA, 1, "1000");
+        PaymentRecord b1 = outstanding(chitB, 1, "1000");
+        when(paymentRecordRepository
+                .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        eq(memberId), any(UUID.class), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(1, UUID.class).equals(chitA)
+                        ? new ArrayList<>(List.of(a1)) : new ArrayList<>(List.of(b1)));
+
+        payExplicit("1000", chitA, chitB);
+
+        assertThat(a1.getAmountPaid()).isEqualByComparingTo("500");
+        assertThat(b1.getAmountPaid()).isEqualByComparingTo("500");
+        verify(paymentRecordRepository, never())
+                .findOutstandingAcrossOtherChitsForUpdate(any(), any(), anyList());
+        verify(memberCreditService, never()).addCredit(any(), any(), any(), any(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("explicit allocation rejects an amount that exceeds the selected chit")
+    void explicitAllocationRejectsSelectedChitOverage() {
+        PaymentRecord a1 = outstanding(chitA, 1, "1000");
+        withCurrentChitRecords(List.of(a1));
+        RecordPaymentRequest req = new RecordPaymentRequest();
+        req.setChitId(chitA);
+        req.setMemberId(memberId);
+        req.setAmount(new BigDecimal("1500"));
+        req.setPaymentMode(PaymentMode.UPI);
+        RequestedChitAllocation allocation = new RequestedChitAllocation();
+        allocation.setChitId(chitA);
+        allocation.setAmount(new BigDecimal("1500"));
+        req.setAllocations(List.of(allocation));
+
+        assertThatThrownBy(() -> service.recordPayment(req, UUID.randomUUID()))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("exceeds the selected chit");
+        // The service is @Transactional; the intermediate allocation is rolled
+        // back by the database transaction when this validation fails.
     }
 
     // ── idempotency ──────────────────────────────────────────────────────────
