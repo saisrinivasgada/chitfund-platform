@@ -23,6 +23,7 @@ export interface RecordPaymentPayload {
   paymentReference?: string;
   drawNumber?: number;
   idempotencyKey?: string;
+  recordedAt?: string;
 }
 
 export type ProcessOperationResult =
@@ -58,6 +59,7 @@ function normalizePayload(input: RecordPaymentPayload): RecordPaymentPayload {
     paymentMode: input.paymentMode,
     notes: input.notes?.trim() || undefined,
     paymentReference: reference,
+    recordedAt: input.recordedAt ?? new Date().toISOString(),
   };
   if (input.drawNumber != null) payload.drawNumber = input.drawNumber;
   return payload;

@@ -37,6 +37,8 @@ export default function AdminDashboard() {
   const [nrNotes, setNrNotes] = useState('');
   const [showNotifs, setShowNotifs] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const { data: cashRequests = [], isLoading: crLoading, refetch: refetchCR } = useQuery({ queryKey: ['m-cash-requests'], queryFn: getActiveCashRequests });
   const { data: chits = [], isLoading: chitsLoading, refetch: refetchChits } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
@@ -199,7 +201,10 @@ export default function AdminDashboard() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={T.h1}>Dashboard</Text>
               </View>
-              <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>Hello, {user?.fullName?.split(' ')[0]} 👋</Text>
+              <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>
+                {greeting}, {user?.fullName?.split(' ')[0]} 👋
+              </Text>
+              <View style={{ marginTop: 7 }}><SyncStatusCard compact /></View>
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
@@ -216,8 +221,6 @@ export default function AdminDashboard() {
             <ProfileAvatarButton size={36} />
           </View>
         </View>
-
-        <SyncStatusCard />
 
         {/* Over-limit warning — usage exceeds the plan */}
         {limitViolations.length > 0 && (

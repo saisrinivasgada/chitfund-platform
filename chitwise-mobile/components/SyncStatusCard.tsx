@@ -1,4 +1,5 @@
-import { Alert, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Alert, Animated, Text, TouchableOpacity, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { C } from './ui';
 import { syncCurrentAccount } from '../offline/syncEngine';
@@ -16,17 +17,39 @@ function relativeTime(value: number | null): string {
   return `Last synced ${new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`;
 }
 
+function syncedClock(value: number | null): string {
+  if (!value) return 'Not synced yet';
+  return `Synced at ${new Date(value).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  })}`;
+}
+
 export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const state = useSyncStore();
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (state.status !== 'syncing') {
+      pulse.stopAnimation();
+      pulse.setValue(1);
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.45, duration: 650, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [pulse, state.status]);
 
   const visual = (() => {
-    if (state.status === 'syncing') return { icon: '↻', title: 'Syncing…', color: C.navy, background: C.navy50 };
-    if (state.status === 'offline') return { icon: '●', title: 'Offline', color: '#92400E', background: '#FFFBEB' };
-    if (state.status === 'conflict' || state.status === 'error') return { icon: '!', title: 'Needs attention', color: '#991B1B', background: '#FEF2F2' };
-    if (state.status === 'auth-required') return { icon: '!', title: 'Login required to sync', color: '#991B1B', background: '#FEF2F2' };
-    if (state.pendingCount > 0 || state.status === 'pending') return { icon: '↑', title: `${state.pendingCount} item${state.pendingCount === 1 ? '' : 's'} waiting to sync`, color: '#92400E', background: '#FFFBEB' };
-    return { icon: '✓', title: 'All data synced', color: C.green, background: '#F0FDF4' };
+    if (state.status === 'syncing') return { mark: '↻', title: 'Syncing…', color: '#2563EB', background: '#EFF6FF' };
+    if (state.status === 'offline') return { mark: 'Ⅱ', title: 'Sync paused', color: '#B45309', background: '#FFFBEB' };
+    if (state.status === 'conflict' || state.status === 'error') return { mark: '!', title: 'Sync needs attention', color: '#B91C1C', background: '#FEF2F2' };
+    if (state.status === 'auth-required') return { mark: '!', title: 'Login required to sync', color: '#B91C1C', background: '#FEF2F2' };
+    if (state.pendingCount > 0 || state.status === 'pending') return { mark: '↑', title: `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting`, color: '#B45309', background: '#FFFBEB' };
+    return { mark: '✓', title: syncedClock(state.lastSyncedAt), color: C.green, background: '#F0FDF4' };
   })();
 
   const detail = state.status === 'offline' && state.pendingCount > 0
@@ -34,6 +57,38 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
     : state.conflictCount + state.failedCount > 0
       ? `${state.conflictCount + state.failedCount} operation${state.conflictCount + state.failedCount === 1 ? '' : 's'} require review`
       : state.message ?? relativeTime(state.lastSyncedAt);
+
+  if (compact) {
+    const subtitle = state.status === 'syncing'
+      ? 'Sending saved changes securely'
+      : state.status === 'offline'
+        ? (state.pendingCount > 0 ? `${state.pendingCount} saved safely on this device` : 'Changes will resume when connected')
+        : state.pendingCount > 0 || state.status === 'pending'
+          ? 'Saved safely on this device'
+          : state.status === 'synced'
+            ? 'Everything is up to date'
+            : detail;
+    return (
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${visual.title}. ${subtitle}. Tap to sync now.`}
+        activeOpacity={0.72}
+        onPress={handlePress}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 12, alignSelf: 'flex-start' }}
+      >
+        <Animated.View style={{ opacity: pulse, width: 34, height: 27, borderRadius: 14, backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 17, color: visual.color }}>☁</Text>
+          <View style={{ position: 'absolute', right: -2, bottom: -1, width: 14, height: 14, borderRadius: 7, backgroundColor: visual.color, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{visual.mark}</Text>
+          </View>
+        </Animated.View>
+        <View>
+          <Text style={{ color: visual.color, fontSize: 12, fontWeight: '800' }}>{visual.title}</Text>
+          <Text style={{ color: C.gray500, fontSize: 10, marginTop: 1 }}>{subtitle}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
 
   async function handlePress() {
     if (!state.isOnline) {
@@ -62,7 +117,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
       }}
     >
       <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${visual.color}18`, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: visual.color, fontSize: 15, fontWeight: '900' }}>{visual.icon}</Text>
+        <Text style={{ color: visual.color, fontSize: 15, fontWeight: '900' }}>{visual.mark}</Text>
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={{ color: visual.color, fontSize: 13, fontWeight: '800' }} numberOfLines={1}>{visual.title}</Text>

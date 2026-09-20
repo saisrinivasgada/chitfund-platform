@@ -189,7 +189,7 @@ export default function MemberHomeScreen() {
           </View>
         </View>
 
-        <SyncStatusCard />
+        <SyncStatusCard compact />
 
         {/* Action required — staff collected a partial amount */}
         {needsApproval.length > 0 && (

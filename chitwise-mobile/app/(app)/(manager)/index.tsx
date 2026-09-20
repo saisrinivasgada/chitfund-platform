@@ -112,7 +112,7 @@ export default function ManagerDashboardScreen() {
           </View>
         </View>
 
-        <SyncStatusCard />
+        <SyncStatusCard compact />
 
         {/* Treasury balance */}
         <View style={{

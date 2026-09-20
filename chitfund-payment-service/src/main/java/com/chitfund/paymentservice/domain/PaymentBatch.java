@@ -7,6 +7,7 @@ import org.hibernate.annotations.Filter;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -49,6 +50,8 @@ public class PaymentBatch {
 
     private UUID collectedBy;       // worker who collected (CASH only)
     private UUID recordedBy;        // admin who recorded a direct (UPI/bank/self-cash) payment
+    private Instant recordedAt;     // business time: when the user recorded it, including offline
+    private Instant syncedAt;       // server acceptance time; may be later than recordedAt
     private LocalDateTime collectedAt;
     private LocalDateTime remittedAt;
     private UUID remittedBy;        // admin who confirmed receipt (CASH only)
@@ -82,6 +85,9 @@ public class PaymentBatch {
 
     @PrePersist
     void prePersist() {
+        Instant now = Instant.now();
+        if (recordedAt == null) recordedAt = now;
+        if (syncedAt == null) syncedAt = now;
         createdAt = LocalDateTime.now();
         updatedAt = createdAt;
     }

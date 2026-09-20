@@ -49,8 +49,10 @@ function NotifCard({
 }) {
   const isUnread = !n.read;
   const { emoji, bg } = iconFor(n.type);
-  const time = timeAgo(n.createdAt ?? n.timestamp);
   const meta = n.metadata ?? {};
+  // Offline payments retain the time they were recorded on the device; the
+  // notification may be created later when connectivity returns.
+  const time = timeAgo(meta.recordedAt ?? n.createdAt ?? n.timestamp);
 
   // Resolve names from the maps (backend stores IDs, frontend resolves)
   const memberId = meta.memberId ?? meta.member_id;

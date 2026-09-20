@@ -87,9 +87,9 @@ function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: (
     batch.paymentMode && { label: 'Mode', value: String(batch.paymentMode).replace(/_/g, ' ') },
     batch.collectorName && { label: 'Collected by', value: batch.collectorName },
     batch.referenceNumber && { label: 'Reference', value: batch.referenceNumber },
-    (batch.remittedAt || batch.collectedAt || batch.createdAt) && {
+    (batch.remittedAt || batch.collectedAt || batch.recordedAt || batch.createdAt) && {
       label: 'Date',
-      value: fmtDate(batch.remittedAt ?? batch.collectedAt ?? batch.createdAt),
+      value: fmtDate(batch.remittedAt ?? batch.collectedAt ?? batch.recordedAt ?? batch.createdAt),
     },
     batch.notes && { label: 'Notes', value: batch.notes },
   ].filter(Boolean) as { label: string; value: string }[]) : [];
@@ -163,7 +163,7 @@ export default function MemberPaymentsScreen() {
   const filtered = useMemo(() => {
     const now = Date.now();
     return (batches as any[]).filter((b: any) => {
-      const dt = parseTs(b.collectedAt ?? b.createdAt);
+      const dt = parseTs(b.collectedAt ?? b.recordedAt ?? b.createdAt);
       const ts = dt?.getTime() ?? 0;
       if (dateFilter === 'today' && !isToday(dt)) return false;
       if (dateFilter === '7d'   && ts < now - 7  * 86_400_000) return false;
@@ -275,7 +275,7 @@ export default function MemberPaymentsScreen() {
                     )}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <Text style={{ fontSize: 12, color: C.gray400 }}>
-                        {fmtDate(b.collectedAt ?? b.createdAt)}
+                        {fmtDate(b.collectedAt ?? b.recordedAt ?? b.createdAt)}
                       </Text>
                       {draws && (
                         <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600' }}>· {draws}</Text>

@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -766,7 +767,7 @@ function RecordPaymentTab() {
   const [voidReason, setVoidReason] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [memberInfoId, setMemberInfoId] = useState('');
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
@@ -829,7 +830,7 @@ function RecordPaymentTab() {
           ? 'Payment saved securely — pending sync'
           : 'Payment recorded — treasury credited';
       toast.saved(msg);
-      setIdempotencyKey(crypto.randomUUID());
+      setIdempotencyKey(Crypto.randomUUID());
       setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
       if (isCredit) setMode('CASH');
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
@@ -1192,7 +1193,7 @@ function RecordPaymentTab() {
                       </View>
                     </View>
                     <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
-                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH')} · {fmtDate(b.collectedAt ?? b.createdAt)}
+                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH')} · {fmtDate(b.collectedAt ?? b.recordedAt ?? b.createdAt)}
                     </Text>
                     {b.collectedByName && (
                       <Text style={{ fontSize: 11, color: C.amber, marginTop: 1 }}>via {b.collectedByName}</Text>
@@ -3317,7 +3318,7 @@ function RemittanceTab() {
                     {batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode ?? 'CASH')}
                   </Text>
                 </View>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.createdAt)}</Text>
+                <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.recordedAt ?? batch.createdAt)}</Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Button
@@ -3511,7 +3512,10 @@ function HistoryTab() {
                     { label: 'Chit', value: chitMap[b.chitId] ?? '—' },
                     { label: 'Draw(s)', value: b.allocations?.length ? drawLabel(b.allocations) : '—' },
                     { label: 'Collected By', value: b.collectedBy ? (staffMap[b.collectedBy] ?? b.collectedBy.slice(0, 8)) : '—' },
-                    { label: 'Date', value: b.collectedAt ? fmtDateTime(b.collectedAt) : fmtDateTime(b.createdAt) },
+                    { label: 'Recorded', value: fmtDateTime(b.collectedAt ?? b.recordedAt ?? b.createdAt) },
+                    ...(b.syncedAt && b.recordedAt && b.syncedAt !== b.recordedAt
+                      ? [{ label: 'Synced', value: fmtDateTime(b.syncedAt) }]
+                      : []),
                     { label: 'Ref / Notes', value: b.referenceNumber ?? b.notes ?? '—' },
                   ].map(({ label, value }) => (
                     <View key={label} style={{ flexDirection: 'row', padding: 13, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3663,7 +3667,7 @@ function HistoryTab() {
                   )}
                   {/* Date */}
                   <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 'auto' }}>
-                    {fmtDateTime(b.collectedAt ?? b.createdAt)}
+                    {fmtDateTime(b.collectedAt ?? b.recordedAt ?? b.createdAt)}
                   </Text>
                 </View>
               </Card>

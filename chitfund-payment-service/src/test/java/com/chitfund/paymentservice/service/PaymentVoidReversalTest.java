@@ -121,7 +121,7 @@ class PaymentVoidReversalTest {
     private PaymentAllocation alloc(PaymentRecord r, String amount) {
         return PaymentAllocation.builder()
                 .id(UUID.randomUUID()).batchId(batchId)
-                .paymentRecordId(r.getId()).chitId(r.getChitId())
+                .paymentRecordId(r.getId()).chitId(r.getChitId()).memberId(r.getMemberId())
                 .monthNumber(r.getMonthNumber())
                 .allocatedAmount(new BigDecimal(amount))
                 .build();
@@ -133,6 +133,8 @@ class PaymentVoidReversalTest {
         for (PaymentRecord r : records) {
             when(paymentRecordRepository.findById(r.getId())).thenReturn(Optional.of(r));
         }
+        when(paymentRecordRepository.findAllByTenantIdAndIdInForUpdate(eq(TENANT), anyList()))
+                .thenReturn(new ArrayList<>(records));
     }
 
     private void doVoid() {
@@ -191,17 +193,38 @@ class PaymentVoidReversalTest {
     }
 
     @Test
-    @DisplayName("VOID-04: reversal never drives a balance negative")
-    void neverGoesNegative() {
+    @DisplayName("VOID-04: corrupt allocation blocks the whole void instead of hiding money loss")
+    void corruptAllocationBlocksVoid() {
         // Defensive: an allocation larger than what the record shows as paid — a
         // state that should not arise, but must not produce negative money if it does.
         PaymentRecord r = rec(1, "1000", "300", PaymentRecordStatus.PARTIALLY_PAID);
         arrange(batch(BatchStatus.COMPLETED, "1000", PaymentMode.UPI), List.of(r), List.of(alloc(r, "1000")));
 
+        assertThatThrownBy(this::doVoid)
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("nothing was voided");
+        verify(paymentRecordRepository, never()).save(any());
+        verify(adminWalletService, never()).addEntry(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("VOID-11: one batch spanning multiple chits reverses every allocation atomically")
+    void reversesEveryCrossChitAllocation() {
+        UUID otherChit = UUID.randomUUID();
+        PaymentRecord first = rec(1, "1000", "1000", PaymentRecordStatus.SETTLED);
+        PaymentRecord second = rec(2, "2000", "750", PaymentRecordStatus.PARTIALLY_PAID);
+        second.setChitId(otherChit);
+        arrange(batch(BatchStatus.COMPLETED, "1750", PaymentMode.UPI),
+                List.of(first, second), List.of(alloc(first, "1000"), alloc(second, "750")));
+
         doVoid();
 
-        assertThat(r.getAmountPaid()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
-        assertThat(r.getStatus()).isEqualTo(PaymentRecordStatus.OUTSTANDING);
+        assertThat(first.getAmountPaid()).isEqualByComparingTo("0");
+        assertThat(second.getAmountPaid()).isEqualByComparingTo("0");
+        assertThat(first.getStatus()).isEqualTo(PaymentRecordStatus.OUTSTANDING);
+        assertThat(second.getStatus()).isEqualTo(PaymentRecordStatus.OUTSTANDING);
+        verify(chitMonthDrawService).autoReopenIfNotFullySettled(chitId, 1);
+        verify(chitMonthDrawService).autoReopenIfNotFullySettled(otherChit, 2);
     }
 
     // ── treasury ─────────────────────────────────────────────────────────────

@@ -662,7 +662,7 @@ export default function StaffTasksScreen() {
               </View>
             </View>
 
-            <SyncStatusCard />
+            <SyncStatusCard compact />
 
             {/* Cash ledger cards */}
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>

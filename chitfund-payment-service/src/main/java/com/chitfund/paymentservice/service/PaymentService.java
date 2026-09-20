@@ -184,11 +184,17 @@ public class PaymentService {
     public PaymentBatchResponse recordPayment(RecordPaymentRequest request, UUID adminId, String idempotencyKey) {
         planExpiryChecker.assertNotExpired();
         String tenantId = tenantId();
+        Instant recordedAt = validatedRecordedAt(request.getRecordedAt());
         String paymentReference = normalizePaymentReference(request.getPaymentReference());
         request.setPaymentReference(paymentReference);
-        String requestHash = IdempotencyFingerprint.of(
-                request.getChitId(), request.getMemberId(), request.getAmount(),
-                request.getPaymentMode(), request.getNotes(), paymentReference);
+        // Keep the legacy fingerprint for older clients that do not send a
+        // recorded time; otherwise an in-flight retry across this deployment
+        // would be rejected even though its money fields are identical.
+        String requestHash = request.getRecordedAt() == null
+                ? IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                        request.getPaymentMode(), request.getNotes(), paymentReference)
+                : IdempotencyFingerprint.of(request.getChitId(), request.getMemberId(), request.getAmount(),
+                        request.getPaymentMode(), request.getNotes(), paymentReference, request.getRecordedAt());
         if (idempotencyKey != null) {
             var existing = batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
                     tenantId, RECORD_PAYMENT_OPERATION, idempotencyKey);
@@ -225,6 +231,8 @@ public class PaymentService {
                 .collectedAt(request.getPaymentMode() == PaymentMode.CASH ? LocalDateTime.now() : null)
                 .collectedBy(request.getPaymentMode() == PaymentMode.CASH ? adminId : null)
                 .recordedBy(adminId)
+                .recordedAt(recordedAt)
+                .syncedAt(Instant.now())
                 .idempotencyKey(idempotencyKey)
                 .idempotencyOperation(idempotencyKey != null ? RECORD_PAYMENT_OPERATION : null)
                 .idempotencyRequestHash(idempotencyKey != null ? requestHash : null)
@@ -262,6 +270,17 @@ public class PaymentService {
     private static String normalizePaymentReference(String reference) {
         if (reference == null || reference.isBlank()) return null;
         return reference.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    private static Instant validatedRecordedAt(Instant requested) {
+        Instant now = Instant.now();
+        Instant value = requested == null ? now : requested;
+        if (value.isAfter(now.plusSeconds(5 * 60)) || value.isBefore(now.minusSeconds(30L * 24 * 60 * 60))) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Payment time must be within the last 30 days and cannot be in the future",
+                    HttpStatus.BAD_REQUEST);
+        }
+        return value;
     }
 
     /**
@@ -325,13 +344,31 @@ public class PaymentService {
 
         List<PaymentAllocation> allocations = allocationRepository.findByBatchId(batchId);
 
+        List<UUID> recordIds = allocations.stream()
+                .map(PaymentAllocation::getPaymentRecordId).distinct().sorted().toList();
+        Map<UUID, PaymentRecord> lockedRecords = recordIds.isEmpty() ? Map.of()
+                : paymentRecordRepository.findAllByTenantIdAndIdInForUpdate(tenantId(), recordIds)
+                        .stream().collect(Collectors.toMap(PaymentRecord::getId, r -> r));
+        if (lockedRecords.size() != recordIds.size()) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Payment records changed; nothing was voided", HttpStatus.CONFLICT);
+        }
+
         for (PaymentAllocation alloc : allocations) {
-            PaymentRecord record = paymentRecordRepository.findById(alloc.getPaymentRecordId())
-                    .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
-                            "Payment record not found: " + alloc.getPaymentRecordId()));
+            PaymentRecord record = lockedRecords.get(alloc.getPaymentRecordId());
+            if (!batch.getMemberId().equals(record.getMemberId())
+                    || !alloc.getChitId().equals(record.getChitId())) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Payment allocation does not match its record; nothing was voided",
+                        HttpStatus.CONFLICT);
+            }
 
             BigDecimal newPaid = record.getAmountPaid().subtract(alloc.getAllocatedAmount());
-            if (newPaid.compareTo(BigDecimal.ZERO) < 0) newPaid = BigDecimal.ZERO;
+            if (newPaid.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Payment allocation exceeds the recorded amount; nothing was voided",
+                        HttpStatus.CONFLICT);
+            }
             record.setAmountPaid(newPaid);
 
             if (newPaid.compareTo(BigDecimal.ZERO) == 0) {
@@ -358,12 +395,7 @@ public class PaymentService {
                         a -> a.getChitId().toString() + ":" + a.getMonthNumber()))
                 .forEach((key, allocs) -> {
                     PaymentAllocation first = allocs.get(0);
-                    try {
-                        chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber());
-                    } catch (Exception e) {
-                        log.warn("Auto-reopen check failed for chit {} month {} — {}",
-                                first.getChitId(), first.getMonthNumber(), e.getMessage());
-                    }
+                    chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber());
                 });
 
         // Reverse any credit movements this batch caused (auto-consumed credit or overpayment credit).
@@ -401,6 +433,7 @@ public class PaymentService {
             debit.setEntryType(WalletEntryType.OUT);
             debit.setAmount(batch.getTotalAmount());
             debit.setCategory("PAYMENT_VOID");
+            debit.setReferenceId(batchId);
             debit.setDescription(descBuilder.toString());
             adminWalletService.addEntry(debit, adminId, tenantId());
         }
@@ -637,6 +670,7 @@ public class PaymentService {
         entry.setEntryType(WalletEntryType.IN);
         entry.setAmount(batch.getTotalAmount());
         entry.setCategory("PAYMENT");
+        entry.setReferenceId(batch.getId());
         entry.setDescription("Payment received — member " + batch.getMemberId() + ", chit " + batch.getChitId() + drawPart);
         adminWalletService.addEntry(entry, actorId, tenantId());
     }
@@ -942,9 +976,9 @@ public class PaymentService {
                 totalPaid,
                 totalDue.subtract(totalPaid),
                 (int) settled, (int) partial, (int) outstanding, (int) waived,
-                LocalDate.now(),
+                LocalDate.ofInstant(batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(), java.time.ZoneOffset.UTC),
                 actorId.toString(),
-                Instant.now(),
+                batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(),
                 TenantContext.get()
         );
     }
@@ -969,6 +1003,8 @@ public class PaymentService {
                 .status(batch.getStatus())
                 .collectedBy(batch.getCollectedBy())
                 .recordedBy(batch.getRecordedBy())
+                .recordedAt(batch.getRecordedAt())
+                .syncedAt(batch.getSyncedAt())
                 .collectedAt(batch.getCollectedAt())
                 .remittedAt(batch.getRemittedAt())
                 .remittedBy(batch.getRemittedBy())

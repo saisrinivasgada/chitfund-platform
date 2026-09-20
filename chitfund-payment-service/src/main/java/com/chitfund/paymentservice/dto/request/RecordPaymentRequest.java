@@ -5,6 +5,7 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
@@ -30,4 +31,7 @@ public class RecordPaymentRequest {
     /** UPI UTR, bank transaction reference, or cheque number. */
     @Size(max = 100, message = "Payment reference must not exceed 100 characters")
     private String paymentReference;
+
+    /** Device-captured business time. Server validates the acceptable offline window. */
+    private Instant recordedAt;
 }
