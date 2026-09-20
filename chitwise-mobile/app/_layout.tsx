@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
@@ -12,6 +12,7 @@ import { TutorialProvider } from '../tutorials/TutorialProvider';
 import { getAccountScope } from '../offline/accountScope';
 import { createOfflineQueryClient, offlinePersistenceOptions } from '../offline/queryPersistence';
 import { SyncRuntime } from '../offline/SyncRuntime';
+import { BrandLaunch } from '../components/BrandLaunch';
 
 const hubQueryClient = new QueryClient({
   defaultOptions: {
@@ -131,6 +132,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const [showBrandLaunch, setShowBrandLaunch] = useState(true);
+  const finishBrandLaunch = useCallback(() => setShowBrandLaunch(false), []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ScopedQueryProvider>
@@ -142,6 +146,7 @@ export default function RootLayout() {
         </AuthGuard>
         <ToastRoot />
       </ScopedQueryProvider>
+      {showBrandLaunch && <BrandLaunch onFinish={finishBrandLaunch} />}
     </GestureHandlerRootView>
   );
 }

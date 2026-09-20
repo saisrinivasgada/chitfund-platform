@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -241,7 +242,7 @@ export default function AdminChitsScreen() {
   const [cpMode, setCpMode] = useState('CASH');
   const [cpNotes, setCpNotes] = useState('');
   const [cpReference, setCpReference] = useState('');
-  const [cpIdempotencyKey, setCpIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [cpIdempotencyKey, setCpIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // ── Void payment batch ─────────────────────────────────────────────────────
   const [voidBatchId, setVoidBatchId] = useState('');
@@ -689,7 +690,7 @@ export default function AdminChitsScreen() {
       idempotencyKey: cpIdempotencyKey,
     }),
     onSuccess: (data: any) => {
-      setCpIdempotencyKey(crypto.randomUUID());
+      setCpIdempotencyKey(Crypto.randomUUID());
       setShowCollectPay(false);
       setCpDraw(null); setCpMemberId(''); setCpAmount(''); setCpMode('CASH'); setCpNotes(''); setCpReference('');
       qc.invalidateQueries({ predicate: (q: any) => q.queryKey[0] === 'draw-payments' });

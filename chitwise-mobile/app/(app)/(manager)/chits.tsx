@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Crypto from 'expo-crypto';
 import {
   getChits, getDraws, openDraw, closeDraw, skipDraw, deleteDraw,
   getEnrollments, getMembers, getWinners, recordWinner,
@@ -122,7 +123,7 @@ export default function ManagerChitsScreen() {
   const [collectMemberId, setCollectMemberId] = useState('');
   const [collectAmount, setCollectAmount] = useState('');
   const [collectMode, setCollectMode] = useState('CASH');
-  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const [showPayout, setShowPayout] = useState(false);
   const [payoutWinner, setPayoutWinner] = useState<any>(null);
@@ -312,7 +313,7 @@ export default function ManagerChitsScreen() {
       idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: () => {
-      setCollectIdempotencyKey(crypto.randomUUID());
+      setCollectIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-draw-payments', collectDraw?.id] });
       setShowCollect(false); setCollectMemberId(''); setCollectAmount(''); setCollectMode('CASH');
       toast.saved('Payment recorded');

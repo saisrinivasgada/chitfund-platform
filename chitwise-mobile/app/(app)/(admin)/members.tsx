@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -146,7 +147,7 @@ export default function AdminMembersScreen() {
   const [newReferralId, setNewReferralId] = useState('');
   const [newReferralSearch, setNewReferralSearch] = useState('');
   const [idCopied, setIdCopied] = useState(false);
-  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // Full list for dropdowns, referral search, status counts, limit check
   const { data: allMembers = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
@@ -289,7 +290,7 @@ export default function AdminMembersScreen() {
       idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: (data: any) => {
-      setCollectIdempotencyKey(crypto.randomUUID());
+      setCollectIdempotencyKey(Crypto.randomUUID());
       setShowCollect(false);
       setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setCollectReference(''); setUseCredits(false);
       qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
