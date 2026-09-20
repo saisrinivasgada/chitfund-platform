@@ -67,10 +67,10 @@ class PaymentTenantMigrationMySqlTest {
             String mode,
             String reference) throws SQLException {
         try (var statement = connection.prepareStatement(
-                "INSERT INTO payment_batches " +
+                        "INSERT INTO payment_batches " +
                         "(id, tenant_id, chit_id, member_id, total_amount, payment_mode, status, " +
-                        "payment_reference, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, ?, 100.00, ?, 'COMPLETED', ?, NOW(6), NOW(6))")) {
+                        "payment_reference, recorded_at, synced_at, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, ?, 100.00, ?, 'COMPLETED', ?, NOW(6), NOW(6), NOW(6), NOW(6))")) {
             statement.setString(1, id);
             statement.setString(2, tenantId);
             statement.setString(3, UUID.randomUUID().toString());
