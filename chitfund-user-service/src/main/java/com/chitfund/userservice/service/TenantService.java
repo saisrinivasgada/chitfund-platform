@@ -345,6 +345,10 @@ public class TenantService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Only rejected tenants can be reactivated");
         }
         String targetSlug = (newSlug != null && !newSlug.isBlank()) ? newSlug.toLowerCase().trim() : t.getSlug();
+        if (RESERVED_SLUGS.contains(targetSlug)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Subdomain '" + targetSlug + "' is reserved and cannot be used", HttpStatus.CONFLICT);
+        }
         // Check slug availability (excluding this tenant itself and other REJECTED tenants)
         boolean slugTaken = tenantRepository.existsBySlugAndStatusNot(targetSlug, "REJECTED")
                 || tenantRepository.findAllByStatusOrderByCreatedAtDesc("REJECTED").stream()
@@ -501,6 +505,10 @@ public class TenantService {
         t.setName(req.getName().trim());
         if (req.getSlug() != null && !req.getSlug().isBlank()) {
             String newSlug = req.getSlug().toLowerCase().trim();
+            if (RESERVED_SLUGS.contains(newSlug)) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Subdomain '" + newSlug + "' is reserved and cannot be used", HttpStatus.CONFLICT);
+            }
             if (!newSlug.equals(t.getSlug()) && tenantRepository.existsBySlug(newSlug)) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Subdomain '" + newSlug + "' is already taken", HttpStatus.CONFLICT);
