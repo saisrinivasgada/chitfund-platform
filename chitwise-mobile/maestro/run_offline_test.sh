@@ -54,7 +54,7 @@ curl -s http://localhost:9001/start-payment | python3 -c "import sys,json; d=jso
 # Wait for service health
 echo "  Waiting for payment service to become healthy..."
 for i in $(seq 1 30); do
-  STATUS=$(curl -sf http://localhost:9084/actuator/health 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
+  STATUS=$(curl -sf http://localhost:8084/actuator/health 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "")
   if [ "$STATUS" = "UP" ]; then
     echo "  Payment service is healthy."
     break

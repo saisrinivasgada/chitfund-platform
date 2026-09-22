@@ -10,27 +10,30 @@ GET http://localhost:9000/otp  →  {"otp": "123456"}
 
 Env vars:
   DB_HOST            (default: 127.0.0.1)
-  DB_PORT            (default: 4306)
-  DB_USER            (default: root)
-  DB_PASSWORD        (default: testpassword)
+  DB_PORT            (default: 3306)
+  DB_USER            (default: chitfund)
+  DB_PASSWORD        (default: ChitWise@Local1)
   DB_NAME            (default: chitfund_user)
+  MYSQL_BIN          (default: /usr/local/mysql-8.0.32-macos13-arm64/bin/mysql)
   USER_SERVICE_LOG   (fallback: log file path)
 """
 import http.server, re, json, sys, os
 
 LOG_PATH = os.environ.get('USER_SERVICE_LOG', '')
 DB_HOST = os.environ.get('DB_HOST', '127.0.0.1')
-DB_PORT = int(os.environ.get('DB_PORT', '4306'))
-DB_USER = os.environ.get('DB_USER', 'root')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'testpassword')
+DB_PORT = int(os.environ.get('DB_PORT', '3306'))
+DB_USER = os.environ.get('DB_USER', 'chitfund')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'ChitWise@Local1')
 DB_NAME = os.environ.get('DB_NAME', 'chitfund_user')
+MYSQL_BIN = os.environ.get('MYSQL_BIN', '/usr/local/mysql-8.0.32-macos13-arm64/bin/mysql')
 
 
 def _read_otp_from_db():
     import subprocess
     result = subprocess.run(
-        ['docker', 'exec', 'chitwise-test-mysql', 'mysql',
+        [MYSQL_BIN,
          '-u', DB_USER, f'-p{DB_PASSWORD}',
+         '-h', DB_HOST, '-P', str(DB_PORT),
          '-e', ("SELECT verification_code FROM chitfund_user.phone_otps "
                 "WHERE verified = 0 AND expires_at > NOW() "
                 "ORDER BY expires_at DESC LIMIT 1;"),
@@ -71,5 +74,5 @@ class OTPHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 9000
-    print(f'OTP server on http://localhost:{port}/otp — primary: DB ({DB_HOST}:{DB_PORT})')
+    print(f'OTP server on http://localhost:{port}/otp — DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
     http.server.HTTPServer(('localhost', port), OTPHandler).serve_forever()
