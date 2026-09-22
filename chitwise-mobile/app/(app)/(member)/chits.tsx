@@ -700,7 +700,7 @@ export default function MemberChitsScreen() {
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2, textTransform: 'uppercase' }}>Draws</Text>
                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                    {c.status === 'COMPLETED' ? c.totalDraws : (c.currentDraw ?? 1)} / {c.totalDraws ?? '?'}
+                    {c.status === 'COMPLETED' ? (c.durationMonths ?? c.totalDraws) : (c.winnersAssigned ?? c.currentDraw ?? 0)} / {c.durationMonths ?? c.totalDraws ?? '?'}
                   </Text>
                 </View>
                 {c.totalAmount && (
@@ -712,21 +712,21 @@ export default function MemberChitsScreen() {
               </View>
 
               {/* Progress bar */}
-              {c.totalDraws && c.currentDraw && (
+              {(c.durationMonths ?? c.totalDraws) && (c.winnersAssigned != null || c.currentDraw != null) && (
                 <>
                   <Divider />
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                       <Text style={{ fontSize: 11, color: C.gray400 }}>Progress</Text>
                       <Text style={{ fontSize: 11, color: C.navy, fontWeight: '600' }}>
-                        {Math.round((c.currentDraw / c.totalDraws) * 100)}%
+                        {Math.round(((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}%
                       </Text>
                     </View>
                     <View style={{ height: 6, backgroundColor: C.gray200, borderRadius: 3 }}>
                       <View style={{
                         height: 6, borderRadius: 3,
                         backgroundColor: c.status === 'COMPLETED' ? C.green : C.navy,
-                        width: `${Math.min(100, (c.currentDraw / c.totalDraws) * 100)}%`,
+                        width: `${Math.min(100, ((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}%`,
                       }} />
                     </View>
                   </View>

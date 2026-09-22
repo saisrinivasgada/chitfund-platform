@@ -420,7 +420,7 @@ export default function ManagerChitsScreen() {
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, textTransform: 'uppercase', marginBottom: 2 }}>Draw</Text>
                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                    {c.currentDraw ?? 1} / {c.totalDraws ?? '?'}
+                    {c.winnersAssigned ?? c.currentDraw ?? 0} / {c.durationMonths ?? c.totalDraws ?? '?'}
                   </Text>
                 </View>
                 {c.totalAmount && (
@@ -444,18 +444,18 @@ export default function ManagerChitsScreen() {
                   </View>
                 )}
               </View>
-              {c.totalDraws && c.currentDraw && (
+              {(c.durationMonths ?? c.totalDraws) && (c.winnersAssigned != null || c.currentDraw != null) && (
                 <>
                   <Divider />
                   <View style={{ height: 5, backgroundColor: C.gray200, borderRadius: 3 }}>
                     <View style={{
                       height: 5, borderRadius: 3,
                       backgroundColor: c.status === 'COMPLETED' ? C.green : C.navy,
-                      width: `${Math.min(100, (c.currentDraw / c.totalDraws) * 100)}%`,
+                      width: `${Math.min(100, ((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}%`,
                     }} />
                   </View>
                   <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3, textAlign: 'right' }}>
-                    {Math.round((c.currentDraw / c.totalDraws) * 100)}% complete
+                    {Math.round(((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}% complete
                   </Text>
                 </>
               )}
@@ -489,7 +489,7 @@ export default function ManagerChitsScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
                   <Badge status={selected.status} />
                   <Text style={{ fontSize: 12, color: C.gray400 }}>
-                    Draw {selected.currentDraw ?? 1} of {selected.totalDraws ?? '?'}
+                    Draw {selected.winnersAssigned ?? selected.currentDraw ?? 0} of {selected.durationMonths ?? selected.totalDraws ?? '?'}
                   </Text>
                 </View>
               </View>
@@ -952,9 +952,9 @@ export default function ManagerChitsScreen() {
                   { label: 'Type', value: selected.chitType ?? selected.winnerSelectionMode ?? '—' },
                   { label: 'Chit Value', value: selected.chitValue != null ? `₹${Number(selected.chitValue).toLocaleString('en-IN')}` : '—' },
                   { label: 'Monthly', value: selected.installmentAmount != null ? `₹${Number(selected.installmentAmount).toLocaleString('en-IN')}` : '—' },
-                  { label: 'Duration', value: selected.totalDraws != null ? `${selected.totalDraws} months` : '—' },
+                  { label: 'Duration', value: (selected.durationMonths ?? selected.totalDraws) != null ? `${selected.durationMonths ?? selected.totalDraws} months` : '—' },
                   { label: 'Members', value: String(selected.memberCount ?? selected.numberOfMembers ?? '—') },
-                  { label: 'Current Draw', value: String(selected.currentDraw ?? '—') },
+                  { label: 'Current Draw', value: String(selected.winnersAssigned ?? selected.currentDraw ?? '—') },
                   { label: 'Start Date', value: selected.startDate ? fmtDate(selected.startDate) : '—' },
                   { label: 'Description', value: selected.description ?? '—' },
                 ].map(({ label, value }) => (

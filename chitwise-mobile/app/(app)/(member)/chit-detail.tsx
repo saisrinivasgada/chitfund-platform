@@ -247,7 +247,7 @@ export default function ChitDetailScreen() {
         {[
           { label: 'Chit Value', value: chit.totalAmount ? `₹${Number(chit.totalAmount).toLocaleString('en-IN')}` : '—' },
           { label: 'Installment', value: chit.installmentAmount ? `₹${Number(chit.installmentAmount).toLocaleString('en-IN')}` : '—' },
-          { label: 'Draws', value: (() => { const total = chit.totalDraws ?? chit.durationMonths; return total ? `${chit.status === 'COMPLETED' ? total : (chit.winnersAssigned ?? chit.currentDraw ?? 0)}/${total}` : '—'; })() },
+          { label: 'Draws', value: (() => { const total = chit.durationMonths ?? chit.totalDraws; return total ? `${chit.status === 'COMPLETED' ? total : (chit.winnersAssigned ?? chit.currentDraw ?? 0)}/${total}` : '—'; })() },
           { label: 'Members', value: chit.memberCount != null ? String(chit.memberCount) : '—' },
         ].map(({ label, value }, i, arr) => (
           <View key={label} style={{ flex: 1, alignItems: 'center', borderRightWidth: i < arr.length - 1 ? 1 : 0, borderRightColor: 'rgba(255,255,255,0.15)' }}>
@@ -626,7 +626,7 @@ export default function ChitDetailScreen() {
 
             {/* Draw progress card */}
             {(() => {
-              const totalD = chit?.totalDraws ?? chit?.durationMonths;
+              const totalD = chit?.durationMonths ?? chit?.totalDraws;
               const completedD = chit?.status === 'COMPLETED' ? totalD : (chit?.winnersAssigned ?? chit?.currentDraw ?? 0);
               if (!totalD) return null;
               const pct = totalD > 0 ? Math.min(100, Math.round((completedD / totalD) * 100)) : 0;

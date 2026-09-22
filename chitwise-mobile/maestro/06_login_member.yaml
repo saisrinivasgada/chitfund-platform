@@ -5,30 +5,44 @@ name: Member Login
     clearState: true
 
 - waitForAnimationToEnd
-- assertVisible:
-    text: "Sign In"
 
-- tapOn:
-    text: "Enter your username"
-- inputText: ${MEMBER_USERNAME}
-- pressKey: Enter
-
-- tapOn:
-    text: "Enter your password"
-- inputText: ${MEMBER_PASSWORD}
-- pressKey: Enter
-
-- waitForAnimationToEnd
-
-# Handle tenant picker if shown
+# iOS Keychain persists even with clearState, so the member session may
+# already be active. Only do full login if Sign In screen is visible.
 - runFlow:
     when:
       visible:
-        text: "Select Organisation"
+        text: "Sign In"
     commands:
       - tapOn:
-          index: 0
-          text: "›"
+          text: "Enter your username"
+      - inputText: ${MEMBER_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${MEMBER_PASSWORD}
+      - pressKey: Enter
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Select Organisation"
+          commands:
+            - tapOn:
+                index: 0
+                text: "›"
+            - waitForAnimationToEnd
+
+# Tutorial modal (if first launch) grabs iOS accessibility focus and hides
+# the Home tab until dismissed.
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        text: "Welcome to ChitWise"
+    commands:
+      - tapOn:
+          text: "No thanks"
       - waitForAnimationToEnd
 
 # Member sees Home tab (not Dashboard)

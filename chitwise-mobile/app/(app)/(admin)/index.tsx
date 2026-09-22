@@ -201,9 +201,6 @@ export default function AdminDashboard() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={T.h1}>Dashboard</Text>
               </View>
-              <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>
-                {greeting}, {user?.fullName?.split(' ')[0]} 👋
-              </Text>
               <View style={{ marginTop: 7 }}><SyncStatusCard compact /></View>
             </View>
           </View>
@@ -297,6 +294,13 @@ export default function AdminDashboard() {
             ))}
           </View>
         )}
+
+        {/* Greeting — above treasury */}
+        <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, letterSpacing: -0.3 }}>
+            {greeting}, {user?.fullName?.split(' ')[0]} 👋
+          </Text>
+        </View>
 
         {/* Wallet Balance — liquid glass on dark */}
         <TouchableOpacity onPress={() => router.push('/(app)/(admin)/payments')} activeOpacity={0.8}>

@@ -69,16 +69,17 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
       return () => { cancelled = true; };
     }
 
+    let welcomeTimer: ReturnType<typeof setTimeout> | null = null;
     loadTutorialState(user.id, user.role).then((saved) => {
       if (cancelled) return;
       setState(saved);
       setIsLoaded(true);
       if (saved.preference === 'unset') {
-        setShowWelcome(true);
+        // Delay the welcome modal so the Dashboard finishes rendering first
+        welcomeTimer = setTimeout(() => setShowWelcome(true), 900);
       }
     });
-
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (welcomeTimer) clearTimeout(welcomeTimer); };
   }, [scope]);
 
   const persist = useCallback(async (next: TutorialState) => {

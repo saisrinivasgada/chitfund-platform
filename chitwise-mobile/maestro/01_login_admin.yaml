@@ -25,8 +25,6 @@ name: Admin Login
           timeout: 10000
       - waitForAnimationToEnd
       - runScript: helpers/read_otp.js
-      - tapOn:
-          text: "123456"
       - inputText: ${output.otp}
       - tapOn:
           text: "Verify & Sign In"
@@ -41,8 +39,20 @@ name: Admin Login
                 text: "›"
             - waitForAnimationToEnd
 
-# Either fresh login or Keychain token — must reach Dashboard
-- extendedWaitUntil:
-    visible:
-      text: "Dashboard"
-    timeout: 15000
+# Wait for the app to fully settle. The tutorial prompt (if it appears on
+# first-launch / clearState) grabs iOS accessibility focus and prevents
+# "Dashboard" from being reachable via XCTest until it is dismissed.
+# Two waitForAnimationToEnd calls ensure the tutorial finishes animating in.
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        text: "Welcome to ChitWise"
+    commands:
+      - tapOn:
+          text: "No thanks"
+      - waitForAnimationToEnd
+
+- assertVisible:
+    text: "Dashboard"

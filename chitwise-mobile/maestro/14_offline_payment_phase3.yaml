@@ -1,0 +1,56 @@
+appId: ${APP_ID}
+name: Offline Payment — Phase 3 (sync after service restored)
+---
+# Service has been restored before running this flow
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      text: "Dashboard"
+    timeout: 15000
+
+# Tap sync indicator to trigger immediate sync
+- tapOn:
+    text: "waiting"
+- waitForAnimationToEnd
+
+# Syncing animation should appear briefly
+- extendedWaitUntil:
+    visible:
+      text: "Syncing"
+    timeout: 8000
+
+# Wait for sync to complete — must reach "Synced at HH:MM"
+- extendedWaitUntil:
+    visible:
+      text: "Synced at"
+    timeout: 20000
+
+# No pending, no errors
+- assertNotVisible:
+    text: "waiting"
+- assertNotVisible:
+    text: "Sync needs attention"
+
+# Take screenshot after sync
+- takeScreenshot: ${SCREENSHOT_DIR}/after_sync
+
+# Navigate to Finance → History to verify one server batch
+- tapOn:
+    point: "70%,94%"
+- waitForAnimationToEnd
+- tapOn:
+    text: "History"
+- waitForAnimationToEnd
+
+# The payment should appear with UPI mode and ₹3,500
+- assertVisible:
+    text: "3,500"
+- assertVisible:
+    text: "UPI"
+
+# Verify no duplicate — there should be exactly one entry for this amount
+- assertNotVisible:
+    index: 1
+    text: "3,500"

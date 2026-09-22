@@ -361,7 +361,7 @@ export default function MemberHomeScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }} numberOfLines={1}>{c.name}</Text>
                     <Text style={{ fontSize: 12, color: C.gray500, marginTop: 3 }}>
-                      Draw {c.currentDraw ?? 1}/{c.totalDraws ?? '?'}
+                      Draw {c.winnersAssigned ?? c.currentDraw ?? 0}/{c.durationMonths ?? c.totalDraws ?? '?'}
                     </Text>
                   </View>
                   <Amount value={c.installmentAmount ?? 0} size="sm" />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList, Switch,
   KeyboardAvoidingView, Platform,
@@ -22,6 +22,9 @@ import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen
 import { toast } from '../../../components/Toast';
 import { useUIStore } from '../../../store/uiStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
+import { getPendingCountForMember } from '../../../offline/database';
+import { getAccountScope } from '../../../offline/accountScope';
+import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
@@ -756,6 +759,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 function RecordPaymentTab() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
+  const scrollRef = useRef<ScrollView>(null);
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
   const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
@@ -873,6 +877,12 @@ function RecordPaymentTab() {
         allocations: isExplicitMode && allocationEntries.length > 0 ? allocationEntries : undefined,
         idempotencyKey,
       }),
+    onMutate: () => {
+      // Scroll to top immediately so the SyncStatusCard is on-screen before the
+      // pending-count update arrives (which happens right after the fast local
+      // SQLite write, long before the server responds or times out).
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    },
     onSuccess: (data: any) => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
@@ -886,6 +896,7 @@ function RecordPaymentTab() {
       setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
       setSelectedAllocations({});
       if (isCredit) setMode('CASH');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
@@ -894,7 +905,10 @@ function RecordPaymentTab() {
       if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
       if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment — please try again.'),
+    onError: (e: any) => {
+      console.error('[RecordPayment] onError status=' + (e?.response?.status ?? 'none') + ' code=' + (e?.code ?? 'none') + ' msg=' + (e?.message ?? '') + ' data=' + JSON.stringify(e?.response?.data));
+      Alert.alert('Error', e.response?.data?.message ?? e?.message ?? 'Failed to record payment — please try again.');
+    },
   });
 
   const voidMut = useMutation({
@@ -949,7 +963,7 @@ function RecordPaymentTab() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
 
       <SyncStatusCard compact />
       <PendingPaymentQueueCard memberNames={paymentMemberNames} />
@@ -970,6 +984,8 @@ function RecordPaymentTab() {
       <ScrollView style={{ maxHeight: 160, marginBottom: 16, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
         {filteredMembers.map((m: any) => (
           <TouchableOpacity key={m.id}
+            testID={`member-row-${m.fullName ?? m.name}`}
+            accessibilityLabel={m.fullName ?? m.name}
             onPress={() => { setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
             style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
@@ -1056,6 +1072,8 @@ function RecordPaymentTab() {
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {payableChits.map((c: any) => (
                   <TouchableOpacity key={c.id}
+                    testID={`chit-chip-${c.name}`}
+                    accessibilityLabel={c.name}
                     onPress={() => { setChitId(c.id); setAmount(c.installmentAmount ? String(c.installmentAmount) : ''); }}
                     style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: chitId === c.id ? C.navy : C.gray300, backgroundColor: chitId === c.id ? C.navy50 : C.white, minWidth: 110 }}>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: chitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
@@ -1248,7 +1266,7 @@ function RecordPaymentTab() {
               : (isExplicitMode ? allocationTotal <= 0 : (!amount || amtNum <= 0))
                 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim()))}
             loading={recordMut.isPending}
-            onPress={() => {
+            onPress={async () => {
               const workerName = workerCollect
                 ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
                 : null;
@@ -1257,10 +1275,31 @@ function RecordPaymentTab() {
                 : workerCollect
                 ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
                 : `Record ₹${amtNum.toLocaleString('en-IN')} via ${mode.replace(/_/g, ' ')} for ${selectedChit?.name}?`;
-              Alert.alert('Confirm Payment', confirmMsg, [
+
+              const doRecord = () => Alert.alert('Confirm Payment', confirmMsg, [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Record', onPress: () => recordMut.mutate() },
               ]);
+
+              if (!isCredit && memberId) {
+                const user = useAuthStore.getState().user;
+                const scope = getAccountScope(user);
+                if (scope) {
+                  const pending = await getPendingCountForMember(scope, memberId);
+                  if (pending > 0) {
+                    Alert.alert(
+                      'Payment already waiting',
+                      `This member already has ${pending} payment${pending > 1 ? 's' : ''} saved on this device waiting to sync. Recording again may create a duplicate.\n\nRecord anyway?`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Record Anyway', style: 'destructive', onPress: doRecord },
+                      ],
+                    );
+                    return;
+                  }
+                }
+              }
+              doRecord();
             }}
           />
         </>
