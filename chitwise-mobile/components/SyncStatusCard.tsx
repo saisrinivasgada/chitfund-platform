@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Alert, Animated, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { C } from './ui';
 import { syncCurrentAccount } from '../offline/syncEngine';
@@ -26,6 +27,7 @@ function syncedClock(value: number | null): string {
 
 export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const state = useSyncStore();
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -63,11 +65,13 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
       ? 'Sending saved changes securely'
       : state.status === 'offline'
         ? (state.pendingCount > 0 ? `${state.pendingCount} saved safely on this device` : 'Changes will resume when connected')
-        : state.pendingCount > 0 || state.status === 'pending'
-          ? 'Saved safely on this device'
-          : state.status === 'synced'
-            ? 'Everything is up to date'
-            : detail;
+        : state.status === 'auth-required'
+          ? `${state.pendingCount > 0 ? `${state.pendingCount} payment${state.pendingCount === 1 ? '' : 's'} waiting — ` : ''}Tap to sign in and sync`
+          : state.pendingCount > 0 || state.status === 'pending'
+            ? 'Saved safely on this device'
+            : state.status === 'synced'
+              ? 'Everything is up to date'
+              : detail;
     return (
       <TouchableOpacity
         accessibilityRole="button"
@@ -91,6 +95,10 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
   }
 
   async function handlePress() {
+    if (state.status === 'auth-required') {
+      router.push('/(auth)/login');
+      return;
+    }
     if (!state.isOnline) {
       Alert.alert('Offline', `${relativeTime(state.lastSyncedAt)}. Saved changes will sync automatically when internet returns.`);
       return;

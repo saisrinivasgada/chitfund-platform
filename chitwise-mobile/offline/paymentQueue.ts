@@ -105,14 +105,14 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
   }
 
   const attempts = operation.attempts + 1;
-  await updateOperation(operation.operationId, 'SYNCING', { attempts });
 
   try {
+    await updateOperation(operation.operationId, operation.accountScope, 'SYNCING', { attempts });
     const result = await recordPayment({
       ...(operation.payload as RecordPaymentPayload),
       idempotencyKey: operation.operationId,
     });
-    await updateOperation(operation.operationId, 'SUCCEEDED', {
+    await updateOperation(operation.operationId, operation.accountScope, 'SUCCEEDED', {
       attempts,
       serverReceiptId: result?.id ? String(result.id) : null,
     });
@@ -120,7 +120,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
   } catch (error) {
     const details = errorDetails(error);
     if (details.status === 401) {
-      await updateOperation(operation.operationId, 'RETRYABLE_FAILURE', {
+      await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
         attempts,
         nextAttemptAt: Date.now() + 60_000,
         errorCode: details.code,
@@ -129,7 +129,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
       return { kind: 'auth-required', error };
     }
     if (details.status === 409) {
-      await updateOperation(operation.operationId, 'CONFLICT', {
+      await updateOperation(operation.operationId, operation.accountScope, 'CONFLICT', {
         attempts,
         errorCode: details.code,
         errorMessage: details.message,
@@ -137,7 +137,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
       return { kind: 'conflict', error };
     }
     if (details.status != null && details.status >= 400 && details.status < 500 && details.status !== 408 && details.status !== 429) {
-      await updateOperation(operation.operationId, 'PERMANENT_FAILURE', {
+      await updateOperation(operation.operationId, operation.accountScope, 'PERMANENT_FAILURE', {
         attempts,
         errorCode: details.code,
         errorMessage: details.message,
@@ -145,7 +145,7 @@ export async function processPaymentOperation(operation: QueuedOperation<any>): 
       return { kind: 'failed', error };
     }
 
-    await updateOperation(operation.operationId, 'RETRYABLE_FAILURE', {
+    await updateOperation(operation.operationId, operation.accountScope, 'RETRYABLE_FAILURE', {
       attempts,
       nextAttemptAt: Date.now() + retryDelay(attempts),
       errorCode: details.code,
@@ -219,9 +219,14 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
   }
   if (!reachable) return pendingResult(operationId, payload);
 
-  const stored = await getOperation(operationId);
+  const stored = await getOperation(operationId, account.scope);
   if (!stored) throw new Error('The payment could not be saved securely on this device');
-  const processed = await processPaymentOperation(stored);
+  let processed: ProcessOperationResult;
+  try {
+    processed = await processPaymentOperation(stored);
+  } catch {
+    return pendingResult(operationId, payload);
+  }
   const counts = await getSyncCounts(account.scope);
   if (processed.kind === 'succeeded' && counts.pending === 0 && counts.conflicts === 0 && counts.failed === 0) {
     await setLastSyncedAt(account.scope, Date.now());

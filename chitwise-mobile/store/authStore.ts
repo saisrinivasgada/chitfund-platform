@@ -275,12 +275,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         : a
     );
     await saveAccounts(updated);
-    set((s) => ({
-      accounts: updated,
-      user: s.user && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId
-        ? { ...s.user, token, refreshToken: refreshToken ?? s.user.refreshToken }
-        : s.user,
-    }));
+    set((s) => {
+      const isCurrentUser = !!s.user
+        && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId;
+      const nextUser = isCurrentUser
+        ? { ...s.user!, token, refreshToken: refreshToken ?? s.user!.refreshToken }
+        : s.user;
+      // Keep USER_KEY in sync so loadFromStorage on next open restores a fresh token.
+      if (isCurrentUser) SecureStore.setItemAsync(USER_KEY, JSON.stringify(nextUser));
+      return { accounts: updated, user: nextUser };
+    });
   },
 
   updateCachedInfo: async (accountId: string, info: AccountCachedInfo) => {
@@ -294,12 +298,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   loadFromStorage: async () => {
     try {
-      const [raw, accounts] = await Promise.all([
+      const [raw, accounts, token] = await Promise.all([
         SecureStore.getItemAsync(USER_KEY),
         loadAccounts(),
+        SecureStore.getItemAsync(TOKEN_KEY),
       ]);
       if (raw) {
-        const user = JSON.parse(raw) as AuthUser;
+        let user = JSON.parse(raw) as AuthUser;
+        // Backfill tenantId from JWT for sessions stored before the JWT-decode fix.
+        if (!user.tenantId && token) {
+          try {
+            const part = token.split('.')[1];
+            if (part) {
+              const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((part.length + 3) % 4 || 4);
+              const claims = JSON.parse(atob(padded));
+              if (typeof claims.tenantId === 'string') user = { ...user, tenantId: claims.tenantId };
+            }
+          } catch {}
+        }
         set({ user, accounts, isLoading: false });
       } else {
         set({ accounts, isLoading: false });

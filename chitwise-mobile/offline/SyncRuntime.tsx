@@ -24,7 +24,11 @@ export function SyncRuntime() {
         message: error instanceof Error ? error.message : 'Offline storage is unavailable',
       });
     });
-  }, [scope, user?.authSource, isRestoring]);
+
+    // Sync immediately on every login / account switch so pending offline payments
+    // upload without requiring a manual tap.
+    synchronizeAccount(scope, queryClient).catch(() => {});
+  }, [scope, user?.authSource, isRestoring, queryClient]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {

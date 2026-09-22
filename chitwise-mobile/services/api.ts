@@ -250,7 +250,21 @@ export const hubSendGroupMessage = async (id: string, content: string, clientMes
 export const hubCreateGroup = async (body: { name: string; description?: string; memberIds: string[] }) =>
   unwrapObj(await hubApi.post('/hub/chat/groups', body));
 
+function decodeJwtClaims(token: string): Record<string, any> | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((part.length + 3) % 4 || 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 function parseAuthResponse(auth: any): LoginResponse {
+  // UserResponse on the server has no tenantId field — extract it from the JWT claims instead.
+  const tenantId: string | undefined = auth.user?.tenantId
+    ?? decodeJwtClaims(auth.accessToken ?? '')?.tenantId;
   return {
     token: auth.accessToken,
     refreshToken: auth.refreshToken,
@@ -259,7 +273,7 @@ function parseAuthResponse(auth: any): LoginResponse {
     fullName: auth.user.fullName,
     role: auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
-    tenantId: auth.user.tenantId,
+    tenantId,
   };
 }
 
