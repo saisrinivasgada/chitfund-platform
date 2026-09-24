@@ -21,8 +21,8 @@ export interface QueuedOperation<TPayload = unknown> {
   accountScope: string;
   tenantId: string;
   actorId: string;
-  action: 'RECORD_PAYMENT';
-  entityType: 'PAYMENT';
+  action: 'RECORD_PAYMENT' | 'MARK_PICKUP' | 'PARTIAL_COLLECT';
+  entityType: 'PAYMENT' | 'CASH_REQUEST';
   entityId?: string | null;
   payload: TPayload;
   payloadHash: string;

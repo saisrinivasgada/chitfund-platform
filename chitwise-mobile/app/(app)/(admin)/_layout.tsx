@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
+import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -26,6 +27,8 @@ export default function AdminLayout() {
   const { activityBadge, setActivityBadge, activityLastSeenAt, loadActivityLastSeen,
     planExpiredVisible, hidePlanExpired, setIsExpired } = useUIStore();
   const router = useRouter();
+
+  useAdminStartupPrefetch();
 
   useEffect(() => {
     loadActivityLastSeen();

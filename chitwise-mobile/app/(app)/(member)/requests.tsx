@@ -215,7 +215,7 @@ export default function MemberRequestsScreen() {
         }
         renderItem={({ item: r }) => {
           const canEdit = r.status === 'PENDING' || r.status === 'ASSIGNED';
-          const needsApproval = r.status === 'PARTIALLY_COLLECTED';
+          const needsApproval = r.status === 'PARTIALLY_COLLECTED' || r.status === 'PICKED_UP';
           return (
             <Card style={{ marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -235,11 +235,19 @@ export default function MemberRequestsScreen() {
               {needsApproval && (
                 <View style={{ marginTop: 8, backgroundColor: '#FFF7ED', borderRadius: 12, padding: 14, borderWidth: 1.5, borderColor: '#F97316' }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: '#C2410C', marginBottom: 4 }}>Action Required</Text>
-                  <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
-                    Staff collected{r.collectedAmount ? ` ₹${Number(r.collectedAmount).toLocaleString('en-IN')}` : ' a partial amount'} of your requested ₹{Number(r.requestedAmount).toLocaleString('en-IN')}.
-                  </Text>
+                  {r.status === 'PICKED_UP' ? (
+                    <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
+                      Staff collected ₹{Number(r.requestedAmount).toLocaleString('en-IN')} from you. Please confirm this collection.
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
+                      Staff collected{r.collectedAmount ? ` ₹${Number(r.collectedAmount).toLocaleString('en-IN')}` : ' a partial amount'} of your requested ₹{Number(r.requestedAmount).toLocaleString('en-IN')}.
+                    </Text>
+                  )}
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
-                    Approve to accept this amount, or reject and request a new pickup.
+                    {r.status === 'PICKED_UP'
+                      ? 'Confirm to let admin proceed, or reject if the amount is wrong.'
+                      : 'Approve to accept this amount, or reject and request a new pickup.'}
                   </Text>
                   {rejectTarget === r.id ? (
                     <>

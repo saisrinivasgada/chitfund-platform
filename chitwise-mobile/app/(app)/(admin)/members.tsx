@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
@@ -24,7 +25,7 @@ import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
 
 // Per-chit balance badge shown on the enrolled chit card
-function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: string }) {
+function ChitBalanceBadge({ memberId, chitId, onCollect }: { memberId: string; chitId: string; onCollect?: () => void }) {
   const { data: balance, isLoading } = useQuery({
     queryKey: ['m-chit-balance', memberId, chitId],
     queryFn: () => getMemberBalance(memberId, chitId),
@@ -32,13 +33,15 @@ function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: stri
   });
   if (isLoading) return <Text style={{ fontSize: 11, color: C.gray400 }}>…</Text>;
   const outstanding = Number(balance?.totalOutstanding ?? 0);
-  if (outstanding > 0) {
-    return <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>;
-  }
-  if (balance !== undefined) {
-    return <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Clear ✓</Text>;
-  }
-  return null;
+  const label = outstanding > 0
+    ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>
+    : balance !== undefined
+      ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Clear ✓</Text>
+      : null;
+  if (!label) return null;
+  return onCollect
+    ? <Pressable onPress={onCollect} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>{label}</Pressable>
+    : label;
 }
 
 // Sub-component for per-card balance (calls its own query so hooks are valid)
@@ -177,7 +180,7 @@ export default function AdminMembersScreen() {
     ? (deletedMembers as any[]).length
     : (membersInfinite?.pages[0]?.totalElements ?? 0);
 
-  const createMutation = useMutation({
+  const createMutation = useOnlineMutation({
     mutationFn: () => createMember({
       fullName: cFullName, phone: cPhone, phoneCountryCode: cPhoneCountryCode,
       email: cEmail.trim(),
@@ -201,7 +204,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const changeReferralMutation = useMutation({
+  const changeReferralMutation = useOnlineMutation({
     mutationFn: () => updateMember(selected?.id, {
       fullName: selected?.fullName,
       phone: selected?.phone,
@@ -216,7 +219,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const statusMutation = useMutation({
+  const statusMutation = useOnlineMutation({
     mutationFn: ({ id, status, reason }: any) => patchMemberStatus(id, status, reason),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
@@ -230,7 +233,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useOnlineMutation({
     mutationFn: (id: string) => softDeleteMember(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
@@ -240,7 +243,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete member'),
   });
 
-  const createLoginMutation = useMutation({
+  const createLoginMutation = useOnlineMutation({
     mutationFn: () => requestMemberAppAccess(selected!.id),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ['members'] });
@@ -251,7 +254,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to send Chitfund Request'),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useOnlineMutation({
     mutationFn: async () => {
       const data = await updateMember(selected!.id, {
         fullName: eName || null,
@@ -290,24 +293,44 @@ export default function AdminMembersScreen() {
       idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: (data: any) => {
+      // Capture before state is cleared
+      const memberId = selected?.id;
+      const chitId = data?.chitId ?? collectChitId;
       setCollectIdempotencyKey(Crypto.randomUUID());
       setShowCollect(false);
       setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setCollectReference(''); setUseCredits(false);
-      qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
-      qc.invalidateQueries({ queryKey: ['m-member-balance', selected?.id] });
-      qc.invalidateQueries({ queryKey: ['m-member-credit', selected?.id] });
+
+      if (data?.offlineQueued) {
+        // Server doesn't have this payment yet — reduce the displayed balance
+        // immediately so the member card reflects it without waiting for sync.
+        const paid = Number(data.totalAmount ?? 0);
+        qc.setQueryData(['m-member-balance-card', memberId], (old: any) =>
+          typeof old === 'number' ? old - paid : old,
+        );
+        qc.setQueryData(['m-member-balance', memberId], (old: any) =>
+          typeof old === 'number' ? old - paid : old,
+        );
+        qc.setQueryData(['m-chit-balance', memberId, chitId], (old: any) => {
+          if (!old || typeof old !== 'object') return old;
+          return { ...old, totalOutstanding: Math.max(0, Number(old.totalOutstanding ?? 0) - paid) };
+        });
+      } else {
+        qc.invalidateQueries({ queryKey: ['m-member-balance-card', memberId] });
+        qc.invalidateQueries({ queryKey: ['m-member-balance', memberId] });
+        qc.invalidateQueries({ queryKey: ['m-member-credit', memberId] });
+      }
       toast.saved(useCredits ? 'Credits applied — outstanding settled' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const reminderMutation = useMutation({
+  const reminderMutation = useOnlineMutation({
     mutationFn: () => sendPaymentReminder(selected!.userId ?? selected!.linkedUserId),
     onSuccess: () => toast.noted('Payment reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send reminder'),
   });
 
-  const whatsappMutation = useMutation({
+  const whatsappMutation = useOnlineMutation({
     mutationFn: () => {
       const totalOutstanding = Number((memberBalance as any)?.totalBalance ?? 0);
       return sendWhatsAppReminder({
@@ -361,13 +384,13 @@ export default function AdminMembersScreen() {
   });
   const memberReminders: any[] = (memberRemindersPage as any)?.content ?? [];
 
-  const cancelReminderMutation = useMutation({
+  const cancelReminderMutation = useOnlineMutation({
     mutationFn: (reminderId: string) => removeReminder(reminderId),
     onSuccess: () => { refetchReminders(); toast.noted('Reminder cancelled'); },
     onError: () => Alert.alert('Error', 'Failed to cancel reminder'),
   });
 
-  const createReminderMutation = useMutation({
+  const createReminderMutation = useOnlineMutation({
     mutationFn: () => sendReminder({
       memberProfileId: selected!.id,
       chits: [],
@@ -423,7 +446,7 @@ export default function AdminMembersScreen() {
     qc.invalidateQueries({ queryKey: ['m-chitfund-requests', selected?.id] });
     qc.invalidateQueries({ queryKey: ['members'] });
   };
-  const resendChitfundMutation = useMutation({
+  const resendChitfundMutation = useOnlineMutation({
     mutationFn: () => resendChitfundRequest(latestChitfundRequest.id),
     onSuccess: (data: any) => { refreshChitfundRequest(); showChitfundRequestLink(data, 'Chitfund Request resent'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not resend request'),
@@ -443,17 +466,17 @@ export default function AdminMembersScreen() {
       { text: 'Copy Link', onPress: () => { Clipboard.setString(url); toast.noted('One-time link copied'); } },
     ]);
   }
-  const revokeChitfundMutation = useMutation({
+  const revokeChitfundMutation = useOnlineMutation({
     mutationFn: () => revokeChitfundRequest(latestChitfundRequest.id),
     onSuccess: () => { refreshChitfundRequest(); toast.cancelled('Chitfund Request revoked'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not revoke request'),
   });
-  const confirmChitfundMutation = useMutation({
+  const confirmChitfundMutation = useOnlineMutation({
     mutationFn: () => confirmChitfundRequest(latestChitfundRequest.id),
     onSuccess: () => { refreshChitfundRequest(); toast.saved('Member app access activated'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not activate app access'),
   });
-  const accountAccessTicketMutation = useMutation({
+  const accountAccessTicketMutation = useOnlineMutation({
     mutationFn: () => createSupportTicket({
       type: 'ACCOUNT',
       accountCaseSubtype: 'APP_ACCESS_FAILURE',
@@ -486,7 +509,7 @@ export default function AdminMembersScreen() {
   // Promised-payment-date editor: which record is open, and its draft value.
   const [promiseRecordId, setPromiseRecordId] = useState<string | null>(null);
   const [promiseDate, setPromiseDate] = useState('');
-  const promiseMut = useMutation({
+  const promiseMut = useOnlineMutation({
     mutationFn: ({ recordId, date }: { recordId: string; date: string }) =>
       setPromisedPaymentDate(recordId, date),
     onSuccess: () => {
@@ -917,24 +940,30 @@ export default function AdminMembersScreen() {
                         </Text>
                       ) : (
                         displayChits.map((c: any) => (
-                          <TouchableOpacity key={c.id} activeOpacity={0.75}
-                            onPress={() => {
-                              setShowDetail(false);
-                              setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
-                            }}>
-                            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
+                          <View key={c.id} style={{ marginBottom: 8 }}>
+                            <Card style={{ borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <View style={{ flex: 1 }}>
+                                {/* Left: tap navigates to the chit detail */}
+                                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.75}
+                                  onPress={() => {
+                                    setShowDetail(false);
+                                    setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
+                                  }}>
                                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
                                   {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
-                                </View>
+                                </TouchableOpacity>
+                                {/* Right: status badge + tappable balance badge (no nesting issue) */}
                                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
                                   <Badge status={c.status} />
-                                  <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
+                                  <ChitBalanceBadge
+                                    memberId={selected.id}
+                                    chitId={c.id}
+                                    onCollect={c.status === 'ACTIVE' ? () => { setCollectChitId(c.id); setShowCollect(true); } : undefined}
+                                  />
                                 </View>
                               </View>
                             </Card>
-                          </TouchableOpacity>
+                          </View>
                         ))
                       )}
                     </>
@@ -1490,12 +1519,15 @@ export default function AdminMembersScreen() {
             )}
           </ScrollView>
         </SafeAreaView>
-      </Modal>
 
-      {/* ── Collect Payment Modal ─────────────────────────────────────────────── */}
-      <Modal visible={showCollect} animationType="slide" transparent onRequestClose={() => setShowCollect(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+        {/* ── Collect Payment Sheet — nested inside member detail so it stacks on iOS ── */}
+        <Modal visible={showCollect} animationType="slide" transparent onRequestClose={() => setShowCollect(false)}>
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+              contentContainerStyle={{ padding: 24 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Collect Payment</Text>
@@ -1584,8 +1616,10 @@ export default function AdminMembersScreen() {
               disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(collectMode) && !collectReference.trim())))}
               loading={collectMutation.isPending}
               onPress={() => collectMutation.mutate()} />
+            </ScrollView>
+            </KeyboardAvoidingView>
           </View>
-        </View>
+        </Modal>
       </Modal>
 
       {/* ── Create Member Modal ────────────────────────────────────────────────── */}

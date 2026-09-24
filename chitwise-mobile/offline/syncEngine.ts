@@ -11,6 +11,7 @@ import {
   setLastSyncedAt,
 } from './database';
 import { processPaymentOperation } from './paymentQueue';
+import { processStaffOperation } from './staffQueue';
 import { useAuthStore } from '../store/authStore';
 import { useSyncStore } from '../store/syncStore';
 
@@ -29,7 +30,7 @@ export async function refreshSyncState(accountScope: string, online?: boolean): 
     getLastSyncedAt(accountScope),
     online == null ? NetInfo.fetch() : Promise.resolve(null),
   ]);
-  const isOnline = online ?? (network?.isConnected === true && network?.isInternetReachable !== false);
+  const isOnline = online ?? (network?.isConnected === true);
   useSyncStore.getState().setStateForScope(accountScope, {
     isOnline,
     pendingCount: counts.pending,
@@ -43,7 +44,7 @@ export async function refreshSyncState(accountScope: string, online?: boolean): 
 
 async function doSynchronize(accountScope: string, queryClient: QueryClient): Promise<void> {
   const network = await NetInfo.fetch();
-  const isOnline = network.isConnected === true && network.isInternetReachable !== false;
+  const isOnline = network.isConnected === true;
   if (!isOnline) {
     await refreshSyncState(accountScope, false);
     return;
@@ -54,7 +55,9 @@ async function doSynchronize(accountScope: string, queryClient: QueryClient): Pr
   const operations = await getReadyOperations(accountScope);
   let authRequired = false;
   for (const operation of operations) {
-    const result = await processPaymentOperation(operation);
+    const result = operation.action === 'RECORD_PAYMENT'
+      ? await processPaymentOperation(operation)
+      : await processStaffOperation(operation);
     if (result.kind === 'auth-required') {
       authRequired = true;
       break;

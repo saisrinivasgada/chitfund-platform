@@ -83,7 +83,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
     queryFn: getActiveCashRequests,
     refetchInterval: 30_000,
   });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: allChits = [] } = useQuery({ queryKey: ['a-chits'], queryFn: getChits });
   const { data: auditLog = [], isLoading: auditLoading } = useQuery({
@@ -99,7 +99,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
     }),
   ]);
-  const workers = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
+  const workers = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER', 'AGENT'].includes(s.role));
   const workerMap = Object.fromEntries((staff as any[]).map((w: any) => [w.id, w.fullName ?? w.username ?? '—']));
 
   // Chits for the selected setup member
@@ -488,7 +488,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Staff</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Optional — leave empty to assign later</Text>
-              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+              <View style={{ maxHeight: 180 }}>
                 {/* None option */}
                 <TouchableOpacity onPress={() => setSetupWorkerId('')}
                   style={{ padding: 10, borderRadius: 10, marginBottom: 6, borderWidth: 2,
@@ -509,7 +509,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                     {w.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{w.phone}</Text>}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             </View>
 
             {/* Step 5 — Notes */}
@@ -775,7 +775,7 @@ function RecordPaymentTab() {
   const [idempotencyKey, setIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: memberChits = [] } = useQuery({
     queryKey: ['m-member-chits-pay', memberId],
     queryFn: () => getChitsForMember(memberId),
@@ -2223,7 +2223,7 @@ function TreasuryTab() {
   const { data: txns = [], isLoading: txLoading, refetch: refetchTxns } = useQuery({ queryKey: ['m-wallet-txns'], queryFn: getWalletTransactions, staleTime: 0 });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 120_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 120_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 120_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff, staleTime: 120_000 });
 
   const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id.toLowerCase(), m.fullName ?? '—']));
   const chitMap   = Object.fromEntries((allChits as any[]).map((c: any) => [c.id.toLowerCase(), c.name ?? '—']));
@@ -3302,7 +3302,7 @@ function RemittanceTab() {
   const [voidReason, setVoidReason] = useState('');
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 60_000 });
   const { data: pendingItems = [], isLoading, refetch } = useQuery({
     queryKey: ['m-pending-remittance'],
@@ -3535,7 +3535,7 @@ function HistoryTab() {
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits-hist'], queryFn: getChits, staleTime: 60_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff, staleTime: 60_000 });
 
   const payableChitsForMember = memberId
     ? (allChits as any[]).filter((c: any) => c.status !== 'DRAFT')

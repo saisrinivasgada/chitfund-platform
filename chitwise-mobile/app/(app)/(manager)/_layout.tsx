@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Text, Platform, Modal, Pressable, TouchableOpacity, View } from 'react-native';
 import { C } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
+import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', reports: '≡' };
@@ -14,6 +15,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
 export default function ManagerLayout() {
   const { planExpiredVisible, hidePlanExpired } = useUIStore();
+  useManagerStartupPrefetch();
 
   return (
     <>

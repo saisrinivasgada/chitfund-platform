@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { Text, Platform, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
+import { useStaffStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { index: '◈', history: '≡' };
@@ -13,6 +14,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 }
 
 export default function StaffLayout() {
+  useStaffStartupPrefetch();
   return (
     <Tabs
       screenOptions={({ route }) => ({

@@ -98,7 +98,7 @@ export default function ManagerPaymentsScreen() {
   });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: chits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff });
 
   const memberMap: Record<string, string> = {};
   (members as any[]).forEach((m: any) => { memberMap[m.id] = m.fullName ?? m.name ?? '—'; });

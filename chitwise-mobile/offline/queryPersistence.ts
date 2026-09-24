@@ -8,6 +8,7 @@ export const OFFLINE_CACHE_BUSTER = 'chitwise-mobile-cache-v1';
 // OTP, identity cases, employee management and other sensitive Hub data are
 // intentionally excluded even though the database is encrypted.
 const PERSISTED_QUERY_PREFIXES = new Set([
+  // Dashboard / shared
   'm-cash-requests',
   'm-chits',
   'm-members',
@@ -28,6 +29,7 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   'm-pay-batches',
   'm-member-chits-pay',
   'm-member-credit-pay',
+  // Admin — chits / draws
   'a-chits',
   'a-members',
   'a-draws',
@@ -38,7 +40,23 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   'a-chit-batches',
   'a-staff',
   'a-org-reservations',
+  'a-payment-history',
+  'a-chit-audit',
   'draw-payments',
+  // Admin — member detail screens
+  'm-member-balance-card',   // total-balance badge in member list
+  'm-member-credit-card',    // credit badge in member list
+  'm-member-balance',        // total-balance in member detail panel
+  'm-member-credit',         // credit balance in member detail panel
+  'm-member-chits',          // enrolled chits in member detail
+  'm-member-settlements',    // settlements in member detail
+  'm-member-reminders',      // scheduled reminders in member detail
+  'm-collect-chit-balance',  // balance shown when opening collect modal
+  'm-chit-balance',          // per-chit outstanding badge
+  'm-members-page',          // paginated member list
+  'm-user-status',           // linked-user status in member detail
+  'm-chitfund-requests',     // chitfund join requests per member
+  // Staff / manager / other roles
   'staff-tasks',
   'staff-history',
   'worker-pending-batches',

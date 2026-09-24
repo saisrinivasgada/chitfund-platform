@@ -1,242 +1,206 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import {
   View, Text, FlatList, RefreshControl, Alert, TextInput,
-  TouchableOpacity, Animated, Easing, Pressable, Modal, ScrollView,
-  ActivityIndicator, KeyboardAvoidingView, Platform, Linking,
+  TouchableOpacity, Modal, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../../store/authStore';
 import {
-  getMyAssignedRequests, markPickedUp, cancelByStaff,
-  getMembers, getChits, getMyPendingBatches, updateCashRequest, listStaff,
-  partiallyCollectCashRequest, getAdminSupportContact, rescheduleRequest,
+  getMyAssignedRequests, cancelByStaff,
+  getMembers, getChits, getMyPendingBatches, listStaff,
+  rescheduleRequest, getAdminSupportContact,
 } from '../../../services/api';
-import { C, T, Card, Badge, Button, Amount, fmtDateTime, fmtDate, EmptyState, LoadingScreen, Divider } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, fmtDate, fmtDateTime, EmptyState, LoadingScreen } from '../../../components/ui';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
-import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import RoleLogo from '../../../components/RoleLogo';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+import { markPickupOfflineCapable, partialCollectOfflineCapable } from '../../../offline/staffQueue';
 
-const PAGE_SIZE = 10;
+// ── Task Detail Modal ──────────────────────────────────────────────────────────
+function TaskModal({
+  task,
+  memberName,
+  chitName,
+  onClose,
+  onRefresh,
+}: {
+  task: any;
+  memberName: string;
+  chitName: string | null;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const qc = useQueryClient();
 
-// ── Hold-to-Pickup Button ──────────────────────────────────────────────────────
-function HoldPickupButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
-  const [phase, setPhase] = useState<'idle' | 'holding' | 'done'>('idle');
-  const progress = useRef(new Animated.Value(0)).current;
-  const animation = useRef<Animated.CompositeAnimation | null>(null);
-  const successScale = useRef(new Animated.Value(0)).current;
+  // 'idle' | 'partial-input' | 'reschedule' | 'done' | 'partial-done'
+  const [screen, setScreen] = useState<'idle' | 'partial-input' | 'reschedule' | 'done' | 'partial-done'>('idle');
+  const [partialAmount, setPartialAmount] = useState('');
+  const [doneAmount, setDoneAmount] = useState(0);
+  const [doneOffline, setDoneOffline] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [reschedDate, setReschedDate] = useState('');
 
-  useEffect(() => {
-    if (phase === 'done') {
-      Animated.spring(successScale, { toValue: 1, useNativeDriver: true, tension: 120, friction: 7 }).start();
+  async function handleFullCollect() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await markPickupOfflineCapable(task.id);
+      // Optimistic update — task moves to PICKED_UP in local cache
+      qc.setQueryData(['staff-tasks'], (old: any[]) =>
+        (old ?? []).map((t: any) =>
+          t.id === task.id ? { ...t, status: 'PICKED_UP', pickedUpAt: new Date().toISOString() } : t,
+        ),
+      );
+      setDoneAmount(Number(task.requestedAmount));
+      setDoneOffline(!!res?.offlineQueued);
+      setScreen('done');
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.message ?? e?.message ?? 'Could not record pickup');
+    } finally {
+      setLoading(false);
     }
-  }, [phase]);
-
-  function startHold() {
-    if (disabled || phase !== 'idle') return;
-    setPhase('holding');
-    animation.current = Animated.timing(progress, {
-      toValue: 1, duration: 2000, easing: Easing.linear, useNativeDriver: false,
-    });
-    animation.current.start(({ finished }) => {
-      if (finished) {
-        successScale.setValue(0);
-        setPhase('done');
-        onConfirm();
-      }
-    });
   }
 
-  function endHold() {
-    if (phase !== 'holding') return;
-    animation.current?.stop();
-    setPhase('idle');
-    Animated.timing(progress, { toValue: 0, duration: 250, useNativeDriver: false }).start();
+  async function handlePartialCollect() {
+    const amt = Number(partialAmount);
+    if (!amt || amt <= 0 || amt >= Number(task.requestedAmount)) return;
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await partialCollectOfflineCapable(task.id, amt);
+      qc.setQueryData(['staff-tasks'], (old: any[]) =>
+        (old ?? []).map((t: any) =>
+          t.id === task.id
+            ? { ...t, status: 'PARTIALLY_COLLECTED', collectedAmount: amt, pickedUpAt: new Date().toISOString() }
+            : t,
+        ),
+      );
+      setDoneAmount(amt);
+      setDoneOffline(!!res?.offlineQueued);
+      setScreen('partial-done');
+    } catch (e: any) {
+      Alert.alert('Error', e?.response?.data?.message ?? e?.message ?? 'Could not record partial collection');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  function reset() {
-    setPhase('idle');
-    progress.setValue(0);
-  }
-
-  if (phase === 'done') {
-    return (
-      <Animated.View style={{ alignItems: 'center', paddingVertical: 16, transform: [{ scale: successScale }] }}>
-        <View style={{
-          width: 72, height: 72, borderRadius: 36,
-          backgroundColor: '#DCFCE7', alignItems: 'center', justifyContent: 'center', marginBottom: 10,
-        }}>
-          <Text style={{ fontSize: 32 }}>✓</Text>
-        </View>
-        <Text style={{ fontSize: 17, fontWeight: '800', color: C.green }}>Picked Up!</Text>
-        <Text style={{ fontSize: 13, color: C.gray500, marginTop: 4 }}>Awaiting admin confirmation</Text>
-        <TouchableOpacity onPress={reset}
-          style={{ marginTop: 14, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: C.gray100, borderRadius: 10 }}>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Continue Working →</Text>
-        </TouchableOpacity>
-      </Animated.View>
+  function handleCancel() {
+    Alert.alert(
+      'Cancel Task',
+      'Are you sure you want to cancel this collection? Admin will be notified.',
+      [
+        { text: 'No, go back', style: 'cancel' },
+        {
+          text: 'Yes, cancel it',
+          style: 'destructive',
+          onPress: () => {
+            cancelByStaff(task.id)
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+                toast.cancelled('Task cancelled');
+                onClose();
+              })
+              .catch((e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Cancel failed'));
+          },
+        },
+      ],
     );
   }
 
-  const barWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-
-  return (
-    <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-      <Pressable
-        onPressIn={startHold}
-        onPressOut={endHold}
-        style={{
-          width: 100, height: 100, borderRadius: 50,
-          backgroundColor: phase === 'holding' ? C.green : C.navy,
-          alignItems: 'center', justifyContent: 'center',
-          shadowColor: phase === 'holding' ? C.green : C.navy,
-          shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14,
-        }}
-      >
-        <Text style={{ fontSize: 14, fontWeight: '900', color: C.white, letterSpacing: 1.5 }}>HOLD</Text>
-        <Text style={{ fontSize: 11, color: C.white + 'AA', marginTop: 2 }}>to pick up</Text>
-      </Pressable>
-
-      <View style={{ marginTop: 14, width: 140, height: 5, backgroundColor: '#E5E7EB', borderRadius: 3, overflow: 'hidden' }}>
-        <Animated.View style={{ height: '100%', width: barWidth, backgroundColor: C.green, borderRadius: 3 }} />
-      </View>
-      <Text style={{ fontSize: 12, color: C.gray400, marginTop: 7 }}>
-        {phase === 'holding' ? 'Keep holding…' : 'Hold 2 seconds to confirm'}
-      </Text>
-    </View>
-  );
-}
-
-// ── Hold-to-Cancel Button ──────────────────────────────────────────────────────
-function HoldCancelButton({ onConfirm, disabled }: { onConfirm: () => void; disabled?: boolean }) {
-  const [phase, setPhase] = useState<'idle' | 'holding' | 'done'>('idle');
-  const progress = useRef(new Animated.Value(0)).current;
-  const animation = useRef<Animated.CompositeAnimation | null>(null);
-
-  function startHold() {
-    if (disabled || phase !== 'idle') return;
-    setPhase('holding');
-    animation.current = Animated.timing(progress, {
-      toValue: 1, duration: 2000, easing: Easing.linear, useNativeDriver: false,
-    });
-    animation.current.start(({ finished }) => {
-      if (finished) { setPhase('done'); onConfirm(); }
-    });
+  function handleReschedule(iso: string) {
+    rescheduleRequest(task.id, iso)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ['staff-tasks'] });
+        toast.saved(`Visit rescheduled to ${iso}`);
+        onClose();
+      })
+      .catch((e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Reschedule failed'));
   }
 
-  function endHold() {
-    if (phase !== 'holding') return;
-    animation.current?.stop();
-    setPhase('idle');
-    Animated.timing(progress, { toValue: 0, duration: 250, useNativeDriver: false }).start();
+  // ── Success screen ────────────────────────────────────────────────────────────
+  if (screen === 'done' || screen === 'partial-done') {
+    const isPartial = screen === 'partial-done';
+    return (
+      <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+            <View style={{
+              width: 88, height: 88, borderRadius: 44,
+              backgroundColor: isPartial ? '#FFF7ED' : '#DCFCE7',
+              alignItems: 'center', justifyContent: 'center', marginBottom: 20,
+            }}>
+              <Text style={{ fontSize: 40 }}>{isPartial ? '🟡' : '✅'}</Text>
+            </View>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: C.gray900, marginBottom: 6 }}>
+              {isPartial ? 'Partial Collection Recorded' : 'Marked as Collected!'}
+            </Text>
+            <Text style={{ fontSize: 32, fontWeight: '900', color: isPartial ? C.amber : C.green, marginBottom: 4 }}>
+              ₹{doneAmount.toLocaleString('en-IN')}
+            </Text>
+            <Text style={{ fontSize: 14, color: C.gray500, textAlign: 'center', marginBottom: 8 }}>
+              {isPartial
+                ? `of ₹${Number(task.requestedAmount).toLocaleString('en-IN')} requested from ${memberName}`
+                : `collected from ${memberName}`}
+            </Text>
+            {doneOffline && (
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: '#FFF7ED', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
+                borderWidth: 1, borderColor: C.amber, marginBottom: 16,
+              }}>
+                <Text style={{ fontSize: 14 }}>⏱</Text>
+                <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>
+                  Saved offline — will sync when connected
+                </Text>
+              </View>
+            )}
+            {!doneOffline && (
+              <View style={{
+                flexDirection: 'row', alignItems: 'center', gap: 6,
+                backgroundColor: '#F0FDF4', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
+                borderWidth: 1, borderColor: C.green, marginBottom: 16,
+              }}>
+                <Text style={{ fontSize: 14 }}>☁️</Text>
+                <Text style={{ fontSize: 13, color: '#166534', fontWeight: '600' }}>
+                  Synced with server
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginBottom: 32 }}>
+              {isPartial
+                ? 'Admin will follow up on the remaining amount.'
+                : 'Hand the cash to your admin. Awaiting their confirmation.'}
+            </Text>
+            <TouchableOpacity
+              onPress={() => { onRefresh(); onClose(); }}
+              style={{
+                width: '100%', paddingVertical: 16, borderRadius: 14,
+                backgroundColor: C.navy, alignItems: 'center',
+              }}
+            >
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.white }}>Back to My Tasks</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+    );
   }
 
-  const barWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-
-  return (
-    <View style={{ alignItems: 'center', paddingVertical: 12 }}>
-      <Pressable
-        onPressIn={startHold}
-        onPressOut={endHold}
-        style={{
-          paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12,
-          backgroundColor: phase === 'holding' ? '#991B1B' : '#EF4444',
-          alignItems: 'center',
-          shadowColor: '#EF4444', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
-        }}
-      >
-        <Text style={{ fontSize: 14, fontWeight: '800', color: C.white, letterSpacing: 1 }}>
-          {phase === 'holding' ? 'KEEP HOLDING…' : 'HOLD TO CANCEL'}
-        </Text>
-      </Pressable>
-      <View style={{ marginTop: 10, width: 140, height: 4, backgroundColor: '#FEE2E2', borderRadius: 3, overflow: 'hidden' }}>
-        <Animated.View style={{ height: '100%', width: barWidth, backgroundColor: '#EF4444', borderRadius: 3 }} />
-      </View>
-      <Text style={{ fontSize: 11, color: C.gray400, marginTop: 5 }}>Hold 2 seconds to confirm cancellation</Text>
-    </View>
-  );
-}
-
-// ── Request Timeline ───────────────────────────────────────────────────────────
-function RequestTimeline({ task }: { task: any }) {
-  const steps = [
-    task.requestedAt  && { label: 'Request Created',      time: task.requestedAt,  color: C.navy,   note: `₹${Number(task.requestedAmount).toLocaleString('en-IN')}` },
-    task.assignedAt   && { label: 'Assigned to You',      time: task.assignedAt,   color: C.navy,   note: task.adminNotes ?? '' },
-    task.notes        && { label: 'Member Note',          time: null,              color: C.gray400, note: task.notes },
-    task.scheduledFor && { label: 'Scheduled For',        time: task.scheduledFor, color: C.navy,    note: '' },
-    task.pickedUpAt   && { label: 'You Marked Picked Up', time: task.pickedUpAt,   color: C.green,  note: '' },
-    task.collectedAt  && { label: 'Admin Confirmed',      time: task.collectedAt,  color: C.green,  note: '' },
-    task.cancelledAt  && { label: 'Cancelled',            time: task.cancelledAt,  color: C.red,    note: task.cancelReason ?? '' },
-  ].filter(Boolean) as { label: string; time: string | null; color: string; note: string }[];
-
-  return (
-    <View>
-      {steps.map((step, i) => (
-        <View key={i} style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-          <View style={{ alignItems: 'center' }}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: step.color, marginTop: 3 }} />
-            {i < steps.length - 1 && <View style={{ width: 2, flex: 1, backgroundColor: C.gray200, marginTop: 3 }} />}
-          </View>
-          <View style={{ flex: 1, paddingBottom: 4 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{step.label}</Text>
-            {!!step.note && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{step.note}</Text>}
-            {!!step.time && <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>{fmtDateTime(step.time)}</Text>}
-          </View>
-        </View>
-      ))}
-      {steps.length === 0 && (
-        <Text style={{ color: C.gray400, textAlign: 'center', padding: 12 }}>No timeline data</Text>
-      )}
-    </View>
-  );
-}
-
-// ── Task Detail Modal ──────────────────────────────────────────────────────────
-function TaskDetailModal({
-  task, memberMap, chitMap, onClose,
-  onPickup, pickupPending,
-  onCancel, cancelPending,
-  onPartialCollect, partialCollectPending,
-}: {
-  task: any; memberMap: Record<string, string>; chitMap: Record<string, string>; onClose: () => void;
-  onPickup: (id: string) => void; pickupPending: boolean;
-  onCancel: (id: string, reason?: string) => void; cancelPending: boolean;
-  onPartialCollect: (id: string, amount: number) => void; partialCollectPending: boolean;
-}) {
-  const qc = useQueryClient();
-  const [editAmount, setEditAmount] = useState(String(task.requestedAmount ?? ''));
-  const [editReason, setEditReason] = useState('');
-  const [editOpen, setEditOpen] = useState(false);
-  const [reschedDate, setReschedDate] = useState('');
-  const [reschedOpen, setReschedOpen] = useState(false);
-  const [partialOpen, setPartialOpen] = useState(false);
-  const [partialAmount, setPartialAmount] = useState('');
-  const [activeTab, setActiveTab] = useState<'detail' | 'timeline'>('detail');
-
-  const editMut = useMutation({
-    mutationFn: () => updateCashRequest(task.id, { requestedAmount: Number(editAmount), notes: editReason || undefined }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-      setEditOpen(false);
-      setEditReason('');
-      toast.saved('Amount updated');
-    },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Cannot edit this request'),
-  });
-
-  const memberName = memberMap[task.memberId] ?? `Member ${task.memberId?.slice(0, 8)}…`;
-  const chitName   = task.chitId ? chitMap[task.chitId] : null;
-
+  // ── Main modal ────────────────────────────────────────────────────────────────
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+          padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray100,
+        }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }} numberOfLines={1}>{memberName}</Text>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: C.navy }} numberOfLines={1}>{memberName}</Text>
             {chitName && <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>{chitName}</Text>}
           </View>
           <TouchableOpacity onPress={onClose} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8, marginLeft: 12 }}>
@@ -244,293 +208,231 @@ function TaskDetailModal({
           </TouchableOpacity>
         </View>
 
-        {/* Tabs */}
-        <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
-          {(['detail', 'timeline'] as const).map((tab) => (
-            <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
-              style={{
-                paddingHorizontal: 16, paddingVertical: 7, borderRadius: 10,
-                backgroundColor: activeTab === tab ? C.navy : C.gray100,
-              }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: activeTab === tab ? C.white : C.gray500 }}>
-                {tab === 'detail' ? 'Details' : 'Timeline'}
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48 }}>
+
+            {/* Amount hero */}
+            <View style={{
+              alignItems: 'center', paddingVertical: 28,
+              backgroundColor: C.navy50, borderRadius: 16, marginBottom: 20,
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy, letterSpacing: 0.5, marginBottom: 8 }}>
+                AMOUNT TO COLLECT
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-          {activeTab === 'detail' ? (
-            <>
-              {/* Amount + status */}
-              <Card style={{ marginBottom: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Amount value={task.requestedAmount} size="lg" />
-                  <Badge status={task.status} />
-                </View>
-                {task.notes && (
-                  <Text style={{ fontSize: 13, color: C.gray500, fontStyle: 'italic' }}>"{task.notes}"</Text>
-                )}
-                {task.adminNotes && (
-                  <View style={{ marginTop: 8, backgroundColor: C.navy50, borderRadius: 8, padding: 8 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 2 }}>ADMIN NOTE</Text>
-                    <Text style={{ fontSize: 13, color: C.navy }}>{task.adminNotes}</Text>
-                  </View>
-                )}
-              </Card>
-
-              {/* Edit amount */}
-              <TouchableOpacity
-                onPress={() => setEditOpen(v => !v)}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  backgroundColor: editOpen ? '#FFFBEB' : C.gray50,
-                  borderRadius: 12, borderBottomLeftRadius: editOpen ? 0 : 12, borderBottomRightRadius: editOpen ? 0 : 12,
-                  padding: 14, marginBottom: editOpen ? 0 : 10,
-                  borderWidth: 1.5, borderColor: editOpen ? C.amber : C.gray200,
-                }}
-              >
-                <View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: editOpen ? C.amber : C.gray900 }}>Edit Amount</Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Member changed mind? Update here</Text>
-                </View>
-                <Text style={{ fontSize: 13, color: editOpen ? C.amber : C.navy, fontWeight: '700' }}>
-                  {editOpen ? '▲ Close' : 'Edit →'}
+              <Text style={{ fontSize: 44, fontWeight: '900', color: C.navy }}>
+                ₹{Number(task.requestedAmount).toLocaleString('en-IN')}
+              </Text>
+              {task.scheduledFor && (
+                <Text style={{ fontSize: 13, color: C.navy, marginTop: 8, opacity: 0.7 }}>
+                  Scheduled: {fmtDate(task.scheduledFor)}
                 </Text>
-              </TouchableOpacity>
-
-              {editOpen && (
-                <View style={{
-                  backgroundColor: '#FFFBEB', padding: 14, marginBottom: 10,
-                  borderWidth: 1.5, borderTopWidth: 0, borderColor: C.amber,
-                  borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
-                }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.amber, marginBottom: 8 }}>NEW AMOUNT (₹)</Text>
-                  <TextInput
-                    value={editAmount}
-                    onChangeText={setEditAmount}
-                    keyboardType="numeric"
-                    placeholder="Enter amount"
-                    placeholderTextColor={C.gray400}
-                    style={{
-                      borderWidth: 1.5, borderColor: C.amber, borderRadius: 8,
-                      padding: 10, fontSize: 18, fontWeight: '700', color: C.gray900,
-                      backgroundColor: C.white, marginBottom: 8,
-                    }}
-                  />
-                  <TextInput
-                    value={editReason}
-                    onChangeText={setEditReason}
-                    placeholder="Reason for change (optional)"
-                    placeholderTextColor={C.gray400}
-                    style={{
-                      borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8,
-                      padding: 10, fontSize: 14, color: C.gray900,
-                      backgroundColor: C.white, marginBottom: 10,
-                    }}
-                  />
-                  <Button
-                    label={editMut.isPending ? 'Saving…' : 'Save New Amount'}
-                    variant="primary" fullWidth loading={editMut.isPending}
-                    disabled={!editAmount || Number(editAmount) <= 0 || Number(editAmount) === Number(task.requestedAmount)}
-                    onPress={() => editMut.mutate()}
-                  />
-                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
-                    Change is logged in audit trail visible to admin
+              )}
+              {task.notes && (
+                <View style={{ marginTop: 10, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.white, borderRadius: 8, maxWidth: '90%' }}>
+                  <Text style={{ fontSize: 13, color: C.gray600, fontStyle: 'italic', textAlign: 'center' }}>
+                    "{task.notes}"
                   </Text>
                 </View>
               )}
-
-              {/* Reschedule */}
-              <TouchableOpacity
-                onPress={() => setReschedOpen(v => !v)}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  backgroundColor: reschedOpen ? '#EEF2F8' : C.gray50,
-                  borderRadius: 12, borderBottomLeftRadius: reschedOpen ? 0 : 12, borderBottomRightRadius: reschedOpen ? 0 : 12,
-                  padding: 14, marginBottom: reschedOpen ? 0 : 10,
-                  borderWidth: 1.5, borderColor: reschedOpen ? C.navy : C.gray200,
-                }}
-              >
-                <View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Reschedule Visit</Text>
-                  {task.scheduledFor && (
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Currently: {fmtDate(task.scheduledFor)}</Text>
-                  )}
-                </View>
-                <Text style={{ fontSize: 13, color: C.navy, fontWeight: '700' }}>
-                  {reschedOpen ? '▲ Close' : 'Schedule →'}
-                </Text>
-              </TouchableOpacity>
-
-              {reschedOpen && (
-                <View style={{
-                  backgroundColor: '#EEF2F8', padding: 14, marginBottom: 10,
-                  borderWidth: 1.5, borderTopWidth: 0, borderColor: C.navy,
-                  borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
-                }}>
-                  {/* Quick presets — matches the web's one-tap defer options */}
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>QUICK RESCHEDULE</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
-                    {[
-                      { label: 'Tomorrow', days: 1 },
-                      { label: 'Next Week', days: 7 },
-                    ].map(({ label, days }) => (
-                      <TouchableOpacity
-                        key={label}
-                        onPress={() => {
-                          const d = new Date();
-                          d.setDate(d.getDate() + days);
-                          const iso = d.toISOString().slice(0, 10);
-                          Alert.alert('Reschedule', `Move this visit to ${label.toLowerCase()} (${iso})?`, [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Confirm',
-                              onPress: () => {
-                                rescheduleRequest(task.id, iso)
-                                  .then(() => {
-                                    qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-                                    setReschedOpen(false);
-                                    toast.saved(`Rescheduled to ${label.toLowerCase()} — admin notified`);
-                                  })
-                                  .catch((e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Reschedule failed'));
-                              },
-                            },
-                          ]);
-                        }}
-                        style={{
-                          flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center',
-                          backgroundColor: C.white, borderWidth: 1.5, borderColor: C.navy,
-                        }}
-                      >
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>{label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 8 }}>OR PICK A DATE (YYYY-MM-DD)</Text>
-                  <TextInput
-                    value={reschedDate}
-                    onChangeText={setReschedDate}
-                    placeholder="2026-07-15"
-                    placeholderTextColor={C.gray400}
-                    style={{
-                      borderWidth: 1.5, borderColor: C.navy, borderRadius: 8,
-                      padding: 10, fontSize: 16, color: C.gray900,
-                      backgroundColor: C.white, marginBottom: 10,
-                    }}
-                  />
-                  <Button
-                    label="Set Schedule"
-                    variant="primary" fullWidth
-                    disabled={!reschedDate || !/^\d{4}-\d{2}-\d{2}$/.test(reschedDate)}
-                    onPress={() => {
-                      Alert.alert('Reschedule', `Set visit for ${reschedDate}?`, [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Confirm',
-                          onPress: () => {
-                            rescheduleRequest(task.id, reschedDate)
-                              .then(() => {
-                                qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-                                setReschedOpen(false);
-                                toast.saved('Visit scheduled');
-                              })
-                              .catch((e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'));
-                          },
-                        },
-                      ]);
-                    }}
-                  />
+              {task.adminNotes && (
+                <View style={{ marginTop: 8, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#EFF6FF', borderRadius: 8, maxWidth: '90%' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.navy, marginBottom: 2 }}>ADMIN NOTE</Text>
+                  <Text style={{ fontSize: 13, color: C.navy, textAlign: 'center' }}>{task.adminNotes}</Text>
                 </View>
               )}
+            </View>
 
-              {/* Partial Collection */}
-              <TouchableOpacity
-                onPress={() => setPartialOpen(v => !v)}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  backgroundColor: partialOpen ? '#F0FDFA' : C.gray50,
-                  borderRadius: 12, borderBottomLeftRadius: partialOpen ? 0 : 12, borderBottomRightRadius: partialOpen ? 0 : 12,
-                  padding: 14, marginBottom: partialOpen ? 0 : 10,
-                  borderWidth: 1.5, borderColor: partialOpen ? '#0D9488' : C.gray200,
-                }}
-              >
-                <View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: partialOpen ? '#0D9488' : C.gray900 }}>Partial Collection</Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>Collected less than the full amount?</Text>
-                </View>
-                <Text style={{ fontSize: 13, color: partialOpen ? '#0D9488' : C.navy, fontWeight: '700' }}>
-                  {partialOpen ? '▲ Close' : 'Partial →'}
-                </Text>
-              </TouchableOpacity>
-
-              {partialOpen && (
-                <View style={{
-                  backgroundColor: '#F0FDFA', padding: 14, marginBottom: 10,
-                  borderWidth: 1.5, borderTopWidth: 0, borderColor: '#0D9488',
-                  borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
-                }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#0D9488', marginBottom: 4 }}>AMOUNT COLLECTED (₹)</Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 8 }}>
-                    Member will be asked to approve or reject this partial amount.
+            {/* PRIMARY ACTION */}
+            {screen === 'idle' && (
+              <>
+                <TouchableOpacity
+                  onPress={handleFullCollect}
+                  disabled={loading}
+                  style={{
+                    paddingVertical: 18, borderRadius: 14, alignItems: 'center',
+                    backgroundColor: loading ? C.gray300 : C.green,
+                    marginBottom: 12,
+                    shadowColor: C.green, shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.3, shadowRadius: 10,
+                  }}
+                >
+                  <Text style={{ fontSize: 17, fontWeight: '900', color: C.white }}>
+                    {loading ? 'Recording…' : `✓  I Collected ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
                   </Text>
+                  <Text style={{ fontSize: 12, color: C.white + 'CC', marginTop: 3 }}>
+                    Full amount — tap to confirm
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Partial collection */}
+                <TouchableOpacity
+                  onPress={() => setScreen('partial-input')}
+                  style={{
+                    paddingVertical: 14, borderRadius: 14, alignItems: 'center',
+                    borderWidth: 1.5, borderColor: '#0D9488', marginBottom: 24,
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: '#0D9488' }}>
+                    Collected a different amount?
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>Tap to enter partial amount</Text>
+                </TouchableOpacity>
+
+                {/* Divider */}
+                <View style={{ height: 1, backgroundColor: C.gray100, marginBottom: 20 }} />
+
+                {/* Reschedule */}
+                <TouchableOpacity
+                  onPress={() => setScreen('reschedule')}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    paddingVertical: 14, paddingHorizontal: 16,
+                    backgroundColor: C.gray50, borderRadius: 12, marginBottom: 10,
+                    borderWidth: 1, borderColor: C.gray200,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ fontSize: 18 }}>📅</Text>
+                    <View>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>Reschedule Visit</Text>
+                      <Text style={{ fontSize: 12, color: C.gray400 }}>Member not home? Come back later</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 13, color: C.navy }}>→</Text>
+                </TouchableOpacity>
+
+                {/* Cancel */}
+                <TouchableOpacity
+                  onPress={handleCancel}
+                  style={{ paddingVertical: 14, alignItems: 'center' }}
+                >
+                  <Text style={{ fontSize: 14, color: C.red, fontWeight: '600' }}>Cancel This Task</Text>
+                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>Admin will be notified</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* PARTIAL INPUT SCREEN */}
+            {screen === 'partial-input' && (
+              <>
+                <TouchableOpacity
+                  onPress={() => { setScreen('idle'); setPartialAmount(''); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 }}
+                >
+                  <Text style={{ fontSize: 14, color: C.navy }}>← Back</Text>
+                </TouchableOpacity>
+
+                <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, marginBottom: 6 }}>
+                  How much did you collect?
+                </Text>
+                <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
+                  Must be less than ₹{Number(task.requestedAmount).toLocaleString('en-IN')}. Member will approve or reject this amount.
+                </Text>
+
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  borderWidth: 2, borderColor: '#0D9488', borderRadius: 12,
+                  paddingHorizontal: 16, paddingVertical: 4, marginBottom: 20,
+                  backgroundColor: '#F0FDFA',
+                }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: '#0D9488', marginRight: 8 }}>₹</Text>
                   <TextInput
                     value={partialAmount}
                     onChangeText={setPartialAmount}
-                    keyboardType="numeric"
-                    placeholder={`Less than ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
-                    placeholderTextColor={C.gray400}
-                    style={{
-                      borderWidth: 1.5, borderColor: '#0D9488', borderRadius: 8,
-                      padding: 10, fontSize: 18, fontWeight: '700', color: C.gray900,
-                      backgroundColor: C.white, marginBottom: 10,
-                    }}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor={C.gray300}
+                    style={{ flex: 1, fontSize: 32, fontWeight: '900', color: C.gray900, paddingVertical: 12 }}
+                    autoFocus
                   />
-                  <Button
-                    label={partialCollectPending ? 'Submitting…' : 'Submit Partial Collection'}
-                    variant="primary" fullWidth loading={partialCollectPending}
-                    disabled={
-                      !partialAmount ||
-                      Number(partialAmount) <= 0 ||
-                      Number(partialAmount) >= Number(task.requestedAmount)
-                    }
-                    onPress={() => {
-                      onPartialCollect(task.id, Number(partialAmount));
-                      setPartialOpen(false);
-                      setPartialAmount('');
-                      onClose();
-                    }}
-                  />
-                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 6, textAlign: 'center' }}>
-                    Must be less than the requested ₹{Number(task.requestedAmount).toLocaleString('en-IN')}
+                </View>
+
+                <TouchableOpacity
+                  onPress={handlePartialCollect}
+                  disabled={loading || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)}
+                  style={{
+                    paddingVertical: 18, borderRadius: 14, alignItems: 'center',
+                    backgroundColor:
+                      loading || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)
+                        ? C.gray200
+                        : '#0D9488',
+                  }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.white }}>
+                    {loading ? 'Recording…' : `Record ₹${Number(partialAmount || 0).toLocaleString('en-IN')} Collected`}
                   </Text>
-                </View>
-              )}
+                </TouchableOpacity>
+              </>
+            )}
 
-              {/* Hold to Pick Up — the big button */}
-              <View style={{ borderWidth: 1.5, borderColor: C.gray200, borderRadius: 16, marginBottom: 10, overflow: 'hidden' }}>
-                <View style={{ backgroundColor: C.navy, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.white + 'CC', letterSpacing: 1 }}>CONFIRM CASH PICKUP</Text>
-                </View>
-                <HoldPickupButton onConfirm={() => onPickup(task.id)} disabled={pickupPending} />
-              </View>
+            {/* RESCHEDULE SCREEN */}
+            {screen === 'reschedule' && (
+              <>
+                <TouchableOpacity
+                  onPress={() => { setScreen('idle'); setReschedDate(''); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 }}
+                >
+                  <Text style={{ fontSize: 14, color: C.navy }}>← Back</Text>
+                </TouchableOpacity>
 
-              {/* Cancel — hold to confirm */}
-              <View style={{ borderWidth: 1.5, borderColor: '#FEE2E2', borderRadius: 16, overflow: 'hidden' }}>
-                <View style={{ backgroundColor: '#FEF2F2', padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' + 'CC', letterSpacing: 1 }}>CANCEL THIS TASK</Text>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: C.gray900, marginBottom: 16 }}>
+                  When should we revisit?
+                </Text>
+
+                {/* Quick options */}
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+                  {[
+                    { label: 'Tomorrow', days: 1 },
+                    { label: 'In 3 days', days: 3 },
+                    { label: 'Next week', days: 7 },
+                  ].map(({ label, days }) => (
+                    <TouchableOpacity
+                      key={label}
+                      onPress={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + days);
+                        handleReschedule(d.toISOString().slice(0, 10));
+                      }}
+                      style={{
+                        flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center',
+                        backgroundColor: C.navy50, borderWidth: 1.5, borderColor: C.navy,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: C.navy }}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-                <HoldCancelButton
-                  onConfirm={() => { onCancel(task.id); onClose(); }}
-                  disabled={cancelPending}
-                />
-              </View>
-            </>
-          ) : (
-            <RequestTimeline task={task} />
-          )}
-        </ScrollView>
+
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray500, marginBottom: 8 }}>
+                  OR PICK A DATE
+                </Text>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12,
+                  paddingHorizontal: 14, paddingVertical: 4, marginBottom: 16,
+                }}>
+                  <TextInput
+                    value={reschedDate}
+                    onChangeText={setReschedDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={C.gray300}
+                    style={{ flex: 1, fontSize: 16, color: C.gray900, paddingVertical: 12 }}
+                  />
+                </View>
+                <TouchableOpacity
+                  disabled={!reschedDate || !/^\d{4}-\d{2}-\d{2}$/.test(reschedDate)}
+                  onPress={() => handleReschedule(reschedDate)}
+                  style={{
+                    paddingVertical: 16, borderRadius: 14, alignItems: 'center',
+                    backgroundColor: reschedDate && /^\d{4}-\d{2}-\d{2}$/.test(reschedDate) ? C.navy : C.gray200,
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: C.white }}>Set Date</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -542,22 +444,26 @@ export default function StaffTasksScreen() {
   const qc = useQueryClient();
 
   const [selectedTask, setSelectedTask] = useState<any>(null);
-  const [page, setPage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data: tasks = [], isLoading, refetch } = useQuery({
+  const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['staff-tasks'],
     queryFn: getMyAssignedRequests,
     refetchInterval: 30_000,
   });
 
   const { data: members = [] } = useQuery({ queryKey: ['members', 'all'], queryFn: getMembers });
-  const { data: chits = [] }   = useQuery({ queryKey: ['chits'],   queryFn: getChits });
-  const { data: staff = [] }   = useQuery({ queryKey: ['staff'],   queryFn: listStaff, staleTime: 5 * 60_000 });
+  const { data: chits = [] }   = useQuery({ queryKey: ['chits'], queryFn: getChits });
+  const { data: staff = [] }   = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 5 * 60_000 });
   const { data: pendingBatches = [] } = useQuery({
     queryKey: ['worker-pending-batches'],
     queryFn: getMyPendingBatches,
     refetchInterval: 60_000,
+  });
+  const { data: adminContact } = useQuery({
+    queryKey: ['admin-support-contact'],
+    queryFn: getAdminSupportContact,
+    staleTime: 10 * 60_000,
   });
 
   const memberMap: Record<string, string> = {};
@@ -570,79 +476,35 @@ export default function StaffTasksScreen() {
   const chitMap: Record<string, string> = {};
   (chits as any[]).forEach((c: any) => { chitMap[c.id] = c.name; });
 
-  const pickupMut = useMutation({
-    mutationFn: (id: string) => markPickedUp(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-      qc.invalidateQueries({ queryKey: ['staff-history'] });
-      toast.collected('Marked as picked up — hand cash to admin');
-    },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
-  });
+  const assigned           = (tasks as any[]).filter((t: any) => t.status === 'ASSIGNED');
+  const pickedUp           = (tasks as any[]).filter((t: any) => t.status === 'PICKED_UP');
+  const partiallyCollected = (tasks as any[]).filter((t: any) => t.status === 'PARTIALLY_COLLECTED');
 
-  const cancelMut = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) => cancelByStaff(id, reason),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-      qc.invalidateQueries({ queryKey: ['staff-history'] });
-      toast.cancelled('Task cancelled');
-    },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
-  });
-
-  const partialMut = useMutation({
-    mutationFn: ({ id, amount }: { id: string; amount: number }) => partiallyCollectCashRequest(id, amount),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['staff-tasks'] });
-      qc.invalidateQueries({ queryKey: ['staff-history'] });
-      toast.saved('Partial collection submitted — awaiting member approval');
-    },
-    onError: (err: any) => Alert.alert('Error', err.response?.data?.message ?? 'Failed'),
-  });
-
-  const [contactOpen, setContactOpen] = useState(false);
-
-  const { data: adminContact } = useQuery({
-    queryKey: ['admin-support-contact'],
-    queryFn: getAdminSupportContact,
-    staleTime: 10 * 60 * 1000,
-  });
-
-  if (isLoading) return <LoadingScreen />;
-
-  const assigned           = (tasks as any[]).filter((t) => t.status === 'ASSIGNED');
-  const pickedUp           = (tasks as any[]).filter((t) => t.status === 'PICKED_UP');
-  const partiallyCollected = (tasks as any[]).filter((t) => t.status === 'PARTIALLY_COLLECTED');
-
-  // Holding amount (picked up + partially collected, not yet remitted)
   const holdingAmt = pickedUp.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0)
     + partiallyCollected.reduce((s: number, t: any) => s + Number(t.collectedAmount ?? 0), 0);
-  // Needed pickup
-  const needAmt = assigned.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
-  // Today's pickups (picked up today across all statuses)
-  const today = new Date().toDateString();
-  const todayTasks = (tasks as any[]).filter((t) =>
-    t.pickedUpAt && new Date(t.pickedUpAt).toDateString() === today
-  );
-  const todayAmt = todayTasks.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
-
-  // Paginated assigned list
-  const pagedAssigned = assigned.slice(0, page * PAGE_SIZE);
-  const hasMore = pagedAssigned.length < assigned.length;
+  const needAmt  = assigned.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
+  const today    = new Date().toDateString();
+  const todayAmt = (tasks as any[])
+    .filter((t: any) => t.pickedUpAt && new Date(t.pickedUpAt).toDateString() === today)
+    .reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
 
   async function onRefresh() {
     setIsRefreshing(true);
-    setPage(1);
-    try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
+    try { await syncCurrentAccount(qc); } catch {}
+    setIsRefreshing(false);
   }
+
+  if (isLoading) return <LoadingScreen />;
+
+  const empty = assigned.length === 0 && pickedUp.length === 0 && partiallyCollected.length === 0 && (pendingBatches as any[]).length === 0;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       <FlatList
-        data={pagedAssigned}
+        data={assigned}
         keyExtractor={(t: any) => t.id}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         ListHeaderComponent={
           <>
             {/* Header */}
@@ -656,185 +518,139 @@ export default function StaffTasksScreen() {
                   </Text>
                 </View>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <TutorialHelpButton />
-                <ProfileAvatarButton />
-              </View>
+              <ProfileAvatarButton />
             </View>
 
             <SyncStatusCard compact />
 
-            {/* Cash ledger cards */}
+            {/* Summary strip */}
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-              <View style={{
-                flex: 1, borderRadius: 12, padding: 12,
-                backgroundColor: holdingAmt > 0 ? '#FFFBEB' : C.gray50,
-                borderWidth: 1.5, borderColor: holdingAmt > 0 ? C.amber : C.gray200,
-              }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: holdingAmt > 0 ? C.amber : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>HOLDING</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: holdingAmt > 0 ? C.amber : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-                  ₹{holdingAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={{ fontSize: 10, color: holdingAmt > 0 ? '#92400E' : C.gray400, marginTop: 2 }}>
-                  {pickedUp.length + partiallyCollected.length} with you
-                </Text>
-              </View>
-
-              <View style={{
-                flex: 1, borderRadius: 12, padding: 12,
-                backgroundColor: assigned.length > 0 ? C.navy50 : C.gray50,
-                borderWidth: 1.5, borderColor: assigned.length > 0 ? C.navy : C.gray200,
-              }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: assigned.length > 0 ? C.navy : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>TO COLLECT</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: assigned.length > 0 ? C.navy : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-                  ₹{needAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={{ fontSize: 10, color: assigned.length > 0 ? C.navy + 'AA' : C.gray400, marginTop: 2 }}>
-                  {assigned.length} pending
-                </Text>
-              </View>
-
-              <View style={{
-                flex: 1, borderRadius: 12, padding: 12,
-                backgroundColor: todayAmt > 0 ? '#F0FDF4' : C.gray50,
-                borderWidth: 1.5, borderColor: todayAmt > 0 ? C.green : C.gray200,
-              }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: todayAmt > 0 ? C.green : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>TODAY</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: todayAmt > 0 ? C.green : C.gray400 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-                  ₹{todayAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={{ fontSize: 10, color: todayAmt > 0 ? '#166534' : C.gray400, marginTop: 2 }}>
-                  {todayTasks.length} picked up
-                </Text>
-              </View>
+              {[
+                { label: 'TO COLLECT', amt: needAmt, count: assigned.length, color: C.navy, bg: C.navy50 },
+                { label: 'HOLDING',    amt: holdingAmt, count: pickedUp.length + partiallyCollected.length, color: C.amber, bg: '#FFFBEB' },
+                { label: 'TODAY',      amt: todayAmt, count: 0, color: C.green, bg: '#F0FDF4' },
+              ].map(({ label, amt, count, color, bg }) => (
+                <View key={label} style={{
+                  flex: 1, borderRadius: 12, padding: 12,
+                  backgroundColor: amt > 0 ? bg : C.gray50,
+                  borderWidth: 1.5, borderColor: amt > 0 ? color : C.gray200,
+                }}>
+                  <Text style={{ fontSize: 9, fontWeight: '800', color: amt > 0 ? color : C.gray400, letterSpacing: 0.5, marginBottom: 4 }} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
+                  <Text style={{ fontSize: 17, fontWeight: '900', color: amt > 0 ? color : C.gray300 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                    ₹{amt.toLocaleString('en-IN')}
+                  </Text>
+                  {count > 0 && <Text style={{ fontSize: 10, color, marginTop: 2 }}>{count} task{count > 1 ? 's' : ''}</Text>}
+                </View>
+              ))}
             </View>
 
-            {/* Holding — awaiting admin confirmation */}
+            {/* Awaiting admin confirmation */}
             {pickedUp.length > 0 && (
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-                  Awaiting Confirmation ({pickedUp.length})
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  ✓ Collected — awaiting admin confirmation ({pickedUp.length})
                 </Text>
                 {pickedUp.map((t: any) => (
-                  <TouchableOpacity key={t.id} activeOpacity={0.75} onPress={() => setSelectedTask(t)}>
-                    <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                            {memberMap[t.memberId] ?? `Member ${t.memberId?.slice(0, 8)}…`}
-                          </Text>
-                          {t.chitId && chitMap[t.chitId] && (
-                            <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[t.chitId]}</Text>
-                          )}
-                        </View>
-                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                          <Amount value={t.requestedAmount} size="sm" color={C.green} />
-                          <Badge status="PICKED_UP" />
-                        </View>
-                      </View>
-                      <Text style={{ fontSize: 11, color: C.green, marginTop: 6 }}>
-                        Picked up {fmtDate(t.pickedUpAt)} · Tap to view
-                      </Text>
-                    </Card>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Partially collected — admin will follow up on remaining */}
-            {partiallyCollected.length > 0 && (
-              <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-                  Partial Pickup — Admin Follow-up ({partiallyCollected.length})
-                </Text>
-                {partiallyCollected.map((t: any) => (
-                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                          {memberMap[t.memberId] ?? `Member ${t.memberId?.slice(0, 8)}…`}
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                          {memberMap[t.memberId] ?? `Member`}
                         </Text>
                         {t.chitId && chitMap[t.chitId] && (
                           <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[t.chitId]}</Text>
                         )}
+                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>
+                          Collected {fmtDate(t.pickedUpAt)}
+                        </Text>
                       </View>
-                      <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                        <Amount value={t.collectedAmount ?? t.requestedAmount} size="sm" color={C.amber} />
-                        <Text style={{ fontSize: 10, color: C.gray400 }}>of ₹{Number(t.requestedAmount).toLocaleString('en-IN')}</Text>
-                      </View>
+                      <Amount value={t.requestedAmount} size="sm" color={C.green} />
                     </View>
-                    <Text style={{ fontSize: 11, color: C.amber, marginTop: 6 }}>
-                      Partially collected — admin will follow up on remaining
-                    </Text>
                   </Card>
                 ))}
               </View>
             )}
 
-            {/* Pending remittance batches */}
+            {/* Partially collected */}
+            {partiallyCollected.length > 0 && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  Partial — Admin follow-up ({partiallyCollected.length})
+                </Text>
+                {partiallyCollected.map((t: any) => (
+                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                          {memberMap[t.memberId] ?? `Member`}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: C.gray400, marginTop: 2 }}>
+                          ₹{Number(t.collectedAmount ?? 0).toLocaleString('en-IN')} of ₹{Number(t.requestedAmount).toLocaleString('en-IN')}
+                        </Text>
+                      </View>
+                      <Badge status="PARTIALLY_COLLECTED" />
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            )}
+
+            {/* Pending remittance */}
             {(pendingBatches as any[]).length > 0 && (
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-                  Pending Remittance ({(pendingBatches as any[]).length})
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  Pending remittance to admin ({(pendingBatches as any[]).length})
                 </Text>
                 {(pendingBatches as any[]).map((b: any) => (
                   <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                        {memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}
+                        {memberMap[b.memberId] ?? `Member`}
                       </Text>
                       <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />
                     </View>
-                    <Text style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>Needs remittance to admin</Text>
                   </Card>
                 ))}
               </View>
             )}
 
             {assigned.length > 0 && (
-              <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: '800', color: C.gray500, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                 To Collect ({assigned.length})
               </Text>
             )}
-            {assigned.length === 0 && pickedUp.length === 0 && partiallyCollected.length === 0 && (pendingBatches as any[]).length === 0 && (
-              <EmptyState title="No tasks assigned" message="Admin will assign cash pickup tasks here." />
+
+            {empty && (
+              <EmptyState title="All done!" message="No tasks assigned right now. Admin will add new tasks here." />
             )}
           </>
         }
-        ListEmptyComponent={null}
         ListFooterComponent={
-          <View style={{ marginTop: 8 }}>
-            {hasMore && (
-              <TouchableOpacity
-                onPress={() => setPage(p => p + 1)}
-                style={{ paddingVertical: 12, alignItems: 'center', backgroundColor: C.gray100, borderRadius: 10, marginBottom: 10 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>
-                  Load More ({assigned.length - pagedAssigned.length} remaining)
-                </Text>
-              </TouchableOpacity>
-            )}
-            {adminContact?.supportPhoneNumber && (
-              <TouchableOpacity
-                onPress={() => setContactOpen(true)}
-                style={{
-                  marginTop: 4, marginBottom: 16, paddingVertical: 14, alignItems: 'center',
-                  backgroundColor: C.gray50, borderRadius: 12,
-                  borderWidth: 1.5, borderColor: C.gray200,
-                  flexDirection: 'row', justifyContent: 'center', gap: 8,
-                }}>
-                <Text style={{ fontSize: 15 }}>📞</Text>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray700 }}>Contact Support</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          adminContact?.supportPhoneNumber ? (
+            <TouchableOpacity
+              onPress={() => {
+                const { Linking } = require('react-native');
+                Linking.openURL(`tel:${adminContact.supportPhoneNumber}`);
+              }}
+              style={{
+                marginTop: 16, paddingVertical: 14, alignItems: 'center',
+                backgroundColor: C.gray50, borderRadius: 12,
+                borderWidth: 1.5, borderColor: C.gray200,
+                flexDirection: 'row', justifyContent: 'center', gap: 8,
+              }}
+            >
+              <Text style={{ fontSize: 15 }}>📞</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray700 }}>Call Admin</Text>
+            </TouchableOpacity>
+          ) : null
         }
         renderItem={({ item: t }) => (
           <TouchableOpacity activeOpacity={0.75} onPress={() => setSelectedTask(t)}>
             <Card style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
-                    {memberMap[t.memberId] ?? `Member ${t.memberId?.slice(0, 8)}…`}
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: C.gray900 }}>
+                    {memberMap[t.memberId] ?? `Member`}
                   </Text>
                   {t.chitId && chitMap[t.chitId] && (
                     <Text style={{ fontSize: 12, color: C.navy, marginTop: 2 }}>{chitMap[t.chitId]}</Text>
@@ -845,8 +661,12 @@ export default function StaffTasksScreen() {
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                  <Amount value={t.requestedAmount} size="sm" />
-                  <Text style={{ fontSize: 11, color: C.navy, fontWeight: '600' }}>Tap to collect →</Text>
+                  <Text style={{ fontSize: 20, fontWeight: '900', color: C.navy }}>
+                    ₹{Number(t.requestedAmount).toLocaleString('en-IN')}
+                  </Text>
+                  <View style={{ backgroundColor: C.amber, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: C.white }}>Collect →</Text>
+                  </View>
                 </View>
               </View>
             </Card>
@@ -854,60 +674,15 @@ export default function StaffTasksScreen() {
         )}
       />
 
-      {/* Task Detail Modal */}
       {selectedTask && (
-        <TaskDetailModal
+        <TaskModal
           task={selectedTask}
-          memberMap={memberMap}
-          chitMap={chitMap}
+          memberName={memberMap[selectedTask.memberId] ?? 'Member'}
+          chitName={selectedTask.chitId ? chitMap[selectedTask.chitId] ?? null : null}
           onClose={() => setSelectedTask(null)}
-          onPickup={(id) => pickupMut.mutate(id)}
-          pickupPending={pickupMut.isPending}
-          onCancel={(id, reason) => cancelMut.mutate({ id, reason })}
-          cancelPending={cancelMut.isPending}
-          onPartialCollect={(id, amount) => partialMut.mutate({ id, amount })}
-          partialCollectPending={partialMut.isPending}
+          onRefresh={onRefresh}
         />
       )}
-
-      {/* Contact Support Modal */}
-      <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
-          <View style={{ padding: 20 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <View>
-                <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy }}>Contact Support</Text>
-                <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }}>Your chit fund admin is available to help</Text>
-              </View>
-              <TouchableOpacity onPress={() => setContactOpen(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>
-                <Text style={{ fontSize: 16 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            {adminContact?.supportPhoneNumber ? (
-              <View style={{ gap: 12 }}>
-                <TouchableOpacity
-                  onPress={() => Linking.openURL(`tel:${adminContact.supportPhoneNumber}`)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, backgroundColor: C.navy }}>
-                  <Text style={{ fontSize: 22 }}>📞</Text>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.white }}>Call Admin</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => Linking.openURL(`sms:${adminContact.supportPhoneNumber}`)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}>
-                  <Text style={{ fontSize: 22 }}>💬</Text>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={{ alignItems: 'center', paddingVertical: 32 }}>
-                <Text style={{ fontSize: 32, marginBottom: 12 }}>📵</Text>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700, textAlign: 'center' }}>No support number set</Text>
-                <Text style={{ fontSize: 13, color: C.gray400, textAlign: 'center', marginTop: 6 }}>Your admin hasn't set a support number yet. Please contact them directly.</Text>
-              </View>
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }

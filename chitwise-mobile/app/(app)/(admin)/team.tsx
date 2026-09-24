@@ -69,7 +69,7 @@ export default function AdminTeamScreen() {
   const [cEmail, setCEmail] = useState('');
 
   const { data: staff = [], isLoading, refetch } = useQuery({
-    queryKey: ['m-staff'],
+    queryKey: ['a-staff'],
     queryFn: listStaff,
   });
 
@@ -122,7 +122,7 @@ export default function AdminTeamScreen() {
       role: cRole, phone: cPhone || undefined, phoneCountryCode: cPhone ? cPhoneCountryCode : undefined, email: cEmail.trim(),
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       setShowCreate(false);
       setCFullName(''); setCUsername(''); setCPassword(''); setCPhone(''); setCPhoneCountryCode('+91'); setCPhoneVerified(false); setCEmail(''); setCRole('STAFF');
       toast.created('Staff member created');
@@ -133,7 +133,7 @@ export default function AdminTeamScreen() {
   const activateMut = useMutation({
     mutationFn: (id: string) => activateStaff(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       setSelected((prev: any) => prev ? { ...prev, enabled: true } : prev);
       toast.saved('Staff activated');
     },
@@ -143,7 +143,7 @@ export default function AdminTeamScreen() {
   const deactivateMut = useMutation({
     mutationFn: (id: string) => deactivateStaff(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       setSelected((prev: any) => prev ? { ...prev, enabled: false } : prev);
       toast.deleted('Staff deactivated');
     },
@@ -153,7 +153,7 @@ export default function AdminTeamScreen() {
   const roleMut = useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) => changeStaffRole(id, role),
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       setSelected((prev: any) => prev ? { ...prev, role: vars.role } : prev);
       setShowRoleInline(false);
       toast.saved('Role updated');
@@ -164,7 +164,7 @@ export default function AdminTeamScreen() {
   const phoneMut = useMutation({
     mutationFn: () => adminUpdateUserPhone({ userId: selected!.id, phone: ePhone, countryCode: ePhoneCode }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       qc.invalidateQueries({ queryKey: ['m-team-user-status', selected?.id] });
       setSelected((prev: any) => prev ? { ...prev, phone: ePhone, phoneCountryCode: ePhoneCode } : prev);
       setShowPhoneInline(false);
@@ -177,7 +177,7 @@ export default function AdminTeamScreen() {
   const unlockMut = useMutation({
     mutationFn: (id: string) => unlockUser(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['m-staff'] });
+      qc.invalidateQueries({ queryKey: ['a-staff'] });
       qc.invalidateQueries({ queryKey: ['m-team-user-status', selected?.id] });
       toast.saved('Account unlocked');
     },

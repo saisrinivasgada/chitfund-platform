@@ -182,41 +182,65 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
   const account = requireOrganizationScope(user);
   const payload = normalizePayload(input);
   validatePayload(payload);
-  const operationId = input.idempotencyKey || Crypto.randomUUID();
-  const now = Date.now();
-  const operation: QueuedOperation<RecordPaymentPayload> = {
-    operationId,
-    accountScope: account.scope,
-    tenantId: account.tenantId,
-    actorId: account.actorId,
-    action: 'RECORD_PAYMENT',
-    entityType: 'PAYMENT',
-    entityId: payload.memberId,
-    payload,
-    payloadHash: await payloadHash(payload),
-    status: 'QUEUED',
-    attempts: 0,
-    nextAttemptAt: now,
-    createdAt: now,
-    updatedAt: now,
-  };
+  const hash = await payloadHash(payload);
   const network = await NetInfo.fetch();
-  const reachable = network.isConnected === true && network.isInternetReachable !== false;
-  try {
-    await insertOperation(operation);
-    const counts = await getSyncCounts(account.scope);
-    useSyncStore.getState().setStateForScope(account.scope, {
-      pendingCount: counts.pending,
-      conflictCount: counts.conflicts,
-      failedCount: counts.failed,
-      status: reachable ? 'pending' : 'offline',
-    });
-  } catch (error) {
-    // Expo Go cannot load SQLCipher. Preserve normal online behavior there,
-    // but never pretend an offline payment was saved when it was not.
-    if (reachable) return recordPayment({ ...payload, idempotencyKey: operationId });
-    throw error;
+  const reachable = network.isConnected === true;
+
+  // Try inserting with the provided or generated operationId. In the astronomically
+  // unlikely case that a self-generated UUID collides with a different existing
+  // operation, generate a fresh one and retry (up to 3 times). Caller-supplied
+  // idempotency keys are never retried — they are intentional reuse.
+  const callerKey = input.idempotencyKey;
+  let operationId = callerKey || Crypto.randomUUID();
+  let inserted = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const now = Date.now();
+    const operation: QueuedOperation<RecordPaymentPayload> = {
+      operationId,
+      accountScope: account.scope,
+      tenantId: account.tenantId,
+      actorId: account.actorId,
+      action: 'RECORD_PAYMENT',
+      entityType: 'PAYMENT',
+      entityId: payload.memberId,
+      payload,
+      payloadHash: hash,
+      status: 'QUEUED',
+      attempts: 0,
+      nextAttemptAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await insertOperation(operation);
+      inserted = true;
+      break;
+    } catch (error) {
+      const isCollision = error instanceof Error && error.message.includes('already associated with different');
+      if (isCollision && !callerKey) {
+        // UUID collision with a different payload — generate fresh ID and retry
+        operationId = Crypto.randomUUID();
+        continue;
+      }
+      // SQLCipher unavailable (Expo Go) or unrecoverable error
+      if (reachable) return recordPayment({ ...payload, idempotencyKey: operationId });
+      throw error;
+    }
   }
+
+  if (!inserted) {
+    // All retries exhausted (should never happen in practice)
+    if (reachable) return recordPayment({ ...payload, idempotencyKey: Crypto.randomUUID() });
+    throw new Error('The payment could not be saved securely on this device');
+  }
+
+  const insertCounts = await getSyncCounts(account.scope);
+  useSyncStore.getState().setStateForScope(account.scope, {
+    pendingCount: insertCounts.pending,
+    conflictCount: insertCounts.conflicts,
+    failedCount: insertCounts.failed,
+    status: reachable ? 'pending' : 'offline',
+  });
   if (!reachable) return pendingResult(operationId, payload);
 
   const stored = await getOperation(operationId, account.scope);

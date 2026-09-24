@@ -3,6 +3,7 @@ import { Text, Platform, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
 import { useReminderSync } from '../../../hooks/useReminderSync';
+import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -21,6 +22,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
 export default function MemberLayout() {
   useReminderSync();
+  useMemberStartupPrefetch();
   return (
     <Tabs
       screenOptions={({ route }) => ({

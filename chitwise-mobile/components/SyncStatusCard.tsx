@@ -78,17 +78,17 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
         accessibilityLabel={`${visual.title}. ${subtitle}. Tap to sync now.`}
         activeOpacity={0.72}
         onPress={handlePress}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 12, alignSelf: 'flex-start' }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, alignSelf: 'flex-start' }}
       >
-        <Animated.View style={{ opacity: pulse, width: 34, height: 27, borderRadius: 14, backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ fontSize: 17, color: visual.color }}>☁</Text>
-          <View style={{ position: 'absolute', right: -2, bottom: -1, width: 14, height: 14, borderRadius: 7, backgroundColor: visual.color, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{visual.mark}</Text>
+        <Animated.View style={{ opacity: pulse, width: 24, height: 20, borderRadius: 10, backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 12, color: visual.color }}>☁</Text>
+          <View style={{ position: 'absolute', right: -2, bottom: -1, width: 10, height: 10, borderRadius: 5, backgroundColor: visual.color, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: '#fff', fontSize: 6, fontWeight: '900' }}>{visual.mark}</Text>
           </View>
         </Animated.View>
         <View>
-          <Text style={{ color: visual.color, fontSize: 12, fontWeight: '800' }}>{visual.title}</Text>
-          <Text style={{ color: C.gray500, fontSize: 10, marginTop: 1 }}>{subtitle}</Text>
+          <Text style={{ color: visual.color, fontSize: 10, fontWeight: '700' }}>{visual.title}</Text>
+          <Text style={{ color: C.gray500, fontSize: 9, marginTop: 0 }}>{subtitle}</Text>
         </View>
       </TouchableOpacity>
     );

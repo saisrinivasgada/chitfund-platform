@@ -198,10 +198,8 @@ export default function AdminDashboard() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
             <RoleLogo role={user?.role} size={44} />
             <View style={{ flexShrink: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={T.h1}>Dashboard</Text>
-              </View>
-              <View style={{ marginTop: 7 }}><SyncStatusCard compact /></View>
+              <Text style={{ fontSize: 34, fontWeight: '800', color: C.navy, letterSpacing: -1 }}>Dashboard</Text>
+              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>

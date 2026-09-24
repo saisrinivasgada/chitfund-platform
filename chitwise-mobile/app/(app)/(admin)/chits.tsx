@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, FlatList, Modal, Alert, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform,
@@ -7,6 +7,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getChits, createChit, updateChitStatus, getEnrollments, enrollMember,
@@ -90,9 +91,10 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, installmentAmount, onC
       {(payments as any[]).map((p: any) => {
         const mName = memberMap[p.memberId] ?? 'Unknown';
         const isCleared = CLEARED_STATUSES.has(p.status);
-        const canCollect = (p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID') && drawStatus === 'OPEN';
-        const dotColor = PAY_STATUS_COLOR[p.status] ?? C.gray400;
-        const label = PAY_STATUS_LABEL[p.status] ?? p.status?.replace(/_/g, ' ') ?? '';
+        const isPendingSync = p._pendingSync === true;
+        const canCollect = !isPendingSync && (p.status === 'OUTSTANDING' || p.status === 'PARTIALLY_PAID') && drawStatus === 'OPEN';
+        const dotColor = isPendingSync ? C.amber : (PAY_STATUS_COLOR[p.status] ?? C.gray400);
+        const label = `${PAY_STATUS_LABEL[p.status] ?? p.status?.replace(/_/g, ' ') ?? ''}${isPendingSync ? ' ↑' : ''}`;
         const outstanding = Number(p.balance ?? 0);
         const pct = p.amountDue > 0 ? Math.min(100, Math.round((p.amountPaid / p.amountDue) * 100)) : 0;
         const effectivePct = isCleared ? 100 : pct;
@@ -282,10 +284,13 @@ export default function AdminChitsScreen() {
 
   // Auto-open chit when navigated from member detail or the dashboard.
   // openTab lets the dashboard drop straight into e.g. the auction tab.
+  // consumedOpenChitId prevents re-opening when chits data reloads while the param is still in the URL.
+  const consumedOpenChitId = useRef<string | null>(null);
   useEffect(() => {
-    if (params.openChitId && (chits as any[]).length > 0) {
+    if (params.openChitId && params.openChitId !== consumedOpenChitId.current && (chits as any[]).length > 0) {
       const target = (chits as any[]).find((c: any) => c.id === params.openChitId);
       if (target) {
+        consumedOpenChitId.current = params.openChitId;
         setSelected(target);
         setDetailTab((params.openTab as DetailTab) ?? 'info');
         setShowDetail(true);
@@ -391,7 +396,7 @@ export default function AdminChitsScreen() {
     setCSchedule([]);
   }
 
-  const createMut = useMutation({
+  const createMut = useOnlineMutation({
     mutationFn: (includeSchedule: boolean) => {
       const n = (v: string) => { const x = Number(v); return isNaN(x) ? 0 : x; };
       const due = n(cDueDate);
@@ -434,7 +439,7 @@ export default function AdminChitsScreen() {
     },
   });
 
-  const statusMut = useMutation({
+  const statusMut = useOnlineMutation({
     mutationFn: ({ id, status, startDate }: any) => updateChitStatus(id, status, startDate),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
@@ -448,7 +453,7 @@ export default function AdminChitsScreen() {
   // backend stamps pausedAt on pause and, on resume, shifts endDate forward by
   // the months paused. A plain status flip would leave the chit's end date
   // unchanged, so members would still be held to the original completion date.
-  const pauseMut = useMutation({
+  const pauseMut = useOnlineMutation({
     mutationFn: (id: string) => pauseChit(id),
     onSuccess: (updated: any) => {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
@@ -458,7 +463,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to pause chit'),
   });
 
-  const resumeMut = useMutation({
+  const resumeMut = useOnlineMutation({
     mutationFn: (id: string) => resumeChit(id),
     onSuccess: (updated: any) => {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
@@ -469,7 +474,7 @@ export default function AdminChitsScreen() {
   });
 
   // Soft delete — hides the chit from lists; still readable under the Deleted filter.
-  const deleteMut = useMutation({
+  const deleteMut = useOnlineMutation({
     mutationFn: (id: string) => deleteChit(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-chits'] });
@@ -481,7 +486,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete chit'),
   });
 
-  const enrollMut = useMutation({
+  const enrollMut = useOnlineMutation({
     mutationFn: async ({ chitId, memberId, spots }: any) => {
       const count = selected?.chitType === 'LOTTERY' ? Math.max(1, spots ?? 1) : 1;
       for (let i = 0; i < count; i++) {
@@ -498,7 +503,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Already enrolled or failed'),
   });
 
-  const removeMut = useMutation({
+  const removeMut = useOnlineMutation({
     mutationFn: ({ chitId, memberId }: any) => removeEnrollment(chitId, memberId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-enrollments', selected?.id] });
@@ -507,7 +512,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const winnerMut = useMutation({
+  const winnerMut = useOnlineMutation({
     mutationFn: ({ chitId, winnerId, monthNumber, winningAmount }: any) =>
       recordWinner(chitId, { winnerId, monthNumber: Number(monthNumber), winningAmount: Number(winningAmount) || Number(selected?.chitValue ?? 0), discountAmount: 0 }),
     onSuccess: () => {
@@ -520,7 +525,7 @@ export default function AdminChitsScreen() {
   });
 
   // ── Mutations: draws ───────────────────────────────────────────────────────
-  const openDrawMut = useMutation({
+  const openDrawMut = useOnlineMutation({
     mutationFn: async () => {
       const drawNum = Number(odDrawNum) || nextDrawNum;
       const baseInstallment = Number(selected?.installmentAmount ?? (Number(selected?.chitValue ?? 0) / Number(selected?.capacity ?? 1)));
@@ -621,7 +626,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const closeDrawMut = useMutation({
+  const closeDrawMut = useOnlineMutation({
     mutationFn: (drawId: string) => closeDraw(drawId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
@@ -631,7 +636,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const skipDrawMut = useMutation({
+  const skipDrawMut = useOnlineMutation({
     mutationFn: async () => {
       const monthNum = Number(sdDrawNum);
       const baseInstallment = Number(selected.installmentAmount ?? (Number(selected.chitValue ?? 0) / Number(selected.capacity ?? 1)));
@@ -657,7 +662,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const deleteDrawMut = useMutation({
+  const deleteDrawMut = useOnlineMutation({
     mutationFn: (drawId: string) => deleteDraw(drawId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
@@ -667,7 +672,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete draw'),
   });
 
-  const voidBatchMut = useMutation({
+  const voidBatchMut = useOnlineMutation({
     mutationFn: () => voidPaymentBatch(voidBatchId, voidBatchReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-chit-batches', selected.id] });
@@ -690,13 +695,42 @@ export default function AdminChitsScreen() {
       idempotencyKey: cpIdempotencyKey,
     }),
     onSuccess: (data: any) => {
+      // Capture before state is cleared
+      const drawId = cpDraw?.id;
+      const memberId = cpMemberId;
+      const chitId = selected?.id;
       setCpIdempotencyKey(Crypto.randomUUID());
       setShowCollectPay(false);
       setCpDraw(null); setCpMemberId(''); setCpAmount(''); setCpMode('CASH'); setCpNotes(''); setCpReference('');
-      qc.invalidateQueries({ predicate: (q: any) => q.queryKey[0] === 'draw-payments' });
-      if (selected?.id) {
-        qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
-        qc.invalidateQueries({ queryKey: ['a-payment-history', selected.id, cpMemberId] });
+
+      if (data?.offlineQueued) {
+        // Server doesn't have this payment yet — update the draw payment row in
+        // cache directly so the UI reflects it immediately without a refetch.
+        const paid = Number(data.totalAmount ?? 0);
+        if (drawId) {
+          qc.setQueryData(['draw-payments', drawId], (old: any[] | undefined) => {
+            if (!Array.isArray(old)) return old;
+            return old.map((p: any) => {
+              if (p.memberId !== memberId) return p;
+              const newPaid = Number(p.amountPaid ?? 0) + paid;
+              const newBalance = Math.max(0, Number(p.amountDue ?? 0) - newPaid);
+              return {
+                ...p,
+                amountPaid: newPaid,
+                balance: newBalance,
+                status: newBalance === 0 ? 'SETTLED' : 'PARTIALLY_PAID',
+                _pendingSync: true,
+              };
+            });
+          });
+        }
+        // Draws summary and payment history will refresh automatically on next sync
+      } else {
+        qc.invalidateQueries({ predicate: (q: any) => q.queryKey[0] === 'draw-payments' });
+        if (chitId) {
+          qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
+          qc.invalidateQueries({ queryKey: ['a-payment-history', chitId, memberId] });
+        }
       }
       toast.saved(data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
@@ -704,7 +738,7 @@ export default function AdminChitsScreen() {
   });
 
   // ── Mutations: schedule ────────────────────────────────────────────────────
-  const addSlotMut = useMutation({
+  const addSlotMut = useOnlineMutation({
     mutationFn: () => addReservationSlot(selected.id, {
       slotNumber: Number(asMonth), memberId: asMemberId,
     }),
@@ -717,7 +751,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to reserve slot.'),
   });
 
-  const voidSlotMut = useMutation({
+  const voidSlotMut = useOnlineMutation({
     mutationFn: () => removeReservationSlot(selected.id, vsSlot.id, vsReason || undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
@@ -728,7 +762,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Cannot Void Slot', e.response?.data?.message ?? 'Void failed — slot may be in a non-voidable state.'),
   });
 
-  const swapMut = useMutation({
+  const swapMut = useOnlineMutation({
     mutationFn: () => swapReservationSlots(selected.id, swapA, swapB),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
@@ -738,7 +772,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Swap Failed', e.response?.data?.message ?? e.message ?? 'Failed to swap slots. Both slots must be in RESERVED status.'),
   });
 
-  const shiftMut = useMutation({
+  const shiftMut = useOnlineMutation({
     mutationFn: () => shiftReservations(selected.id, Number(shiftFrom)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
@@ -748,13 +782,13 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const processSlotMut = useMutation({
+  const processSlotMut = useOnlineMutation({
     mutationFn: (resId: string) => markSlotProcessed(selected.id, resId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] }),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const updateSlotMut = useMutation({
+  const updateSlotMut = useOnlineMutation({
     mutationFn: ({ slot, memberId, payoutAmount }: { slot: any; memberId: string; payoutAmount: string }) => {
       const isOrg = memberId === 'ORG';
       return updateReservationSlot(selected.id, slot.id, {
@@ -774,7 +808,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save slot'),
   });
 
-  const hardDeleteSlotMut = useMutation({
+  const hardDeleteSlotMut = useOnlineMutation({
     mutationFn: (resId: string) => hardDeleteReservationSlot(selected.id, resId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
@@ -784,7 +818,7 @@ export default function AdminChitsScreen() {
   });
 
   // Payout from winner tab
-  const winnerPayoutMut = useMutation({
+  const winnerPayoutMut = useOnlineMutation({
     mutationFn: () => createPayout({
       memberId: wpWinner?.memberId ?? wpWinner?.winnerId,
       chitId: selected?.id,
@@ -802,7 +836,7 @@ export default function AdminChitsScreen() {
   });
 
   // Disburse existing payout
-  const disburseMut = useMutation({
+  const disburseMut = useOnlineMutation({
     mutationFn: () => disbursePayout(dsPayout.id, {
       disbursedAmount: Number(dsAmount),
       paymentMode: dsMode,
@@ -816,7 +850,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Disburse Failed', e.response?.data?.message ?? 'Disbursement failed. Please try again.'),
   });
 
-  const updateDetailsMut = useMutation({
+  const updateDetailsMut = useOnlineMutation({
     mutationFn: (body: any) => updateChitDetails(selected!.id, body),
     onSuccess: (updated: any) => {
       qc.setQueryData(['a-chits'], (old: any[]) => old?.map((c: any) => c.id === updated.id ? updated : c));
@@ -829,7 +863,7 @@ export default function AdminChitsScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to update details'),
   });
 
-  const proxyBidMut = useMutation({
+  const proxyBidMut = useOnlineMutation({
     mutationFn: () => placeBid({
       chitId: selected!.id,
       auctionId: activeAuction?.id,
