@@ -82,6 +82,8 @@ export default function MemberRequestsScreen() {
     queryKey: ['member-chits'],
     queryFn: getMyChits,
   });
+  const chitMap = Object.fromEntries((chits as any[]).map((c: any) => [c.id, c.name ?? c.chitName ?? 'Chit']));
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
   const { data: myProfile } = useQuery({
     queryKey: ['myMemberProfile'],
@@ -216,12 +218,38 @@ export default function MemberRequestsScreen() {
         renderItem={({ item: r }) => {
           const canEdit = r.status === 'PENDING' || r.status === 'ASSIGNED';
           const needsApproval = r.status === 'PARTIALLY_COLLECTED' || r.status === 'PICKED_UP';
+          const breakdown: any[] = r.allocations ?? [];
+          const hasBreakdown = breakdown.length > 1;
+          const isExpanded = expandedRequestId === r.id;
           return (
             <Card style={{ marginBottom: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
-                <Badge status={r.status} />
-              </View>
+              <TouchableOpacity
+                activeOpacity={hasBreakdown ? 0.6 : 1}
+                disabled={!hasBreakdown}
+                onPress={() => setExpandedRequestId(isExpanded ? null : r.id)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
+                    {hasBreakdown && (
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>
+                        {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                      </Text>
+                    )}
+                  </View>
+                  <Badge status={r.status} />
+                </View>
+                {isExpanded && hasBreakdown && (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 8, gap: 4 }}>
+                    {breakdown.map((a: any) => (
+                      <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                        <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
               {r.collectedAmount && r.collectedAmount !== r.requestedAmount && (
                 <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 2 }}>
                   Requested: ₹{Number(r.requestedAmount).toLocaleString('en-IN')}

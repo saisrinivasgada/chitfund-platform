@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stack, useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -67,9 +67,17 @@ function RealtimeUpdater() {
 }
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, loadFromStorage, logout } = useAuthStore();
+  const { user, accounts, isLoading, loadFromStorage, logout } = useAuthStore();
   const segments = useSegments();
+  const params = useGlobalSearchParams<{ addAccount?: string }>();
   const router = useRouter();
+  // "Add another account" is reached from Switch Account while a different
+  // account is still fully logged in, so the normal "logged in + on an auth
+  // screen -> bounce back out" rule must not fire while that pre-existing
+  // user is still active. Once a *new* login succeeds, `user` changes identity
+  // and this stops applying, so the redirect to the new account's home fires
+  // as usual — it only ever suppresses the bounce for the stale/original user.
+  const addAccountBaseUserId = useRef<string | null>(null);
 
   useEffect(() => {
     loadFromStorage();
@@ -81,6 +89,19 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const seg = segments as string[];
     const inAuth = seg[0] === '(auth)';
     const onForceChange = inAuth && seg[1] === 'force-change-password';
+    // Instagram/Facebook-style account picker: reachable both when logged out
+    // (forced or manual logout lands here, not on a bare login form) and
+    // voluntarily while logged in (the "Switch Account" entry point). Excluded
+    // from the auth-screen redirects below so visiting it doesn't bounce the
+    // user straight back out — the screen itself navigates on a successful switch.
+    const onAccountsScreen = inAuth && seg[1] === 'accounts';
+    const onAddAccountLoginRoute = inAuth && (seg[1] === 'login' || seg[1] === 'hub-login') && params.addAccount === '1';
+    if (onAddAccountLoginRoute) {
+      if (addAccountBaseUserId.current === null) addAccountBaseUserId.current = user?.id ?? '';
+    } else {
+      addAccountBaseUserId.current = null;
+    }
+    const onAddAccountLogin = onAddAccountLoginRoute && (user?.id ?? '') === addAccountBaseUserId.current;
 
     const incompatibleSession = user && (HUB_BUILD
       ? user.authSource !== 'HUB'
@@ -92,15 +113,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     if (!user && !inAuth) {
-      // Not logged in — go to login
-      router.replace(HUB_BUILD ? '/(auth)/hub-login' : '/(auth)/login');
+      // Not logged in — show the account picker if there's something to pick
+      // from, otherwise go straight to a bare login form.
+      if (!HUB_BUILD && accounts.length > 0) {
+        router.replace('/(auth)/accounts' as any);
+      } else {
+        router.replace(HUB_BUILD ? '/(auth)/hub-login' : '/(auth)/login');
+      }
       return;
     }
 
     if (!user && inAuth) {
       const expectedLogin = HUB_BUILD ? 'hub-login' : 'login';
       const publicMemberFlow = !HUB_BUILD && (seg[1] === 'chitfund-request' || seg[1] === 'setup-account');
-      if (seg[1] !== expectedLogin && !publicMemberFlow) router.replace(`/(auth)/${expectedLogin}` as any);
+      if (seg[1] !== expectedLogin && !publicMemberFlow && !onAccountsScreen) router.replace(`/(auth)/${expectedLogin}` as any);
       return;
     }
 
@@ -110,7 +136,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (user && !user.mustChangePassword && inAuth) {
+    if (user && !user.mustChangePassword && inAuth && !onAccountsScreen && !onAddAccountLogin) {
       // Fully logged in but sitting on an auth screen — redirect to correct app section
       redirectByRole(user.role, router);
       return;
@@ -125,7 +151,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         redirectByRole(user.role, router);
       }
     }
-  }, [user, isLoading, segments]);
+  }, [user, isLoading, segments, params.addAccount]);
 
   if (isLoading) return <LoadingScreen />;
   return <>{children}</>;

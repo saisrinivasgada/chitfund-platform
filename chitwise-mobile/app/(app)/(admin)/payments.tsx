@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
   getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
-  getMembers, getChits, getChitsForMember, collectPayment,
+  getMembers, getChits, getChitsForMember,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
@@ -68,6 +68,9 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   // Void pickup
   const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
+
+  // Multi-chit requests carry their planned per-chit split — tap the card to see it
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
   // Setup new cash pickup (admin creates on behalf of member)
   const [showSetup, setShowSetup] = useState(false);
@@ -245,20 +248,48 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 
       {displayed.map((r: any) => {
         const cfg = CP_STATUS[r.status] ?? CP_STATUS.PENDING;
+        const breakdown: any[] = r.allocations ?? [];
+        const hasBreakdown = breakdown.length > 1;
+        const isExpanded = expandedRequestId === r.id;
         return (
           <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: cfg.color }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
-                  {memberMap[r.memberId] ?? `…${r.memberId?.slice(-6)}`}
-                </Text>
-                <Amount value={r.requestedAmount} size="md" />
+            <TouchableOpacity
+              activeOpacity={hasBreakdown ? 0.6 : 1}
+              disabled={!hasBreakdown}
+              onPress={() => setExpandedRequestId(isExpanded ? null : r.id)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
+                      {memberMap[r.memberId] ?? `…${r.memberId?.slice(-6)}`}
+                    </Text>
+                    {hasBreakdown && (
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>
+                        {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                      </Text>
+                    )}
+                  </View>
+                  <Amount value={r.requestedAmount} size="md" />
+                </View>
+                <View style={{ backgroundColor: cfg.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: cfg.color }}>{cfg.label}</Text>
+                </View>
               </View>
-              <View style={{ backgroundColor: cfg.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: cfg.color }}>{cfg.label}</Text>
-              </View>
-            </View>
+              {isExpanded && hasBreakdown && (
+                <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 8, gap: 4 }}>
+                  {breakdown.map((a: any) => (
+                    <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: C.gray700 }}>
+                        {(allChits as any[]).find((c: any) => c.id === a.chitId)?.name ?? 'Chit'}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </TouchableOpacity>
 
             {/* Details */}
             {r.assignedStaffId && (
@@ -865,8 +896,19 @@ function RecordPaymentTab() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
+    // Staff/manager collection creates a Cash Pickup Request instead of recording
+    // a payment directly — nobody's balance changes until that staff member
+    // confirms they collected the cash and admin confirms receipt. See the
+    // matching comment in members.tsx's collectMutation for the full reasoning.
     mutationFn: () => workerCollect
-      ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy, idempotencyKey })
+      ? adminCreateCashRequest(
+          memberId,
+          allocationEntries[0]?.chitId ?? chitId,
+          amtNum,
+          collectedBy,
+          notes || undefined,
+          allocationEntries.length > 1 ? allocationEntries : undefined,
+        )
       : recordPaymentOfflineCapable({
         chitId: allocationEntries[0]?.chitId ?? chitId,
         memberId,
@@ -887,7 +929,7 @@ function RecordPaymentTab() {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
         : workerCollect
-        ? 'Recorded — awaiting remittance from staff'
+        ? 'Cash pickup request sent — awaiting staff collection'
         : data?.offlineQueued
           ? 'Payment saved securely — pending sync'
           : 'Payment recorded — treasury credited';
@@ -897,13 +939,21 @@ function RecordPaymentTab() {
       setSelectedAllocations({});
       if (isCredit) setMode('CASH');
       scrollRef.current?.scrollTo({ y: 0, animated: true });
+
+      if (workerCollect) {
+        // No balance change here — see the mutationFn comment above.
+        qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+        qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'staff-tasks' || q.queryKey[0] === 'manager-pickups' });
+        return;
+      }
+
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
       qc.invalidateQueries({ queryKey: ['m-member-credit-pay', memberId] });
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draw-payments' });
       if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
-      if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
     },
     onError: (e: any) => {
       console.error('[RecordPayment] onError status=' + (e?.response?.status ?? 'none') + ' code=' + (e?.code ?? 'none') + ' msg=' + (e?.message ?? '') + ' data=' + JSON.stringify(e?.response?.data));
@@ -958,7 +1008,7 @@ function RecordPaymentTab() {
   const submitLabel = isCredit
     ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
     : workerCollect
-    ? 'Record Collection (via Staff)'
+    ? `Send for Pickup — ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'}`
     : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1240,9 +1290,9 @@ function RecordPaymentTab() {
               {/* Worker warning banner */}
               {workerCollect && (
                 <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 14, borderWidth: 1, borderColor: '#F59E0B' }}>
-                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Cash stays with staff</Text>
+                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Not collected yet</Text>
                   <Text style={{ fontSize: 11, color: '#92400E' }}>
-                    This will appear in Remittance until the staff member hands the cash to you and you remit it.
+                    This sends a pickup request — nothing is credited until they mark it collected and you confirm receipt.
                   </Text>
                 </View>
               )}
@@ -1270,16 +1320,40 @@ function RecordPaymentTab() {
               const workerName = workerCollect
                 ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
                 : null;
+
+              // Guard rail: never silently apply an overpayment as credit — the
+              // person recording the payment must explicitly acknowledge it.
+              const totalPay = isExplicitMode ? allocationTotal : amtNum;
+              const totalDue = isExplicitMode
+                ? allocationEntries.reduce((sum, e) => sum + Number((multiBalances as any)[e.chitId] ?? 0), 0)
+                : (outstanding ?? 0);
+              const isOverpayNow = !isCredit && totalPay > 0 && totalDue > 0 && totalPay > totalDue;
+              const breakdown = isExplicitMode && allocationEntries.length > 1
+                ? '\n\n' + allocationEntries
+                    .map((e) => `${payableChits.find((c: any) => c.id === e.chitId)?.name ?? 'Chit'}: ₹${e.amount.toLocaleString('en-IN')}`)
+                    .join('\n')
+                : '';
+
+              const actionVerb = workerCollect ? 'Send a pickup request for' : 'Record';
+
               const confirmMsg = isCredit
                 ? `Apply ₹${creditBalance.toLocaleString('en-IN')} credit balance to settle ₹${(outstanding ?? 0).toLocaleString('en-IN')} outstanding for ${selectedChit?.name}?`
+                : isOverpayNow
+                ? `This exceeds the amount owed (₹${totalDue.toLocaleString('en-IN')}). ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${(totalPay - totalDue).toLocaleString('en-IN')} will be added to credit balance and can be applied to future dues.${breakdown}\n\nContinue?`
                 : workerCollect
-                ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
+                ? `${actionVerb} ₹${amtNum.toLocaleString('en-IN')} to ${workerName} for ${selectedChit?.name}?${breakdown}\n\nThey'll need to confirm they collected it before it's credited.`
+                : isExplicitMode && allocationEntries.length > 1
+                ? `Record ₹${allocationTotal.toLocaleString('en-IN')} total across ${allocationEntries.length} chits?${breakdown}`
                 : `Record ₹${amtNum.toLocaleString('en-IN')} via ${mode.replace(/_/g, ' ')} for ${selectedChit?.name}?`;
 
-              const doRecord = () => Alert.alert('Confirm Payment', confirmMsg, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Record', onPress: () => recordMut.mutate() },
-              ]);
+              const doRecord = () => Alert.alert(
+                workerCollect ? 'Confirm Pickup Request' : 'Confirm Payment',
+                confirmMsg,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: workerCollect ? 'Send Request' : 'Record', onPress: () => recordMut.mutate() },
+                ],
+              );
 
               if (!isCredit && memberId) {
                 const user = useAuthStore.getState().user;
@@ -3300,6 +3374,7 @@ function RemittanceTab() {
   const qc = useQueryClient();
   const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
@@ -3359,7 +3434,20 @@ function RemittanceTab() {
 
   if (isLoading) return <LoadingScreen />;
 
-  const total = (pendingItems as any[]).reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
+  // Unified "cash not yet in treasury" queue. A PICKED_UP cash request (staff
+  // has cash, admin hasn't confirmed receipt) and an AWAITING_REMITTANCE
+  // payment batch (admin has the cash, or it was recorded as collected-by-staff
+  // directly, but FIFO/treasury hasn't run yet) are two different backend
+  // entities converging on the same real-world question for admin: "what do I
+  // still need to act on?" — shown as one sorted queue with a stage badge per
+  // card instead of a summary banner sitting above a disconnected list.
+  type RemitItem = { kind: 'pickup' | 'batch'; id: string; memberId: string; chitId?: string; amount: number; staffId?: string; at?: string; paymentMode?: string; raw: any };
+  const remitItems: RemitItem[] = [
+    ...pickedUpRequests.map((r: any): RemitItem => ({ kind: 'pickup', id: r.id, memberId: r.memberId, chitId: r.chitId, amount: Number(r.requestedAmount ?? 0), staffId: r.assignedStaffId, at: r.pickedUpAt, raw: r })),
+    ...(pendingItems as any[]).map((b: any): RemitItem => ({ kind: 'batch', id: b.id, memberId: b.memberId, chitId: b.chitId, amount: Number(b.amount ?? b.totalAmount ?? 0), staffId: b.collectedBy, at: b.collectedAt ?? b.recordedAt ?? b.createdAt, paymentMode: b.paymentMode, raw: b })),
+  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+
+  const total = remitItems.reduce((s, item) => s + item.amount, 0);
 
   function onRefresh() { refetch(); }
 
@@ -3368,123 +3456,127 @@ function RemittanceTab() {
       refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
     >
-      {/* ── PICKED_UP section: worker has physically collected, admin needs to take cash ── */}
-      {pickedUpRequests.length > 0 && (
-        <View style={{ backgroundColor: '#F0FDF4', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: '#86EFAC' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>
-              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff
-            </Text>
-          </View>
-          {pickedUpRequests.map((r: any) => (
-            <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#BBF7D0', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{memberMap[r.memberId] ?? '—'}</Text>
-                <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  Staff: {staffMap[r.assignedStaffId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
-                </Text>
-                {r.pickedUpAt && (
-                  <Text style={{ fontSize: 11, color: '#16A34A', marginTop: 2 }}>
-                    Picked up {fmtDateTime(r.pickedUpAt)}
-                  </Text>
-                )}
-              </View>
-              <Button
-                label="Collect"
-                variant="success"
-                size="sm"
-                loading={collectPickupMut.isPending}
-                onPress={() => Alert.alert(
-                  'Confirm Cash Received',
-                  `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${staffMap[r.assignedStaffId] ?? 'staff'}?\n\nMember account will be credited and treasury updated.`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Yes, Received', onPress: () => collectPickupMut.mutate(r.id) },
-                  ]
-                )}
-              />
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* ── Pending remittance batches ── */}
-      {(pendingItems as any[]).length === 0 && pickedUpRequests.length === 0 ? (
+      {/* ── Unified queue: cash requests staff has picked up (not yet confirmed
+          received) interleaved with payment batches already recorded but not
+          yet remitted to treasury — one sorted list instead of a banner sitting
+          above a disconnected one, with a stage badge per card. ── */}
+      {remitItems.length === 0 ? (
         <EmptyState title="All clear" message="No payments pending remittance." />
-      ) : (pendingItems as any[]).length === 0 ? null : (
+      ) : (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <Text style={{ fontSize: 13, color: C.gray500 }}>
-              {(pendingItems as any[]).length} batch{(pendingItems as any[]).length !== 1 ? 'es' : ''} awaiting remittance
+              {remitItems.length} item{remitItems.length !== 1 ? 's' : ''} awaiting your confirmation
             </Text>
             <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
               <Amount value={total} size="sm" />
             </View>
           </View>
 
-          {(pendingItems as any[]).map((batch: any) => (
-            <Card key={batch.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
-                    {memberMap[batch.memberId] ?? '—'}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
-                    {chitMap[batch.chitId] ?? batch.chitName ?? '—'}
-                  </Text>
-                  {batch.collectedBy && staffMap[batch.collectedBy] && (
-                    <Text style={{ fontSize: 12, color: C.amber, marginTop: 2, fontWeight: '600' }}>
-                      Collector: {staffMap[batch.collectedBy]}
+          {remitItems.map((item) => {
+            const isPickup = item.kind === 'pickup';
+            const stageColor = isPickup ? '#16A34A' : C.amber;
+            const isCredit = !isPickup && item.paymentMode === 'CREDIT';
+            const confirmReceived = () => Alert.alert(
+              'Confirm Cash Received',
+              `You received ₹${item.amount.toLocaleString('en-IN')} from ${staffMap[item.staffId ?? ''] ?? (isPickup ? 'staff' : 'collector')}?\n\n${isPickup ? 'Member account will be credited and treasury updated.' : 'Payment will be credited to member.'}`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: isPickup ? 'Yes, Received' : 'Confirm Received', onPress: () => (isPickup ? collectPickupMut.mutate(item.id) : remitMut.mutate(item.id)) },
+              ]
+            );
+            const itemKey = `${item.kind}-${item.id}`;
+            const breakdown: any[] = (item.raw?.allocations ?? []);
+            const hasBreakdown = isPickup && breakdown.length > 1;
+            const isExpanded = expandedItem === itemKey;
+            return (
+              <Card key={itemKey} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: stageColor }}>
+                <TouchableOpacity
+                  activeOpacity={hasBreakdown ? 0.6 : 1}
+                  disabled={!hasBreakdown}
+                  onPress={() => setExpandedItem(isExpanded ? null : itemKey)}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                          {memberMap[item.memberId] ?? '—'}
+                        </Text>
+                        {hasBreakdown && (
+                          <Text style={{ fontSize: 11, color: C.gray400 }}>
+                            {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                          </Text>
+                        )}
+                      </View>
+                      {item.chitId && chitMap[item.chitId] && (
+                        <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{chitMap[item.chitId]}</Text>
+                      )}
+                      {item.staffId && staffMap[item.staffId] && (
+                        <Text style={{ fontSize: 12, color: stageColor, marginTop: 2, fontWeight: '600' }}>
+                          {isPickup ? 'Staff' : 'Collector'}: {staffMap[item.staffId]}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <Amount value={item.amount} size="md" />
+                      <View style={{ backgroundColor: stageColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: stageColor }}>
+                          {isPickup ? 'PICKED UP' : 'AWAITING REMITTANCE'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  {isExpanded && hasBreakdown && (
+                    <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 10, gap: 4 }}>
+                      {breakdown.map((a: any) => (
+                        <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                          <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {isCredit && (
+                  <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                    <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>Settled via Credit Balance — no cash collected</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: isCredit ? '#ECFDF5' : '#FEF3C7', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 11, color: isCredit ? '#059669' : C.amber, fontWeight: '600' }}>
+                      {isPickup ? 'CASH' : isCredit ? 'Credit Balance' : (item.paymentMode ?? 'CASH')}
                     </Text>
+                  </View>
+                  {item.at && <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(item.at)}</Text>}
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button
+                    label="Collect"
+                    variant="success"
+                    size="sm"
+                    loading={isPickup ? collectPickupMut.isPending : remitMut.isPending}
+                    onPress={confirmReceived}
+                  />
+                  {!isPickup && (
+                    <Button
+                      label="Cancel"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => Alert.alert(
+                        'Cancel Remittance',
+                        `Cancel this ₹${item.amount.toLocaleString('en-IN')} remittance? The member's payment record will be rolled back.`,
+                        [
+                          { text: 'Back', style: 'cancel' },
+                          { text: 'Cancel Remittance', style: 'destructive', onPress: () => voidMut.mutate({ batchId: item.id, reason: 'Cancelled from Remittance' }) },
+                        ]
+                      )}
+                    />
                   )}
                 </View>
-                <Amount value={batch.amount ?? batch.totalAmount ?? 0} size="md" />
-              </View>
-              {batch.paymentMode === 'CREDIT' && (
-                <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>Settled via Credit Balance — no cash collected</Text>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: batch.paymentMode === 'CREDIT' ? '#ECFDF5' : '#FEF3C7', borderRadius: 6 }}>
-                  <Text style={{ fontSize: 11, color: batch.paymentMode === 'CREDIT' ? '#059669' : C.amber, fontWeight: '600' }}>
-                    {batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode ?? 'CASH')}
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.recordedAt ?? batch.createdAt)}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Button
-                  label="Collect"
-                  variant="success"
-                  size="sm"
-                  loading={remitMut.isPending}
-                  onPress={() => Alert.alert(
-                    'Confirm Cash Received',
-                    `Confirm you received ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} from ${staffMap[batch.collectedBy] ?? 'collector'}?\n\nPayment will be credited to member.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Confirm Received', onPress: () => remitMut.mutate(batch.id) },
-                    ]
-                  )}
-                />
-                <Button
-                  label="Cancel"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => Alert.alert(
-                    'Cancel Remittance',
-                    `Cancel this ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} remittance? The member's payment record will be rolled back.`,
-                    [
-                      { text: 'Back', style: 'cancel' },
-                      { text: 'Cancel Remittance', style: 'destructive', onPress: () => voidMut.mutate({ batchId: batch.id, reason: 'Cancelled from Remittance' }) },
-                    ]
-                  )}
-                />
-              </View>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </>
       )}
 

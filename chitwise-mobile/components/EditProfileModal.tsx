@@ -1,21 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, Modal, TouchableOpacity, TextInput, ActivityIndicator,
-  Alert, KeyboardAvoidingView, Platform, ActionSheetIOS,
+  Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { accountStorageId, useAuthStore, StoredAccount } from '../store/authStore';
+import { useAuthStore } from '../store/authStore';
 import { getMe, updateMyProfile, updateMyMemberProfile, changePassword, getMyMemberProfile, sendPhoneChangeOtp, verifyPhoneChangeOtp, logoutAccount, logoutAllDevices, checkUsernameAvailability } from '../services/api';
 import { C, PhoneInput } from './ui';
 import { recordProfileChange, getProfileHistory, HistoryEntry } from '../utils/profileHistory';
 import { isBiometricAvailable, isBiometricEnabled, enableBiometric, disableBiometric, biometricTypeName } from '../utils/biometrics';
 import OtpCodeInput from './OtpCodeInput';
-import { getStoredAccountScope } from '../offline/accountScope';
-import { getSyncCounts, purgeAccountOfflineData } from '../offline/database';
-import RoleLogo from './RoleLogo';
 
 // ── Field helper ──────────────────────────────────────────────────────────────
 function Field({ label, value, onChangeText, placeholder, keyboardType, secureTextEntry, autoCapitalize, hint, editable = true }: {
@@ -68,7 +64,7 @@ type ProfileTab = 'profile' | 'security' | 'history' | 'accounts';
 export default function EditProfileModal({ visible, onClose, initialTab = 'profile' }: {
   visible: boolean; onClose: () => void; initialTab?: ProfileTab;
 }) {
-  const { user, logout, accounts, switchToAccount, removeAccount, logoutFromAccount, logoutAll } = useAuthStore();
+  const { user, logout, accounts, logoutAll } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
   const role = user?.role ?? 'MEMBER';
@@ -129,93 +125,6 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
     );
   }, [visible]);
 
-  async function handleSwitchAccount(acc: StoredAccount) {
-    if (!acc.sessionValid) {
-      onClose();
-      router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
-      return;
-    }
-    const biometricEnabled = await isBiometricEnabled();
-    if (biometricEnabled) {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: `Switch to ${acc.fullName || acc.username}`,
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: false,
-      });
-      if (!result.success) return;
-    }
-    const result = await switchToAccount(acc.accountId);
-    if (result === 'needs-login') {
-      onClose();
-      router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
-    } else if (result) {
-      onClose();
-    } else {
-      Alert.alert('Switch Failed', 'Could not switch account. Please log in again.');
-    }
-  }
-
-  async function handleAccountOptions(acc: StoredAccount) {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['Cancel', 'Logout', 'Remove from Device'],
-          destructiveButtonIndex: 2,
-          cancelButtonIndex: 0,
-        },
-        async (idx) => {
-          if (idx === 1) await doLogoutAccount(acc);
-          if (idx === 2) await doDeleteAccount(acc);
-        }
-      );
-    } else {
-      Alert.alert(acc.fullName || acc.username, `@${acc.username} · ${acc.role}`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', onPress: () => doLogoutAccount(acc) },
-        { text: 'Remove from Device', style: 'destructive', onPress: () => doDeleteAccount(acc) },
-      ]);
-    }
-  }
-
-  async function doLogoutAccount(acc: StoredAccount) {
-    if (acc.refreshToken) {
-      try { await logoutAccount(acc.refreshToken); } catch {}
-    }
-    await logoutFromAccount(acc.accountId);
-  }
-
-  async function doDeleteAccount(acc: StoredAccount) {
-    const scope = getStoredAccountScope(acc);
-    let pending = 0;
-    try {
-      const counts = await getSyncCounts(scope);
-      pending = counts.pending + counts.conflicts + counts.failed;
-    } catch {
-      // No encrypted database exists in online-only/Expo Go environments.
-    }
-
-    Alert.alert(
-      'Remove account from this device?',
-      pending > 0
-        ? `${pending} saved payment ${pending === 1 ? 'change has' : 'changes have'} not finished syncing. Removing this account will permanently discard ${pending === 1 ? 'it' : 'them'} from this device.`
-        : 'This removes the saved login and encrypted offline data from this device. It does not delete the ChitWise account.',
-      [
-        { text: 'Keep Account', style: 'cancel' },
-        {
-          text: pending > 0 ? 'Discard & Remove' : 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            if (acc.refreshToken) {
-              try { await logoutAccount(acc.refreshToken); } catch {}
-            }
-            try { await purgeAccountOfflineData(scope); } catch {}
-            await removeAccount(acc.accountId);
-          },
-        },
-      ],
-    );
-  }
-
   async function handleLogoutAll() {
     Alert.alert(
       'Logout from All Devices',
@@ -225,9 +134,10 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
         {
           text: 'Logout All', style: 'destructive',
           onPress: async () => {
-            try {
-              await logoutAllDevices();
-            } catch {}
+            // Revoking every other device's session needs the network and simply
+            // can't happen while offline — but signing out of THIS device must
+            // not wait on that call succeeding (or timing out after 20s).
+            logoutAllDevices().catch(() => {});
             await logoutAll();
             onClose();
           },
@@ -432,7 +342,6 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
           {([
             { id: 'profile',  label: 'Profile' },
             { id: 'security', label: 'Security' },
-            { id: 'accounts', label: accounts.length > 1 ? `Accts (${accounts.length})` : 'Accts' },
             { id: 'history', label: 'History' },
           ] as const).map(({ id, label }) => (
             <TouchableOpacity key={id} onPress={() => setTab(id as any)} style={{
@@ -622,144 +531,6 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
               </>
             )}
 
-            {/* ── Accounts tab ────────────────────────────────────────────── */}
-            {tab === 'accounts' && (
-              <>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, marginBottom: 12 }}>
-                  SAVED ACCOUNTS
-                </Text>
-
-                {accounts.map((acc: StoredAccount) => {
-                  const currentAccountId = user
-                    ? accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION')
-                    : null;
-                  const isCurrent = acc.accountId === currentAccountId;
-                  const needsLogin = !acc.sessionValid;
-                  const roleBadgeColor: Record<string, string> = {
-                    ADMIN: '#1D4ED8', MANAGER: '#7C3AED', STAFF: '#059669',
-                    MEMBER: '#D97706', SUPER_ADMIN: '#9F1239',
-                  };
-                  const badgeColor = roleBadgeColor[acc.role] ?? C.navy;
-
-                  const cachedLine = (() => {
-                    if (!acc.cachedInfo) return null;
-                    const { outstandingBalance, pendingCollectionAmount, activeGroupsCount, totalMembersCount } = acc.cachedInfo;
-                    if (acc.role === 'MEMBER' && outstandingBalance != null)
-                      return `Outstanding: ₹${outstandingBalance.toLocaleString('en-IN')}`;
-                    if ((acc.role === 'STAFF' || acc.role === 'MANAGER') && pendingCollectionAmount != null)
-                      return `To collect: ₹${pendingCollectionAmount.toLocaleString('en-IN')}`;
-                    if (acc.role === 'ADMIN') {
-                      const parts = [];
-                      if (activeGroupsCount != null) parts.push(`${activeGroupsCount} groups`);
-                      if (totalMembersCount != null) parts.push(`${totalMembersCount} members`);
-                      if (parts.length) return parts.join(' · ');
-                    }
-                    return null;
-                  })();
-
-                  return (
-                    <View key={acc.accountId} style={{
-                      backgroundColor: isCurrent ? C.navy50 : needsLogin ? '#FFFBEB' : C.white,
-                      borderRadius: 16, padding: 14, marginBottom: 10,
-                      borderWidth: 1.5,
-                      borderColor: isCurrent ? C.navy + '40' : needsLogin ? '#FCD34D' : C.gray200,
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        {/* The same role mark is used throughout the app so
-                            saved accounts remain recognizable at a glance. */}
-                        <View style={{ position: 'relative' }}>
-                          <RoleLogo role={acc.role} size={48} style={needsLogin ? { opacity: 0.6 } : undefined} />
-                          {needsLogin && (
-                            <View style={{
-                              position: 'absolute', top: -4, right: -4, width: 18, height: 18,
-                              borderRadius: 9, backgroundColor: '#F59E0B', borderWidth: 2,
-                              borderColor: C.white, alignItems: 'center', justifyContent: 'center',
-                            }}>
-                              <Text style={{ fontSize: 10, fontWeight: '900', color: C.white }}>!</Text>
-                            </View>
-                          )}
-                        </View>
-
-                        {/* Info */}
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <Text style={{ fontSize: 14, fontWeight: '700', color: isCurrent ? C.navy : C.gray900 }}>
-                              {acc.fullName || acc.username}
-                            </Text>
-                            {isCurrent && (
-                              <View style={{ backgroundColor: C.navy, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>
-                                <Text style={{ fontSize: 9, fontWeight: '700', color: '#fff' }}>ACTIVE</Text>
-                              </View>
-                            )}
-                            {needsLogin && (
-                              <View style={{ backgroundColor: '#FEF3C7', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#FCD34D' }}>
-                                <Text style={{ fontSize: 9, fontWeight: '700', color: '#92400E' }}>LOGIN REQUIRED</Text>
-                              </View>
-                            )}
-                          </View>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                            <View style={{ backgroundColor: badgeColor + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
-                              <Text style={{ fontSize: 10, fontWeight: '700', color: badgeColor }}>{acc.role}</Text>
-                            </View>
-                            {acc.tenantName ? (
-                              <Text style={{ fontSize: 11, color: C.gray500 }} numberOfLines={1}>{acc.tenantName}</Text>
-                            ) : (
-                              <Text style={{ fontSize: 11, color: C.gray400 }}>@{acc.username}</Text>
-                            )}
-                          </View>
-                          {cachedLine && !needsLogin && (
-                            <Text style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>{cachedLine}</Text>
-                          )}
-                        </View>
-
-                        {/* Actions */}
-                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                          {!isCurrent && (
-                            <TouchableOpacity
-                              onPress={() => handleSwitchAccount(acc)}
-                              style={{
-                                backgroundColor: needsLogin ? '#F59E0B' : C.navy,
-                                borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6,
-                              }}
-                            >
-                              <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>
-                                {needsLogin ? 'Login' : 'Switch'}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            onPress={() => handleAccountOptions(acc)}
-                            style={{ padding: 6 }}
-                          >
-                            <Text style={{ fontSize: 20, color: C.gray400, lineHeight: 20 }}>⋮</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-
-                {/* Add account button */}
-                <TouchableOpacity
-                  onPress={() => {
-                    onClose();
-                    router.push({ pathname: '/(auth)/login', params: { addAccount: '1' } } as any);
-                  }}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    borderWidth: 1.5, borderColor: C.navy, borderRadius: 14,
-                    padding: 14, marginTop: 4,
-                  }}
-                >
-                  <Text style={{ fontSize: 20, color: C.navy }}>+</Text>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>Add Another Account</Text>
-                </TouchableOpacity>
-
-                <Text style={{ fontSize: 11, color: C.gray400, textAlign: 'center', marginTop: 12 }}>
-                  Accounts are stored securely on this device. Removing an account only removes it from this device.
-                </Text>
-              </>
-            )}
 
             {/* ── History tab ─────────────────────────────────────────────── */}
             {tab === 'history' && (
@@ -814,7 +585,6 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
 
           {/* Footer */}
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200, gap: 10 }}>
-            {tab === 'accounts' && null}
             {tab === 'profile' && (
               otpStep === 'pending' ? (
                 <TouchableOpacity
@@ -858,6 +628,13 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
               </TouchableOpacity>
             )}
 
+            {/* Switch Account — Instagram/Facebook-style account picker, always visible */}
+            <TouchableOpacity
+              onPress={() => { onClose(); router.push('/(auth)/accounts' as any); }}
+              style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 12, padding: 14, alignItems: 'center' }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>Switch Account</Text>
+            </TouchableOpacity>
+
             {/* Logout — always visible */}
             <TouchableOpacity
               onPress={() => Alert.alert('Log Out', 'Sign out of this account? The account will remain saved on this device.', [
@@ -865,8 +642,13 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                 {
                   text: 'Log Out', style: 'destructive',
                   onPress: async () => {
+                    // Revoking the refresh token server-side is a courtesy, not a
+                    // requirement — the account is already being wiped locally, so
+                    // this must never block that (a 20s timeout waiting on a dead
+                    // network made "Log Out" look frozen while offline). Fire it in
+                    // the background and let it fail silently if unreachable.
                     const refreshToken = user ? accounts.find(a => a.userId === user.id)?.refreshToken : undefined;
-                    if (refreshToken) { try { await logoutAccount(refreshToken); } catch {} }
+                    if (refreshToken) { logoutAccount(refreshToken).catch(() => {}); }
                     onClose();
                     await logout();
                   },

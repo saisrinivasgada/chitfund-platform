@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken } from '../../services/api';
+import { accountStorageId, useAuthStore } from '../../store/authStore';
+import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken, getMe } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import OtpCodeInput from '../../components/OtpCodeInput';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -340,8 +340,17 @@ export default function LoginScreen() {
   const router  = useRouter();
 
   // "Add account" mode — navigated here from Accounts tab in profile
-  const { addAccount } = useLocalSearchParams<{ addAccount?: string }>();
+  const { addAccount, username: presetUsername } = useLocalSearchParams<{ addAccount?: string; username?: string }>();
   const isAddAccountMode = addAccount === '1';
+  // Re-login for a specific saved account (tapped "Login" on its card) already
+  // knows which account this is — lock the username so it can't be fat-fingered
+  // into logging into a different one, and drop the user straight into the
+  // password field.
+  const isLockedUsername = !!presetUsername;
+
+  useEffect(() => {
+    if (presetUsername) setUsername(presetUsername);
+  }, [presetUsername]);
 
   const checkBiometric = useCallback(async () => {
     const [avail, enabled, label] = await Promise.all([
@@ -381,6 +390,12 @@ export default function LoginScreen() {
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });
+    // Backfill the account's own phone in the background so it can be shown
+    // on the Instagram-style account switcher card.
+    const accountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');
+    getMe().then((me: any) => {
+      if (me?.phone) useAuthStore.getState().updateAccountPhone(accountId, me.phone, me.phoneCountryCode);
+    }).catch(() => {});
     if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
       setPendingCreds({ username: username.trim(), refreshToken: data.refreshToken });
       setShowEnablePrompt(true);
@@ -562,7 +577,7 @@ export default function LoginScreen() {
               style={{ width: 200, height: 90, resizeMode: 'contain' }}
             />
             <Text style={{ fontSize: 14, color: C.white + 'AA', marginTop: 8 }}>
-              {isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management'}
+              {isLockedUsername ? `Sign in as @${presetUsername}` : isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management'}
             </Text>
           </View>
 
@@ -573,7 +588,7 @@ export default function LoginScreen() {
             shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
           }}>
             <Text style={{ fontSize: 20, fontWeight: '700', color: C.navy, marginBottom: 20 }}>
-              {isAddAccountMode ? 'Add Account' : 'Sign In'}
+              {isLockedUsername ? 'Welcome Back' : isAddAccountMode ? 'Add Account' : 'Sign In'}
             </Text>
 
             <Input
@@ -583,6 +598,7 @@ export default function LoginScreen() {
               placeholder="Enter your username"
               autoCapitalize="none"
               returnKeyType="next"
+              editable={!isLockedUsername}
             />
             <View style={{ height: 14 }} />
             <Input

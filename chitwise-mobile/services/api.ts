@@ -560,10 +560,13 @@ export const getActiveCashRequests = async () =>
   unwrapList(await api.get('/payments/requests/active'));
 export const createCashRequest = async (chitId: string, requestedAmount: number, notes?: string) =>
   unwrapObj(await api.post('/payments/requests', { chitId, requestedAmount, notes }));
-export const adminCreateCashRequest = async (memberId: string, chitId: string, requestedAmount: number, staffId?: string, notes?: string) => {
+export const adminCreateCashRequest = async (
+  memberId: string, chitId: string, requestedAmount: number, staffId?: string, notes?: string,
+  allocations?: Array<{ chitId: string; amount: number }>,
+) => {
   const params: any = { memberId };
   if (staffId) params.staffId = staffId;
-  return unwrapObj(await api.post('/payments/requests/admin', { chitId, requestedAmount, notes }, { params }));
+  return unwrapObj(await api.post('/payments/requests/admin', { chitId, requestedAmount, notes, allocations }, { params }));
 };
 export const assignStaffToRequest = async (requestId: string, staffId: string, adminNotes?: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes }));

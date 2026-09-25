@@ -7,9 +7,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMyAssignedRequests, getMyStaffHistory, getMyPendingBatches,
-  markPickedUp, cancelByStaff, partiallyCollectCashRequest, rescheduleRequest,
+  cancelByStaff, rescheduleRequest,
   getMembers, getChits, listStaff,
 } from '../../../services/api';
+import { markPickupOfflineCapable, partialCollectOfflineCapable } from '../../../offline/staffQueue';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, ListLoadingScreen, fmtDate, fmtDateTime,
 } from '../../../components/ui';
@@ -128,10 +129,12 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   }
 
   const pickupMut = useMutation({
-    mutationFn: () => markPickedUp(task.id),
-    onSuccess: () => {
+    mutationFn: () => markPickupOfflineCapable(task.id),
+    onSuccess: (res) => {
       invalidate();
-      toast.collected('Marked as picked up — hand the cash to admin');
+      toast.collected(res?.offlineQueued
+        ? 'Saved offline — will sync when connected'
+        : 'Marked as picked up — hand the cash to admin');
       onClose();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to mark as picked up'),
@@ -148,10 +151,12 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   });
 
   const partialMut = useMutation({
-    mutationFn: () => partiallyCollectCashRequest(task.id, Number(partialAmount)),
-    onSuccess: () => {
+    mutationFn: () => partialCollectOfflineCapable(task.id, Number(partialAmount)),
+    onSuccess: (res) => {
       invalidate();
-      toast.saved('Partial collection submitted — member must approve');
+      toast.saved(res?.offlineQueued
+        ? 'Saved offline — will sync when connected'
+        : 'Partial collection submitted — member must approve');
       onClose();
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
@@ -370,7 +375,19 @@ export default function ManagerPickupsScreen() {
   const pickedUp = (tasks as any[]).filter((t) => t.status === 'PICKED_UP');
   const partial = (tasks as any[]).filter((t) => t.status === 'PARTIALLY_COLLECTED');
 
-  const cashInHand = pickedUp.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0)
+  // Unified "cash not yet reconciled by admin" queue — same reasoning as the
+  // staff screen: a picked-up CashRequest (no ledger effect yet) and an
+  // AWAITING_REMITTANCE PaymentBatch (admin still needs to remit to treasury)
+  // both mean "I'm holding cash the admin hasn't reconciled yet" from the
+  // manager's point of view, so they're shown as one sorted queue with a
+  // stage badge per card instead of two disconnected lists.
+  type CustodyItem = { kind: 'pickup' | 'batch'; id: string; memberId: string; chitId?: string; amount: number; at?: string; raw?: any };
+  const custodyItems: CustodyItem[] = [
+    ...pickedUp.map((t: any): CustodyItem => ({ kind: 'pickup', id: t.id, memberId: t.memberId, chitId: t.chitId, amount: Number(t.requestedAmount ?? 0), at: t.pickedUpAt, raw: t })),
+    ...(pendingBatches as any[]).map((b: any): CustodyItem => ({ kind: 'batch', id: b.id, memberId: b.memberId, chitId: b.chitId, amount: Number(b.amount ?? b.totalAmount ?? 0), at: b.collectedAt ?? b.createdAt })),
+  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+
+  const cashInHand = custodyItems.reduce((s, item) => s + item.amount, 0)
     + partial.reduce((s: number, t: any) => s + Number(t.collectedAmount ?? 0), 0);
   const toCollect = assigned.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
 
@@ -425,7 +442,7 @@ export default function ManagerPickupsScreen() {
                     ₹{cashInHand.toLocaleString('en-IN')}
                   </Text>
                   <Text style={{ fontSize: 10, color: cashInHand > 0 ? '#92400E' : C.gray400, marginTop: 2 }}>
-                    {pickedUp.length + partial.length} with you
+                    {custodyItems.length + partial.length} with you
                   </Text>
                 </View>
                 <View style={{
@@ -445,31 +462,62 @@ export default function ManagerPickupsScreen() {
                 </View>
               </View>
 
-              {/* Awaiting admin confirmation */}
-              {pickedUp.length > 0 && (
+              {/* Cash not yet reconciled by admin — unified queue across both
+                  the CashRequest pickup flow and the direct payment-batch flow. */}
+              {custodyItems.length > 0 && (
                 <View style={{ marginBottom: 16 }}>
-                  <Text style={{ ...T.label, marginBottom: 8 }}>AWAITING CONFIRMATION ({pickedUp.length})</Text>
-                  {pickedUp.map((t: any) => (
-                    <TouchableOpacity key={t.id} activeOpacity={0.75} onPress={() => setTrail(t)}>
-                      <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
+                  <Text style={{ ...T.label, marginBottom: 8 }}>CASH WITH YOU — PENDING ADMIN ACTION ({custodyItems.length})</Text>
+                  {custodyItems.map((item) => {
+                    const isPickup = item.kind === 'pickup';
+                    const stageColor = isPickup ? C.green : C.amber;
+                    const breakdown: any[] = (item.raw?.allocations ?? []);
+                    const hasBreakdown = isPickup && breakdown.length > 1;
+                    const body = (
+                      <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: stageColor }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{nameOf(t.memberId)}</Text>
-                            {t.chitId && chitMap[t.chitId] && (
-                              <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[t.chitId]}</Text>
+                            <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{nameOf(item.memberId)}</Text>
+                            {item.chitId && chitMap[item.chitId] && (
+                              <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[item.chitId]}</Text>
                             )}
                           </View>
                           <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                            <Amount value={t.requestedAmount} size="sm" color={C.green} />
-                            <Badge status="PICKED_UP" />
+                            <Amount value={item.amount} size="sm" color={stageColor} />
+                            <View style={{ backgroundColor: stageColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: stageColor }}>
+                                {isPickup ? 'PICKED UP' : 'AWAITING REMITTANCE'}
+                              </Text>
+                            </View>
                           </View>
                         </View>
-                        <Text style={{ fontSize: 11, color: C.green, marginTop: 6 }}>
-                          Picked up {fmtDate(t.pickedUpAt)} · Tap to view trail
-                        </Text>
+                        {/* Multi-chit requests always show their split here — the card's
+                            own tap gesture already opens the audit trail, so this can't
+                            be a separate tap-to-expand without fighting that gesture. */}
+                        {hasBreakdown && (
+                          <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginTop: 8, gap: 4 }}>
+                            {breakdown.map((a: any) => (
+                              <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                                <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                        {item.at && (
+                          <Text style={{ fontSize: 11, color: stageColor, marginTop: 6 }}>
+                            {isPickup ? 'Picked up' : 'Recorded'} {fmtDate(item.at)}{isPickup ? ' · Tap to view trail' : ''}
+                          </Text>
+                        )}
                       </Card>
-                    </TouchableOpacity>
-                  ))}
+                    );
+                    return isPickup ? (
+                      <TouchableOpacity key={`${item.kind}-${item.id}`} activeOpacity={0.75} onPress={() => setTrail(item.raw)}>
+                        {body}
+                      </TouchableOpacity>
+                    ) : (
+                      <View key={`${item.kind}-${item.id}`}>{body}</View>
+                    );
+                  })}
                 </View>
               )}
 
@@ -502,26 +550,6 @@ export default function ManagerPickupsScreen() {
                 </View>
               )}
 
-              {/* Pending remittance batches */}
-              {(pendingBatches as any[]).length > 0 && (
-                <View style={{ marginBottom: 16 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber, letterSpacing: 0.5, marginBottom: 8 }}>
-                    PENDING REMITTANCE ({(pendingBatches as any[]).length})
-                  </Text>
-                  {(pendingBatches as any[]).map((b: any) => (
-                    <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{nameOf(b.memberId)}</Text>
-                        <Amount value={b.totalAmount ?? b.amount ?? 0} size="sm" color={C.amber} />
-                      </View>
-                      <Text style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>
-                        Cash collected — awaiting admin to confirm receipt
-                      </Text>
-                    </Card>
-                  ))}
-                </View>
-              )}
-
               {assigned.length > 0 && (
                 <Text style={{ ...T.label, marginBottom: 8 }}>TO COLLECT ({assigned.length})</Text>
               )}
@@ -530,7 +558,7 @@ export default function ManagerPickupsScreen() {
         }
         ListEmptyComponent={
           tab === 'pickups'
-            ? (pickedUp.length === 0 && partial.length === 0 && (pendingBatches as any[]).length === 0
+            ? (custodyItems.length === 0 && partial.length === 0
                 ? <EmptyState title="No active pickups" message="Cash pickups assigned to you appear here." />
                 : null)
             : <EmptyState title="No collection history" message="Completed and cancelled pickups appear here." />

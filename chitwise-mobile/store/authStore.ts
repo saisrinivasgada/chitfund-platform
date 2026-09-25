@@ -25,6 +25,8 @@ export interface AuthUser {
   chatEnabled?: boolean;
   adminPhone?: string;
   adminEmail?: string;
+  phone?: string;
+  phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
 }
@@ -41,6 +43,8 @@ export interface StoredAccount {
   authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
+  phone?: string;
+  phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
   sessionValid: boolean;
@@ -66,6 +70,7 @@ interface AuthState {
   updateTokenForAccount: (userId: string, token: string, refreshToken?: string) => Promise<void>;
   markSessionInvalid: (userId: string) => Promise<void>;
   updateCachedInfo: (userId: string, info: AccountCachedInfo) => Promise<void>;
+  updateAccountPhone: (accountId: string, phone?: string, phoneCountryCode?: string) => Promise<void>;
 }
 
 const TOKEN_KEY         = 'chitwise_token';
@@ -120,6 +125,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         authSource: user.authSource ?? 'ORGANIZATION',
         tenantId: user.tenantId,
         tenantName: user.tenantName,
+        phone: user.phone ?? (idx >= 0 ? existing[idx].phone : undefined),
+        phoneCountryCode: user.phoneCountryCode ?? (idx >= 0 ? existing[idx].phoneCountryCode : undefined),
         canManageIdentityCases: user.canManageIdentityCases,
         platformOwner: user.platformOwner,
         sessionValid: true,
@@ -229,6 +236,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authSource: target.authSource ?? 'ORGANIZATION',
       tenantId: target.tenantId,
       tenantName: target.tenantName,
+      phone: target.phone,
+      phoneCountryCode: target.phoneCountryCode,
       canManageIdentityCases: target.canManageIdentityCases,
       platformOwner: target.platformOwner,
     };
@@ -294,6 +303,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     );
     await saveAccounts(updated);
     set({ accounts: updated });
+  },
+
+  updateAccountPhone: async (accountId: string, phone?: string, phoneCountryCode?: string) => {
+    if (!phone) return;
+    const accounts = await loadAccounts();
+    const updated = accounts.map((a) =>
+      a.accountId === accountId ? { ...a, phone, phoneCountryCode } : a
+    );
+    await saveAccounts(updated);
+    set((s) => {
+      const isCurrentUser = !!s.user
+        && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId;
+      return { accounts: updated, user: isCurrentUser ? { ...s.user!, phone, phoneCountryCode } : s.user };
+    });
   },
 
   loadFromStorage: async () => {

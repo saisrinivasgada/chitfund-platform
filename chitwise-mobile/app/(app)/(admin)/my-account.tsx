@@ -102,17 +102,6 @@ export default function MyAccountScreen() {
             <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => setEditTab('accounts')}
-            activeOpacity={0.7}
-            style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>Saved Accounts</Text>
-              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>Switch or manage linked accounts</Text>
-            </View>
-            <Text style={{ fontSize: 18, color: C.gray300 }}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             onPress={() => setEditTab('history')}
             activeOpacity={0.7}
             style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderTopWidth: 1, borderTopColor: C.gray100 }}
@@ -125,6 +114,15 @@ export default function MyAccountScreen() {
           </TouchableOpacity>
           <View style={{ height: 4 }} />
         </View>
+
+        {/* Switch Account — Instagram/Facebook-style account picker */}
+        <TouchableOpacity
+          onPress={() => router.push('/(auth)/accounts' as any)}
+          activeOpacity={0.75}
+          style={{ borderWidth: 1.5, borderColor: C.navy, borderRadius: 14, padding: 14, alignItems: 'center', marginBottom: 10 }}
+        >
+          <Text style={{ fontSize: 15, fontWeight: '700', color: C.navy }}>Switch Account</Text>
+        </TouchableOpacity>
 
         {/* Logout */}
         <TouchableOpacity

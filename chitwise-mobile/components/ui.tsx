@@ -217,7 +217,7 @@ export function Badge({ status }: { status: string }) {
 export function Input({
   label, value, onChangeText, placeholder, secureTextEntry = false,
   keyboardType = 'default', autoCapitalize = 'none', multiline = false,
-  error, returnKeyType, onSubmitEditing,
+  error, returnKeyType, onSubmitEditing, editable = true,
 }: {
   label?: string;
   value: string;
@@ -230,6 +230,7 @@ export function Input({
   error?: string;
   returnKeyType?: any;
   onSubmitEditing?: () => void;
+  editable?: boolean;
 }) {
   return (
     <View style={{ marginBottom: 4 }}>
@@ -246,6 +247,7 @@ export function Input({
         numberOfLines={multiline ? 3 : 1}
         returnKeyType={returnKeyType}
         onSubmitEditing={onSubmitEditing}
+        editable={editable}
         style={{
           borderWidth: 1.5,
           borderColor: error ? C.red : C.gray300,
@@ -253,8 +255,8 @@ export function Input({
           paddingHorizontal: 14,
           paddingVertical: 11,
           fontSize: 15,
-          color: C.gray900,
-          backgroundColor: C.white,
+          color: editable ? C.gray900 : C.gray500,
+          backgroundColor: editable ? C.white : C.gray100,
           minHeight: multiline ? 80 : undefined,
           textAlignVertical: multiline ? 'top' : 'center',
         }}

@@ -444,6 +444,7 @@ export default function StaffTasksScreen() {
   const qc = useQueryClient();
 
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [expandedCustodyId, setExpandedCustodyId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: tasks = [], isLoading } = useQuery({
@@ -480,7 +481,21 @@ export default function StaffTasksScreen() {
   const pickedUp           = (tasks as any[]).filter((t: any) => t.status === 'PICKED_UP');
   const partiallyCollected = (tasks as any[]).filter((t: any) => t.status === 'PARTIALLY_COLLECTED');
 
-  const holdingAmt = pickedUp.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0)
+  // Unified "cash not yet reconciled by admin" queue. These come from two different
+  // backend paths — a picked-up CashRequest (no ledger effect yet, admin hasn't
+  // confirmed receipt) and an AWAITING_REMITTANCE PaymentBatch (admin still needs
+  // to remit to treasury before FIFO/ledger updates) — but from where the staff
+  // member is standing, both mean the same thing: "I'm holding cash the admin
+  // hasn't reconciled yet." They're shown as one sorted queue instead of two
+  // disconnected lists, with a small stage pill on each card to keep the two
+  // underlying actions distinguishable.
+  type CustodyItem = { kind: 'pickup' | 'batch'; id: string; memberId: string; chitId?: string; amount: number; at?: string; allocations?: any[] };
+  const custodyItems: CustodyItem[] = [
+    ...pickedUp.map((t: any): CustodyItem => ({ kind: 'pickup', id: t.id, memberId: t.memberId, chitId: t.chitId, amount: Number(t.requestedAmount ?? 0), at: t.pickedUpAt, allocations: t.allocations })),
+    ...(pendingBatches as any[]).map((b: any): CustodyItem => ({ kind: 'batch', id: b.id, memberId: b.memberId, chitId: b.chitId, amount: Number(b.amount ?? b.totalAmount ?? 0), at: b.collectedAt ?? b.createdAt })),
+  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+
+  const holdingAmt = custodyItems.reduce((s, item) => s + item.amount, 0)
     + partiallyCollected.reduce((s: number, t: any) => s + Number(t.collectedAmount ?? 0), 0);
   const needAmt  = assigned.reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
   const today    = new Date().toDateString();
@@ -496,7 +511,7 @@ export default function StaffTasksScreen() {
 
   if (isLoading) return <LoadingScreen />;
 
-  const empty = assigned.length === 0 && pickedUp.length === 0 && partiallyCollected.length === 0 && (pendingBatches as any[]).length === 0;
+  const empty = assigned.length === 0 && custodyItems.length === 0 && partiallyCollected.length === 0;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -527,7 +542,7 @@ export default function StaffTasksScreen() {
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
               {[
                 { label: 'TO COLLECT', amt: needAmt, count: assigned.length, color: C.navy, bg: C.navy50 },
-                { label: 'HOLDING',    amt: holdingAmt, count: pickedUp.length + partiallyCollected.length, color: C.amber, bg: '#FFFBEB' },
+                { label: 'HOLDING',    amt: holdingAmt, count: custodyItems.length + partiallyCollected.length, color: C.amber, bg: '#FFFBEB' },
                 { label: 'TODAY',      amt: todayAmt, count: 0, color: C.green, bg: '#F0FDF4' },
               ].map(({ label, amt, count, color, bg }) => (
                 <View key={label} style={{
@@ -544,30 +559,71 @@ export default function StaffTasksScreen() {
               ))}
             </View>
 
-            {/* Awaiting admin confirmation */}
-            {pickedUp.length > 0 && (
+            {/* Cash not yet reconciled by admin — unified queue across both
+                the CashRequest pickup flow and the direct payment-batch flow. */}
+            {custodyItems.length > 0 && (
               <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: C.green, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-                  ✓ Collected — awaiting admin confirmation ({pickedUp.length})
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                  Cash with you — pending admin action ({custodyItems.length})
                 </Text>
-                {pickedUp.map((t: any) => (
-                  <Card key={t.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
-                          {memberMap[t.memberId] ?? `Member`}
-                        </Text>
-                        {t.chitId && chitMap[t.chitId] && (
-                          <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[t.chitId]}</Text>
+                {custodyItems.map((item) => {
+                  const isPickup = item.kind === 'pickup';
+                  const stageColor = isPickup ? C.green : C.amber;
+                  const itemKey = `${item.kind}-${item.id}`;
+                  const breakdown = item.allocations ?? [];
+                  const hasBreakdown = isPickup && breakdown.length > 1;
+                  const isExpanded = expandedCustodyId === itemKey;
+                  return (
+                    <Card key={itemKey} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: stageColor }}>
+                      <TouchableOpacity
+                        activeOpacity={hasBreakdown ? 0.6 : 1}
+                        disabled={!hasBreakdown}
+                        onPress={() => setExpandedCustodyId(isExpanded ? null : itemKey)}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                                {memberMap[item.memberId] ?? `Member`}
+                              </Text>
+                              {hasBreakdown && (
+                                <Text style={{ fontSize: 11, color: C.gray400 }}>
+                                  {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                                </Text>
+                              )}
+                            </View>
+                            {item.chitId && chitMap[item.chitId] && (
+                              <Text style={{ fontSize: 12, color: C.navy, marginTop: 1 }}>{chitMap[item.chitId]}</Text>
+                            )}
+                            {item.at && (
+                              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>
+                                {isPickup ? 'Collected' : 'Recorded'} {fmtDate(item.at)}
+                              </Text>
+                            )}
+                          </View>
+                          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                            <Amount value={item.amount} size="sm" color={stageColor} />
+                            <View style={{ backgroundColor: stageColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: stageColor }}>
+                                {isPickup ? 'PICKED UP' : 'AWAITING REMITTANCE'}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                        {isExpanded && hasBreakdown && (
+                          <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginTop: 8, gap: 4 }}>
+                            {breakdown.map((a: any) => (
+                              <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                                <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                              </View>
+                            ))}
+                          </View>
                         )}
-                        <Text style={{ fontSize: 11, color: C.gray400, marginTop: 3 }}>
-                          Collected {fmtDate(t.pickedUpAt)}
-                        </Text>
-                      </View>
-                      <Amount value={t.requestedAmount} size="sm" color={C.green} />
-                    </View>
-                  </Card>
-                ))}
+                      </TouchableOpacity>
+                    </Card>
+                  );
+                })}
               </View>
             )}
 
@@ -589,25 +645,6 @@ export default function StaffTasksScreen() {
                         </Text>
                       </View>
                       <Badge status="PARTIALLY_COLLECTED" />
-                    </View>
-                  </Card>
-                ))}
-              </View>
-            )}
-
-            {/* Pending remittance */}
-            {(pendingBatches as any[]).length > 0 && (
-              <View style={{ marginBottom: 16 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: C.amber, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
-                  Pending remittance to admin ({(pendingBatches as any[]).length})
-                </Text>
-                {(pendingBatches as any[]).map((b: any) => (
-                  <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                        {memberMap[b.memberId] ?? `Member`}
-                      </Text>
-                      <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />
                     </View>
                   </Card>
                 ))}
