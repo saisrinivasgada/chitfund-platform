@@ -1112,7 +1112,7 @@ export default function AdminChitsScreen() {
           CHIT DETAIL MODAL
       ════════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1877,7 +1877,7 @@ export default function AdminChitsScreen() {
                     </View>
                   ) : activeSlots.map((slot: any, i: number) => (
                     <View key={slot.id ?? i} style={{
-                      backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8,
+                      backgroundColor: C.surface, borderRadius: 10, padding: 12, marginBottom: 8,
                       borderWidth: 1, borderColor: C.gray200, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                     }}>
                       <View>
@@ -2289,7 +2289,7 @@ export default function AdminChitsScreen() {
                           For members who can't use the app. Recorded in their name and fully audited.
                         </Text>
                         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                          <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8 }}>
+                          <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8 }}>
                             <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '600', marginBottom: 4 }}>MEMBER</Text>
                             {(enrollments as any[]).filter((e: any) => e.active).map((e: any) => (
                               <TouchableOpacity
@@ -2309,7 +2309,7 @@ export default function AdminChitsScreen() {
                         </View>
                         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                           <TextInput
-                            style={{ flex: 1, backgroundColor: C.white, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: C.gray900 }}
+                            style={{ flex: 1, backgroundColor: C.surface, borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE', paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: C.gray900 }}
                             placeholder="Bid amount (₹)"
                             placeholderTextColor={C.gray400}
                             keyboardType="numeric"
@@ -2375,7 +2375,7 @@ export default function AdminChitsScreen() {
                           const isOnline = selected?.auctionMode === 'ONLINE';
                           return (
                             <View key={s.id ?? i} style={{
-                              backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8,
+                              backgroundColor: C.surface, borderRadius: 10, padding: 12, marginBottom: 8,
                               borderWidth: 1, borderColor: C.gray200,
                             }}>
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -2438,7 +2438,7 @@ export default function AdminChitsScreen() {
       {/* ── Open Auction Modal ──────────────────────────────────────────────────── */}
       <Modal visible={showOpenAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowOpenAuction(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Open Auction</Text>
             <TouchableOpacity onPress={() => setShowOpenAuction(false)}>
@@ -2542,7 +2542,7 @@ export default function AdminChitsScreen() {
       {/* ── Close Auction Modal ─────────────────────────────────────────────────── */}
       <Modal visible={showCloseAuction} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowCloseAuction(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Close Auction</Text>
             <TouchableOpacity onPress={() => setShowCloseAuction(false)}>
@@ -2606,7 +2606,7 @@ export default function AdminChitsScreen() {
       {/* ── Extend Time Modal ───────────────────────────────────────────────────── */}
       <Modal visible={showExtend} animationType="slide" presentationStyle="formSheet"
         onRequestClose={() => setShowExtend(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>{extendSession?.status === 'CLOSED' ? 'Reopen & Extend' : 'Extend Auction Time'}</Text>
             <TouchableOpacity onPress={() => setShowExtend(false)}>
@@ -2670,7 +2670,7 @@ export default function AdminChitsScreen() {
       ════════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet"
         onRequestClose={() => setShowEditModal(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
               <Text style={T.h2}>Edit Chit Details</Text>
@@ -2857,7 +2857,7 @@ export default function AdminChitsScreen() {
       ════════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet"
         onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View>
@@ -2929,7 +2929,7 @@ export default function AdminChitsScreen() {
                         borderColor: selected ? C.navy : C.gray300,
                         backgroundColor: selected ? C.navy : 'transparent',
                         alignItems: 'center', justifyContent: 'center' }}>
-                        {selected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.white }} />}
+                        {selected && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
                       </View>
                     </TouchableOpacity>
                   );
@@ -3054,7 +3054,7 @@ export default function AdminChitsScreen() {
                       borderColor: cPostPayoutEnabled === val ? C.navy : C.gray300,
                       backgroundColor: cPostPayoutEnabled === val ? C.navy : 'transparent',
                       alignItems: 'center', justifyContent: 'center' }}>
-                      {cPostPayoutEnabled === val && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.white }} />}
+                      {cPostPayoutEnabled === val && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.surface }} />}
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -3263,7 +3263,7 @@ export default function AdminChitsScreen() {
       {/* ── Enroll Member bottom-sheet ─────────────────────────────────────── */}
       <Modal visible={showEnroll} animationType="slide" transparent onRequestClose={() => setShowEnroll(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 4 }}>Enroll Member</Text>
             {isLotteryChit && (
               <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 12 }}>Each spot = one lottery entry. A member with 2 spots can win up to 2 draws.</Text>
@@ -3333,7 +3333,7 @@ export default function AdminChitsScreen() {
       {/* ── Record Winner bottom-sheet ─────────────────────────────────────── */}
       <Modal visible={showWinner} animationType="slide" transparent onRequestClose={() => setShowWinner(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '65%' }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Record Draw Winner</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>Select the member who won this draw</Text>
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
@@ -3379,7 +3379,7 @@ export default function AdminChitsScreen() {
       {/* ── Open Draw bottom-sheet ─────────────────────────────────────────── */}
       <Modal visible={showOpenDraw} animationType="slide" transparent onRequestClose={() => setShowOpenDraw(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>
@@ -3560,7 +3560,7 @@ export default function AdminChitsScreen() {
       {/* ── Skip Draw bottom-sheet ─────────────────────────────────────────── */}
       <Modal visible={showSkipDraw} animationType="slide" transparent onRequestClose={() => setShowSkipDraw(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Skip Draw</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
               Skipping shifts all future reservation slots forward by 1 draw.
@@ -3595,7 +3595,7 @@ export default function AdminChitsScreen() {
       {/* ── Add Slot bottom-sheet ─────────────────────────────────────────── */}
       <Modal visible={showAddSlot} animationType="slide" transparent onRequestClose={() => setShowAddSlot(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Add Reservation Slot</Text>
               <TouchableOpacity onPress={() => setShowAddSlot(false)}>
@@ -3645,7 +3645,7 @@ export default function AdminChitsScreen() {
       {/* ── Void Slot bottom-sheet ─────────────────────────────────────────── */}
       <Modal visible={showVoidSlot} animationType="slide" transparent onRequestClose={() => setShowVoidSlot(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Slot</Text>
             {vsSlot && (
               <Text style={{ fontSize: 13, color: C.gray600, marginBottom: 16 }}>
@@ -3687,7 +3687,7 @@ export default function AdminChitsScreen() {
       {/* ── Void Payment Batch Modal ──────────────────────────────────────── */}
       <Modal visible={!!voidBatchId} animationType="slide" transparent onRequestClose={() => setVoidBatchId('')}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Payment</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               This reverses the payment record. The member's balance will be updated accordingly.
@@ -3709,7 +3709,7 @@ export default function AdminChitsScreen() {
       {/* ── Swap Slots bottom-sheet ────────────────────────────────────────── */}
       <Modal visible={showSwap} animationType="slide" transparent onRequestClose={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Swap Slots</Text>
               <TouchableOpacity onPress={() => { setShowSwap(false); setSwapA(''); setSwapB(''); }}>
@@ -3785,7 +3785,7 @@ export default function AdminChitsScreen() {
       {/* ── Shift Schedule bottom-sheet ────────────────────────────────────── */}
       <Modal visible={showShift} animationType="slide" transparent onRequestClose={() => setShowShift(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.amber, marginBottom: 4 }}>Shift Schedule</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
               Push all reserved slots from this draw onwards forward by 1 draw. Use after skipping a draw.
@@ -3816,7 +3816,7 @@ export default function AdminChitsScreen() {
       {/* ── Collect Payment bottom-sheet ───────────────────────────────────── */}
       <Modal visible={showCollectPay} animationType="slide" transparent onRequestClose={() => setShowCollectPay(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Collect Payment</Text>
@@ -3915,7 +3915,7 @@ export default function AdminChitsScreen() {
       {/* ── Create Payout from Winner (bottom-sheet, stacks over pageSheet detail) ── */}
       <Modal visible={showWinnerPayout} animationType="slide" transparent onRequestClose={() => setShowWinnerPayout(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900 }}>Create Payout</Text>
               <TouchableOpacity onPress={() => setShowWinnerPayout(false)}>
@@ -3995,7 +3995,7 @@ export default function AdminChitsScreen() {
       {/* ── Disburse Payout bottom-sheet ─────────────────────────────────────── */}
       <Modal visible={showDisburse} animationType="slide" transparent onRequestClose={() => setShowDisburse(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' }}>
             <ScrollView contentContainerStyle={{ padding: 24 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <Text style={{ fontSize: 18, fontWeight: '700', color: C.green }}>Disburse Payout</Text>
@@ -4083,7 +4083,7 @@ export default function AdminChitsScreen() {
       {/* ── Payout Detail bottom-sheet ────────────────────────────────────────── */}
       <Modal visible={showPayoutDetail} animationType="slide" transparent onRequestClose={() => setShowPayoutDetail(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <SafeAreaView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
+          <SafeAreaView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%' }}>
             <ScrollView contentContainerStyle={{ padding: 24 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Payout Details</Text>

@@ -294,7 +294,7 @@ export default function AdminTeamScreen() {
 
       {/* ── Staff Detail Modal ─────────────────────────────────────────────── */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flex: 1 }}>
@@ -382,7 +382,7 @@ export default function AdminTeamScreen() {
                   {pendingPickups.map((r: any) => {
                     const st = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.ASSIGNED;
                     return (
-                      <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={r.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                             <Text style={{ fontSize: 11, fontWeight: '700', color: st.color }}>{st.label}</Text>
@@ -700,7 +700,7 @@ export default function AdminTeamScreen() {
                   {requestHistory.slice(0, 10).map((r: any) => {
                     const st = REQUEST_STATUS[r.status] ?? REQUEST_STATUS.COLLECTED;
                     return (
-                      <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={r.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{ backgroundColor: st.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
                             <Text style={{ fontSize: 11, fontWeight: '700', color: st.color }}>{st.label}</Text>
@@ -739,7 +739,7 @@ export default function AdminTeamScreen() {
                     const done = b.status === 'COMPLETED';
                     const awaiting = b.status === 'AWAITING_REMITTANCE';
                     return (
-                      <View key={b.id} style={{ backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
+                      <View key={b.id} style={{ backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.gray200 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                           <View style={{
                             borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
@@ -799,7 +799,7 @@ export default function AdminTeamScreen() {
       {/* ── Create Staff Modal ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Add Staff Member</Text>
             <TouchableOpacity onPress={() => setShowCreate(false)} style={{ padding: 8, backgroundColor: C.gray100, borderRadius: 8 }}>

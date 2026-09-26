@@ -430,7 +430,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       <Modal visible={showSetup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowSetup(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.surface }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Setup Cash Pickup</Text>
             <TouchableOpacity onPress={() => setShowSetup(false)}>
               <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
@@ -439,7 +439,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
           <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
 
             {/* Step 1 — Select Member */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>1. Select Member *</Text>
               <TextInput
                 value={setupMemberSearch}
@@ -474,7 +474,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 2 — Select Chit */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: setupMemberId ? C.gray200 : C.gray100 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: setupMemberId ? C.gray200 : C.gray100 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: setupMemberId ? C.gray700 : C.gray400, marginBottom: 10 }}>2. Select Chit *</Text>
               {!setupMemberId ? (
                 <Text style={{ fontSize: 12, color: C.gray400 }}>Select a member first</Text>
@@ -503,7 +503,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 3 — Amount */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>3. Amount (₹) *</Text>
               <TextInput
                 value={setupAmount}
@@ -516,7 +516,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 4 — Assign Staff (optional) */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Staff</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Optional — leave empty to assign later</Text>
               <View style={{ maxHeight: 180 }}>
@@ -544,7 +544,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 5 — Notes */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>5. Notes (optional)</Text>
               <TextInput
                 value={setupNotes}
@@ -588,7 +588,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Edit Cash Request Modal ─────────────────────────────────────────── */}
       <Modal visible={!!editTarget} animationType="slide" transparent onRequestClose={() => setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Edit Cash Pickup</Text>
               <TouchableOpacity onPress={() => setEditTarget(null)}>
@@ -657,7 +657,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Void Pickup Modal ───────────────────────────────────────────────── */}
       <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               This reverts the request back to Assigned — the staff member must physically re-collect and re-mark pickup.
@@ -678,7 +678,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Assign Staff Modal ─────────────────────────────────────────────── */}
       <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Staff</Text>
@@ -726,7 +726,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Audit Trail Modal ────────────────────────────────────────────────── */}
       <Modal visible={!!auditTarget} animationType="slide" transparent onRequestClose={() => setAuditTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Pickup Trail</Text>
               <TouchableOpacity onPress={() => setAuditTarget(null)}>
@@ -1030,7 +1030,7 @@ function RecordPaymentTab() {
       </View>
       <TextInput value={memberSearch} onChangeText={setMemberSearch} placeholder="Search name or phone…"
         placeholderTextColor={C.gray400}
-        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }} />
+        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.surface }} />
       <ScrollView style={{ maxHeight: 160, marginBottom: 16, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
         {filteredMembers.map((m: any) => (
           <TouchableOpacity key={m.id}
@@ -1052,7 +1052,7 @@ function RecordPaymentTab() {
       {/* Member info sheet */}
       <Modal visible={!!memberInfoId} animationType="slide" transparent onRequestClose={() => setMemberInfoId('')}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             {(() => {
               const mi = (members as any[]).find((m: any) => m.id === memberInfoId);
               if (!mi) return null;
@@ -1105,7 +1105,7 @@ function RecordPaymentTab() {
                           value={selectedAllocations[c.id]}
                           onChangeText={(value) => setSelectedAllocations((current) => ({ ...current, [c.id]: value }))}
                           keyboardType="numeric"
-                          style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.white }}
+                          style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.surface }}
                         />
                       </View>
                     )}
@@ -1430,7 +1430,7 @@ function RecordPaymentTab() {
       {/* ── Void batch modal ───────────────────────────────────────────────── */}
       <Modal visible={!!voidBatchId} animationType="slide" transparent>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 12 }}>Void Payment</Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -1840,7 +1840,7 @@ function PayoutsTab() {
 
       {/* ── Create Payout Modal ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Create Payout</Text>
             <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
@@ -2197,7 +2197,7 @@ function PayoutsTab() {
       {/* ── Disburse Modal ───────────────────────────────────────────────────── */}
       <Modal visible={!!disburseTarget} animationType="slide" transparent onRequestClose={() => setDisburseTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.green, marginBottom: 4 }}>Disburse Payout</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               Winner: {(memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] as any)?.fullName ?? '—'}
@@ -2236,7 +2236,7 @@ function PayoutsTab() {
       {/* ── Cancel / Void Modal ──────────────────────────────────────────────── */}
       <Modal visible={!!actionTarget} animationType="slide" transparent onRequestClose={() => setActionTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>
               {actionType === 'cancel' ? 'Cancel Payout' : 'Void Payout'}
             </Text>
@@ -2412,7 +2412,7 @@ function TreasuryTab() {
       {/* Add Transaction Modal */}
       <Modal visible={showAdd} animationType="slide" transparent>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: txType === 'DEPOSIT' ? C.green : C.red, marginBottom: 16 }}>
               {txType === 'DEPOSIT' ? '+ Add Deposit' : '− Record Withdrawal'}
             </Text>
@@ -2503,7 +2503,7 @@ function TreasuryTab() {
 
       {/* Transaction Detail Modal */}
       <Modal visible={!!selectedTx} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedTx(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Transaction Detail</Text>
             <TouchableOpacity onPress={() => setSelectedTx(null)}
@@ -2560,7 +2560,7 @@ function TreasuryTab() {
       {/* Treasury Load More */}
       {(txns as any[]).length > txShowCount && (
         <TouchableOpacity onPress={() => setTxShowCount(c => c + 20)}
-          style={{ margin: 16, marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+          style={{ margin: 16, marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({(txns as any[]).length - txShowCount} remaining)</Text>
         </TouchableOpacity>
       )}
@@ -2840,7 +2840,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             onChangeText={(t) => { setMemberSearch(t); if (!t) setMemberId(''); }}
             placeholder="Search name or phone…"
             placeholderTextColor={C.gray400}
-            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.surface }}
           />
           <ScrollView style={{ maxHeight: 200, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
             {filteredMembers.map((m: any) => (
@@ -3095,7 +3095,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                 multiline
                 placeholder="Mandatory reason for replacing this settlement"
                 placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1, borderColor: '#FCD34D', borderRadius: 8, padding: 10, backgroundColor: C.white, minHeight: 55, textAlignVertical: 'top' }}
+                style={{ borderWidth: 1, borderColor: '#FCD34D', borderRadius: 8, padding: 10, backgroundColor: C.surface, minHeight: 55, textAlignVertical: 'top' }}
               />
             </View>
           )}
@@ -3196,7 +3196,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
 
       {/* ── Settlement Detail Modal ────────────────────────────────────────── */}
       <Modal visible={!!detailSettlement} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailSettlement(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {detailSettlement && (() => {
             const s = detailSettlement;
             const net = Number(s.netAmount ?? 0);
@@ -3583,7 +3583,7 @@ function RemittanceTab() {
       {/* Void reason modal (for when more context is needed) */}
       <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 8 }}>Cancel Remittance</Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -3707,7 +3707,7 @@ function HistoryTab() {
           const b = selectedBatch;
           const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
           return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
                 <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
                 <TouchableOpacity onPress={() => setSelectedBatch(null)} style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.gray100, alignItems: 'center', justifyContent: 'center' }}>
@@ -3732,7 +3732,7 @@ function HistoryTab() {
                   </View>
                 </View>
                 {/* Details */}
-                <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, overflow: 'hidden' }}>
+                <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, overflow: 'hidden' }}>
                   {[
                     { label: 'Member', value: memberMap[b.memberId] ?? '—' },
                     { label: 'Chit', value: chitMap[b.chitId] ?? '—' },
@@ -3902,7 +3902,7 @@ function HistoryTab() {
           })}
           {allDisplayedBatches.length > histShowCount && (
             <TouchableOpacity onPress={() => setHistShowCount(c => c + 20)}
-              style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+              style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({allDisplayedBatches.length - histShowCount} remaining)</Text>
             </TouchableOpacity>
           )}

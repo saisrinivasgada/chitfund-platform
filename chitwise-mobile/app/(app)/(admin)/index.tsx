@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, Modal, TextInput, Alert, FlatList, ActivityIndicator, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { NotificationsModal } from '../../../components/NotificationsModal';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,11 +17,47 @@ import {
   createSupportTicket, listMyTickets, getTicketMessages,
   sendTicketMessage, deleteTicketMessage, markTicketRead,
 } from '../../../services/api';
-import { C, T, Card, StatCard, GlassCard, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
+import { C, T, Card, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, SectionHeader, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import RoleLogo from '../../../components/RoleLogo';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
+
+const NEO = {
+  background: '#E8EDF3',
+  surface: '#E8EDF3',
+  highlight: '#FFFFFF',
+  shadow: '#AEB9C7',
+};
+
+function NeoSurface({ children, style }: { children: React.ReactNode; style?: any }) {
+  return <View style={[dashboardStyles.neoSurface, style]}>{children}</View>;
+}
+
+function NeoStatCard({ label, value, sub, accent, onPress }: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}${sub ? `. ${sub}` : ''}`}
+      style={{ flex: 1 }}
+    >
+      <NeoSurface style={{ flex: 1, minHeight: 100 }}>
+        <View style={[dashboardStyles.statAccent, { backgroundColor: accent }]} />
+        <Text style={dashboardStyles.statLabel} numberOfLines={2}>{label}</Text>
+        <Text style={[dashboardStyles.statValue, { color: accent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{value}</Text>
+        {sub ? <Text style={dashboardStyles.statSub} numberOfLines={2}>{sub}</Text> : null}
+      </NeoSurface>
+    </TouchableOpacity>
+  );
+}
 
 export default function AdminDashboard() {
   const { user, logout } = useAuthStore();
@@ -187,25 +223,33 @@ export default function AdminDashboard() {
   if (isLoading) return <LoadingScreen />;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: NEO.background }}>
       <ScrollView
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 36 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
             <RoleLogo role={user?.role} size={44} />
-            <View style={{ flexShrink: 1 }}>
-              <Text style={{ fontSize: 34, fontWeight: '800', color: C.navy, letterSpacing: -1 }}>Dashboard</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray500 }} numberOfLines={1}>
+                {greeting}, {user?.fullName?.split(' ')[0]}
+              </Text>
+              <Text style={{ fontSize: 30, fontWeight: '800', color: C.navy, letterSpacing: -0.8 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Dashboard</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>
+                {user?.tenantName ?? 'Your organization'}
+              </Text>
               <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <EyeToggle />
             <TouchableOpacity onPress={() => setShowNotifs(true)}
-              style={{ position: 'relative', padding: 8, backgroundColor: C.white, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray200 }}>
+              accessibilityRole="button"
+              accessibilityLabel="Open notifications"
+              style={[dashboardStyles.neoIconButton, { position: 'relative' }]}>
               <Text style={{ fontSize: 18 }}>🔔</Text>
               {(unread as number) > 0 && (
                 <View style={{ position: 'absolute', top: 4, right: 4, width: 16, height: 16, borderRadius: 8, backgroundColor: C.red, alignItems: 'center', justifyContent: 'center' }}>
@@ -274,7 +318,7 @@ export default function AdminDashboard() {
                 activeOpacity={0.85}
                 onPress={() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: a.chitId, openTab: 'auction' } })}
                 style={{
-                  backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8,
+                  backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
                   borderWidth: 1.5, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 10,
                 }}
               >
@@ -293,76 +337,59 @@ export default function AdminDashboard() {
           </View>
         )}
 
-        {/* Greeting — above treasury */}
-        <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
-          <Text style={{ fontSize: 20, fontWeight: '800', color: C.navy, letterSpacing: -0.3 }}>
-            {greeting}, {user?.fullName?.split(' ')[0]} 👋
-          </Text>
-        </View>
-
-        {/* Wallet Balance — liquid glass on dark */}
+        {/* Wallet Balance */}
         <TouchableOpacity onPress={() => router.push('/(app)/(admin)/payments')} activeOpacity={0.8}>
-          <View style={{
-            backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 16,
-            overflow: 'hidden',
-            shadowColor: C.navy, shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.35, shadowRadius: 20, elevation: 12,
-          }}>
-            {/* Specular highlight — top glass shine */}
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(255,255,255,0.08)', borderTopLeftRadius: 20, borderTopRightRadius: 20 }} />
-            {/* Orb highlight — top-left diffuse shine */}
-            <View style={{ position: 'absolute', top: -24, left: -24, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.07)' }} />
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: '700', letterSpacing: 1.2, marginBottom: 6 }}>TREASURY BALANCE</Text>
+          <NeoSurface style={{ padding: 20, marginBottom: 18 }}>
+            <View style={dashboardStyles.treasuryGlow} />
+            <Text style={{ fontSize: 11, color: C.gray500, fontWeight: '700', letterSpacing: 1.2, marginBottom: 6 }}>TREASURY BALANCE</Text>
             {walletError ? (
               <TouchableOpacity onPress={() => refetchWallet()}>
-                <Text style={{ color: C.red + 'CC', fontSize: 14, fontWeight: '600' }}>Could not load — tap to retry</Text>
+                <Text style={{ color: C.red, fontSize: 14, fontWeight: '600' }}>Could not load — tap to retry</Text>
               </TouchableOpacity>
             ) : (
-              <Amount value={(wallet as any)?.totalBalance ?? (wallet as any)?.balance ?? 0} size="xl" color={C.gold} />
+              <Amount value={(wallet as any)?.totalBalance ?? (wallet as any)?.balance ?? 0} size="xl" color={C.navy} />
             )}
-            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>Tap to open Finance →</Text>
+            <Text style={{ fontSize: 12, color: C.gray500, marginTop: 6 }}>Tap to open Finance →</Text>
 
             {/* Cash vs bank split */}
             {!walletError && wallet && (
-              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.12)' }}>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#D4DCE6' }}>
                 {[
                   { label: 'Cash on Hand', value: (wallet as any)?.cashBalance },
                   { label: 'Bank Balance', value: (wallet as any)?.bankBalance },
                 ].map((t) => (
                   <View key={t.label} style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '700', letterSpacing: 0.6 }}>
+                    <Text style={{ fontSize: 10, color: C.gray500, fontWeight: '700', letterSpacing: 0.6 }}>
                       {t.label.toUpperCase()}
                     </Text>
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff', marginTop: 3 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '800', color: C.navy, marginTop: 3 }}>
                       ₹{Number(t.value ?? 0).toLocaleString('en-IN')}
                     </Text>
                   </View>
                 ))}
               </View>
             )}
-          </View>
+          </NeoSurface>
         </TouchableOpacity>
 
         {/* Stats — glass cards */}
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <StatCard glass label="Active Chits" value={String(activeChits.length)} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />
-          <StatCard glass label="Active Members" value={String(activeMembers.length)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />
+          <NeoStatCard label="Active Chits" value={String(activeChits.length)} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />
+          <NeoStatCard label="Active Members" value={String(activeMembers.length)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />
         </View>
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <StatCard glass label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />
-          <StatCard glass label="New Requests" value={String(pendingRequests.length)} accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />
+          <NeoStatCard label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />
+          <NeoStatCard label="New Requests" value={String(pendingRequests.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />
         </View>
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <StatCard
-            glass
+          <NeoStatCard
             label="Pending Payout"
             value={String(pendingPayoutCount)}
             sub="winner picked, no payout"
             accent={C.amber}
             onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })}
           />
-          <StatCard
-            glass
+          <NeoStatCard
             label="Pending Disbursement"
             value={String((pendingPayouts as any[]).length)}
             sub="created, not disbursed"
@@ -371,15 +398,13 @@ export default function AdminDashboard() {
           />
         </View>
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <StatCard
-            glass
+          <NeoStatCard
             label="Picked Up"
             value={String((cashSummary as any)?.pickedUp ?? 0)}
             accent={C.green}
             onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })}
           />
-          <StatCard
-            glass
+          <NeoStatCard
             label="Partial Collections"
             value={String((cashSummary as any)?.partiallyCollected ?? 0)}
             accent={C.amber}
@@ -400,8 +425,9 @@ export default function AdminDashboard() {
                 params: cashOut > 0 ? { tab: 'Cash Requests' } : { tab: 'Remittance' },
               })}
               style={{
-                backgroundColor: C.white, borderRadius: 16, padding: 14, marginBottom: 10,
-                borderWidth: 1.5, borderColor: '#FDE68A', flexDirection: 'row', alignItems: 'center', gap: 12,
+                backgroundColor: NEO.surface, borderRadius: 18, padding: 14, marginBottom: 12,
+                borderWidth: 1.5, borderColor: '#F4C95D', flexDirection: 'row', alignItems: 'center', gap: 12,
+                shadowColor: NEO.shadow, shadowOffset: { width: 5, height: 5 }, shadowOpacity: 0.42, shadowRadius: 9, elevation: 4,
               }}
             >
               <Text style={{ fontSize: 20 }}>⏳</Text>
@@ -425,16 +451,14 @@ export default function AdminDashboard() {
         })()}
         {(cashSummary as any)?.todayCancelled > 0 && (
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-            <StatCard
-              glass
+            <NeoStatCard
               label="Cancelled Today"
               value={String((cashSummary as any).todayCancelled)}
               sub={`${(cashSummary as any).cancelled} overall`}
               accent={C.gray400}
               onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })}
             />
-            <StatCard
-              glass
+            <NeoStatCard
               label="Collected Today"
               value={String((cashSummary as any).todayCollected ?? 0)}
               sub={`${(cashSummary as any).collected ?? 0} overall`}
@@ -444,16 +468,14 @@ export default function AdminDashboard() {
           </View>
         )}
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-          <StatCard
-            glass
+          <NeoStatCard
             label="Today's Remitted"
             value={String(todayRemitted.length)}
             sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined}
             accent={C.green}
             onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })}
           />
-          <StatCard
-            glass
+          <NeoStatCard
             label="Today's Bank Pays"
             value={String(todayBank.length)}
             sub={todayBankAmt > 0 ? `₹${todayBankAmt.toLocaleString('en-IN')}` : undefined}
@@ -471,9 +493,9 @@ export default function AdminDashboard() {
               activeOpacity={0.85}
               onPress={() => setShowOrgHoldings(true)}
               style={{
-                backgroundColor: C.navy50, borderRadius: 16, padding: 16, marginBottom: 16,
+                backgroundColor: NEO.surface, borderRadius: 18, padding: 16, marginBottom: 18,
                 borderWidth: 1.5, borderColor: C.navy + '40',
-                shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 4,
+                shadowColor: NEO.shadow, shadowOffset: { width: 5, height: 5 }, shadowOpacity: 0.46, shadowRadius: 10, elevation: 5,
               }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flex: 1 }}>
@@ -505,8 +527,14 @@ export default function AdminDashboard() {
             { label: 'Payouts', onPress: () => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } }), accent: C.gold },
           ].map((a) => (
             <TouchableOpacity key={a.label} onPress={a.onPress}
-              style={{ backgroundColor: a.accent, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, minWidth: '45%', flex: 1, alignItems: 'center' }}>
-              <Text style={{ color: C.white, fontWeight: '700', fontSize: 13 }}>{a.label}</Text>
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              style={{
+                backgroundColor: NEO.surface, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16,
+                minWidth: '45%', flex: 1, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)',
+                shadowColor: NEO.shadow, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.45, shadowRadius: 8, elevation: 4,
+              }}>
+              <Text style={{ color: a.accent, fontWeight: '800', fontSize: 13 }}>{a.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -637,7 +665,7 @@ export default function AdminDashboard() {
               })}
               {sorted.length > activityShowCount && (
                 <TouchableOpacity onPress={() => setActivityShowCount(c => c + 8)}
-                  style={{ marginTop: 4, padding: 12, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+                  style={{ marginTop: 8, padding: 12, borderRadius: 16, backgroundColor: NEO.surface, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', alignItems: 'center', shadowColor: NEO.shadow, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 3 }}>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>Load More ({sorted.length - activityShowCount} remaining)</Text>
                 </TouchableOpacity>
               )}
@@ -713,7 +741,7 @@ export default function AdminDashboard() {
 
       {/* New Cash Request Modal */}
       <Modal visible={showNewRequest} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNewRequest(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>New Cash Request</Text>
             <TouchableOpacity onPress={() => setShowNewRequest(false)}>
@@ -728,7 +756,7 @@ export default function AdminDashboard() {
                 onChangeText={(t) => { setNrMemberSearch(t); if (!t) setNrMemberId(''); }}
                 placeholder="Search by name or phone…"
                 placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, marginBottom: 6, backgroundColor: C.white }}
+                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, marginBottom: 6, backgroundColor: C.surface }}
               />
               {nrMemberId ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.navy50, borderRadius: 8, padding: 10 }}>
@@ -739,7 +767,7 @@ export default function AdminDashboard() {
                   </TouchableOpacity>
                 </View>
               ) : nrMemberSearch.length > 0 && (
-                <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, backgroundColor: C.white }} nestedScrollEnabled>
+                <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, backgroundColor: C.surface }} nestedScrollEnabled>
                   {(members as any[])
                     .filter((m: any) => m.status !== 'INACTIVE' && (
                       (m.fullName ?? '').toLowerCase().includes(nrMemberSearch.toLowerCase()) ||
@@ -758,7 +786,7 @@ export default function AdminDashboard() {
             </View>
             <View>
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Chit Fund</Text>
-              <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, backgroundColor: C.white }} nestedScrollEnabled>
+              <ScrollView style={{ maxHeight: 180, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, backgroundColor: C.surface }} nestedScrollEnabled>
                 {(chits as any[]).filter((c: any) => c.status === 'ACTIVE').map((c: any) => (
                   <TouchableOpacity key={c.id} onPress={() => setNrChitId(c.id)}
                     style={{ padding: 12, backgroundColor: nrChitId === c.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -828,7 +856,7 @@ function OrgHoldingsModal({ visible, onClose, reservations, onRealized }: {
     const canRealize = r.status === 'RESERVED' && r.eligibleToRealize === true;
     return (
       <View style={{
-        backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10,
+        backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10,
         borderWidth: 1.5, borderColor: r.status === 'PROCESSED' ? C.gray200 : C.navy + '30',
       }}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -892,7 +920,7 @@ function OrgHoldingsModal({ visible, onClose, reservations, onRealized }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <View>
             <Text style={T.h2}>Organization Holdings</Text>
@@ -1027,7 +1055,7 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
       </TouchableOpacity>
 
       <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={resetAndClose}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1176,3 +1204,66 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
     </>
   );
 }
+
+const dashboardStyles = StyleSheet.create({
+  neoSurface: {
+    backgroundColor: NEO.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.82)',
+    padding: 16,
+    shadowColor: NEO.shadow,
+    shadowOffset: { width: 6, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  neoIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: NEO.surface,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.82)',
+    shadowColor: NEO.shadow,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  treasuryGlow: {
+    position: 'absolute',
+    top: 12,
+    right: 14,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: 'rgba(212,160,23,0.10)',
+  },
+  statAccent: {
+    width: 28,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 10,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.gray500,
+    textTransform: 'uppercase',
+    letterSpacing: 0.45,
+    minHeight: 28,
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  statSub: {
+    fontSize: 11,
+    color: C.gray500,
+    marginTop: 3,
+  },
+});

@@ -80,7 +80,11 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
         onPress={handlePress}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, alignSelf: 'flex-start' }}
       >
-        <Animated.View style={{ opacity: pulse, width: 24, height: 20, borderRadius: 10, backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View style={{
+          opacity: pulse, width: 24, height: 20, borderRadius: 10,
+          backgroundColor: visual.background, alignItems: 'center', justifyContent: 'center',
+          shadowColor: visual.color, shadowOffset: { width: 2, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 2,
+        }}>
           <Text style={{ fontSize: 12, color: visual.color }}>☁</Text>
           <View style={{ position: 'absolute', right: -2, bottom: -1, width: 10, height: 10, borderRadius: 5, backgroundColor: visual.color, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: '#fff', fontSize: 6, fontWeight: '900' }}>{visual.mark}</Text>
@@ -122,6 +126,7 @@ export function SyncStatusCard({ compact = false }: { compact?: boolean }) {
         paddingHorizontal: 12, paddingVertical: compact ? 9 : 12,
         marginBottom: compact ? 10 : 16,
         borderWidth: 1, borderColor: `${visual.color}33`,
+        shadowColor: visual.color, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.16, shadowRadius: 8, elevation: 3,
       }}
     >
       <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: `${visual.color}18`, alignItems: 'center', justifyContent: 'center' }}>

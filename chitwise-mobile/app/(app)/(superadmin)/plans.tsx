@@ -95,7 +95,7 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>
             {isEdit ? `Edit ${plan.plan}` : 'New Plan'}
@@ -292,7 +292,7 @@ export default function PlansScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -319,7 +319,7 @@ export default function PlansScreen() {
         ) : (
           (plans as any[]).map((p: any) => (
             <View key={p.plan} style={{
-              backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12,
+              backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
               opacity: p.isActive === false ? 0.55 : 1,
             }}>

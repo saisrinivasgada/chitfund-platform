@@ -211,7 +211,7 @@ export default function ChitDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.white }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <TouchableOpacity
@@ -568,7 +568,7 @@ export default function ChitDetailScreen() {
                     {winningBidAmt != null && ` Current best: ₹${winningBidAmt.toLocaleString('en-IN')}.`}
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray200, paddingHorizontal: 12 }}>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray200, paddingHorizontal: 12 }}>
                       <Text style={{ fontSize: 15, color: C.gray500, marginRight: 4 }}>₹</Text>
                       <TextInput
                         style={{ flex: 1, fontSize: 16, fontWeight: '600', color: C.gray900, paddingVertical: 12 }}
@@ -631,7 +631,7 @@ export default function ChitDetailScreen() {
               if (!totalD) return null;
               const pct = totalD > 0 ? Math.min(100, Math.round((completedD / totalD) * 100)) : 0;
               return (
-                <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
+                <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Draw Progress</Text>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>{completedD}/{totalD} draws</Text>
@@ -741,7 +741,7 @@ export default function ChitDetailScreen() {
                   const won = winnerByMonth[r.monthNumber]?.memberId === memberId;
                   const pct = r.amountDue > 0 ? Math.min(100, Math.round((r.amountPaid / r.amountDue) * 100)) : 0;
                   return (
-                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.white }}>
+                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.surface }}>
                       <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: C.white }}>{r.monthNumber}</Text>
                       </View>

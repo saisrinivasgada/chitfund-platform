@@ -1,6 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Text, Platform, StyleSheet } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { Text, Platform, StyleSheet, View } from 'react-native';
 import { C } from '../../../components/ui';
 import { useReminderSync } from '../../../hooks/useReminderSync';
 import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
@@ -30,17 +29,14 @@ export default function MemberLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarBackground: Platform.OS === 'ios'
-          ? () => <BlurView intensity={95} tint="systemChromeMaterial" style={StyleSheet.absoluteFill} />
-          : undefined,
+        tabBarBackground: () => <View style={[StyleSheet.absoluteFill, { backgroundColor: C.gray50 }]} />,
         tabBarStyle: {
-          backgroundColor: Platform.OS === 'ios' ? 'transparent' : C.white,
-          borderTopWidth: Platform.OS === 'ios' ? StyleSheet.hairlineWidth : 1,
-          borderTopColor: Platform.OS === 'ios' ? 'rgba(200,200,200,0.45)' : C.gray200,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
           height: Platform.OS === 'ios' ? 84 : 64,
           paddingBottom: Platform.OS === 'ios' ? 24 : 8,
           paddingTop: 8,
-          elevation: 10,
+          shadowColor: '#AEB9C7', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.42, shadowRadius: 10, elevation: 12,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       })}

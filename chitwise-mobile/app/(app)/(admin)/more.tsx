@@ -133,7 +133,7 @@ export default function MoreScreen() {
               onPress={() => router.push(item.route as any)}
               activeOpacity={0.75}
               style={{
-                backgroundColor: C.white,
+                backgroundColor: C.surface,
                 borderRadius: 16,
                 padding: 16,
                 flexDirection: 'row',

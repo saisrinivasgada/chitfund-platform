@@ -127,7 +127,7 @@ function UpgradeModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <View>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Change Plan</Text>
@@ -343,7 +343,7 @@ export default function BillingScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>

@@ -49,7 +49,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
       <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 20 }}>New Group</Text>
               <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Group Name *</Text>
               <TextInput
@@ -61,7 +61,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
                 style={{
                   borderWidth: 1, borderColor: C.gray200, borderRadius: 12,
                   paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900,
-                  backgroundColor: '#F9FAFB', marginBottom: 14,
+                  backgroundColor: C.surface, marginBottom: 14,
                 }}
               />
               <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Description (optional)</Text>
@@ -74,7 +74,7 @@ function CreateGroupModal({ visible, onClose, onCreated }: { visible: boolean; o
                 style={{
                   borderWidth: 1, borderColor: C.gray200, borderRadius: 12,
                   paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900,
-                  backgroundColor: '#F9FAFB', marginBottom: 14,
+                  backgroundColor: C.surface, marginBottom: 14,
                 }}
               />
               {!!error && <Text style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{error}</Text>}
@@ -220,7 +220,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
           style={{
             flex: 1, maxHeight: 100, fontSize: 14, color: C.gray900,
             borderWidth: 1, borderColor: C.gray200, borderRadius: 16,
-            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB',
+            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: C.surface,
           }}
         />
         <TouchableOpacity
@@ -320,7 +320,7 @@ export default function AdminGroupsScreen() {
   const [showCreate, setShowCreate] = useState(false);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
       <View style={{ padding: 16, borderBottomWidth: 1, borderColor: C.gray100 }}>
         <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Group Chats</Text>
       </View>

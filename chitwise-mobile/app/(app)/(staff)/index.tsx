@@ -126,7 +126,7 @@ function TaskModal({
     const isPartial = screen === 'partial-done';
     return (
       <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
             <View style={{
               width: 88, height: 88, borderRadius: 44,
@@ -193,7 +193,7 @@ function TaskModal({
   // ── Main modal ────────────────────────────────────────────────────────────────
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         {/* Header */}
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -228,7 +228,7 @@ function TaskModal({
                 </Text>
               )}
               {task.notes && (
-                <View style={{ marginTop: 10, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.white, borderRadius: 8, maxWidth: '90%' }}>
+                <View style={{ marginTop: 10, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: C.surface, borderRadius: 8, maxWidth: '90%' }}>
                   <Text style={{ fontSize: 13, color: C.gray600, fontStyle: 'italic', textAlign: 'center' }}>
                     "{task.notes}"
                   </Text>
@@ -526,10 +526,13 @@ export default function StaffTasksScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
                 <RoleLogo role="STAFF" size={44} />
-                <View style={{ flexShrink: 1 }}>
-                  <Text style={T.h1}>My Tasks</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={T.h1} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>My Tasks</Text>
                   <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>
                     {user?.fullName?.split(' ')[0] ?? 'Staff'}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gold, fontWeight: '700', marginTop: 1 }} numberOfLines={1}>
+                    {user?.tenantName ?? 'Your organization'}
                   </Text>
                 </View>
               </View>

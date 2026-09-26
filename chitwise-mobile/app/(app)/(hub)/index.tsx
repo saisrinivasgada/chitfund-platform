@@ -14,12 +14,13 @@ export default function HubHome() {
         <RoleLogo role="HUB" size={54} />
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy }}>ChitWise Hub</Text>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.gold, marginTop: 2 }}>Chit Fund Management Platform</Text>
           <Text style={{ fontSize: 14, color: C.gray500, marginTop: 3 }} numberOfLines={1}>Welcome, {user?.fullName}</Text>
         </View>
       </View>
       <View style={{ marginTop: 24, gap: 12 }}>
-        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/tickets' as any)} style={{ backgroundColor: C.white, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: C.gray200 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>🎫 Tickets</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Handle organization requests and public inquiries</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/chat' as any)} style={{ backgroundColor: C.white, borderRadius: 16, padding: 18, borderWidth: 1, borderColor: C.gray200 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>💬 Team Chat</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Coordinate with ChitWise employees</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/tickets' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>🎫 Tickets</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Handle organization requests and public inquiries</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => router.push('/(app)/(hub)/chat' as any)} style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5 }}><Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>💬 Team Chat</Text><Text style={{ fontSize: 12, color: C.gray500, marginTop: 4 }}>Coordinate with ChitWise employees</Text></TouchableOpacity>
       </View>
       <TouchableOpacity onPress={logout} style={{ alignSelf: 'center', padding: 14, marginTop: 20 }}><Text style={{ color: C.red, fontWeight: '600' }}>Sign out</Text></TouchableOpacity>
     </View>

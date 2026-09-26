@@ -141,6 +141,9 @@ export default function MemberHomeScreen() {
                 <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }} numberOfLines={1}>
                   {user?.fullName?.split(' ')[0] ?? 'Member'}
                 </Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.goldLight, marginTop: 2 }} numberOfLines={1}>
+                  {user?.tenantName ?? 'Your organization'}
+                </Text>
               </View>
             </View>
             <ProfileAvatarButton size={44} />
@@ -153,13 +156,13 @@ export default function MemberHomeScreen() {
                 {Number(totalBalance) < 0 ? 'CREDIT BALANCE' : 'OUTSTANDING BALANCE'}
               </Text>
               <Text style={{ fontSize: 32, fontWeight: '800',
-                color: Number(totalBalance) > 0 ? C.goldLight
+                color: Number(totalBalance) > 0 ? '#FCA5A5'
                   : Number(totalBalance) < 0 ? '#4ADE80'
-                  : C.white }}>
+                  : C.white }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
                 ₹{Math.abs(Number(totalBalance)).toLocaleString('en-IN')}
               </Text>
               {Number(totalBalance) > 0 && (
-                <Text style={{ fontSize: 12, color: C.goldLight + 'CC', marginTop: 4 }}>Amount you owe across all chits</Text>
+                <Text style={{ fontSize: 12, color: '#FCA5A5', marginTop: 4 }}>Amount you owe across all chits</Text>
               )}
               {Number(totalBalance) < 0 && (
                 <Text style={{ fontSize: 12, color: '#4ADE80', marginTop: 4 }}>
@@ -404,7 +407,7 @@ export default function MemberHomeScreen() {
 
       {/* Contact Support Modal */}
       <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ padding: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
               <View>
@@ -426,7 +429,7 @@ export default function MemberHomeScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => Linking.openURL(`sms:${adminContact.supportPhoneNumber}`)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.surface }}
                 >
                   <Text style={{ fontSize: 22 }}>💬</Text>
                   <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>
@@ -445,7 +448,7 @@ export default function MemberHomeScreen() {
 
       {/* Settlement Detail Modal */}
       <Modal visible={!!detailSettlement} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailSettlement(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {detailLoading ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <ActivityIndicator color={C.navy} size="large" />

@@ -201,7 +201,7 @@ export default function MyOrgScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12, width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: C.gray200, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontSize: 18, color: C.gray600 }}>‹</Text>
         </TouchableOpacity>
@@ -232,7 +232,7 @@ export default function MyOrgScreen() {
           </View>
 
           {/* Plan card */}
-          <View style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.navy }}>Subscription</Text>
               <View style={{ backgroundColor: isExpired ? '#FEE2E2' : '#D1FAE5', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
@@ -259,7 +259,7 @@ export default function MyOrgScreen() {
           </View>
 
           {/* Editable org details */}
-          <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>DETAILS</Text>
             <EditableRow label="ORG NAME" value={(org as any)?.orgName ?? (org as any)?.name} field="orgName" onSave={handleSave} saving={updateMut.isPending} />
             <EditableRow label="BUSINESS REG NO." value={(org as any)?.businessRegNumber} field="businessRegNumber" onSave={handleSave} saving={updateMut.isPending} />
@@ -280,7 +280,7 @@ export default function MyOrgScreen() {
 
           {/* Limits */}
           {limits && (
-            <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>PLAN LIMITS</Text>
               <LimitRow label="Members"    used={(limits as any)?.currentMembers} max={(limits as any)?.maxMembers} />
               <LimitRow label="Chit Groups" used={(limits as any)?.currentChits}  max={(limits as any)?.maxChits} />
@@ -291,7 +291,7 @@ export default function MyOrgScreen() {
 
           {/* Team section */}
           {staff != null && (
-            <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 8 }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>TEAM</Text>
                 <TouchableOpacity onPress={() => router.push('/(app)/(admin)/team' as any)}>
@@ -337,7 +337,7 @@ export default function MyOrgScreen() {
             const active = (orgSlots as any[]).filter((s: any) => s.status === 'RESERVED');
             const realized = (orgSlots as any[]).filter((s: any) => s.status === 'PROCESSED');
             return (
-              <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+              <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 14, paddingBottom: 8 }}>
                   <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8 }}>ORG HOLDINGS</Text>
                   <Text style={{ fontSize: 11, color: C.gray400 }}>{(orgSlots as any[]).length} slot{(orgSlots as any[]).length !== 1 ? 's' : ''}</Text>
@@ -405,7 +405,7 @@ export default function MyOrgScreen() {
             { icon: '👥', label: 'Team Management', sub: 'Add and manage staff members', color: C.navy, path: '/(app)/(admin)/team' },
           ].map(({ icon, label, sub, color, path }) => (
             <TouchableOpacity key={path} onPress={() => router.push(path as any)} activeOpacity={0.8}
-              style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: C.gray100, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+              style={{ backgroundColor: C.surface, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: C.gray100, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: color + '18', alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 20 }}>{icon}</Text>

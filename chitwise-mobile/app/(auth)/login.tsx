@@ -153,7 +153,7 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
   ) : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.white }}>
+    <View style={{ flex: 1, backgroundColor: C.surface }}>
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           {/* Header */}
@@ -577,13 +577,13 @@ export default function LoginScreen() {
               style={{ width: 200, height: 90, resizeMode: 'contain' }}
             />
             <Text style={{ fontSize: 14, color: C.white + 'AA', marginTop: 8 }}>
-              {isLockedUsername ? `Sign in as @${presetUsername}` : isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management'}
+              {isLockedUsername ? `Sign in as @${presetUsername}` : isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management Platform'}
             </Text>
           </View>
 
           {/* Form Card */}
           <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 24,
+            backgroundColor: C.surface, borderRadius: 24, padding: 24,
             shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
           }}>
@@ -689,7 +689,7 @@ export default function LoginScreen() {
       {/* Tenant picker — shown when user belongs to multiple orgs */}
       <Modal visible={!!tenantPicker} transparent animationType="slide">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Select Organisation</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Choose the org you want to sign into</Text>
             <ScrollView style={{ maxHeight: 320 }}>{tenantPicker?.tenants.map((t) => (
@@ -697,7 +697,7 @@ export default function LoginScreen() {
                 disabled={loading}
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                   padding: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#E5E7EB',
-                  marginBottom: 10, backgroundColor: '#F9FAFB' }}>
+                  marginBottom: 10, backgroundColor: C.surface }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: t.status === 'PENDING' ? '#9CA3AF' : C.navy }}>{t.name}</Text>
                   <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{t.role} · {t.plan}</Text>
@@ -719,7 +719,7 @@ export default function LoginScreen() {
       <Modal visible={!!loginOtpState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your identity</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
               A 6-digit OTP was sent to {loginOtpState?.maskedPhone}
@@ -744,7 +744,7 @@ export default function LoginScreen() {
       <Modal visible={!!loginEmailState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-            <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
               <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your email</Text>
               <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
                 Enter the 6-digit code generated for {loginEmailState?.maskedEmail}
@@ -779,7 +779,7 @@ export default function LoginScreen() {
           justifyContent: 'center', alignItems: 'center', padding: 24,
         }}>
           <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 28,
+            backgroundColor: C.surface, borderRadius: 24, padding: 28,
             width: '100%', maxWidth: 360,
             shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
             shadowOpacity: 0.2, shadowRadius: 24, elevation: 15,

@@ -26,8 +26,28 @@ export const C = {
   gray300:    '#D1D5DB',
   gray200:    '#E5E7EB',
   gray100:    '#F3F4F6',
-  gray50:     '#F9FAFB',
+  gray50:     '#E8EDF3',
+  surface:    '#E8EDF3',
   white:      '#FFFFFF',
+};
+
+export const NEO = {
+  background: '#E8EDF3',
+  surface: '#E8EDF3',
+  highlight: '#FFFFFF',
+  shadow: '#AEB9C7',
+};
+
+// Semantic colours are intentionally independent from the role/brand palette.
+// Money and workflow state should mean the same thing on every screen:
+// red = action/risk, amber = waiting/partial, green = complete/positive,
+// blue = informational/in progress, gray = neutral or intentionally skipped.
+export const SEMANTIC = {
+  danger:  { solid: '#DC2626', text: '#B91C1C', soft: '#FEE2E2' },
+  warning: { solid: '#D97706', text: '#B45309', soft: '#FEF3C7' },
+  success: { solid: '#16A34A', text: '#047857', soft: '#D1FAE5' },
+  info:    { solid: '#2563EB', text: '#1D4ED8', soft: '#DBEAFE' },
+  neutral: { solid: '#6B7280', text: '#4B5563', soft: '#F3F4F6' },
 };
 
 // ── Typography ──────────────────────────────────────────────────────────────
@@ -46,16 +66,16 @@ export const T = StyleSheet.create({
 export function Card({ children, style }: { children: React.ReactNode; style?: object }) {
   return (
     <View style={[{
-      backgroundColor: C.white,
-      borderRadius: 16,
+      backgroundColor: NEO.surface,
+      borderRadius: 18,
       borderWidth: 1,
-      borderColor: C.gray200,
+      borderColor: 'rgba(255,255,255,0.78)',
       padding: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06,
-      shadowRadius: 4,
-      elevation: 2,
+      shadowColor: NEO.shadow,
+      shadowOffset: { width: 6, height: 6 },
+      shadowOpacity: 0.48,
+      shadowRadius: 11,
+      elevation: 5,
     }, style]}>
       {children}
     </View>
@@ -68,40 +88,19 @@ export function GlassCard({ children, style, intensity = 80 }: {
   style?: any;
   intensity?: number;
 }) {
-  if (Platform.OS !== 'ios') {
-    return (
-      <View style={[{
-        backgroundColor: 'rgba(255,255,255,0.96)',
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.07)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 3,
-      }, style]}>
-        <View style={{ padding: 16 }}>{children}</View>
-      </View>
-    );
-  }
-  // Outer View carries shadow (overflow:visible); BlurView clips to border radius
   return (
     <View style={[{
       borderRadius: 20,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 16,
+      backgroundColor: NEO.surface,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.8)',
+      shadowColor: NEO.shadow,
+      shadowOffset: { width: 6, height: 6 },
+      shadowOpacity: 0.5,
+      shadowRadius: 12,
+      elevation: 5,
     }, style]}>
-      <BlurView intensity={intensity} tint="systemUltraThinMaterial" style={{
-        borderRadius: 20,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.6)',
-      }}>
-        <View style={{ padding: 16 }}>{children}</View>
-      </BlurView>
+      <View style={{ padding: 16 }}>{children}</View>
     </View>
   );
 }
@@ -130,8 +129,8 @@ const BTN_STYLES: Record<BtnVariant, { bg: string; text: string; border?: string
   primary: { bg: C.navy,    text: C.white },
   success: { bg: C.green,   text: C.white },
   danger:  { bg: C.red,     text: C.white },
-  ghost:   { bg: C.gray100, text: C.gray700 },
-  outline: { bg: C.white,   text: C.navy, border: C.navy },
+  ghost:   { bg: NEO.surface, text: C.gray700 },
+  outline: { bg: NEO.surface, text: C.navy, border: C.navy },
   gold:    { bg: C.gold,    text: C.white },
 };
 
@@ -161,13 +160,18 @@ export function Button({
       activeOpacity={0.75}
       style={[{
         backgroundColor: (disabled || loading) ? C.gray300 : s.bg,
-        borderRadius: 10,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
         gap: 6,
         borderWidth: s.border ? 1.5 : 0,
         borderColor: s.border,
+        shadowColor: variant === 'ghost' || variant === 'outline' ? NEO.shadow : s.bg,
+        shadowOffset: { width: 4, height: 4 },
+        shadowOpacity: disabled || loading ? 0.12 : 0.28,
+        shadowRadius: 7,
+        elevation: disabled || loading ? 0 : 3,
         ...(fullWidth ? { width: '100%' } : {}),
         ...pad,
       }]}
@@ -188,20 +192,80 @@ export function Button({
 
 // ── Badge ─────────────────────────────────────────────────────────────────────
 const BADGE_STYLES: Record<string, { bg: string; text: string }> = {
-  PENDING:              { bg: '#FEF3C7', text: '#D97706' },
-  ASSIGNED:             { bg: '#DBEAFE', text: '#2563EB' },
-  PICKED_UP:            { bg: '#D1FAE5', text: '#059669' },
-  COLLECTED:            { bg: C.navy50,  text: C.navy },
-  CANCELLED:            { bg: C.gray100, text: C.gray500 },
-  ACTIVE:               { bg: '#D1FAE5', text: '#059669' },
-  PAUSED:               { bg: '#FEF3C7', text: '#D97706' },
-  COMPLETED:            { bg: C.navy50,  text: C.navy },
-  DRAFT:                { bg: C.gray100, text: C.gray500 },
-  INACTIVE:             { bg: '#FEE2E2', text: '#DC2626' },
-  SUSPENDED:            { bg: '#FEE2E2', text: '#DC2626' },
-  DISBURSED:            { bg: '#D1FAE5', text: '#059669' },
-  PARTIALLY_DISBURSED:  { bg: '#DBEAFE', text: '#2563EB' },
-  VOIDED:               { bg: '#FEE2E2', text: '#DC2626' },
+  // Waiting, incomplete, or attention required.
+  PENDING:              { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PENDING_MEMBER:       { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  AWAITING_ADMIN:       { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  AWAITING_AUCTION:     { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  AWAITING_REMITTANCE:  { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PENDING_SYNC:         { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PARTIALLY_PAID:       { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PARTIAL_CREDIT:       { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PARTIALLY_COLLECTED:  { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PARTIALLY_DISBURSED:  { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  IN_PROGRESS:          { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  INVESTIGATING:        { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  ON_HOLD:              { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  PAUSED:               { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+  SCHEDULED:            { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  UNALLOCATED:          { bg: SEMANTIC.warning.soft, text: SEMANTIC.warning.text },
+
+  // Informational or currently being acted upon.
+  ASSIGNED:             { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  OPEN:                 { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  MEMBER_VERIFIED:      { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  RESERVED:             { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  PROPOSED:             { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+  EXECUTING:            { bg: SEMANTIC.info.soft, text: SEMANTIC.info.text },
+
+  // Successfully completed or positive value.
+  ACTIVE:               { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  PICKED_UP:            { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  COLLECTED:            { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  FULLY_COLLECTED:      { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  SETTLED:              { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  PAID:                 { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  APPROVED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  ACCEPTED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  INTERESTED:           { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  REMITTED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  PROCESSED:            { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  DISBURSED:            { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  FULLY_DISBURSED:      { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  BALANCED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  COMPLETED:            { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  CREDIT_COVERED:       { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  SYNCED:               { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  SENT:                 { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  RESOLVED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+  EXECUTED:             { bg: SEMANTIC.success.soft, text: SEMANTIC.success.text },
+
+  // Financial risk, failure, rejection, or destructive history.
+  OUTSTANDING:          { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  OVERDUE:              { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  FAILED:               { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  EXECUTION_FAILED:     { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  CONFLICT:             { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  DECLINED:             { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  REJECTED:             { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  EXPIRED:              { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  REVOKED:              { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  ESCALATED:            { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  SUSPENDED:            { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  BLACKLISTED:          { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  CANCELLED:            { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+  VOIDED:               { bg: SEMANTIC.danger.soft, text: SEMANTIC.danger.text },
+
+  // Neutral historical states.
+  DRAFT:                { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  INACTIVE:             { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  CLOSED:               { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  DELETED:              { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  SKIPPED:              { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  WAIVED:               { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  NOT_INTERESTED:       { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  SETTLEMENT_CLEARED:   { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
+  PAYOUT_DEDUCTED:      { bg: SEMANTIC.neutral.soft, text: SEMANTIC.neutral.text },
 };
 
 export function Badge({ status }: { status: string }) {
@@ -249,16 +313,21 @@ export function Input({
         onSubmitEditing={onSubmitEditing}
         editable={editable}
         style={{
-          borderWidth: 1.5,
-          borderColor: error ? C.red : C.gray300,
-          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: error ? C.red : 'rgba(255,255,255,0.86)',
+          borderRadius: 14,
           paddingHorizontal: 14,
           paddingVertical: 11,
           fontSize: 15,
           color: editable ? C.gray900 : C.gray500,
-          backgroundColor: editable ? C.white : C.gray100,
+          backgroundColor: editable ? NEO.surface : C.gray100,
           minHeight: multiline ? 80 : undefined,
           textAlignVertical: multiline ? 'top' : 'center',
+          shadowColor: NEO.shadow,
+          shadowOffset: { width: 3, height: 3 },
+          shadowOpacity: editable ? 0.28 : 0.08,
+          shadowRadius: 6,
+          elevation: editable ? 2 : 0,
         }}
       />
       {error && <Text style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</Text>}
@@ -339,7 +408,11 @@ export function EyeToggle({ size = 22 }: { size?: number }) {
   const { amountsHidden, toggleAmounts } = useUIStore();
   return (
     <TouchableOpacity onPress={toggleAmounts} activeOpacity={0.7}
-      style={{ padding: 6, borderRadius: 8, backgroundColor: amountsHidden ? C.navy50 : C.gray100 }}>
+      style={{
+        padding: 7, borderRadius: 14, backgroundColor: NEO.surface,
+        borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)',
+        shadowColor: NEO.shadow, shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.4, shadowRadius: 7, elevation: 3,
+      }}>
       <Text style={{ fontSize: size, lineHeight: size + 2 }}>{amountsHidden ? '🙈' : '👁'}</Text>
     </TouchableOpacity>
   );
@@ -590,7 +663,7 @@ export function PhoneInput({
           style={{
             flexDirection: 'row', alignItems: 'center', gap: 6,
             borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10,
-            paddingHorizontal: 10, paddingVertical: 12, backgroundColor: C.white,
+            paddingHorizontal: 10, paddingVertical: 12, backgroundColor: C.surface,
           }}>
           <Text style={{ fontSize: 18, lineHeight: 22 }}>{selected.flag}</Text>
           <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{selected.code}</Text>
@@ -613,7 +686,7 @@ export function PhoneInput({
 
       {/* Country picker modal */}
       <RNModal visible={pickerOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setPickerOpen(false); setSearch(''); }}>
-        <View style={{ flex: 1, backgroundColor: C.white }}>
+        <View style={{ flex: 1, backgroundColor: C.surface }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, paddingTop: Platform.OS === 'ios' ? 56 : 16 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Select Country</Text>

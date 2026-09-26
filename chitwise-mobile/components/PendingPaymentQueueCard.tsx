@@ -47,7 +47,7 @@ export function PendingPaymentQueueCard({ memberNames = {} }: { memberNames?: Re
   const outstandingCount = pendingCount + conflictCount + failedCount;
 
   return (
-    <View style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.gray200, borderRadius: 14, padding: 14, marginBottom: 16 }}>
+    <View style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200, borderRadius: 14, padding: 14, marginBottom: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ fontSize: 14, fontWeight: '800', color: C.navy }}>Saved payment activity</Text>

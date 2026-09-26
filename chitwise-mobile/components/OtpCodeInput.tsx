@@ -70,7 +70,7 @@ export default function OtpCodeInput({
             borderWidth: 1.5,
             borderColor: hasError ? C.red : digit ? C.navy : C.gray200,
             borderRadius: 11,
-            backgroundColor: C.white,
+            backgroundColor: C.surface,
             color: C.navy,
             textAlign: 'center',
             fontSize: 22,

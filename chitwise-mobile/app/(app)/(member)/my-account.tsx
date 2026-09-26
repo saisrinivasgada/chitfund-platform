@@ -49,7 +49,7 @@ export default function MemberMyAccountScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <TouchableOpacity onPress={() => router.back()} style={{ marginRight: 12, width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: C.gray200, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontSize: 18, color: C.gray600 }}>‹</Text>
         </TouchableOpacity>
@@ -59,7 +59,7 @@ export default function MemberMyAccountScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
 
         {/* Avatar card */}
-        <View style={{ backgroundColor: C.white, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 20, padding: 20, alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}>
           <View style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: '#D4A017', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
             <Text style={{ fontSize: 26, fontWeight: '800', color: '#fff' }}>{initials}</Text>
           </View>
@@ -85,7 +85,7 @@ export default function MemberMyAccountScreen() {
         </View>
 
         {/* Login account fields */}
-        <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>LOGIN ACCOUNT</Text>
           <InfoRow label="Full Name" value={me?.fullName} onEdit={() => setShowEdit(true)} />
           <InfoRow label="Username" value={me?.username ? `@${me.username}` : null} onEdit={() => setShowEdit(true)} />
@@ -95,7 +95,7 @@ export default function MemberMyAccountScreen() {
         </View>
 
         {/* Member profile fields */}
-        <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>MEMBER PROFILE</Text>
           <InfoRow label="Member Name" value={memberMe?.fullName} onEdit={() => setShowEdit(true)} />
           <InfoRow label="Member Phone" value={memberMe?.phone} onEdit={() => setShowEdit(true)} />
@@ -123,7 +123,7 @@ export default function MemberMyAccountScreen() {
         </View>
 
         {/* Security */}
-        <View style={{ backgroundColor: C.white, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 16, paddingHorizontal: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray400, letterSpacing: 0.8, paddingTop: 14, paddingBottom: 4 }}>SECURITY</Text>
           <TouchableOpacity onPress={() => setEditTab('security')} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13 }}>
             <View style={{ flex: 1 }}>

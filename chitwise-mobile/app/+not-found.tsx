@@ -28,7 +28,7 @@ export default function NotFoundScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => router.replace('/(app)/(admin)')}
-          style={{ backgroundColor: C.white, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5, borderColor: C.gray200 }}
+          style={{ backgroundColor: C.surface, borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1.5, borderColor: C.gray200 }}
         >
           <Text style={{ fontSize: 15, fontWeight: '600', color: C.gray700 }}>Go to Home</Text>
         </TouchableOpacity>

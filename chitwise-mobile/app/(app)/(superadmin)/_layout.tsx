@@ -9,7 +9,7 @@ export default function SuperAdminLayout() {
       tabBarIcon: ({ focused }) => <Text style={{ fontSize: 17, color: focused ? C.navy : C.gray400 }}>{route.name === 'tickets' ? '🎫' : route.name === 'hub-chat' ? '💬' : route.name === 'employees' ? '👥' : '⚙'}</Text>,
       tabBarActiveTintColor: C.navy,
       tabBarInactiveTintColor: C.gray400,
-      tabBarStyle: { backgroundColor: C.white, borderTopColor: C.gray200, height: Platform.OS === 'ios' ? 84 : 64, paddingBottom: Platform.OS === 'ios' ? 24 : 8, paddingTop: 8 },
+      tabBarStyle: { backgroundColor: C.gray50, borderTopWidth: 0, height: Platform.OS === 'ios' ? 84 : 64, paddingBottom: Platform.OS === 'ios' ? 24 : 8, paddingTop: 8, shadowColor: '#AEB9C7', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.42, shadowRadius: 10, elevation: 12 },
     })}>
       <Tabs.Screen name="index" options={{ title: 'Platform' }} />
       <Tabs.Screen name="tickets" options={{ title: 'Tickets' }} />

@@ -97,7 +97,7 @@ function PaymentReceiptModal({ batchId, onClose }: { batchId: string; onClose: (
   return (
     <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-        <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
+        <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payment Receipt</Text>
             <TouchableOpacity onPress={onClose}>

@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { Text, Platform, StyleSheet, Modal, View, TouchableOpacity, Pressable } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -59,7 +58,7 @@ export default function AdminLayout() {
     <>
     <Modal transparent animationType="fade" visible={planExpiredVisible} onRequestClose={hidePlanExpired}>
       <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 }} onPress={hidePlanExpired}>
-        <Pressable style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
+        <Pressable style={{ backgroundColor: C.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
           <Text style={{ fontSize: 28, textAlign: 'center', marginBottom: 4 }}>🚫</Text>
           <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>Subscription Expired</Text>
           <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 21, marginBottom: 20 }}>
@@ -83,17 +82,18 @@ export default function AdminLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarBackground: Platform.OS === 'ios'
-          ? () => <BlurView intensity={95} tint="systemChromeMaterial" style={StyleSheet.absoluteFill} />
-          : undefined,
+        tabBarBackground: () => <View style={[StyleSheet.absoluteFill, { backgroundColor: C.gray50 }]} />,
         tabBarStyle: {
-          backgroundColor: Platform.OS === 'ios' ? 'transparent' : C.white,
-          borderTopWidth: Platform.OS === 'ios' ? StyleSheet.hairlineWidth : 1,
-          borderTopColor: Platform.OS === 'ios' ? 'rgba(200,200,200,0.45)' : C.gray200,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
           height: Platform.OS === 'ios' ? 84 : 64,
           paddingBottom: Platform.OS === 'ios' ? 24 : 8,
           paddingTop: 8,
-          elevation: 10,
+          shadowColor: '#AEB9C7',
+          shadowOffset: { width: 0, height: -5 },
+          shadowOpacity: 0.42,
+          shadowRadius: 10,
+          elevation: 12,
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       })}

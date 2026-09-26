@@ -325,7 +325,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         {/* Header */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <View>
@@ -511,7 +511,7 @@ export default function EditProfileModal({ visible, onClose, initialTab = 'profi
                         paddingHorizontal: 2,
                       }}>
                         <View style={{
-                          width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
+                          width: 22, height: 22, borderRadius: 11, backgroundColor: C.surface,
                           alignSelf: biometricOn ? 'flex-end' : 'flex-start',
                         }} />
                       </View>

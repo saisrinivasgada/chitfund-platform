@@ -138,7 +138,7 @@ export default function MemberMoreScreen() {
               onPress={() => router.push(item.route as any)}
               activeOpacity={0.75}
               style={{
-                backgroundColor: C.white, borderRadius: 16, padding: 16,
+                backgroundColor: C.surface, borderRadius: 16, padding: 16,
                 flexDirection: 'row', alignItems: 'center', gap: 14,
                 shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
                 borderWidth: 1, borderColor: C.gray100,

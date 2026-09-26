@@ -39,7 +39,7 @@ function RequestTimeline({ status }: { status: string }) {
                 borderWidth: 2, borderColor: done ? C.navy : C.gray300,
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                {done && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.white }} />}
+                {done && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.surface }} />}
               </View>
               {!isLast && <View style={{ width: 2, flex: 1, backgroundColor: done ? C.navy + '40' : C.gray200, marginTop: 2, minHeight: 16 }} />}
             </View>
@@ -287,7 +287,7 @@ export default function MemberRequestsScreen() {
                         style={{
                           borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8,
                           padding: 10, fontSize: 13, color: C.gray900,
-                          backgroundColor: C.white, marginBottom: 10,
+                          backgroundColor: C.surface, marginBottom: 10,
                         }}
                       />
                       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -354,7 +354,7 @@ export default function MemberRequestsScreen() {
       {/* Create Request Modal */}
       <Modal visible={showCreate} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 20 }}>Request Cash Pickup</Text>
 
             <Text style={T.label}>Select Chit Fund</Text>
@@ -433,7 +433,7 @@ export default function MemberRequestsScreen() {
       {/* Edit Request Modal */}
       <Modal visible={!!editTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Edit Cash Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
               Editing is allowed before pickup. All changes are logged in audit.
@@ -477,7 +477,7 @@ export default function MemberRequestsScreen() {
       {/* Receipt Modal */}
       <Modal visible={!!receiptTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '70%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '70%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payment Receipt</Text>
               <TouchableOpacity onPress={() => setReceiptTarget(null)}>
@@ -537,7 +537,7 @@ export default function MemberRequestsScreen() {
       {/* Audit Log Modal */}
       <Modal visible={!!auditTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Activity Log</Text>
               <TouchableOpacity onPress={() => setAuditTarget(null)}>

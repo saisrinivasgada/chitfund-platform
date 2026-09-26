@@ -77,7 +77,7 @@ function ReminderDetailModal({ reminderId, onClose }: { reminderId: string; onCl
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-      <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40 }}>
+      <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 40 }}>
         {/* Handle */}
         <View style={{ alignItems: 'center', paddingTop: 12, paddingBottom: 4 }}>
           <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />

@@ -21,7 +21,7 @@ export default function ManagerLayout() {
     <>
       <Modal transparent animationType="fade" visible={planExpiredVisible} onRequestClose={hidePlanExpired}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 }} onPress={hidePlanExpired}>
-          <Pressable style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
+          <Pressable style={{ backgroundColor: C.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
             <Text style={{ fontSize: 28, textAlign: 'center', marginBottom: 4 }}>🚫</Text>
             <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>Subscription Expired</Text>
             <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 21, marginBottom: 20 }}>
@@ -40,10 +40,10 @@ export default function ManagerLayout() {
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
         tabBarStyle: {
-          backgroundColor: C.white, borderTopColor: C.gray200,
+          backgroundColor: C.gray50, borderTopWidth: 0,
           height: Platform.OS === 'ios' ? 84 : 64,
           paddingBottom: Platform.OS === 'ios' ? 24 : 8, paddingTop: 8,
-          elevation: 10,
+          shadowColor: '#AEB9C7', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.42, shadowRadius: 10, elevation: 12,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       })}

@@ -95,17 +95,18 @@ export default function ManagerDashboardScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
             <RoleLogo role="MANAGER" size={46} />
-            <View style={{ flexShrink: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ fontSize: 13, color: C.gray500 }}>Manager View</Text>
-              <Text style={T.h1} numberOfLines={1}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
-              <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(new Date().toISOString())}</Text>
+              <Text style={T.h1} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
+              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(new Date().toISOString())}</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <TutorialHelpButton />
             <TouchableOpacity onPress={() => setShowProfile(true)}
-              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '800', color: C.white }}>
+              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.42, shadowRadius: 8, elevation: 4 }}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: C.navy }}>
                 {(user?.fullName ?? user?.username ?? '?')[0].toUpperCase()}
               </Text>
             </TouchableOpacity>
@@ -120,7 +121,7 @@ export default function ManagerDashboardScreen() {
           shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12,
         }}>
           <Text style={{ fontSize: 12, color: C.white + '88', marginBottom: 6 }}>TREASURY BALANCE</Text>
-          <Text style={{ fontSize: 32, fontWeight: '800', color: C.white }}>
+          <Text style={{ fontSize: 32, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
             ₹{Number(treasuryBalance).toLocaleString('en-IN')}
           </Text>
           <View style={{ flexDirection: 'row', gap: 16, marginTop: 16 }}>
@@ -147,9 +148,10 @@ export default function ManagerDashboardScreen() {
           onPress={() => router.push('/(app)/(manager)/pickups' as any)}
           style={{
             flexDirection: 'row', alignItems: 'center', gap: 14,
-            backgroundColor: cashInHand > 0 ? '#FFFBEB' : C.white,
+            backgroundColor: cashInHand > 0 ? '#FFFBEB' : C.surface,
             borderRadius: 16, padding: 16, marginBottom: 20,
             borderWidth: 1.5, borderColor: cashInHand > 0 ? C.amber : C.gray200,
+            shadowColor: '#AEB9C7', shadowOffset: { width: 5, height: 5 }, shadowOpacity: 0.38, shadowRadius: 9, elevation: 4,
           }}
         >
           <View style={{
@@ -177,24 +179,24 @@ export default function ManagerDashboardScreen() {
         {/* Action items that need attention */}
         <SectionHeader title="Needs Attention" />
 
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-          <Card style={{ flex: 1, alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+          <Card style={{ width: '48%', alignItems: 'center' }}>
             <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingRemit as any[]).length > 0 ? C.amber : C.gray400 }}>
               {(pendingRemit as any[]).length}
             </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Pending Remittance</Text>
+            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Remittance</Text>
           </Card>
-          <Card style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? C.gold : C.gray400 }}>
+          <Card style={{ width: '48%', alignItems: 'center' }}>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? C.amber : C.gray400 }}>
               {(pendingPayouts as any[]).length}
             </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Pending Payouts</Text>
+            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Payouts</Text>
           </Card>
-          <Card style={{ flex: 1, alignItems: 'center' }}>
+          <Card style={{ width: '100%', alignItems: 'center' }}>
             <Text style={{ fontSize: 26, fontWeight: '800', color: pendingPickups > 0 ? C.red : C.gray400 }}>
               {pendingPickups}
             </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }}>Unassigned Pickups</Text>
+            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1}>Unassigned Pickups</Text>
           </Card>
         </View>
 
@@ -381,7 +383,7 @@ export default function ManagerDashboardScreen() {
       <EditProfileModal visible={showProfile} onClose={() => setShowProfile(false)} />
 
       <Modal visible={contactOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setContactOpen(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ padding: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
               <View>
@@ -403,7 +405,7 @@ export default function ManagerDashboardScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => Linking.openURL(`sms:${supportContact.supportPhoneNumber}`)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.white }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 14, borderWidth: 1.5, borderColor: C.navy, backgroundColor: C.surface }}
                 >
                   <Text style={{ fontSize: 22 }}>💬</Text>
                   <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Message Admin</Text>

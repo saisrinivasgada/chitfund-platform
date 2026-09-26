@@ -47,7 +47,7 @@ export default function SetupAccountScreen() {
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
     <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-      <View style={{ backgroundColor: C.white, borderRadius: 20, borderWidth: 1, borderColor: C.gray200, padding: 20, gap: 14 }}>
+      <View style={{ backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.gray200, padding: 20, gap: 14 }}>
         <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy }}>Create your ChitWise account</Text>
         <Text style={{ color: C.gray600, lineHeight: 20 }}>You choose the credentials. Your organization cannot view your password.</Text>
         {!token && <Text style={{ color: C.red }}>This setup link is invalid. Ask the organization to resend it.</Text>}

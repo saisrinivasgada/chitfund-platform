@@ -140,7 +140,7 @@ export default function ManagerPaymentsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
+        style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
         contentContainerStyle={{ paddingHorizontal: 12 }}
       >
         {TABS.map((t) => (

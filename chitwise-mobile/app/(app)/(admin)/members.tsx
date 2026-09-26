@@ -730,7 +730,7 @@ export default function AdminMembersScreen() {
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search name, phone, email…"
           placeholderTextColor={C.gray400}
-          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white, marginBottom: 10 }} />
+          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface, marginBottom: 10 }} />
         {/* Status filter tabs */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {[null, 'Active', 'Inactive', 'Blacklisted', 'Deleted'].map((f) => {
@@ -810,7 +810,7 @@ export default function AdminMembersScreen() {
 
       {/* ── Member Detail Modal ──────────────────────────────────────────────── */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flex: 1 }}>
               <Text style={T.h2} numberOfLines={1}>{selected?.fullName ?? 'Member'}</Text>
@@ -1283,7 +1283,7 @@ export default function AdminMembersScreen() {
                           <TextInput value={value} onChangeText={set} placeholder={placeholder}
                             keyboardType={keyboard ?? 'default'} maxLength={maxLen}
                             placeholderTextColor={C.gray400} autoCapitalize="none"
-                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.white }} />
+                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
                         </View>
                       ))}
                       <AdminPhoneOtpInput
@@ -1300,7 +1300,7 @@ export default function AdminMembersScreen() {
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes</Text>
                         <TextInput value={eNotes} onChangeText={setENotes} placeholder="Any notes…" multiline
                           placeholderTextColor={C.gray400}
-                          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.white, minHeight: 60, textAlignVertical: 'top' }} />
+                          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface, minHeight: 60, textAlignVertical: 'top' }} />
                       </View>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
                         <View style={{ flex: 1 }}>
@@ -1322,7 +1322,7 @@ export default function AdminMembersScreen() {
                   {!showStatusInline ? (
                     <TouchableOpacity
                       onPress={() => { setNewStatus(selected.status ?? 'ACTIVE'); setShowStatusInline(true); }}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.white }}>
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.surface }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Member Status</Text>
                         <Text style={{ fontSize: 12, color: C.gray400, marginTop: 1 }}>Currently: {selected.status ?? 'ACTIVE'}</Text>
@@ -1591,7 +1591,7 @@ export default function AdminMembersScreen() {
                   <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => setShowCreateReminder(false)}>
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
                       <TouchableOpacity activeOpacity={1}>
-                        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+                        <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
                           <View style={{ alignItems: 'center', marginBottom: 16 }}>
                             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
                           </View>
@@ -1604,7 +1604,7 @@ export default function AdminMembersScreen() {
                             placeholder="e.g. Please pay your monthly installment"
                             placeholderTextColor={C.gray400}
                             multiline
-                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
+                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface, minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
                           />
 
                           <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 8 }}>Repeat Frequency</Text>
@@ -1673,7 +1673,7 @@ export default function AdminMembersScreen() {
         <Modal visible={showCollect} animationType="slide" transparent onRequestClose={closeCollectModal}>
           <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <ScrollView style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+            <ScrollView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
               contentContainerStyle={{ padding: 24 }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
@@ -1714,7 +1714,7 @@ export default function AdminMembersScreen() {
                               value={selectedAllocations[c.id]}
                               onChangeText={(value) => setSelectedAllocations((current) => ({ ...current, [c.id]: value }))}
                               keyboardType="numeric"
-                              style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.white }}
+                              style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.surface }}
                             />
                           </View>
                         )}
@@ -1866,7 +1866,7 @@ export default function AdminMembersScreen() {
 
       {/* ── Create Member Modal ────────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Add Member</Text>
             <TouchableOpacity onPress={() => setShowCreate(false)}>
@@ -1971,7 +1971,7 @@ export default function AdminMembersScreen() {
       {/* ── Change Referral Modal ──────────────────────────────────────────────── */}
       <Modal visible={showReferralChange} animationType="slide" transparent onRequestClose={() => setShowReferralChange(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Change Referral</Text>
               <TouchableOpacity onPress={() => setShowReferralChange(false)}>

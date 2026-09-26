@@ -229,7 +229,7 @@ function ChatView({ conversation: initialConv, userId, isMember, orgLabel, onBac
           style={{
             flex: 1, maxHeight: 100, fontSize: 14, color: C.gray900,
             borderWidth: 1, borderColor: C.gray200, borderRadius: 16,
-            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB',
+            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: C.surface,
           }}
         />
         <TouchableOpacity
@@ -394,7 +394,7 @@ function GroupChatView({ group, userId, onBack }: { group: any; userId: string; 
           style={{
             flex: 1, maxHeight: 100, fontSize: 14, color: C.gray900,
             borderWidth: 1, borderColor: C.gray200, borderRadius: 16,
-            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB',
+            paddingHorizontal: 14, paddingVertical: 10, backgroundColor: C.surface,
           }}
         />
         <TouchableOpacity
@@ -603,7 +603,7 @@ function NewChatModal({
       <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={resetAndClose}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
+            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '88%' }}>
               {/* Handle */}
               <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 4 }}>
                 <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
@@ -615,7 +615,7 @@ function NewChatModal({
                   <Text style={{ fontSize: 17, fontWeight: '700', color: C.gray900, marginBottom: 8 }}>New Chat</Text>
                   <TouchableOpacity
                     onPress={() => { setSearch(''); setStep('member'); }}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, backgroundColor: '#F9FAFB' }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, backgroundColor: C.surface }}
                   >
                     <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ fontSize: 20 }}>💬</Text>
@@ -629,7 +629,7 @@ function NewChatModal({
                   {canCreateGroup && (
                     <TouchableOpacity
                       onPress={() => { setSearch(''); setStep('group-details'); }}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, backgroundColor: '#F9FAFB' }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, backgroundColor: C.surface }}
                     >
                       <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#DCFCE7', alignItems: 'center', justifyContent: 'center' }}>
                         <Text style={{ fontSize: 20 }}>👥</Text>
@@ -659,7 +659,7 @@ function NewChatModal({
                       onChangeText={setSearch}
                       placeholder="Search by name or phone..."
                       placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, backgroundColor: '#F9FAFB' }}
+                      style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, backgroundColor: C.surface }}
                     />
                   </View>
                   {!!error && <Text style={{ color: C.red, fontSize: 12, paddingHorizontal: 16, marginBottom: 4 }}>{error}</Text>}
@@ -702,7 +702,7 @@ function NewChatModal({
                     placeholder="e.g. Chit Group A Members"
                     placeholderTextColor={C.gray400}
                     maxLength={100}
-                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', marginBottom: 14 }}
+                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface, marginBottom: 14 }}
                   />
                   <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Description (optional)</Text>
                   <TextInput
@@ -711,7 +711,7 @@ function NewChatModal({
                     placeholder="What is this group for?"
                     placeholderTextColor={C.gray400}
                     maxLength={255}
-                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', marginBottom: 20 }}
+                    style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface, marginBottom: 20 }}
                   />
                   <TouchableOpacity
                     onPress={() => { setSearch(''); setStep('group-members'); }}
@@ -740,7 +740,7 @@ function NewChatModal({
                       onChangeText={setSearch}
                       placeholder="Search..."
                       placeholderTextColor={C.gray400}
-                      style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, backgroundColor: '#F9FAFB' }}
+                      style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, backgroundColor: C.surface }}
                     />
                   </View>
                   {!!error && <Text style={{ color: C.red, fontSize: 12, paddingHorizontal: 16, marginBottom: 4 }}>{error}</Text>}
@@ -1071,7 +1071,7 @@ export default function AdminMessagesScreen() {
   const orgLabel = user?.tenantName ?? 'your Org';
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
       {!activeConversation && !activeGroup && (
         <View style={{ padding: 16, paddingBottom: 12, borderBottomWidth: 1, borderColor: C.gray100 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Messages</Text>

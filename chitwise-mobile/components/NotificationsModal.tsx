@@ -295,7 +295,7 @@ export function NotificationsModal({ visible, onClose }: { visible: boolean; onC
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         {/* ── Header ── */}
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

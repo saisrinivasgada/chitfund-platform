@@ -41,7 +41,7 @@ function PickupTrailModal({ request, memberName, chitName, onClose }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
           padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200,
@@ -187,7 +187,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
             padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200,
@@ -280,7 +280,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
                   style={{
                     borderWidth: 1.5, borderColor: '#0D9488', borderRadius: 8,
                     padding: 10, fontSize: 18, fontWeight: '700', color: C.gray900,
-                    backgroundColor: C.white, marginBottom: 10,
+                    backgroundColor: C.surface, marginBottom: 10,
                   }}
                 />
                 <Button
@@ -304,7 +304,7 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
                   onPress={() => reschedule(label, days)}
                   style={{
                     flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center',
-                    backgroundColor: C.white, borderWidth: 1.5, borderColor: C.navy,
+                    backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.navy,
                     opacity: reschedMut.isPending ? 0.5 : 1,
                   }}
                 >
@@ -398,7 +398,7 @@ export default function ManagerPickupsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Tabs */}
-      <View style={{ flexDirection: 'row', backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200, paddingHorizontal: 12 }}>
+      <View style={{ flexDirection: 'row', backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200, paddingHorizontal: 12 }}>
         {([
           { key: 'pickups' as Tab, label: `Active Pickups${assigned.length ? ` (${assigned.length})` : ''}` },
           { key: 'history' as Tab, label: 'Collection History' },
