@@ -375,8 +375,10 @@ export default function LoginScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biometricOn]);
 
-  function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
-    setUser({
+  async function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
+    // Wait until SecureStore contains this account's tokens before AuthGuard
+    // mounts its role dashboard and dashboard queries begin.
+    await setUser({
       id:                 data.userId,
       username:           data.username,
       fullName:           data.fullName,
@@ -412,7 +414,7 @@ export default function LoginScreen() {
     try {
       const data = await selectTenant(loginToken, tenantId);
       setTenantPicker(null);
-      applyAuth(data, true, tenantName);
+      await applyAuth(data, true, tenantName);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Tenant selection failed');
     } finally {
@@ -427,7 +429,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const data = await refreshAuthToken(creds.refreshToken);
-      applyAuth(data);
+      await applyAuth(data);
     } catch {
       await disableBiometric();
       setBiometricOn(false);
@@ -465,7 +467,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? err.message ?? 'Login failed');
     } finally {
@@ -489,7 +491,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
     } finally {
@@ -519,7 +521,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
     } finally {

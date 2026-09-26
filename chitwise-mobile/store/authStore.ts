@@ -60,7 +60,7 @@ interface AuthState {
   user: AuthUser | null;
   accounts: StoredAccount[];
   isLoading: boolean;
-  setUser: (user: AuthUser | null) => void;
+  setUser: (user: AuthUser | null) => Promise<void>;
   logout: () => Promise<void>;
   logoutFromAccount: (userId: string) => Promise<void>;
   logoutAll: () => Promise<void>;
@@ -100,8 +100,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
 
   setUser: async (user) => {
-    set({ user });
     if (user) {
+      // Persist the new credentials before exposing the new identity to the
+      // route guard. Screens start their queries as soon as `user` changes;
+      // publishing state first lets those requests leave with the previous
+      // account's token during account switching.
       await SecureStore.setItemAsync(TOKEN_KEY, user.token);
       if (user.refreshToken) {
         await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, user.refreshToken);
@@ -139,12 +142,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         existing.unshift(entry);
       }
       await saveAccounts(existing);
-      set({ accounts: existing });
+      set({ user, accounts: existing });
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
       await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
+      set({ user: null });
     }
   },
 
@@ -326,7 +330,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         loadAccounts(),
         SecureStore.getItemAsync(TOKEN_KEY),
       ]);
-      if (raw) {
+      if (raw && token) {
         let user = JSON.parse(raw) as AuthUser;
         // Backfill tenantId from JWT for sessions stored before the JWT-decode fix.
         if (!user.tenantId && token) {
@@ -339,7 +343,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
           } catch {}
         }
-        set({ user, accounts, isLoading: false });
+        // USER_KEY + TOKEN_KEY are the authoritative active-session pair.
+        // If a previous interrupted switch left the matching account card
+        // marked invalid, reconcile it so the picker cannot show the same
+        // account as both ACTIVE and NEEDS LOGIN.
+        const currentId = accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION');
+        let reconciled = accounts;
+        const currentIndex = accounts.findIndex((a) => a.accountId === currentId);
+        if (currentIndex >= 0 && !accounts[currentIndex].sessionValid) {
+          reconciled = accounts.map((a) => a.accountId === currentId ? {
+            ...a,
+            token,
+            refreshToken: user.refreshToken ?? a.refreshToken,
+            sessionValid: true,
+          } : a);
+          await saveAccounts(reconciled);
+        }
+        set({ user, accounts: reconciled, isLoading: false });
       } else {
         set({ accounts, isLoading: false });
       }
