@@ -115,6 +115,9 @@ export default function MemberHomeScreen() {
     try { await syncCurrentAccount(qc); } catch {} finally { setIsRefreshing(false); }
   }
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
   if (isLoading) return <LoadingScreen />;
 
   return (
@@ -124,7 +127,27 @@ export default function MemberHomeScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero header — liquid glass on dark */}
+        {/* Compact role header */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            <RoleLogo role="MEMBER" size={58} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>My ChitWise</Text>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
+              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
+            </View>
+          </View>
+          <ProfileAvatarButton size={44} />
+        </View>
+
+        <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+            {greeting}, {user?.fullName?.split(' ')[0] ?? 'Member'} 👋
+          </Text>
+          <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Your balances, chits and pickup requests.</Text>
+        </View>
+
+        {/* Balance hero */}
         <View style={{
           backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 20,
           overflow: 'hidden',
@@ -133,25 +156,9 @@ export default function MemberHomeScreen() {
           {/* Specular highlight */}
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(255,255,255,0.08)', borderTopLeftRadius: 20, borderTopRightRadius: 20 }} />
           <View style={{ position: 'absolute', top: -24, left: -24, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(255,255,255,0.07)' }} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, flex: 1 }}>
-              <RoleLogo role="MEMBER" size={46} />
-              <View style={{ flexShrink: 1 }}>
-                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: '500' }}>Welcome back</Text>
-                <Text style={{ fontSize: 22, fontWeight: '800', color: C.white, marginTop: 2 }} numberOfLines={1}>
-                  {user?.fullName?.split(' ')[0] ?? 'Member'}
-                </Text>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.goldLight, marginTop: 2 }} numberOfLines={1}>
-                  {user?.tenantName ?? 'Your organization'}
-                </Text>
-              </View>
-            </View>
-            <ProfileAvatarButton size={44} />
-          </View>
-
           {/* Balance card */}
           {totalBalance != null && (
-            <View style={{ backgroundColor: C.white + '1A', borderRadius: 14, padding: 18, marginBottom: 16 }}>
+            <TouchableOpacity activeOpacity={0.78} onPress={() => router.push('/(app)/(member)/payments')} style={{ backgroundColor: C.white + '1A', borderRadius: 14, padding: 18, marginBottom: 16 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 1, marginBottom: 6 }}>
                 {Number(totalBalance) < 0 ? 'CREDIT BALANCE' : 'OUTSTANDING BALANCE'}
               </Text>
@@ -172,27 +179,26 @@ export default function MemberHomeScreen() {
               {Number(totalBalance) === 0 && (
                 <Text style={{ fontSize: 12, color: C.white + '88', marginTop: 4 }}>All dues cleared</Text>
               )}
-            </View>
+              <Text style={{ fontSize: 11, color: C.white + '88', marginTop: 8 }}>Tap to view payments →</Text>
+            </TouchableOpacity>
           )}
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+            <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(app)/(member)/chits')} style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>ACTIVE CHITS</Text>
               <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{activeChits.length}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+            </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(app)/(member)/chits')} style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>COMPLETED</Text>
               <Text style={{ fontSize: 26, fontWeight: '800', color: C.white }} numberOfLines={1} adjustsFontSizeToFit>{completedChits.length}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
+            </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.75} onPress={() => router.push('/(app)/(member)/requests')} style={{ flex: 1, backgroundColor: C.white + '1A', borderRadius: 14, padding: 14 }}>
               <Text style={{ fontSize: 11, color: C.white + '88', fontWeight: '700', letterSpacing: 0.5, marginBottom: 6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>PICKUPS</Text>
               <Text style={{ fontSize: 26, fontWeight: '800', color: pendingReqs.length > 0 ? C.goldLight : C.white }} numberOfLines={1} adjustsFontSizeToFit>
                 {pendingReqs.length}
               </Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
-
-        <SyncStatusCard compact />
 
         {/* Action required — staff collected a partial amount */}
         {needsApproval.length > 0 && (
@@ -285,19 +291,21 @@ export default function MemberHomeScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title="Cash Pickup Status" />
             {pendingReqs.map((r: any) => (
-              <GlassCard key={r.id} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
-                  <Badge status={r.status} />
-                </View>
-                <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  {r.status === 'PENDING'   && 'Waiting for staff assignment'}
-                  {r.status === 'ASSIGNED'  && 'Staff assigned — they will visit you soon'}
-                  {r.status === 'PICKED_UP' && 'Staff collected your cash — awaiting admin confirmation'}
-                  {r.status === 'PARTIALLY_COLLECTED' && 'Staff collected a partial amount — your approval needed'}
-                </Text>
-                <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Requested {fmtDate(r.requestedAt)}</Text>
-              </GlassCard>
+              <TouchableOpacity key={r.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(member)/requests')}>
+                <GlassCard style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
+                    <Badge status={r.status} />
+                  </View>
+                  <Text style={{ fontSize: 12, color: C.gray500 }}>
+                    {r.status === 'PENDING'   && 'Waiting for staff assignment'}
+                    {r.status === 'ASSIGNED'  && 'Staff assigned — they will visit you soon'}
+                    {r.status === 'PICKED_UP' && 'Staff collected your cash — awaiting admin confirmation'}
+                    {r.status === 'PARTIALLY_COLLECTED' && 'Staff collected a partial amount — your approval needed'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Requested {fmtDate(r.requestedAt)} · Tap for details →</Text>
+                </GlassCard>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -359,17 +367,19 @@ export default function MemberHomeScreen() {
             </Text>
           ) : (
             activeChits.slice(0, 3).map((c: any) => (
-              <GlassCard key={c.id} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }} numberOfLines={1}>{c.name}</Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 3 }}>
-                      Draw {c.winnersAssigned ?? c.currentDraw ?? 0}/{c.durationMonths ?? c.totalDraws ?? '?'}
-                    </Text>
+              <TouchableOpacity key={c.id} activeOpacity={0.76} onPress={() => router.push({ pathname: '/(app)/(member)/chit-detail', params: { chitId: c.id } } as any)}>
+                <GlassCard style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }} numberOfLines={1}>{c.name}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 3 }}>
+                        Draw {c.winnersAssigned ?? c.currentDraw ?? 0}/{c.durationMonths ?? c.totalDraws ?? '?'}
+                      </Text>
+                    </View>
+                    <Amount value={c.installmentAmount ?? 0} size="sm" />
                   </View>
-                  <Amount value={c.installmentAmount ?? 0} size="sm" />
-                </View>
-              </GlassCard>
+                </GlassCard>
+              </TouchableOpacity>
             ))
           )}
         </View>

@@ -17,7 +17,7 @@ import {
   superAdminMemberUsageSummary,
 } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
-import { C, T, Badge, fmtDate } from '../../../components/ui';
+import { C, Badge, fmtDate } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import RoleLogo from '../../../components/RoleLogo';
 
@@ -98,28 +98,24 @@ export default function SuperAdminOrgsPage() {
         backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200,
       }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-          <RoleLogo role="SUPER_ADMIN" size={44} />
+          <RoleLogo role="SUPER_ADMIN" size={58} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text style={T.h2}>Organizations</Text>
-              <View style={{ backgroundColor: '#EDE9FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: '#7C3AED' }}>SUPER ADMIN</Text>
-              </View>
-            </View>
-            <Text style={{ fontSize: 13, color: C.gray500, marginTop: 1 }} numberOfLines={1}>Hello, {user?.fullName?.split(' ')[0]}</Text>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: C.gold, marginTop: 1 }}>Chit Fund Management Platform</Text>
+            <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Platform</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }}>ChitWise Hub</Text>
           </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${totalAlerts} platform alerts`}
             onPress={() => router.push('/(app)/(superadmin)/alerts' as any)}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#FEF3C7' }}
+            style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: totalAlerts > 0 ? '#FEF3C7' : C.gray100 }}
           >
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>🔔 Alerts</Text>
+            <Text style={{ fontSize: 18 }}>🔔</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={logout}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.gray100 }}
+            style={{ paddingHorizontal: 12, height: 42, justifyContent: 'center', borderRadius: 21, backgroundColor: C.gray100 }}
           >
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Sign out</Text>
           </TouchableOpacity>
@@ -131,6 +127,13 @@ export default function SuperAdminOrgsPage() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ marginBottom: 16, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+            Welcome, {user?.fullName?.split(' ')[0] ?? 'Admin'} 👋
+          </Text>
+          <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Manage organizations and platform operations.</Text>
+        </View>
+
         {/* Alert banner */}
         {totalAlerts > 0 && (
           <TouchableOpacity
@@ -155,17 +158,24 @@ export default function SuperAdminOrgsPage() {
         )}
 
         {/* Stats row */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
           {[
-            { label: 'Total',     value: stats.total,     color: C.navy },
-            { label: 'Active',    value: stats.active,    color: C.green },
-            { label: 'Pending',   value: stats.pending,   color: C.amber },
-            { label: 'Suspended', value: stats.suspended, color: C.red },
-          ].map(({ label, value, color }) => (
-            <View key={label} style={{ flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4 }}>
+            { label: 'Total',     value: stats.total,     color: C.navy, filter: '' },
+            { label: 'Active',    value: stats.active,    color: C.green, filter: 'ACTIVE' },
+            { label: 'Pending',   value: stats.pending,   color: C.amber, filter: 'PENDING' },
+            { label: 'Suspended', value: stats.suspended, color: C.red, filter: 'SUSPENDED' },
+          ].map(({ label, value, color, filter }) => (
+            <TouchableOpacity
+              key={label}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={`${label} organizations: ${value}`}
+              onPress={() => setStatusFilter(filter)}
+              style={{ width: '48%', backgroundColor: C.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: statusFilter === filter ? color : 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4 }}
+            >
               <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>{label}</Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color, marginTop: 2 }}>{value}</Text>
-            </View>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: value === 0 ? C.gray400 : color, marginTop: 2 }}>{value}</Text>
+            </TouchableOpacity>
           ))}
         </View>
 

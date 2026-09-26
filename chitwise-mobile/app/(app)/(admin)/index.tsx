@@ -44,6 +44,8 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
   onLongPress?: () => void;
   editing?: boolean;
 }) {
+  const numericValue = Number(value.replace(/[^\d.-]/g, ''));
+  const displayAccent = Number.isFinite(numericValue) && numericValue === 0 ? C.gray400 : accent;
   return (
     <TouchableOpacity
       onPress={editing ? undefined : onPress}
@@ -56,9 +58,9 @@ function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing 
       style={{ flex: 1 }}
     >
       <NeoSurface style={{ flex: 1, minHeight: 100, opacity: editing ? 0.96 : 1 }}>
-        <View style={[dashboardStyles.statAccent, { backgroundColor: accent }]} />
+        <View style={[dashboardStyles.statAccent, { backgroundColor: displayAccent }]} />
         <Text style={dashboardStyles.statLabel} numberOfLines={2}>{label}</Text>
-        <Text style={[dashboardStyles.statValue, { color: accent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{value}</Text>
+        <Text style={[dashboardStyles.statValue, { color: displayAccent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{value}</Text>
         {sub ? <Text style={dashboardStyles.statSub} numberOfLines={2}>{sub}</Text> : null}
       </NeoSurface>
     </TouchableOpacity>
@@ -397,7 +399,7 @@ export default function AdminDashboard() {
 
         {/* Friendly focal point — deliberately separate from the compact utility header. */}
         <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
-          <Text style={dashboardStyles.greeting} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82}>
+          <Text style={dashboardStyles.greeting} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
             {greeting}, {user?.fullName?.split(' ')[0]} 👋
           </Text>
           <Text style={dashboardStyles.greetingSub}>Here’s what needs your attention today.</Text>
@@ -439,9 +441,11 @@ export default function AdminDashboard() {
         </TouchableOpacity>
 
         {/* Every overview card remains a normal navigation target. Long-press enters edit mode. */}
+        <SectionHeader title="Overview" />
         <SortableDashboardGrid
           items={dashboardGridItems}
           storageKey={`chitwise.dashboard.admin.v1:${user?.id ?? 'unknown'}:${user?.tenantId ?? 'tenant'}:${user?.role ?? 'ADMIN'}`}
+          collapsedCount={4}
           onEditingChange={setIsCustomizingDashboard}
         />
         {(() => {

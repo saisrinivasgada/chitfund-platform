@@ -502,6 +502,8 @@ export default function StaffTasksScreen() {
   const todayAmt = (tasks as any[])
     .filter((t: any) => t.pickedUpAt && new Date(t.pickedUpAt).toDateString() === today)
     .reduce((s: number, t: any) => s + Number(t.requestedAmount ?? 0), 0);
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   async function onRefresh() {
     setIsRefreshing(true);
@@ -523,23 +525,26 @@ export default function StaffTasksScreen() {
         ListHeaderComponent={
           <>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                <RoleLogo role="STAFF" size={44} />
+                <RoleLogo role="STAFF" size={58} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={T.h1} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>My Tasks</Text>
-                  <Text style={{ fontSize: 13, color: C.gray500, marginTop: 2 }} numberOfLines={1}>
-                    {user?.fullName?.split(' ')[0] ?? 'Staff'}
-                  </Text>
+                  <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>My Tasks</Text>
                   <Text style={{ fontSize: 12, color: C.gold, fontWeight: '700', marginTop: 1 }} numberOfLines={1}>
                     {user?.tenantName ?? 'Your organization'}
                   </Text>
+                  <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
                 </View>
               </View>
               <ProfileAvatarButton />
             </View>
 
-            <SyncStatusCard compact />
+            <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
+              <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+                {greeting}, {user?.fullName?.split(' ')[0] ?? 'Staff'} 👋
+              </Text>
+              <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Collections and cash currently assigned to you.</Text>
+            </View>
 
             {/* Summary strip */}
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>

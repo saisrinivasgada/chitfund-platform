@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Text, Platform, StyleSheet, View } from 'react-native';
 import { C } from '../../../components/ui';
+import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useReminderSync } from '../../../hooks/useReminderSync';
 import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
@@ -12,11 +12,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     requests:  '↩',
     more:      '···',
   };
-  return (
-    <Text style={{ fontSize: name === 'more' ? 14 : 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
-      {icons[name] ?? '●'}
-    </Text>
-  );
+  return <NeumorphicTabIcon glyph={icons[name] ?? '●'} focused={focused} size={name === 'more' ? 15 : 19} />;
 }
 
 export default function MemberLayout() {
@@ -29,16 +25,10 @@ export default function MemberLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarBackground: () => <View style={[StyleSheet.absoluteFill, { backgroundColor: C.gray50 }]} />,
-        tabBarStyle: {
-          backgroundColor: 'transparent',
-          borderTopWidth: 0,
-          height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-          paddingTop: 8,
-          shadowColor: '#AEB9C7', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.42, shadowRadius: 10, elevation: 12,
-        },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarBackground: NeumorphicTabBackground,
+        tabBarStyle: neumorphicTabBarStyle,
+        tabBarItemStyle: neumorphicTabItemStyle,
+        tabBarLabelStyle: neumorphicTabLabelStyle,
       })}
     >
       {/* ── Visible tabs (5) ─────────────────────────────────────── */}

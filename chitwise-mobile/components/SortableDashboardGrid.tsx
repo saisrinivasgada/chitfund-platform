@@ -23,6 +23,7 @@ type Props = {
   columns?: number;
   gap?: number;
   rowHeight?: number;
+  collapsedCount?: number;
   onEditingChange?: (editing: boolean) => void;
 };
 
@@ -133,12 +134,14 @@ export function SortableDashboardGrid({
   columns = 2,
   gap = 10,
   rowHeight = 122,
+  collapsedCount,
   onEditingChange,
 }: Props) {
   const ids = useMemo(() => items.map((item) => item.id), [items]);
   const itemMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const [width, setWidth] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [order, setOrder] = useState(ids);
 
   useEffect(() => {
@@ -162,6 +165,10 @@ export function SortableDashboardGrid({
   const visibleItems = normalizeOrder(order, ids)
     .map((id) => itemMap.get(id))
     .filter((item): item is DashboardGridItem => Boolean(item));
+  const hasCollapsedItems = Boolean(collapsedCount && visibleItems.length > collapsedCount);
+  const displayedItems = editing || expanded || !collapsedCount
+    ? visibleItems
+    : visibleItems.slice(0, collapsedCount);
   const cellWidth = width > 0 ? (width - gap * (columns - 1)) / columns : 0;
 
   const saveOrder = (next: string[]) => {
@@ -205,7 +212,7 @@ export function SortableDashboardGrid({
       )}
       {width > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap }}>
-          {visibleItems.map((item, index) => (
+          {displayedItems.map((item, index) => (
             <SortableItem
               key={item.id}
               item={item}
@@ -227,7 +234,22 @@ export function SortableDashboardGrid({
         </View>
       )}
       {!editing && width > 0 && (
-        <Text style={styles.customizeHint}>Long-press any overview card to customize</Text>
+        <View>
+          {hasCollapsedItems && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={expanded ? 'Show fewer dashboard insights' : 'Show all dashboard insights'}
+              onPress={() => setExpanded((current) => !current)}
+              style={styles.insightsButton}
+            >
+              <Text style={styles.insightsButtonText}>
+                {expanded ? 'Show less' : `More insights (${visibleItems.length - (collapsedCount ?? 0)})`}
+              </Text>
+              <Text style={styles.insightsChevron}>{expanded ? '⌃' : '⌄'}</Text>
+            </Pressable>
+          )}
+          <Text style={styles.customizeHint}>Long-press any overview card to customize</Text>
+        </View>
       )}
     </View>
   );
@@ -265,5 +287,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15,43,68,0.10)',
   },
   dragHandleText: { color: C.navy, fontSize: 17, fontWeight: '800', lineHeight: 19 },
-  customizeHint: { color: C.gray400, fontSize: 10, textAlign: 'center', marginTop: 9 },
+  insightsButton: {
+    alignSelf: 'center',
+    minHeight: 36,
+    marginTop: 11,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.50)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.85)',
+  },
+  insightsButtonText: { color: C.navy, fontSize: 12, fontWeight: '700' },
+  insightsChevron: { color: C.navy, fontSize: 15, fontWeight: '800', marginTop: -2 },
+  customizeHint: { color: C.gray400, fontSize: 10, textAlign: 'center', marginTop: 7 },
 });

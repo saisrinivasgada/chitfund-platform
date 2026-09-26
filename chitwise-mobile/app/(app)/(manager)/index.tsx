@@ -10,7 +10,7 @@ import {
   getMembers, getChits, getActiveCashRequests, getAdminSupportContact,
   getMyAssignedRequests, listStaff,
 } from '../../../services/api';
-import { C, T, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, fmtDate, Divider } from '../../../components/ui';
+import { C, Card, Badge, Amount, StatCard, SectionHeader, LoadingScreen, Divider } from '../../../components/ui';
 import EditProfileModal from '../../../components/EditProfileModal';
 import { TutorialHelpButton } from '../../../tutorials/TutorialProvider';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
@@ -81,6 +81,8 @@ export default function ManagerDashboardScreen() {
     (sum: number, t: any) => sum + Number(t.collectedAmount ?? t.requestedAmount ?? 0), 0
   );
   const myAssignedCount = (myTasks as any[]).filter((t: any) => t.status === 'ASSIGNED').length;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   if (isLoading) return <LoadingScreen />;
 
@@ -92,14 +94,13 @@ export default function ManagerDashboardScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-            <RoleLogo role="MANAGER" size={46} />
+            <RoleLogo role="MANAGER" size={58} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 13, color: C.gray500 }}>Manager View</Text>
-              <Text style={T.h1} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{user?.fullName?.split(' ')[0] ?? 'Manager'}</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Manager Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>{user?.tenantName ?? 'Your organization'}</Text>
-              <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>{fmtDate(new Date().toISOString())}</Text>
+              <View style={{ marginTop: 4 }}><SyncStatusCard compact /></View>
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -113,10 +114,15 @@ export default function ManagerDashboardScreen() {
           </View>
         </View>
 
-        <SyncStatusCard compact />
+        <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+            {greeting}, {user?.fullName?.split(' ')[0] ?? 'Manager'} 👋
+          </Text>
+          <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Here’s what needs your attention today.</Text>
+        </View>
 
         {/* Treasury balance */}
-        <View style={{
+        <TouchableOpacity activeOpacity={0.82} onPress={() => router.push('/(app)/(manager)/payments' as any)} style={{
           backgroundColor: C.navy, borderRadius: 20, padding: 20, marginBottom: 20,
           shadowColor: C.navy, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12,
         }}>
@@ -140,7 +146,8 @@ export default function ManagerDashboardScreen() {
               </Text>
             </View>
           </View>
-        </View>
+          <Text style={{ color: C.white + '88', fontSize: 11, marginTop: 12 }}>Tap to open Payments →</Text>
+        </TouchableOpacity>
 
         {/* My own cash pickups — manager can be assigned collections too */}
         <TouchableOpacity
@@ -180,24 +187,24 @@ export default function ManagerDashboardScreen() {
         <SectionHeader title="Needs Attention" />
 
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-          <Card style={{ width: '48%', alignItems: 'center' }}>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingRemit as any[]).length > 0 ? C.amber : C.gray400 }}>
-              {(pendingRemit as any[]).length}
-            </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Remittance</Text>
-          </Card>
-          <Card style={{ width: '48%', alignItems: 'center' }}>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? C.amber : C.gray400 }}>
-              {(pendingPayouts as any[]).length}
-            </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Payouts</Text>
-          </Card>
-          <Card style={{ width: '100%', alignItems: 'center' }}>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: pendingPickups > 0 ? C.red : C.gray400 }}>
-              {pendingPickups}
-            </Text>
-            <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1}>Unassigned Pickups</Text>
-          </Card>
+          <TouchableOpacity activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)} style={{ width: '48%' }}>
+            <Card style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingRemit as any[]).length > 0 ? C.amber : C.gray400 }}>{(pendingRemit as any[]).length}</Text>
+              <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Remittance</Text>
+            </Card>
+          </TouchableOpacity>
+          <TouchableOpacity activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)} style={{ width: '48%' }}>
+            <Card style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: (pendingPayouts as any[]).length > 0 ? C.amber : C.gray400 }}>{(pendingPayouts as any[]).length}</Text>
+              <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Pending Payouts</Text>
+            </Card>
+          </TouchableOpacity>
+          <TouchableOpacity activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/pickups' as any)} style={{ width: '100%' }}>
+            <Card style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: pendingPickups > 0 ? C.red : C.gray400 }}>{pendingPickups}</Text>
+              <Text style={{ fontSize: 11, color: C.gray500, textAlign: 'center', marginTop: 2 }} numberOfLines={1}>Unassigned Pickups</Text>
+            </Card>
+          </TouchableOpacity>
         </View>
 
         {/* Today's collections — completed payments recorded today */}
@@ -212,20 +219,20 @@ export default function ManagerDashboardScreen() {
           ) : (
             <>
               {completedToday.slice(0, 6).map((b: any) => (
-                <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
-                        {memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>
-                        {chitMap[b.chitId] ?? '—'} · {(b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
-                        {b.collectedBy && staffMap[b.collectedBy] ? ` · ${staffMap[b.collectedBy]}` : ''}
-                      </Text>
+                <TouchableOpacity key={b.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)}>
+                  <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.green }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}</Text>
+                        <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>
+                          {chitMap[b.chitId] ?? '—'} · {(b.paymentMode ?? 'CASH').replace(/_/g, ' ')}
+                          {b.collectedBy && staffMap[b.collectedBy] ? ` · ${staffMap[b.collectedBy]}` : ''}
+                        </Text>
+                      </View>
+                      <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.green} />
                     </View>
-                    <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.green} />
-                  </View>
-                </Card>
+                  </Card>
+                </TouchableOpacity>
               ))}
               {completedToday.length > 6 && (
                 <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
@@ -241,19 +248,17 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Today's Payouts (${(todayPayouts as any[]).length})`} />
             {(todayPayouts as any[]).slice(0, 5).map((p: any) => (
-              <Card key={p.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.navy }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>
-                      {memberMap[p.memberId ?? p.winnerId] ?? '—'}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>
-                      {chitMap[p.chitId] ?? '—'} · Draw #{p.monthNumber ?? p.drawNumber ?? '—'}
-                    </Text>
+              <TouchableOpacity key={p.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)}>
+                <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.navy }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }} numberOfLines={1}>{memberMap[p.memberId ?? p.winnerId] ?? '—'}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }} numberOfLines={1}>{chitMap[p.chitId] ?? '—'} · Draw #{p.monthNumber ?? p.drawNumber ?? '—'}</Text>
+                    </View>
+                    <Amount value={p.netPayoutAmount ?? p.payoutAmount ?? 0} size="sm" color={C.navy} />
                   </View>
-                  <Amount value={p.netPayoutAmount ?? p.payoutAmount ?? 0} size="sm" color={C.navy} />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
             {(todayPayouts as any[]).length > 5 && (
               <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
@@ -268,20 +273,19 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Today's Draws (${(todayDraws as any[]).length})`} />
             {(todayDraws as any[]).map((d: any) => (
-              <Card key={d.id} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View>
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>
-                      {chitMap[d.chitId] ?? d.chitName ?? '—'}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
-                      Draw #{d.drawNumber ?? d.monthNumber ?? '—'}
-                      {d.winner && ` · Winner: ${memberMap[d.winner?.memberId] ?? d.winner?.memberName ?? '—'}`}
-                    </Text>
+              <TouchableOpacity key={d.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/chits' as any)}>
+                <Card style={{ marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.navy }}>{chitMap[d.chitId] ?? d.chitName ?? '—'}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
+                        Draw #{d.drawNumber ?? d.monthNumber ?? '—'}{d.winner && ` · Winner: ${memberMap[d.winner?.memberId] ?? d.winner?.memberName ?? '—'}`}
+                      </Text>
+                    </View>
+                    <Badge status={d.status} />
                   </View>
-                  <Badge status={d.status} />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -291,19 +295,17 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Cash Pickups In Progress (${assignedPickups})`} />
             {(cashRequests as any[]).filter((r: any) => r.status === 'ASSIGNED').map((r: any) => (
-              <Card key={r.id} style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                      {memberMap[r.memberId] ?? `Member ${r.memberId?.slice(0, 8)}…`}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>
-                      {chitMap[r.chitId] ?? '—'}
-                    </Text>
+              <TouchableOpacity key={r.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/pickups' as any)}>
+                <Card style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{memberMap[r.memberId] ?? `Member ${r.memberId?.slice(0, 8)}…`}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{chitMap[r.chitId] ?? '—'}</Text>
+                    </View>
+                    <Amount value={r.requestedAmount} size="sm" />
                   </View>
-                  <Amount value={r.requestedAmount} size="sm" />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -313,20 +315,17 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Pending Remittance (${(pendingRemit as any[]).length})`} />
             {(pendingRemit as any[]).slice(0, 5).map((b: any) => (
-              <Card key={b.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                      {memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>
-                      {chitMap[b.chitId] ?? b.chitName ?? '—'}
-                      {b.collectedBy && staffMap[b.collectedBy] ? ` · Collected by ${staffMap[b.collectedBy]}` : ''}
-                    </Text>
+              <TouchableOpacity key={b.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)}>
+                <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.amber }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{memberMap[b.memberId] ?? `Member ${b.memberId?.slice(0, 8)}…`}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{chitMap[b.chitId] ?? b.chitName ?? '—'}{b.collectedBy && staffMap[b.collectedBy] ? ` · Collected by ${staffMap[b.collectedBy]}` : ''}</Text>
+                    </View>
+                    <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />
                   </View>
-                  <Amount value={b.amount ?? b.totalAmount ?? 0} size="sm" color={C.amber} />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
             {(pendingRemit as any[]).length > 5 && (
               <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
@@ -341,19 +340,17 @@ export default function ManagerDashboardScreen() {
           <View style={{ marginBottom: 20 }}>
             <SectionHeader title={`Winners Awaiting Payout (${(pendingPayouts as any[]).length})`} />
             {(pendingPayouts as any[]).slice(0, 5).map((p: any) => (
-              <Card key={p.id} style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.gold }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                      {memberMap[p.memberId ?? p.winnerId] ?? '—'}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>
-                      {chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? '—'}
-                    </Text>
+              <TouchableOpacity key={p.id} activeOpacity={0.76} onPress={() => router.push('/(app)/(manager)/payments' as any)}>
+                <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: C.gold }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>{memberMap[p.memberId ?? p.winnerId] ?? '—'}</Text>
+                      <Text style={{ fontSize: 12, color: C.gray500, marginTop: 1 }}>{chitMap[p.chitId] ?? '—'} · Draw #{p.drawNumber ?? '—'}</Text>
+                    </View>
+                    <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color={C.gold} />
                   </View>
-                  <Amount value={p.netPayoutAmount ?? p.winningAmount ?? p.payoutAmount ?? 0} size="sm" color={C.gold} />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
             {(pendingPayouts as any[]).length > 5 && (
               <Text style={{ textAlign: 'center', color: C.gray400, fontSize: 12, marginTop: 4 }}>
