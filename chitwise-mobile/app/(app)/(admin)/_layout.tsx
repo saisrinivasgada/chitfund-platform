@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { Text, Platform, StyleSheet, Modal, View, TouchableOpacity, Pressable } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useQuery } from '@tanstack/react-query';
 import { C } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -16,9 +17,16 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     more:     '···',
   };
   return (
-    <Text style={{ fontSize: name === 'more' ? 14 : 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
-      {icons[name] ?? '●'}
-    </Text>
+    <View style={[styles.tabIcon, focused && styles.tabIconActive]}>
+      <Text style={{
+        fontSize: name === 'more' ? 15 : 19,
+        lineHeight: 22,
+        fontWeight: '800',
+        color: focused ? C.white : C.gray400,
+      }}>
+        {icons[name] ?? '●'}
+      </Text>
+    </View>
   );
 }
 
@@ -82,20 +90,24 @@ export default function AdminLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarBackground: () => <View style={[StyleSheet.absoluteFill, { backgroundColor: C.gray50 }]} />,
+        tabBarBackground: () => (
+          <BlurView intensity={Platform.OS === 'ios' ? 72 : 0} tint="light" style={[StyleSheet.absoluteFill, styles.tabBackground]} />
+        ),
         tabBarStyle: {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
-          height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-          paddingTop: 8,
-          shadowColor: '#AEB9C7',
-          shadowOffset: { width: 0, height: -5 },
-          shadowOpacity: 0.42,
-          shadowRadius: 10,
-          elevation: 12,
+          height: Platform.OS === 'ios' ? 91 : 72,
+          paddingBottom: Platform.OS === 'ios' ? 23 : 7,
+          paddingTop: 7,
+          paddingHorizontal: 7,
+          shadowColor: '#8290A1',
+          shadowOffset: { width: 0, height: -7 },
+          shadowOpacity: 0.28,
+          shadowRadius: 15,
+          elevation: 16,
         },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarItemStyle: { borderRadius: 18 },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '700', marginTop: 1 },
       })}
     >
       {/* ── Visible tabs (5) ─────────────────────────────────────── */}
@@ -125,3 +137,32 @@ export default function AdminLayout() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBackground: {
+    backgroundColor: Platform.OS === 'ios' ? 'rgba(232,237,243,0.90)' : '#E8EDF3',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: 'rgba(255,255,255,0.88)',
+    overflow: 'hidden',
+  },
+  tabIcon: {
+    width: 40,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconActive: {
+    backgroundColor: C.navy,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
+    shadowColor: C.navy,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+});

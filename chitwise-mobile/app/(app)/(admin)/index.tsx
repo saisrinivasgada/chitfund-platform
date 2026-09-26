@@ -21,6 +21,7 @@ import { C, T, Card, Badge, Amount, EyeToggle, fmtDateTime, LoadingScreen, Secti
 import { toast } from '../../../components/Toast';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import RoleLogo from '../../../components/RoleLogo';
+import { SortableDashboardGrid, type DashboardGridItem } from '../../../components/SortableDashboardGrid';
 import { syncCurrentAccount } from '../../../offline/syncEngine';
 
 const NEO = {
@@ -34,22 +35,27 @@ function NeoSurface({ children, style }: { children: React.ReactNode; style?: an
   return <View style={[dashboardStyles.neoSurface, style]}>{children}</View>;
 }
 
-function NeoStatCard({ label, value, sub, accent, onPress }: {
+function NeoStatCard({ label, value, sub, accent, onPress, onLongPress, editing = false }: {
   label: string;
   value: string;
   sub?: string;
   accent: string;
   onPress: () => void;
+  onLongPress?: () => void;
+  editing?: boolean;
 }) {
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={editing ? undefined : onPress}
+      onLongPress={editing ? undefined : onLongPress}
+      delayLongPress={360}
       activeOpacity={0.72}
       accessibilityRole="button"
-      accessibilityLabel={`${label}: ${value}${sub ? `. ${sub}` : ''}`}
+      accessibilityLabel={`${label}: ${value}${sub ? `. ${sub}` : ''}${editing ? '. Drag to reorder' : ''}`}
+      accessibilityHint={editing ? 'Hold and drag to change its position' : 'Tap to open. Long press to customize the dashboard'}
       style={{ flex: 1 }}
     >
-      <NeoSurface style={{ flex: 1, minHeight: 100 }}>
+      <NeoSurface style={{ flex: 1, minHeight: 100, opacity: editing ? 0.96 : 1 }}>
         <View style={[dashboardStyles.statAccent, { backgroundColor: accent }]} />
         <Text style={dashboardStyles.statLabel} numberOfLines={2}>{label}</Text>
         <Text style={[dashboardStyles.statValue, { color: accent }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{value}</Text>
@@ -73,6 +79,7 @@ export default function AdminDashboard() {
   const [nrNotes, setNrNotes] = useState('');
   const [showNotifs, setShowNotifs] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCustomizingDashboard, setIsCustomizingDashboard] = useState(false);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -222,22 +229,73 @@ export default function AdminDashboard() {
 
   if (isLoading) return <LoadingScreen />;
 
+  const dashboardGridItems: DashboardGridItem[] = [
+    {
+      id: 'active-chits',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Chits" value={String(activeChits.length)} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />,
+    },
+    {
+      id: 'active-members',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Active Members" value={String(activeMembers.length)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />,
+    },
+    {
+      id: 'pending-pickups',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />,
+    },
+    {
+      id: 'new-requests',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="New Requests" value={String(pendingRequests.length)} accent={pendingRequests.length > 0 ? C.red : C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />,
+    },
+    {
+      id: 'pending-payout',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Payout" value={String(pendingPayoutCount)} sub="winner picked, no payout" accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
+    },
+    {
+      id: 'pending-disbursement',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Pending Disbursement" value={String((pendingPayouts as any[]).length)} sub="created, not disbursed" accent={C.red} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })} />,
+    },
+    {
+      id: 'picked-up',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Picked Up" value={String((cashSummary as any)?.pickedUp ?? 0)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })} />,
+    },
+    {
+      id: 'partial-collections',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Partial Collections" value={String((cashSummary as any)?.partiallyCollected ?? 0)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })} />,
+    },
+    ...((cashSummary as any)?.todayCancelled > 0 ? [
+      {
+        id: 'cancelled-today',
+        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Cancelled Today" value={String((cashSummary as any).todayCancelled)} sub={`${(cashSummary as any).cancelled} overall`} accent={C.gray400} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })} />,
+      },
+      {
+        id: 'collected-today',
+        content: ({ editing, beginEditing }: { editing: boolean; beginEditing: () => void }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Collected Today" value={String((cashSummary as any).todayCollected ?? 0)} sub={`${(cashSummary as any).collected ?? 0} overall`} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } })} />,
+      },
+    ] : []),
+    {
+      id: 'today-remitted',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Today's Remitted" value={String(todayRemitted.length)} sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })} />,
+    },
+    {
+      id: 'today-bank-payments',
+      content: ({ editing, beginEditing }) => <NeoStatCard editing={editing} onLongPress={beginEditing} label="Today's Bank Pays" value={String(todayBank.length)} sub={todayBankAmt > 0 ? `₹${todayBankAmt.toLocaleString('en-IN')}` : undefined} accent={C.navy} onPress={() => router.push('/(app)/(admin)/activity')} />,
+    },
+  ];
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: NEO.background }}>
       <ScrollView
+        scrollEnabled={!isCustomizingDashboard}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={C.navy} />}
         contentContainerStyle={{ padding: 16, paddingBottom: 36 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-            <RoleLogo role={user?.role} size={44} />
+            <RoleLogo role={user?.role} size={58} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray500 }} numberOfLines={1}>
-                {greeting}, {user?.fullName?.split(' ')[0]}
-              </Text>
-              <Text style={{ fontSize: 30, fontWeight: '800', color: C.navy, letterSpacing: -0.8 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Dashboard</Text>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Dashboard</Text>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }} numberOfLines={1}>
                 {user?.tenantName ?? 'Your organization'}
               </Text>
@@ -337,6 +395,14 @@ export default function AdminDashboard() {
           </View>
         )}
 
+        {/* Friendly focal point — deliberately separate from the compact utility header. */}
+        <View style={{ marginBottom: 14, paddingHorizontal: 2 }}>
+          <Text style={dashboardStyles.greeting} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82}>
+            {greeting}, {user?.fullName?.split(' ')[0]} 👋
+          </Text>
+          <Text style={dashboardStyles.greetingSub}>Here’s what needs your attention today.</Text>
+        </View>
+
         {/* Wallet Balance */}
         <TouchableOpacity onPress={() => router.push('/(app)/(admin)/payments')} activeOpacity={0.8}>
           <NeoSurface style={{ padding: 20, marginBottom: 18 }}>
@@ -372,45 +438,12 @@ export default function AdminDashboard() {
           </NeoSurface>
         </TouchableOpacity>
 
-        {/* Stats — glass cards */}
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <NeoStatCard label="Active Chits" value={String(activeChits.length)} accent={C.navy} onPress={() => router.push('/(app)/(admin)/chits')} />
-          <NeoStatCard label="Active Members" value={String(activeMembers.length)} accent={C.green} onPress={() => router.push({ pathname: '/(app)/(admin)/members', params: { filter: 'Active' } })} />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <NeoStatCard label="Pending Pickups" value={String(pendingPickups.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'ASSIGNED' } })} />
-          <NeoStatCard label="New Requests" value={String(pendingRequests.length)} accent={C.amber} onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })} />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <NeoStatCard
-            label="Pending Payout"
-            value={String(pendingPayoutCount)}
-            sub="winner picked, no payout"
-            accent={C.amber}
-            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })}
-          />
-          <NeoStatCard
-            label="Pending Disbursement"
-            value={String((pendingPayouts as any[]).length)}
-            sub="created, not disbursed"
-            accent={C.red}
-            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Payouts' } })}
-          />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-          <NeoStatCard
-            label="Picked Up"
-            value={String((cashSummary as any)?.pickedUp ?? 0)}
-            accent={C.green}
-            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PICKED_UP' } })}
-          />
-          <NeoStatCard
-            label="Partial Collections"
-            value={String((cashSummary as any)?.partiallyCollected ?? 0)}
-            accent={C.amber}
-            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PARTIALLY_COLLECTED' } })}
-          />
-        </View>
+        {/* Every overview card remains a normal navigation target. Long-press enters edit mode. */}
+        <SortableDashboardGrid
+          items={dashboardGridItems}
+          storageKey={`chitwise.dashboard.admin.v1:${user?.id ?? 'unknown'}:${user?.tenantId ?? 'tenant'}:${user?.role ?? 'ADMIN'}`}
+          onEditingChange={setIsCustomizingDashboard}
+        />
         {(() => {
           const batches = remittanceBatches as any[];
           const cashOut = ((cashSummary as any)?.pickedUp ?? 0) + ((cashSummary as any)?.partiallyCollected ?? 0);
@@ -449,41 +482,6 @@ export default function AdminDashboard() {
             </TouchableOpacity>
           );
         })()}
-        {(cashSummary as any)?.todayCancelled > 0 && (
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-            <NeoStatCard
-              label="Cancelled Today"
-              value={String((cashSummary as any).todayCancelled)}
-              sub={`${(cashSummary as any).cancelled} overall`}
-              accent={C.gray400}
-              onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'CANCELLED' } })}
-            />
-            <NeoStatCard
-              label="Collected Today"
-              value={String((cashSummary as any).todayCollected ?? 0)}
-              sub={`${(cashSummary as any).collected ?? 0} overall`}
-              accent={C.green}
-              onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests' } })}
-            />
-          </View>
-        )}
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
-          <NeoStatCard
-            label="Today's Remitted"
-            value={String(todayRemitted.length)}
-            sub={todayRemittedAmt > 0 ? `₹${todayRemittedAmt.toLocaleString('en-IN')}` : undefined}
-            accent={C.green}
-            onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Remittance' } })}
-          />
-          <NeoStatCard
-            label="Today's Bank Pays"
-            value={String(todayBank.length)}
-            sub={todayBankAmt > 0 ? `₹${todayBankAmt.toLocaleString('en-IN')}` : undefined}
-            accent={C.navy}
-            onPress={() => router.push('/(app)/(admin)/activity')}
-          />
-        </View>
-
         {/* Org Holdings — only when org holds slots in chits */}
         {(orgReservations as any[]).filter((r: any) => r.status === 'RESERVED').length > 0 && (() => {
           const activeSlots = (orgReservations as any[]).filter((r: any) => r.status === 'RESERVED');
@@ -546,18 +544,26 @@ export default function AdminDashboard() {
               action={<TouchableOpacity onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })}><Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>See all →</Text></TouchableOpacity>}
             />
             {pendingRequests.slice(0, 4).map((r: any) => (
-              <Card key={r.id} style={{ marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
-                      {memberMap[r.memberId?.toLowerCase()] ?? r.memberName ?? `Member …${r.memberId?.slice(-6)}`}
-                    </Text>
-                    <Amount value={r.requestedAmount} size="sm" />
-                    <Text style={{ fontSize: 11, color: C.amber }}>Awaiting staff assignment</Text>
+              <TouchableOpacity
+                key={r.id}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Open cash request for ${memberMap[r.memberId?.toLowerCase()] ?? r.memberName ?? 'member'}`}
+                onPress={() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'Cash Requests', filter: 'PENDING' } })}
+              >
+                <Card style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900 }}>
+                        {memberMap[r.memberId?.toLowerCase()] ?? r.memberName ?? `Member …${r.memberId?.slice(-6)}`}
+                      </Text>
+                      <Amount value={r.requestedAmount} size="sm" />
+                      <Text style={{ fontSize: 11, color: C.amber }}>Awaiting staff assignment</Text>
+                    </View>
+                    <Badge status={r.status} />
                   </View>
-                  <Badge status={r.status} />
-                </View>
-              </Card>
+                </Card>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -646,7 +652,14 @@ export default function AdminDashboard() {
                 const isNeg = entry.action?.includes('VOID') || entry.action?.includes('CANCEL');
                 const dot = isNeg ? C.red : entry.action?.includes('DISBURS') || entry.action?.includes('REMIT') ? C.green : entry.action?.includes('PAYMENT') || entry.action?.includes('COLLECT') ? C.navy : C.amber;
                 return (
-                  <View key={entry.id ?? i} style={{ flexDirection: 'row', marginBottom: 10, gap: 10 }}>
+                  <TouchableOpacity
+                    key={entry.id ?? i}
+                    activeOpacity={0.72}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open activity: ${action}`}
+                    onPress={() => router.push('/(app)/(admin)/activity')}
+                    style={{ flexDirection: 'row', marginBottom: 10, gap: 10 }}
+                  >
                     <View style={{ alignItems: 'center', width: 12 }}>
                       <View style={{ width: 10, height: 10, borderRadius: 5, marginTop: 3, backgroundColor: dot }} />
                       {i < shown - 1 && <View style={{ width: 2, flex: 1, backgroundColor: C.gray200, marginTop: 2 }} />}
@@ -660,7 +673,7 @@ export default function AdminDashboard() {
                       </View>
                       <Text style={{ fontSize: 11, color: C.gray400, marginTop: 1 }}>{fmtDateTime(entry.createdAt)}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
               {sorted.length > activityShowCount && (
@@ -1206,6 +1219,20 @@ function ContactChitWiseButton({ userId }: { userId: string }) {
 }
 
 const dashboardStyles = StyleSheet.create({
+  greeting: {
+    fontSize: 27,
+    lineHeight: 33,
+    fontWeight: '800',
+    color: C.navy,
+    letterSpacing: -0.65,
+  },
+  greetingSub: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 17,
+    color: C.gray500,
+    fontWeight: '500',
+  },
   neoSurface: {
     backgroundColor: NEO.surface,
     borderRadius: 20,
