@@ -51,16 +51,16 @@ public class SettlementController {
     private final SettlementTransactionService settlementTransactionService;
     private final UserServiceClient userServiceClient;
 
-    /** Fail-open capability guard: deny only when user-service confirms the capability is absent. */
+    /** Default-deny capability guard: settlement is allowed only when entitlement is proven. */
     private boolean settlementCapabilityDenied() {
         String tenantId = TenantContext.get();
-        if (tenantId == null) return false;
+        if (tenantId == null || tenantId.isBlank()) return true;
         try {
             List<String> caps = userServiceClient.getTenantCapabilities(tenantId);
-            return caps != null && !caps.contains("settlement");
+            return caps == null || !caps.contains("settlement");
         } catch (Exception e) {
-            log.warn("Settlement capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
-            return false;
+            log.warn("Settlement capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            return true;
         }
     }
 

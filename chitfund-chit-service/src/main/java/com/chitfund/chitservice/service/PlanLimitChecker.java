@@ -29,7 +29,6 @@ public class PlanLimitChecker {
 
         Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
-        if (limits == null) return;
 
         checkNotExpiredInternal(limits);
 
@@ -54,7 +53,6 @@ public class PlanLimitChecker {
 
         Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
-        if (limits == null) return;
 
         checkNotExpiredInternal(limits);
 
@@ -76,7 +74,6 @@ public class PlanLimitChecker {
         String tenantId = requireTenant();
         Map<String, Object> limits = fetchLimits(tenantId);
         requireLimits(limits);
-        if (limits == null) return;
         checkNotExpiredInternal(limits);
     }
 
@@ -93,13 +90,16 @@ public class PlanLimitChecker {
         try {
             return userServiceClient.getEffectiveLimits(tenantId);
         } catch (Exception e) {
-            log.warn("Could not fetch plan limits for tenant {} — allowing operation (user-service unavailable): {}", tenantId, e.getMessage());
+            log.warn("Could not fetch plan limits for tenant {} — denying operation: {}", tenantId, e.getMessage());
             return null;
         }
     }
 
     private void requireLimits(Map<String, Object> limits) {
-        // null means user-service was unreachable — fail open to avoid blocking operations during restarts
+        if (limits == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
+        }
     }
 
     private void checkNotExpiredInternal(Map<String, Object> limits) {

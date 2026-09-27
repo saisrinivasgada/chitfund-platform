@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class PlanLimitCheckerTenantTest {
 
@@ -34,5 +35,24 @@ class PlanLimitCheckerTenantTest {
     void missingTenantCannotBypassChitActivationLimits() {
         assertThrows(BusinessException.class, checker::checkCanActivateChit);
         verifyNoInteractions(chitRepository, userServiceClient);
+    }
+
+    @Test
+    void unavailablePlanDataCannotBypassChitCreationLimits() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(null);
+
+        assertThrows(BusinessException.class,
+                () -> checker.checkCanCreateChit(ChitType.RESERVATION));
+        verifyNoInteractions(chitRepository);
+    }
+
+    @Test
+    void unavailablePlanDataCannotBypassChitActivationLimits() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(null);
+
+        assertThrows(BusinessException.class, checker::checkCanActivateChit);
+        verifyNoInteractions(chitRepository);
     }
 }

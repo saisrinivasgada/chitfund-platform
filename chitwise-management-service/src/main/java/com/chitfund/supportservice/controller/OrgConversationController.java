@@ -69,6 +69,7 @@ public class OrgConversationController {
     public ResponseEntity<ConversationResponse> myConversation(HttpServletRequest req) {
         OrgRequestContext ctx = orgCtx(req);
         requireMember(ctx);
+        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return ResponseEntity.ok(conversationService.getOrCreateMemberConversation(
                 ctx.getTenantId(), ctx.getUserId(), ctx.getUserName()));
     }
@@ -118,6 +119,7 @@ public class OrgConversationController {
             @PathVariable String msgId) {
         OrgRequestContext ctx = orgCtx(req);
         requireAdminManagerOrMember(ctx);
+        if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         boolean isMember = "MEMBER".equals(ctx.getRole());
         conversationService.softDeleteMessage(id, msgId, ctx.getTenantId(), ctx.getUserId(), isMember);
         return ResponseEntity.noContent().build();
@@ -160,12 +162,13 @@ public class OrgConversationController {
     }
 
     private boolean chatCapabilityDenied(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) return true;
         try {
             List<String> caps = tenantSupportClient.getCapabilities(tenantId);
-            return caps != null && !caps.contains("live_chat");
+            return caps == null || !caps.contains("live_chat");
         } catch (Exception e) {
-            log.warn("live_chat capability check failed for tenant {} — failing open: {}", tenantId, e.getMessage());
-            return false;
+            log.warn("live_chat capability check failed for tenant {} — denying access: {}", tenantId, e.getMessage());
+            return true;
         }
     }
 

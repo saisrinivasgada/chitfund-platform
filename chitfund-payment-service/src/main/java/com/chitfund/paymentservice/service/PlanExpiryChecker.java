@@ -30,10 +30,10 @@ public class PlanExpiryChecker {
         try {
             limits = userServiceClient.getEffectiveLimits(tenantId);
         } catch (Exception e) {
-            log.warn("Could not fetch plan limits for tenant {} — allowing operation (user-service unavailable): {}", tenantId, e.getMessage());
-            return;
+            log.warn("Could not fetch plan limits for tenant {} — denying operation: {}", tenantId, e.getMessage());
+            throw unavailable();
         }
-        if (limits == null) return;
+        if (limits == null) throw unavailable();
 
         Object expiresAtRaw = limits.get("planExpiresAt");
         if (expiresAtRaw == null) return;
@@ -48,5 +48,10 @@ public class PlanExpiryChecker {
             throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
                     "Subscription data is invalid. Please contact support.", HttpStatus.SERVICE_UNAVAILABLE);
         }
+    }
+
+    private BusinessException unavailable() {
+        return new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
     }
 }
