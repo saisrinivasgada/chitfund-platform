@@ -115,6 +115,7 @@ public class ReservationController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> addSlot(
             @PathVariable UUID chitId,
             @Valid @RequestBody ReservationSlotRequest request,
@@ -177,6 +178,7 @@ public class ReservationController {
 
     @PutMapping("/{reservationId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> updateSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -227,6 +229,7 @@ public class ReservationController {
 
     @PatchMapping("/{reservationId}/process")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> processSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -252,6 +255,7 @@ public class ReservationController {
 
     @DeleteMapping("/{reservationId}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> removeSlot(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,
@@ -368,6 +372,7 @@ public class ReservationController {
 
     @PostMapping("/{reservationId}/realize-org")
     @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
     public ResponseEntity<ApiResponse<MonthReservationResponse>> realizeOrgPayout(
             @PathVariable UUID chitId,
             @PathVariable UUID reservationId,

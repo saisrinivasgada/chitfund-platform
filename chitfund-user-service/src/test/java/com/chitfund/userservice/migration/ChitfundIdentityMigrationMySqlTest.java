@@ -1,7 +1,14 @@
 package com.chitfund.userservice.migration;
 
+import com.chitfund.common.outbox.DurableAuditOutbox;
+import com.chitfund.userservice.client.AuditClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -94,6 +101,32 @@ class ChitfundIdentityMigrationMySqlTest {
                     .isInstanceOf(SQLException.class);
             insertUser(connection, userSql, "80000000-0000-0000-0000-000000000003", "staff-same-phone", "STAFF");
         }
+    }
+
+    @Test
+    void auditOutboxEntryCommitsAndRollsBackWithTheBusinessTransaction() {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var auditClient = new AuditClient(new DurableAuditOutbox(jdbc), new ObjectMapper());
+        jdbc.update("DELETE FROM audit_event_outbox");
+
+        transactions.executeWithoutResult(status -> {
+            auditClient.log("TENANT", "tenant-entity", "STATUS_CHANGED", "actor", "ADMIN",
+                    null, java.util.Map.of("status", "ACTIVE"), "tenant-id");
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event_outbox", Long.class))
+                .isZero();
+
+        transactions.executeWithoutResult(status -> auditClient.log(
+                "TENANT", "tenant-entity", "STATUS_CHANGED", "actor", "ADMIN",
+                null, java.util.Map.of("status", "ACTIVE"), "tenant-id"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event_outbox", Long.class))
+                .isEqualTo(1L);
     }
 
     private static void insertRequest(java.sql.Connection connection, String sql, String id,
