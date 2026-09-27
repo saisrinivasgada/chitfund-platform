@@ -48,7 +48,7 @@ public class PayoutEventPublisher {
                 throw new IllegalStateException(
                         "Transactional payout outbox requires an active business transaction");
             }
-            outboxStore.enqueue(eventId, requireTenant(), payoutId, eventType,
+            outboxStore.enqueue(eventId, requireTenant(), "PAYOUT", payoutId, eventType,
                     serialize(event), destinations);
         }
 

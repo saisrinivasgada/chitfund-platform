@@ -22,8 +22,9 @@ public class PayoutOutboxStore {
     private final JdbcTemplate jdbcTemplate;
 
     @Transactional(propagation = Propagation.MANDATORY)
-    public void enqueue(String eventId, String tenantId, String aggregateId,
-                        String eventType, String payload, List<String> destinations) {
+    public void enqueue(String eventId, String tenantId, String aggregateType,
+                        String aggregateId, String eventType, String payload,
+                        List<String> destinations) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         for (String destination : destinations) {
             jdbcTemplate.update("""
@@ -31,10 +32,11 @@ public class PayoutOutboxStore {
                         delivery_id, event_id, tenant_id, aggregate_type, aggregate_id,
                         event_type, destination, payload, status, attempts,
                         available_at, created_at)
-                    VALUES (?, ?, ?, 'PAYOUT', ?, ?, ?, CAST(? AS JSON),
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON),
                             'PENDING', 0, ?, ?)
-                    """, UUID.randomUUID().toString(), eventId, tenantId, aggregateId,
-                    eventType, destination, payload, Timestamp.valueOf(now), Timestamp.valueOf(now));
+                    """, UUID.randomUUID().toString(), eventId, tenantId, aggregateType,
+                    aggregateId, eventType, destination, payload,
+                    Timestamp.valueOf(now), Timestamp.valueOf(now));
         }
     }
 
