@@ -10,8 +10,8 @@ import {
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
   getDrawPayments, recordPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
-  getPaymentBatches, voidPaymentBatch, revertPayoutDeductions,
-  getPayoutsByChit, disbursePayout, cancelPayout,
+  getPaymentBatches, voidPaymentBatch,
+  getPayoutsByChit, disbursePayout, cancelPayout, waitForPayoutFinancialSync,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   listStaff, getUserById, getWalletBalance,
   getChitAuditLogs, listAuctions, voidAuction,
@@ -3035,8 +3035,8 @@ function DrawsTab({ chitId, chit }) {
           throw new Error('Cannot delete draw — a payout has already been fully disbursed.');
         }
         if (payout.status === 'PENDING') {
-          await revertPayoutDeductions(payout.id).catch(() => null);
-          await cancelPayout({ id: payout.id, reason: 'Draw deleted' }).catch(() => null);
+          await cancelPayout({ id: payout.id, reason: 'Draw deleted' });
+          await waitForPayoutFinancialSync(payout.id);
         }
       }
 
@@ -3753,11 +3753,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
 
   // ── Cancel ──
   const cancelMutation = useMutation({
-    mutationFn: async () => {
-      // Revert PAYOUT_DEDUCTED records before cancelling so installments go back to OUTSTANDING
-      await revertPayoutDeductions(payout.id).catch(() => null);
-      return cancelPayout({ id: payout.id, reason: cancelReason });
-    },
+    mutationFn: async () => cancelPayout({ id: payout.id, reason: cancelReason }),
     onSuccess: (p) => {
       setPayout(p);
       invalidatePayouts();

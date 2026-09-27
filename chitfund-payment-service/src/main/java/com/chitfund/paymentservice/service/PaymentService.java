@@ -482,41 +482,59 @@ public class PaymentService {
     }
 
     /**
-     * Marks a specific month's payment record as PAYOUT_DEDUCTED — the installment was
-     * withheld from the winner's payout. No batch, no treasury movement. amountPaid is set to
-     * amountDue so the draw card shows balance = 0. settledByPayoutId links back for reversal.
-     *
-     * Idempotent: safe to call even if already PAYOUT_DEDUCTED or SETTLED.
+     * Applies an exact payout-withheld amount to one installment under a row lock.
+     * Partial deductions remain linked to the payout so a later void can reverse them.
      */
     @Transactional
-    public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber, UUID payoutId) {
-        paymentRecordRepository.findByChitIdAndMemberIdAndMonthNumber(chitId, memberId, monthNumber)
-                .ifPresent(record -> {
-                    if (record.getStatus() == PaymentRecordStatus.SETTLED
-                            || record.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED) return;
-                    record.setAmountPaid(record.getAmountDue());
-                    record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
-                    record.setSettledByPayoutId(payoutId);
-                    paymentRecordRepository.save(record);
-                    log.info("Marked payment record ({}/{}/{}) as PAYOUT_DEDUCTED for payout {}",
-                            chitId, memberId, monthNumber, payoutId);
-                });
+    public void markPayoutDeducted(UUID chitId, UUID memberId, int monthNumber,
+                                   BigDecimal amount, UUID payoutId, String tenantId) {
+        PaymentRecord record = paymentRecordRepository
+                .findByTenantIdAndChitIdAndMemberIdAndMonthNumberForUpdate(
+                        tenantId, chitId, memberId, monthNumber)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
+                        "Installment record was not found for payout deduction"));
+        BigDecimal outstanding = record.getAmountDue().subtract(record.getAmountPaid());
+        if (record.getSettledByPayoutId() != null
+                && !record.getSettledByPayoutId().equals(payoutId)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Installment already has a payout deduction in progress");
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0
+                || amount.compareTo(outstanding) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Payout deduction must be positive and cannot exceed the installment balance");
+        }
+        record.setAmountPaid(record.getAmountPaid().add(amount));
+        record.setStatus(amount.compareTo(outstanding) == 0
+                ? PaymentRecordStatus.PAYOUT_DEDUCTED
+                : PaymentRecordStatus.PARTIALLY_PAID);
+        record.setSettledByPayoutId(payoutId);
+        paymentRecordRepository.save(record);
         chitMonthDrawService.autoCloseIfAllSettled(chitId, monthNumber);
     }
 
     /**
      * Clears cross-chit dues withheld from a payout using FIFO — oldest outstanding month first.
-     * Fully cleared months get PAYOUT_DEDUCTED. If the amount runs out mid-month, that
-     * month stays PARTIALLY_PAID (no settledByPayoutId link — cannot be auto-reverted).
-     * No batch, no treasury movement.
+     * Fully cleared months get PAYOUT_DEDUCTED. A partially cleared month remains
+     * PARTIALLY_PAID but keeps its payout link for exact reversal. No batch or
+     * treasury movement occurs here.
      */
     @Transactional
-    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, BigDecimal amount, UUID payoutId) {
+    public void markCrossChitDisbursementSettled(UUID chitId, UUID memberId, BigDecimal amount,
+                                                 UUID payoutId, String tenantId) {
         List<PaymentRecord> records = paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                        memberId, chitId,
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        tenantId, memberId, chitId,
                         List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
+        BigDecimal applied = applyCrossChitDeduction(chitId, memberId, amount, payoutId, records);
+        if (applied.compareTo(amount) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Cross-chit payout deduction exceeds the outstanding balance");
+        }
+    }
 
+    private BigDecimal applyCrossChitDeduction(UUID chitId, UUID memberId, BigDecimal amount,
+                                               UUID payoutId, List<PaymentRecord> records) {
         BigDecimal remaining = amount;
         for (PaymentRecord record : records) {
             if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
@@ -528,6 +546,8 @@ public class PaymentService {
                 remaining = remaining.subtract(owed);
             } else {
                 record.setAmountPaid(record.getAmountPaid().add(remaining));
+                record.setStatus(PaymentRecordStatus.PARTIALLY_PAID);
+                record.setSettledByPayoutId(payoutId);
                 remaining = BigDecimal.ZERO;
             }
             paymentRecordRepository.save(record);
@@ -535,7 +555,6 @@ public class PaymentService {
         log.info("Cross-chit PAYOUT_DEDUCTED applied — chit {} member {} ₹{} for payout {}",
                 chitId, memberId, amount, payoutId);
 
-        // Auto-close any draw that is now fully settled after these deductions
         records.stream()
                 .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
                 .map(PaymentRecord::getMonthNumber)
@@ -544,21 +563,21 @@ public class PaymentService {
                     try { chitMonthDrawService.autoCloseIfAllSettled(chitId, mn); }
                     catch (Exception e) { log.warn("Auto-close check failed for chit {} month {} — {}", chitId, mn, e.getMessage()); }
                 });
+        return amount.subtract(remaining);
     }
 
     /**
-     * Reverses all PAYOUT_DEDUCTED records linked to a payout (across all chits).
+     * Reverses every full or partial payout deduction linked to a payout.
      * Called when a payout is cancelled or its draw is deleted.
      */
     @Transactional
-    public void revertPayoutDeductions(UUID payoutId) {
-        List<PaymentRecord> records = paymentRecordRepository.findBySettledByPayoutId(payoutId);
+    public void revertPayoutDeductions(UUID payoutId, String tenantId) {
+        List<PaymentRecord> records =
+                paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(tenantId, payoutId);
         List<PaymentRecord> reverted = new java.util.ArrayList<>();
 
         // Batch-load all allocations and batch statuses upfront to avoid N+1
-        List<UUID> deductedRecordIds = records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
-                .map(PaymentRecord::getId).toList();
+        List<UUID> deductedRecordIds = records.stream().map(PaymentRecord::getId).toList();
         Map<UUID, List<PaymentAllocation>> allocsByRecord = deductedRecordIds.isEmpty()
                 ? Map.of()
                 : allocationRepository.findByPaymentRecordIdIn(deductedRecordIds).stream()
@@ -570,10 +589,6 @@ public class PaymentService {
                 .collect(Collectors.toMap(PaymentBatch::getId, PaymentBatch::getStatus));
 
         for (PaymentRecord r : records) {
-            if (r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED) continue;
-            // Re-derive how much was actually paid via cash/UPI before the payout withheld the rest.
-            // Sum allocations from COMPLETED (non-voided) batches only — voided batches were already
-            // reversed and their amount was subtracted from amountPaid at void time.
             BigDecimal cashPaid = allocsByRecord.getOrDefault(r.getId(), List.of()).stream()
                     .filter(a -> batchStatusMap.get(a.getBatchId()) == BatchStatus.COMPLETED)
                     .map(PaymentAllocation::getAllocatedAmount)
@@ -581,13 +596,14 @@ public class PaymentService {
             r.setAmountPaid(cashPaid);
             r.setStatus(cashPaid.compareTo(BigDecimal.ZERO) == 0
                     ? PaymentRecordStatus.OUTSTANDING
-                    : PaymentRecordStatus.PARTIALLY_PAID);
+                    : cashPaid.compareTo(r.getAmountDue()) >= 0
+                            ? PaymentRecordStatus.SETTLED
+                            : PaymentRecordStatus.PARTIALLY_PAID);
             r.setSettledByPayoutId(null);
             paymentRecordRepository.save(r);
             reverted.add(r);
         }
         log.info("Reverted {} PAYOUT_DEDUCTED records for payout {}", reverted.size(), payoutId);
-
         // Reopen any draws that were auto-closed by this payout's deductions
         reverted.stream()
                 .collect(java.util.stream.Collectors.groupingBy(

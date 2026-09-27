@@ -160,15 +160,10 @@ export default function PayoutCreationForm({
 
   const mutation = useMutation({
     mutationFn: async () => {
-      // Same-chit other-month deductions (FIFO-cleared by backend per chitId)
-      const sameChitDeduction = sameChitDed > 0
-        ? [{ chitId: String(chitId), amount: sameChitDed }]
-        : [];
       // Other-chit deductions
       const otherChitDeductions = Object.entries(crossChitCollect)
         .filter(([, v]) => v.enabled && Number(v.amount) > 0)
         .map(([xChitId, v]) => ({ chitId: xChitId, amount: Number(v.amount) }));
-      const allDeductions = [...sameChitDeduction, ...otherChitDeductions];
 
       // Per-draw breakdown of installmentSettlement (month + amount)
       const instBreakdown = [
@@ -192,7 +187,7 @@ export default function PayoutCreationForm({
         manualAdjustment:               manualNum || undefined,
         notes:                          notes || undefined,
         collectCurrentMonthInstallment: collectCurrentMonth && installmentAmount > 0,
-        crossChitDeductions:            allDeductions.length > 0 ? allDeductions : undefined,
+        crossChitDeductions:            otherChitDeductions.length > 0 ? otherChitDeductions : undefined,
       });
     },
     onSuccess: (payout) => {

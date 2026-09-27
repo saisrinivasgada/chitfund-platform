@@ -25,7 +25,9 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
     boolean existsByChitIdAndMonthNumberAndStatusNotIn(UUID chitId, int monthNumber, java.util.List<PayoutStatus> statuses);
 
-    boolean existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(UUID chitId, int monthNumber, UUID memberId, java.util.List<PayoutStatus> statuses);
+    boolean existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
+            String tenantId, UUID chitId, int monthNumber, UUID memberId,
+            java.util.List<PayoutStatus> statuses);
 
     Optional<Payout> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
@@ -77,5 +79,5 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
     List<Payout> findAllByOrderByCreatedAtDesc();
 
-    long countByChitIdAndStatus(UUID chitId, PayoutStatus status);
+    long countByTenantIdAndChitIdAndStatus(String tenantId, UUID chitId, PayoutStatus status);
 }

@@ -42,11 +42,28 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     // All records for a given cycle (used in dashboard stats)
     List<PaymentRecord> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
-    // Single record lookup for mark/revert payout-deducted operations
-    Optional<PaymentRecord> findByChitIdAndMemberIdAndMonthNumber(UUID chitId, UUID memberId, int monthNumber);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.chitId=:chitId "
+            + "AND r.memberId=:memberId AND r.monthNumber=:monthNumber")
+    Optional<PaymentRecord> findByTenantIdAndChitIdAndMemberIdAndMonthNumberForUpdate(
+            @Param("tenantId") String tenantId, @Param("chitId") UUID chitId,
+            @Param("memberId") UUID memberId, @Param("monthNumber") int monthNumber);
 
-    // All records withheld by a specific payout — used to revert across chits in one call
-    List<PaymentRecord> findBySettledByPayoutId(UUID settledByPayoutId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId "
+            + "AND r.settledByPayoutId=:settledByPayoutId ORDER BY r.id")
+    List<PaymentRecord> findByTenantIdAndSettledByPayoutIdForUpdate(
+            @Param("tenantId") String tenantId,
+            @Param("settledByPayoutId") UUID settledByPayoutId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.memberId=:memberId "
+            + "AND r.chitId=:chitId AND r.status IN :statuses AND r.settledByPayoutId IS NULL "
+            + "ORDER BY r.monthNumber ASC")
+    List<PaymentRecord> findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+            @Param("tenantId") String tenantId, @Param("memberId") UUID memberId,
+            @Param("chitId") UUID chitId,
+            @Param("statuses") List<PaymentRecordStatus> statuses);
 
     // All SETTLEMENT_CLEARED records for a member — used when voiding a settlement
     List<PaymentRecord> findByTenantIdAndMemberIdAndStatusIn(

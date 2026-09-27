@@ -5,17 +5,21 @@ import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.payoutservice.client.AuditClient;
 import com.chitfund.payoutservice.client.ChitServiceClient;
-import com.chitfund.payoutservice.client.PaymentServiceClient;
 import com.chitfund.payoutservice.domain.Payout;
 import com.chitfund.payoutservice.domain.PayoutDisbursement;
+import com.chitfund.payoutservice.domain.PayoutFinancialCommand;
 import com.chitfund.payoutservice.domain.enums.DisbursementMode;
+import com.chitfund.payoutservice.domain.enums.PayoutFinancialCommandType;
 import com.chitfund.payoutservice.domain.enums.PayoutStatus;
 import com.chitfund.payoutservice.dto.request.CancelPayoutRequest;
 import com.chitfund.payoutservice.dto.request.CreatePayoutRequest;
+import com.chitfund.payoutservice.dto.request.CrossChitDeductionDto;
 import com.chitfund.payoutservice.dto.request.DisburseRequest;
+import com.chitfund.payoutservice.dto.request.InstallmentMonthBreakdownDto;
 import com.chitfund.payoutservice.dto.response.PayoutResponse;
 import com.chitfund.payoutservice.kafka.PayoutEventPublisher;
 import com.chitfund.payoutservice.repository.PayoutDisbursementRepository;
+import com.chitfund.payoutservice.repository.PayoutFinancialCommandRepository;
 import com.chitfund.payoutservice.repository.PayoutRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,9 +60,10 @@ class PayoutServiceTest {
     @Mock PayoutRepository payoutRepository;
     @Mock PayoutDisbursementRepository disbursementRepository;
     @Mock PayoutEventPublisher eventPublisher;
-    @Mock PaymentServiceClient paymentServiceClient;
     @Mock ChitServiceClient chitServiceClient;
     @Mock AuditClient auditClient;
+    @Mock PayoutFinancialCommandStore financialCommandStore;
+    @Mock PayoutFinancialCommandRepository financialCommandRepository;
     @InjectMocks PayoutService payoutService;
 
     UUID adminId;
@@ -89,6 +94,7 @@ class PayoutServiceTest {
         req.setMonthNumber(1);
         req.setWinningAmount(winning);
         req.setDiscountAmount(discount);
+        req.setManualAdjustment(discount);
         return req;
     }
 
@@ -136,7 +142,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("happy path: net = winning - discount, status starts PENDING")
         void createsPayoutWithCorrectNetAmount() {
-            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(anyString(), any(), anyInt(), any(), any()))
                     .thenReturn(false);
             ArgumentCaptor<Payout> saved = ArgumentCaptor.forClass(Payout.class);
             when(payoutRepository.save(saved.capture())).thenAnswer(inv -> {
@@ -159,7 +165,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("blocks duplicate: same chit + same month already has an active payout")
         void rejectsDuplicatePayoutForSameChitAndMonth() {
-            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(anyString(), any(), anyInt(), any(), any()))
                     .thenReturn(true);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(5_000));
@@ -171,7 +177,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("treasury safety: discount >= winning means winner gets ₹0 or less — rejected")
         void rejectsDiscountEqualToWinningAmount() {
-            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(anyString(), any(), anyInt(), any(), any()))
                     .thenReturn(false);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(50_000)); // equal
@@ -183,13 +189,75 @@ class PayoutServiceTest {
         @Test
         @DisplayName("treasury safety: discount > winning — rejected")
         void rejectsDiscountGreaterThanWinningAmount() {
-            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(anyString(), any(), anyInt(), any(), any()))
                     .thenReturn(false);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(60_000)); // discount > winning
             assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Discount amount cannot be equal to or greater than");
+        }
+
+        @Test
+        @DisplayName("queues every same-chit month and cross-chit deduction with its exact amount")
+        void queuesCompleteDeductionBreakdown() {
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
+                    anyString(), any(), anyInt(), any(), any())).thenReturn(false);
+            when(payoutRepository.save(any())).thenAnswer(inv -> {
+                Payout p = inv.getArgument(0);
+                p.setId(payoutId);
+                p.setCreatedAt(LocalDateTime.now());
+                p.setUpdatedAt(LocalDateTime.now());
+                return p;
+            });
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(Collections.emptyList());
+
+            CreatePayoutRequest request = createRequest(bd(50_000), bd(5_000));
+            request.setManualAdjustment(bd(500));
+            request.setInstallmentSettlement(bd(3_000));
+            InstallmentMonthBreakdownDto first = new InstallmentMonthBreakdownDto();
+            first.setMonth(1);
+            first.setAmount(bd(1_000));
+            InstallmentMonthBreakdownDto second = new InstallmentMonthBreakdownDto();
+            second.setMonth(2);
+            second.setAmount(bd(2_000));
+            request.setInstallmentMonthBreakdown(List.of(first, second));
+            request.setCrossChitSettlement(bd(1_500));
+            CrossChitDeductionDto cross = new CrossChitDeductionDto();
+            cross.setChitId(UUID.randomUUID());
+            cross.setAmount(bd(1_500));
+            request.setCrossChitDeductions(List.of(cross));
+
+            payoutService.createPayout(request, adminId, "ADMIN");
+
+            ArgumentCaptor<PayoutFinancialCommand> commands =
+                    ArgumentCaptor.forClass(PayoutFinancialCommand.class);
+            verify(financialCommandStore, times(3)).enqueue(commands.capture());
+            assertThat(commands.getAllValues())
+                    .extracting(PayoutFinancialCommand::getCommandType)
+                    .containsExactly(
+                            PayoutFinancialCommandType.MARK_INSTALLMENT_DEDUCTION,
+                            PayoutFinancialCommandType.MARK_INSTALLMENT_DEDUCTION,
+                            PayoutFinancialCommandType.MARK_CROSS_CHIT_DEDUCTION);
+            assertThat(commands.getAllValues())
+                    .extracting(PayoutFinancialCommand::getAmount)
+                    .containsExactly(bd(1_000), bd(2_000), bd(1_500));
+        }
+
+        @Test
+        @DisplayName("rejects a total withheld amount that does not match its breakdown")
+        void rejectsMismatchedDeductionTotal() {
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
+                    anyString(), any(), anyInt(), any(), any())).thenReturn(false);
+            CreatePayoutRequest request = createRequest(bd(50_000), bd(5_000));
+            request.setManualAdjustment(bd(4_999));
+
+            assertThatThrownBy(() -> payoutService.createPayout(request, adminId, "ADMIN"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("must equal the total withheld amount");
+            verify(payoutRepository, never()).save(any());
+            verify(financialCommandStore, never()).enqueue(any());
         }
     }
 
@@ -343,7 +411,7 @@ class PayoutServiceTest {
             PayoutDisbursement first = captor.getValue();
             assertThat(payout.getDisbursedAmount()).isEqualByComparingTo("10000");
 
-            clearInvocations(payoutRepository, disbursementRepository, paymentServiceClient,
+            clearInvocations(payoutRepository, disbursementRepository, financialCommandStore,
                     eventPublisher, auditClient);
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
                     .thenReturn(Optional.of(payout));
@@ -356,7 +424,7 @@ class PayoutServiceTest {
 
             assertThat(retry.getDisbursedAmount()).isEqualByComparingTo("10000");
             verify(disbursementRepository, never()).save(any());
-            verify(paymentServiceClient, never()).recordPayoutDebit(any(), any(), any(), any());
+            verify(financialCommandStore, never()).enqueue(any());
             verify(auditClient, never()).log(anyString(), anyString(), any(), anyString(),
                     anyString(), anyString(), any(), any(), anyString());
         }
@@ -383,7 +451,7 @@ class PayoutServiceTest {
                     payoutId, disburseRequest(bd(11_000)), adminId, key))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("different disbursement details");
-            verify(paymentServiceClient, never()).recordPayoutDebit(any(), any(), any(), any());
+            verify(financialCommandStore, never()).enqueue(any());
         }
 
         @Test
@@ -398,6 +466,23 @@ class PayoutServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("X-Idempotency-Key is required");
             verify(disbursementRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("does not disburse while earlier payout deductions are still syncing")
+        void pendingDeductionSyncBlocksDisbursement() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(financialCommandRepository.countByPayoutIdAndStatusNot(payoutId, "COMPLETED"))
+                    .thenReturn(1L);
+
+            assertThatThrownBy(() -> disburse(
+                    payoutId, disburseRequest(bd(10_000)), adminId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("still syncing");
+            verify(disbursementRepository, never()).save(any());
+            verify(financialCommandStore, never()).enqueue(any());
         }
 
         @Test
@@ -439,7 +524,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be cancelled")
         void cancelsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -455,7 +540,7 @@ class PayoutServiceTest {
         void rejectsCancelOfDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.DISBURSED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -467,7 +552,7 @@ class PayoutServiceTest {
         void rejectsCancelOfPartiallyDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -479,7 +564,7 @@ class PayoutServiceTest {
         void rejectsDoubleCancellation() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -497,7 +582,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be voided")
         void voidsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -514,7 +599,7 @@ class PayoutServiceTest {
         void rejectsVoidOfCancelledPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -525,10 +610,45 @@ class PayoutServiceTest {
         void rejectsDoubleVoid() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.VOIDED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
+        }
+
+        @Test
+        @DisplayName("void reverses each original disbursement into its own account")
+        void reversesMixedModeDisbursementsIndividually() {
+            Payout payout = pendingPayout(bd(45_000));
+            payout.setStatus(PayoutStatus.DISBURSED);
+            payout.setDisbursedAmount(bd(30_000));
+            payout.setDisbursementMode(DisbursementMode.UPI);
+            PayoutDisbursement cash = PayoutDisbursement.builder()
+                    .id(UUID.randomUUID()).payoutId(payoutId).amount(bd(10_000))
+                    .mode(DisbursementMode.CASH).build();
+            PayoutDisbursement upi = PayoutDisbursement.builder()
+                    .id(UUID.randomUUID()).payoutId(payoutId).amount(bd(20_000))
+                    .mode(DisbursementMode.UPI).build();
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(payoutId))
+                    .thenReturn(List.of(cash, upi));
+
+            payoutService.voidPayout(payoutId, cancelRequest(), adminId);
+
+            ArgumentCaptor<PayoutFinancialCommand> commands =
+                    ArgumentCaptor.forClass(PayoutFinancialCommand.class);
+            verify(financialCommandStore, times(3)).enqueue(commands.capture());
+            List<PayoutFinancialCommand> reversals = commands.getAllValues().stream()
+                    .filter(c -> c.getCommandType()
+                            == PayoutFinancialCommandType.RECORD_TREASURY_REVERSAL)
+                    .toList();
+            assertThat(reversals).hasSize(2);
+            assertThat(reversals).extracting(PayoutFinancialCommand::getAmount)
+                    .containsExactly(bd(10_000), bd(20_000));
+            assertThat(reversals).extracting(PayoutFinancialCommand::getDisbursementMode)
+                    .containsExactly(DisbursementMode.CASH, DisbursementMode.UPI);
         }
     }
 
@@ -550,7 +670,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("cancel on non-existent payout throws")
         void cancelThrowsWhenPayoutNotFound() {
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
         }
@@ -604,8 +724,9 @@ class PayoutServiceTest {
         @DisplayName("duplicate payout check excludes CANCELLED and VOIDED status")
         void duplicateCheckDoesNotCountCancelledOrVoidedPayouts() {
             // If the only prior payout is CANCELLED or VOIDED, we allow creating a new one
-            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
-                    eq(chitId), eq(1), eq(memberId), eq(List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))))
+            when(payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
+                    eq("test-tenant-id"), eq(chitId), eq(1), eq(memberId),
+                    eq(List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))))
                     .thenReturn(false); // no active (non-cancelled, non-voided) payout
 
             ArgumentCaptor<Payout> saved = ArgumentCaptor.forClass(Payout.class);

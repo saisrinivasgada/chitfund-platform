@@ -9,6 +9,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,6 +62,38 @@ class PayoutIdempotencyMigrationMySqlTest {
         }
     }
 
+    @Test
+    void financialCommandsAreUniqueAndExecuteInPayoutOrderOnRealMySql() throws Exception {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            String payout = UUID.randomUUID().toString();
+            insertPayout(connection, payout, 9);
+            String firstId = UUID.randomUUID().toString();
+            String secondId = UUID.randomUUID().toString();
+            insertCommand(connection, firstId, payout, 1, payout + ":one");
+            insertCommand(connection, secondId, payout, 2, payout + ":two");
+
+            assertThat(readyCommands(connection)).containsExactly(firstId);
+            try (var statement = connection.prepareStatement(
+                    "UPDATE payout_financial_commands SET status='COMPLETED' WHERE id=?")) {
+                statement.setString(1, firstId);
+                statement.executeUpdate();
+            }
+            assertThat(readyCommands(connection)).containsExactly(secondId);
+
+            assertThatThrownBy(() -> insertCommand(
+                    connection, UUID.randomUUID().toString(), payout, 3, payout + ":two"))
+                    .isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> insertCommand(
+                    connection, UUID.randomUUID().toString(), payout, 2, payout + ":three"))
+                    .isInstanceOf(SQLException.class);
+        }
+    }
+
     private static void insertPayout(Connection connection, String payoutId, int month)
             throws SQLException {
         try (var statement = connection.prepareStatement("""
@@ -94,5 +128,42 @@ class PayoutIdempotencyMigrationMySqlTest {
             statement.setString(5, key == null ? null : "a".repeat(64));
             statement.executeUpdate();
         }
+    }
+
+    private static void insertCommand(Connection connection, String id, String payoutId,
+                                      long sequence, String dedupeKey) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO payout_financial_commands (
+                    id, tenant_id, actor_id, payout_id, sequence_no, dedupe_key, command_type,
+                    status, attempts, available_at, created_at)
+                VALUES (?, 'tenant-test', ?, ?, ?, ?, 'REVERT_DEDUCTIONS',
+                        'PENDING', 0, NOW(6), NOW(6))
+                """)) {
+            statement.setString(1, id);
+            statement.setString(2, UUID.randomUUID().toString());
+            statement.setString(3, payoutId);
+            statement.setLong(4, sequence);
+            statement.setString(5, dedupeKey);
+            statement.executeUpdate();
+        }
+    }
+
+    private static List<String> readyCommands(Connection connection) throws SQLException {
+        List<String> ids = new ArrayList<>();
+        try (var statement = connection.prepareStatement("""
+                SELECT c.id FROM payout_financial_commands c
+                WHERE c.status IN ('PENDING','RETRY') AND c.available_at <= NOW(6)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM payout_financial_commands older
+                    WHERE older.payout_id=c.payout_id
+                      AND older.sequence_no < c.sequence_no
+                      AND older.status <> 'COMPLETED')
+                ORDER BY c.created_at, c.id
+                """)) {
+            try (var result = statement.executeQuery()) {
+                while (result.next()) ids.add(result.getString(1));
+            }
+        }
+        return ids;
     }
 }
