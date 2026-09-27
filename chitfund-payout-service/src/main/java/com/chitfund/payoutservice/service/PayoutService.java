@@ -148,8 +148,28 @@ public class PayoutService {
      * Status becomes PARTIALLY_DISBURSED until the full netPayoutAmount is sent.
      */
     @Transactional
-    public PayoutResponse disburse(UUID payoutId, DisburseRequest request, UUID adminId) {
+    public PayoutResponse disburse(UUID payoutId, DisburseRequest request, UUID adminId,
+                                   String rawIdempotencyKey) {
         Payout payout = findOrThrowForWrite(payoutId);
+
+        String idempotencyKey = normalizeRequiredIdempotencyKey(rawIdempotencyKey);
+        String requestHash = PayoutIdempotencyFingerprint.of(
+                payoutId, request.getAmount(), request.getDisbursementMode(),
+                request.getReferenceNumber(), request.getNotes());
+        var existing = disbursementRepository.findByPayoutIdAndIdempotencyKey(
+                payoutId, idempotencyKey);
+        if (existing.isPresent()) {
+            PayoutDisbursement prior = existing.get();
+            if (prior.getIdempotencyRequestHash() == null
+                    || !prior.getIdempotencyRequestHash().equals(requestHash)) {
+                throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                        "Idempotency key was already used with different disbursement details",
+                        HttpStatus.CONFLICT);
+            }
+            log.info("Idempotent payout disbursement retry detected for payout={} key={}",
+                    payoutId, idempotencyKey);
+            return toResponse(payout);
+        }
 
         if (payout.getStatus() != PayoutStatus.PENDING && payout.getStatus() != PayoutStatus.PARTIALLY_DISBURSED) {
             throw new BusinessException(ErrorCode.PAYOUT_NOT_PENDING,
@@ -194,6 +214,8 @@ public class PayoutService {
                 .notes(request.getNotes())
                 .disbursedBy(adminId)
                 .disbursedAt(now)
+                .idempotencyKey(idempotencyKey)
+                .idempotencyRequestHash(requestHash)
                 .build());
         log.info("Payout {} — ₹{} disbursed (total so far: ₹{} / ₹{}) to member {} via {} status={}",
                 payoutId, thisAmount, newDisbursed, payout.getNetPayoutAmount(),
@@ -404,6 +426,19 @@ public class PayoutService {
         return payoutRepository.findByIdAndTenantIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYOUT_NOT_FOUND,
                         "Payout not found: " + id));
+    }
+
+    private String normalizeRequiredIdempotencyKey(String key) {
+        if (key == null || key.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "X-Idempotency-Key is required for payout disbursement");
+        }
+        String normalized = key.trim();
+        if (normalized.length() > 64) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "X-Idempotency-Key must be at most 64 characters");
+        }
+        return normalized;
     }
 
     private void publishAfterCommit(Runnable publish) {

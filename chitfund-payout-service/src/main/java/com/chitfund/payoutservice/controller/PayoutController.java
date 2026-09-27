@@ -109,9 +109,11 @@ public class PayoutController {
     public ResponseEntity<ApiResponse<PayoutResponse>> disburse(
             @PathVariable UUID id,
             @Valid @RequestBody DisburseRequest request,
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(payoutService.disburse(id, request, adminId)));
+        return ResponseEntity.ok(ApiResponse.success(
+                payoutService.disburse(id, request, adminId, idempotencyKey)));
     }
 
     /** All payouts across all chits, with optional date range and chit filter — for reports. */

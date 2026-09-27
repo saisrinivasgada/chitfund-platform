@@ -131,6 +131,7 @@ export default function ManagerChitsScreen() {
 
   const [showDisburse, setShowDisburse] = useState(false);
   const [disbursePay, setDisbursePay] = useState<any>(null);
+  const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseAmount, setDisburseAmount] = useState('');
 
@@ -341,11 +342,12 @@ export default function ManagerChitsScreen() {
   const disburseMut = useMutation({
     mutationFn: () => disbursePayout(disbursePay.id, {
       disbursementMode: disburseMode,
-      actualAmount: Number(disburseAmount) || Number(disbursePay.netPayoutAmount ?? disbursePay.winningAmount ?? 0),
-    }),
+      amount: Number(disburseAmount) || Number(disbursePay.netPayoutAmount ?? disbursePay.winningAmount ?? 0),
+    }, disburseIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-chit-payouts', selected.id] });
       setShowDisburse(false); setDisbursePay(null); setDisburseAmount('');
+      setDisburseIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to disburse'),

@@ -484,6 +484,7 @@ function DisburseModal({ payout, memberName, onClose }) {
     referenceNumber: '',
     notes: '',
   });
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const amountNum      = Number(form.amount) || 0;
   const isPartial      = amountNum > 0 && amountNum < remainingAmount;
@@ -493,6 +494,7 @@ function DisburseModal({ payout, memberName, onClose }) {
     mutationFn: async () => {
       const payload = {
         id: payout.id,
+        idempotencyKey,
         disbursementMode: form.disbursementMode,
         amount: amountNum,
         referenceNumber: form.referenceNumber || undefined,

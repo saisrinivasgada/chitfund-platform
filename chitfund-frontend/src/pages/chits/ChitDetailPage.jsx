@@ -3679,6 +3679,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
   const [disbMode,  setDisbMode]  = useState('UPI');
   const [refNum,    setRefNum]    = useState('');
   const [disbNotes, setDisbNotes] = useState('');
+  const [disbIdempotencyKey, setDisbIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // ── Cancel payout form state ──
   const [showCancelForm, setShowCancelForm] = useState(false);
@@ -3720,6 +3721,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
       const enteredAmt = disbAmount.trim() !== '' ? Number(disbAmount) : null;
       return disbursePayout({
         id: payout.id,
+        idempotencyKey: disbIdempotencyKey,
         disbursementMode: disbMode,
         referenceNumber:  disbMode !== 'CASH' ? refNum : undefined,
         notes: disbNotes || undefined,
@@ -3741,6 +3743,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
       setDisbAmount('');
       setRefNum('');
       setDisbNotes('');
+      setDisbIdempotencyKey(crypto.randomUUID());
       toast.success(p.status === 'DISBURSED'
         ? 'Full amount disbursed — payout complete'
         : `₹${Number(p.disbursedAmount).toLocaleString('en-IN')} disbursed — ₹${Number(p.remainingAmount).toLocaleString('en-IN')} remaining`);

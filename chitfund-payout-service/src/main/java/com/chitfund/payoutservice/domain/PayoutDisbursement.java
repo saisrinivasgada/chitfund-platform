@@ -41,4 +41,10 @@ public class PayoutDisbursement {
 
     @Column(nullable = false)
     private LocalDateTime disbursedAt;
+
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    @Column(name = "idempotency_request_hash", length = 64)
+    private String idempotencyRequestHash;
 }

@@ -621,8 +621,10 @@ export const getPayoutById = async (payoutId: string) =>
 export const getPayoutsForMember = async (memberId: string) =>
   unwrapList(await api.get(`/payouts/member/${memberId}`));
 export const createPayout = async (body: any) => unwrapObj(await api.post('/payouts', body));
-export const disbursePayout = async (id: string, body: any) =>
-  unwrapObj(await api.post(`/payouts/${id}/disburse`, body));
+export const disbursePayout = async (id: string, body: any, idempotencyKey: string) =>
+  unwrapObj(await api.post(`/payouts/${id}/disburse`, body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  }));
 export const cancelPayout = async (id: string, reason: string) =>
   unwrapObj(await api.post(`/payouts/${id}/cancel`, { reason }));
 export const voidPayout = async (id: string, reason: string) =>

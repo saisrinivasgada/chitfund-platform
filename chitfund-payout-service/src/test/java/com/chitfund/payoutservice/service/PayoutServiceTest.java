@@ -117,6 +117,10 @@ class PayoutServiceTest {
         return req;
     }
 
+    private PayoutResponse disburse(UUID id, DisburseRequest request, UUID actorId) {
+        return payoutService.disburse(id, request, actorId, UUID.randomUUID().toString());
+    }
+
     private CancelPayoutRequest cancelRequest() {
         CancelPayoutRequest req = new CancelPayoutRequest();
         req.setReason("Test cancellation reason");
@@ -205,7 +209,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(null), adminId); // null = full remaining
+            disburse(payoutId, disburseRequest(null), adminId); // null = full remaining
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DISBURSED);
             assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(bd(45_000));
@@ -221,7 +225,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(bd(20_000)), adminId);
+            disburse(payoutId, disburseRequest(bd(20_000)), adminId);
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.PARTIALLY_DISBURSED);
             assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(bd(20_000));
@@ -239,7 +243,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(bd(25_000)), adminId); // remaining = 25k
+            disburse(payoutId, disburseRequest(bd(25_000)), adminId); // remaining = 25k
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DISBURSED);
             assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(bd(45_000));
@@ -255,7 +259,7 @@ class PayoutServiceTest {
 
             // Remaining = 25k. Trying to disburse 30k — must be rejected.
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(bd(30_000)), adminId))
+                    disburse(payoutId, disburseRequest(bd(30_000)), adminId))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Cannot disburse more than the remaining amount");
         }
@@ -267,7 +271,7 @@ class PayoutServiceTest {
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(BigDecimal.ZERO), adminId))
+                    disburse(payoutId, disburseRequest(BigDecimal.ZERO), adminId))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("must be greater than zero");
         }
@@ -280,7 +284,7 @@ class PayoutServiceTest {
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(null), adminId))
+                    disburse(payoutId, disburseRequest(null), adminId))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("PENDING or PARTIALLY_DISBURSED");
         }
@@ -294,7 +298,7 @@ class PayoutServiceTest {
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(null), adminId))
+                    disburse(payoutId, disburseRequest(null), adminId))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("PENDING or PARTIALLY_DISBURSED");
         }
@@ -310,13 +314,90 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(bd(20_000)), adminId);
+            disburse(payoutId, disburseRequest(bd(20_000)), adminId);
 
             PayoutDisbursement tx = txCaptor.getValue();
             assertThat(tx.getPayoutId()).isEqualTo(payoutId);
             assertThat(tx.getAmount()).isEqualByComparingTo(bd(20_000));
             assertThat(tx.getDisbursedBy()).isEqualTo(adminId);
             assertThat(tx.getMode()).isEqualTo(DisbursementMode.CASH);
+            assertThat(tx.getIdempotencyKey()).isNotBlank();
+            assertThat(tx.getIdempotencyRequestHash()).hasSize(64);
+        }
+
+        @Test
+        @DisplayName("same idempotency key and request returns without moving money twice")
+        void sameIdempotencyKeyReturnsOriginalOperation() {
+            Payout payout = pendingPayout(bd(45_000));
+            DisburseRequest request = disburseRequest(bd(10_000));
+            String key = UUID.randomUUID().toString();
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            ArgumentCaptor<PayoutDisbursement> captor = ArgumentCaptor.forClass(PayoutDisbursement.class);
+            when(disbursementRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(Collections.emptyList());
+
+            payoutService.disburse(payoutId, request, adminId, key);
+            PayoutDisbursement first = captor.getValue();
+            assertThat(payout.getDisbursedAmount()).isEqualByComparingTo("10000");
+
+            clearInvocations(payoutRepository, disbursementRepository, paymentServiceClient,
+                    eventPublisher, auditClient);
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(disbursementRepository.findByPayoutIdAndIdempotencyKey(payoutId, key))
+                    .thenReturn(Optional.of(first));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(List.of(first));
+
+            PayoutResponse retry = payoutService.disburse(payoutId, request, adminId, key);
+
+            assertThat(retry.getDisbursedAmount()).isEqualByComparingTo("10000");
+            verify(disbursementRepository, never()).save(any());
+            verify(paymentServiceClient, never()).recordPayoutDebit(any(), any(), any(), any());
+            verify(auditClient, never()).log(anyString(), anyString(), any(), anyString(),
+                    anyString(), anyString(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("same idempotency key with different details returns conflict")
+        void reusedIdempotencyKeyWithDifferentRequestConflicts() {
+            Payout payout = pendingPayout(bd(45_000));
+            String key = UUID.randomUUID().toString();
+            DisburseRequest original = disburseRequest(bd(10_000));
+            PayoutDisbursement prior = PayoutDisbursement.builder()
+                    .payoutId(payoutId)
+                    .idempotencyKey(key)
+                    .idempotencyRequestHash(PayoutIdempotencyFingerprint.of(
+                            payoutId, original.getAmount(), original.getDisbursementMode(),
+                            original.getReferenceNumber(), original.getNotes()))
+                    .build();
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+            when(disbursementRepository.findByPayoutIdAndIdempotencyKey(payoutId, key))
+                    .thenReturn(Optional.of(prior));
+
+            assertThatThrownBy(() -> payoutService.disburse(
+                    payoutId, disburseRequest(bd(11_000)), adminId, key))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("different disbursement details");
+            verify(paymentServiceClient, never()).recordPayoutDebit(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("disbursement requires an idempotency key")
+        void missingIdempotencyKeyIsRejected() {
+            Payout payout = pendingPayout(bd(45_000));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(payout));
+
+            assertThatThrownBy(() -> payoutService.disburse(
+                    payoutId, disburseRequest(bd(10_000)), adminId, "  "))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("X-Idempotency-Key is required");
+            verify(disbursementRepository, never()).save(any());
         }
 
         @Test
@@ -329,7 +410,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(null), adminId);
+            disburse(payoutId, disburseRequest(null), adminId);
             verify(eventPublisher).publish(any(PayoutDisbursedEvent.class));
         }
 
@@ -343,7 +424,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(bd(20_000)), adminId);
+            disburse(payoutId, disburseRequest(bd(20_000)), adminId);
             verify(eventPublisher, never()).publish(any(PayoutDisbursedEvent.class));
         }
     }
@@ -462,7 +543,7 @@ class PayoutServiceTest {
         void disburseThrowsWhenPayoutNotFound() {
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(null), adminId))
+                    disburse(payoutId, disburseRequest(null), adminId))
                     .isInstanceOf(BusinessException.class);
         }
 
@@ -493,7 +574,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(bd(1)), adminId);
+            disburse(payoutId, disburseRequest(bd(1)), adminId);
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.DISBURSED);
             assertThat(payout.getDisbursedAmount()).isEqualByComparingTo(bd(45_000));
@@ -512,7 +593,7 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.disburse(payoutId, disburseRequest(null), adminId); // null = auto-fill
+            disburse(payoutId, disburseRequest(null), adminId); // null = auto-fill
 
             // Should have disbursed exactly 35k (the remaining)
             assertThat(captor.getValue().getAmount()).isEqualByComparingTo(bd(35_000));
@@ -548,7 +629,7 @@ class PayoutServiceTest {
             when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() ->
-                    payoutService.disburse(payoutId, disburseRequest(bd(-100)), adminId))
+                    disburse(payoutId, disburseRequest(bd(-100)), adminId))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("must be greater than zero");
         }

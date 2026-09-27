@@ -1130,8 +1130,10 @@ export const getPendingPayouts = async () => {
   return res.data.data ?? [];
 };
 
-export const disbursePayout = async ({ id, ...body }) => {
-  const res = await api.post(`/payouts/${id}/disburse`, body);
+export const disbursePayout = async ({ id, idempotencyKey, ...body }) => {
+  const res = await api.post(`/payouts/${id}/disburse`, body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  });
   return res.data.data;
 };
 

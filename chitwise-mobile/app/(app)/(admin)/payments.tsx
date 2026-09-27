@@ -1474,6 +1474,7 @@ function PayoutsTab() {
 
   // ── Disburse state ────────────────────────────────────────────────────────
   const [disburseTarget, setDisburseTarget] = useState<any>(null);
+  const [disburseIdempotencyKey, setDisburseIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [disburseAmt, setDisburseAmt] = useState('');
   const [disburseMode, setDisburseMode] = useState('CASH');
   const [disburseNotes, setDisburseNotes] = useState('');
@@ -1688,12 +1689,13 @@ function PayoutsTab() {
 
   const disburseMut = useMutation({
     mutationFn: () => disbursePayout(disburseTarget.id, {
-      amount: Number(disburseAmt), paymentMode: disburseMode, notes: disburseNotes || undefined,
-    }),
+      amount: Number(disburseAmt), disbursementMode: disburseMode, notes: disburseNotes || undefined,
+    }, disburseIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
       setDisburseTarget(null); setDisburseAmt(''); setDisburseNotes('');
+      setDisburseIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed successfully');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Disbursement failed — please try again.'),

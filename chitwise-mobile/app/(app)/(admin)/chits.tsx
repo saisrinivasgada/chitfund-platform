@@ -228,6 +228,7 @@ export default function AdminChitsScreen() {
   // ── Disburse Payout ────────────────────────────────────────────────────────
   const [showDisburse, setShowDisburse] = useState(false);
   const [dsPayout, setDsPayout] = useState<any>(null);
+  const [dsIdempotencyKey, setDsIdempotencyKey] = useState(() => Crypto.randomUUID());
   const [dsMode, setDsMode] = useState('CASH');
   const [dsNotes, setDsNotes] = useState('');
   const [dsAmount, setDsAmount] = useState('');
@@ -838,13 +839,14 @@ export default function AdminChitsScreen() {
   // Disburse existing payout
   const disburseMut = useOnlineMutation({
     mutationFn: () => disbursePayout(dsPayout.id, {
-      disbursedAmount: Number(dsAmount),
-      paymentMode: dsMode,
+      amount: Number(dsAmount),
+      disbursementMode: dsMode,
       notes: dsNotes || undefined,
-    }),
+    }, dsIdempotencyKey),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-chit-payouts', selected?.id] });
       setShowDisburse(false); setDsPayout(null); setDsMode('CASH'); setDsNotes(''); setDsAmount('');
+      setDsIdempotencyKey(Crypto.randomUUID());
       toast.saved('Payout disbursed successfully');
     },
     onError: (e: any) => Alert.alert('Disburse Failed', e.response?.data?.message ?? 'Disbursement failed. Please try again.'),
