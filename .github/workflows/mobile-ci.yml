@@ -34,10 +34,26 @@ jobs:
         run: npm run type-check
 
       - name: Dependency security audit
-        # Fail on high or critical severity advisories; warn on moderate
-        run: npm audit --audit-level=critical
+        # Fail on high or critical severity advisories; warn on moderate.
+        run: npm audit --audit-level=high
         continue-on-error: false
 
       - name: Expo Doctor
-        # Expo Doctor checks SDK/native compatibility; soft-fail (known peer mismatches)
-        run: npx expo-doctor || true
+        # Pinned in devDependencies so compatibility checks are reproducible.
+        run: npm run doctor
+
+      - name: Export ChitWise iOS bundle
+        run: npx expo export --platform ios --clear --output-dir "$RUNNER_TEMP/chitwise-ios"
+
+      - name: Export ChitWise Android bundle
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/chitwise-android"
+
+      - name: Export ChitWise Hub iOS bundle
+        env:
+          EXPO_PUBLIC_APP_VARIANT: hub
+        run: npx expo export --platform ios --clear --output-dir "$RUNNER_TEMP/chitwise-hub-ios"
+
+      - name: Export ChitWise Hub Android bundle
+        env:
+          EXPO_PUBLIC_APP_VARIANT: hub
+        run: npx expo export --platform android --output-dir "$RUNNER_TEMP/chitwise-hub-android"
