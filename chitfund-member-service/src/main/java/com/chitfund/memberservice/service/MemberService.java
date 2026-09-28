@@ -51,6 +51,11 @@ public class MemberService {
 
     @Transactional
     public MemberResponse createMember(CreateMemberRequest request, UUID adminId) {
+        return createMember(request, adminId, "ROLE_ADMIN");
+    }
+
+    @Transactional
+    public MemberResponse createMember(CreateMemberRequest request, UUID adminId, String actorRole) {
         planLimitChecker.checkCanAddMember();
 
         String tid = tenantId();
@@ -91,6 +96,10 @@ public class MemberService {
 
         memberRepository.save(member);
         log.info("Admin {} created member {} ({}) in tenant {}", adminId, member.getId(), member.getPhone(), tid);
+
+        auditClient.log("MEMBER", member.getId().toString(), "CREATED",
+                adminId != null ? adminId.toString() : null, actorRole,
+                null, profileSnapshot(member), tid);
 
         MemberResponse response = toResponse(member);
         if (request.isSendAppAccess()) {
@@ -169,6 +178,11 @@ public class MemberService {
         member.setDeletedBy(deletedBy);
         memberRepository.save(member);
         log.info("Admin {} soft-deleted member {}", deletedBy, id);
+        auditClient.log("MEMBER", id.toString(), "DELETED",
+                deletedBy != null ? deletedBy.toString() : null, "ROLE_ADMIN",
+                java.util.Map.of("deleted", false, "status", member.getStatus().name()),
+                java.util.Map.of("deleted", true, "status", member.getStatus().name()),
+                member.getTenantId());
         return toResponse(member);
     }
 
@@ -274,7 +288,7 @@ public class MemberService {
         map.put("bankAccountNumber", maskTail(m.getBankAccountNumber(), 4));
         map.put("bankIfsc", maskTail(m.getBankIfsc(), 4));
         map.put("referredById", m.getReferredById());
-        map.put("notes", m.getNotes());
+        map.put("notesPresent", m.getNotes() != null && !m.getNotes().isBlank());
         return map;
     }
 
@@ -293,6 +307,12 @@ public class MemberService {
 
     @Transactional
     public MemberResponse updateStatus(UUID id, UpdateStatusRequest request) {
+        return updateStatus(id, request, null, "ROLE_ADMIN");
+    }
+
+    @Transactional
+    public MemberResponse updateStatus(UUID id, UpdateStatusRequest request,
+                                       UUID actorId, String actorRole) {
         if (request.getStatus() == MemberStatus.BLACKLISTED
                 && (request.getReason() == null || request.getReason().isBlank())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -308,6 +328,11 @@ public class MemberService {
         }
         memberRepository.save(member);
         log.info("Member {} status changed {} → {}", id, previous, request.getStatus());
+        auditClient.log("MEMBER", id.toString(), "STATUS_CHANGED",
+                actorId != null ? actorId.toString() : null, actorRole,
+                java.util.Map.of("status", previous.name()),
+                java.util.Map.of("status", request.getStatus().name()),
+                member.getTenantId(), request.getReason());
         return toResponse(member);
     }
 

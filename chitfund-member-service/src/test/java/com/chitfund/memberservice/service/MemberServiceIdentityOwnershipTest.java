@@ -7,6 +7,8 @@ import com.chitfund.memberservice.client.UserServiceClient;
 import com.chitfund.memberservice.domain.Member;
 import com.chitfund.memberservice.dto.request.CreateMemberRequest;
 import com.chitfund.memberservice.dto.request.UpdateMemberRequest;
+import com.chitfund.memberservice.dto.request.UpdateStatusRequest;
+import com.chitfund.memberservice.domain.enums.MemberStatus;
 import com.chitfund.memberservice.messaging.MemberEventPublisher;
 import com.chitfund.memberservice.repository.MemberRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 import java.util.Map;
 import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -151,6 +154,54 @@ class MemberServiceIdentityOwnershipTest {
         assertThat(response.getAppAccessRequestStatus()).isEqualTo("PENDING_MEMBER");
         assertThat(response.getSetupToken()).isEqualTo("setup-once");
         assertThat(response.getActionToken()).isEqualTo("action-once");
+    }
+
+    @Test
+    void memberCreationWritesOnePrivacySafeOrganizationAudit() {
+        CreateMemberRequest request = new CreateMemberRequest();
+        request.setFullName("Member Two");
+        request.setPhone("9123456789");
+        request.setPhoneCountryCode("+91");
+        request.setEmail("member.two@example.com");
+        request.setNotes("Sensitive operational note");
+        UUID actorId = UUID.randomUUID();
+        when(memberRepository.save(any())).thenAnswer(call -> {
+            Member saved = call.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            saved.setStatus(MemberStatus.ACTIVE);
+            return saved;
+        });
+
+        service.createMember(request, actorId, "ROLE_MANAGER");
+
+        ArgumentCaptor<Object> after = ArgumentCaptor.forClass(Object.class);
+        verify(auditClient).log(eq("MEMBER"), anyString(), eq("CREATED"),
+                eq(actorId.toString()), eq("ROLE_MANAGER"), isNull(), after.capture(), eq(TENANT));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> snapshot = (Map<String, Object>) after.getValue();
+        assertThat(snapshot)
+                .containsEntry("phone", "******6789")
+                .containsEntry("email", "m***@example.com")
+                .containsEntry("notesPresent", true)
+                .doesNotContainKey("notes");
+    }
+
+    @Test
+    void memberStatusAuditKeepsBlacklistReasonAndActor() {
+        member.setStatus(MemberStatus.ACTIVE);
+        member.setHasAppAccess(false);
+        when(memberRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(MemberStatus.BLACKLISTED);
+        request.setReason("Repeated payment fraud");
+        UUID actorId = UUID.randomUUID();
+
+        service.updateStatus(member.getId(), request, actorId, "ROLE_ADMIN");
+
+        verify(auditClient).log(eq("MEMBER"), eq(member.getId().toString()),
+                eq("STATUS_CHANGED"), eq(actorId.toString()), eq("ROLE_ADMIN"),
+                eq(Map.of("status", "ACTIVE")), eq(Map.of("status", "BLACKLISTED")),
+                eq(TENANT), eq("Repeated payment fraud"));
     }
 
     private UpdateMemberRequest unchangedRequest() {

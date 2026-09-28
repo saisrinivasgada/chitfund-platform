@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.Objects;
 import java.util.UUID;
+import java.time.Instant;
 
 @Component
 @RequiredArgsConstructor
@@ -21,14 +22,22 @@ public class AuditClient {
     public void log(String entityType, String entityId,
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId) {
+        log(entityType, entityId, action, actorId, actorRole, before, after, tenantId, null);
+    }
+
+    public void log(String entityType, String entityId,
+                    String action, String actorId, String actorRole,
+                    Object before, Object after, String tenantId, String reason) {
         requireBusinessTransaction();
         try {
             String eventId = UUID.randomUUID().toString();
-            AuditLogEvent event = new AuditLogEvent("member-service", entityType, entityId, null,
+            AuditLogEvent event = new AuditLogEvent(
+                    "member-service", entityType, entityId, null,
                     action, actorId, actorRole, null,
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId);
+                    null, tenantId, null, null, "UNKNOWN", "SUCCESS", reason,
+                    null, null, null, Instant.now(), null, null);
             outbox.enqueue(eventId, Objects.requireNonNull(tenantId, "tenantId"),
                     entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
         } catch (Exception exception) {
