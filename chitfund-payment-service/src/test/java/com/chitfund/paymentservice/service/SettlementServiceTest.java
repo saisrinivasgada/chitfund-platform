@@ -89,6 +89,7 @@ class SettlementServiceTest {
     @Mock private MemberCreditService memberCreditService;
     @Mock private PlanExpiryChecker planExpiryChecker;
     @Mock private com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
+    @Mock private com.chitfund.paymentservice.client.AuditClient centralAuditClient;
 
     @InjectMocks
     private SettlementService settlementService;

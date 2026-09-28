@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -20,12 +22,17 @@ import java.util.UUID;
 @Slf4j
 public class AuditService {
 
+    private static final Set<String> VALID_SOURCES = Set.of(
+            "WEB", "MOBILE", "OFFLINE_SYNC", "INTERNAL_API", "WORKER", "SYSTEM", "UNKNOWN");
+    private static final Set<String> VALID_OUTCOMES = Set.of("SUCCESS", "FAILURE", "DENIED");
+
     private final AuditLogRepository auditLogRepository;
 
     private AuditLog buildLog(AuditLogRequest req) {
         String tenantId = requireTenant(req.tenantId());
+        Instant recordedAt = Instant.now();
         return AuditLog.builder()
-                .id(UUID.randomUUID().toString())
+                .id(resolveEventId(req.eventId()))
                 .tenantId(tenantId)
                 .serviceName(req.serviceName())
                 .entityType(req.entityType())
@@ -38,8 +45,39 @@ public class AuditService {
                 .beforeState(req.beforeState())
                 .afterState(req.afterState())
                 .metadata(req.metadata())
-                .createdAt(Instant.now())
+                .correlationId(req.correlationId())
+                .idempotencyKey(req.idempotencyKey())
+                .source(normalizeAllowed(req.source(), "UNKNOWN", VALID_SOURCES, "source"))
+                .outcome(normalizeAllowed(req.outcome(), "SUCCESS", VALID_OUTCOMES, "outcome"))
+                .reason(req.reason())
+                .effectiveActorId(req.effectiveActorId())
+                .effectiveActorRole(req.effectiveActorRole())
+                .deviceSessionHash(req.deviceSessionHash())
+                .occurredAt(req.occurredAt() != null ? req.occurredAt() : recordedAt)
+                .originalOfflineAt(req.originalOfflineAt())
+                .synchronizedAt(req.synchronizedAt())
+                .createdAt(recordedAt)
                 .build();
+    }
+
+    private String resolveEventId(String eventId) {
+        if (eventId == null || eventId.isBlank()) return UUID.randomUUID().toString();
+        String canonical = UUID.fromString(eventId).toString();
+        if (!canonical.equals(eventId.toLowerCase(java.util.Locale.ROOT))) {
+            throw new IllegalArgumentException("eventId must be a canonical UUID");
+        }
+        return canonical;
+    }
+
+    private String normalizeAllowed(String value, String fallback, Set<String> allowed,
+                                    String fieldName) {
+        String normalized = value == null || value.isBlank()
+                ? fallback
+                : value.trim().toUpperCase(Locale.ROOT);
+        if (!allowed.contains(normalized)) {
+            throw new IllegalArgumentException(fieldName + " has an unsupported value");
+        }
+        return normalized;
     }
 
     private String requireTenant(String tenantId) {
@@ -65,9 +103,38 @@ public class AuditService {
     public Page<AuditLogResponse> search(String tenantId, String entityType, String entityId,
                                          String chitId, String actorId, String action,
                                          Instant from, Instant to, Pageable pageable) {
+        return search(tenantId, entityType, entityId, chitId, actorId, action,
+                null, null, null, from, to, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuditLogResponse> search(String tenantId, String entityType, String entityId,
+                                         String chitId, String actorId, String action,
+                                         String source, String outcome,
+                                         Instant from, Instant to, Pageable pageable) {
+        return search(tenantId, entityType, entityId, chitId, actorId, action,
+                source, outcome, null, from, to, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuditLogResponse> search(String tenantId, String entityType, String entityId,
+                                         String chitId, String actorId, String action,
+                                         String source, String outcome, String query,
+                                         Instant from, Instant to, Pageable pageable) {
+        String normalizedQuery = normalizeSearchQuery(query);
         return auditLogRepository
-                .search(tenantId, entityType, entityId, chitId, actorId, action, from, to, pageable)
+                .search(tenantId, entityType, entityId, chitId, actorId, action,
+                        source, outcome, normalizedQuery, from, to, pageable)
                 .map(AuditLogResponse::from);
+    }
+
+    private String normalizeSearchQuery(String query) {
+        if (query == null || query.isBlank()) return null;
+        String normalized = query.trim();
+        if (normalized.length() > 100) {
+            throw new IllegalArgumentException("audit search must be at most 100 characters");
+        }
+        return "%" + normalized.toLowerCase(Locale.ROOT) + "%";
     }
 
     @Transactional(readOnly = true)

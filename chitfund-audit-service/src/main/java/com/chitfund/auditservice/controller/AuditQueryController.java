@@ -11,6 +11,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -34,13 +35,17 @@ public class AuditQueryController {
             @RequestParam(required = false) String chitId,
             @RequestParam(required = false) String actorId,
             @RequestParam(required = false) String action,
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String outcome,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @PageableDefault(size = 50, sort = "createdAt") Pageable pageable) {
 
-        String tenantId = TenantContext.get();
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
-                auditService.search(tenantId, entityType, entityId, chitId, actorId, action, from, to, pageable)));
+                auditService.search(tenantId, entityType, entityId, chitId, actorId, action,
+                        source, outcome, query, from, to, pageable)));
     }
 
     @GetMapping("/logs/{entityType}/{entityId}")
@@ -49,7 +54,7 @@ public class AuditQueryController {
             @PathVariable String entityId,
             @PageableDefault(size = 50) Pageable pageable) {
 
-        String tenantId = TenantContext.get();
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 auditService.getEntityHistory(entityType, entityId, tenantId, pageable)));
     }
@@ -59,7 +64,7 @@ public class AuditQueryController {
             @PathVariable String chitId,
             @PageableDefault(size = 50) Pageable pageable) {
 
-        String tenantId = TenantContext.get();
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 auditService.getChitHistory(chitId, tenantId, pageable)));
     }
@@ -69,8 +74,21 @@ public class AuditQueryController {
             @PathVariable String actorId,
             @PageableDefault(size = 50) Pageable pageable) {
 
-        String tenantId = TenantContext.get();
+        String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 auditService.getActorHistory(actorId, tenantId, pageable)));
+    }
+
+    /**
+     * A tenant-less organization token must fail closed. Repository queries use a null tenant
+     * only for the separately authorized Super Admin endpoint, so forwarding null from this
+     * controller would otherwise turn a malformed ADMIN/MANAGER token into a cross-tenant read.
+     */
+    private String requireTenant() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new AccessDeniedException("Organization context is required");
+        }
+        return tenantId;
     }
 }

@@ -61,4 +61,34 @@ class AuditClientTest {
         verify(store, never()).enqueue(anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString(), org.mockito.ArgumentMatchers.anyList());
     }
+
+    @Test
+    void preservesSearchableReasonIdempotencyAndSourceContext() throws Exception {
+        PaymentOutboxStore store = mock(PaymentOutboxStore.class);
+        ObjectMapper mapper = new ObjectMapper();
+        AuditClient client = new AuditClient(store, mapper);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        client.log(AuditClient.AuditDetails.builder()
+                .entityType("SETTLEMENT")
+                .entityId("settlement-1")
+                .action("SETTLEMENT_VOIDED")
+                .actorId("admin-1")
+                .actorRole("ADMIN")
+                .tenantId("tenant-1")
+                .reason("Incorrect member")
+                .idempotencyKey("void-request-1")
+                .source("WEB")
+                .build());
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(store).enqueue(anyString(), eq("tenant-1"), eq("SETTLEMENT"),
+                eq("settlement-1"), eq(SqsQueues.EVT_AUDIT_LOG), payload.capture(),
+                eq(List.of(SqsQueues.AUDIT_EVENTS)));
+        AuditLogEvent event = mapper.readValue(payload.getValue(), AuditLogEvent.class);
+        assertThat(event.reason()).isEqualTo("Incorrect member");
+        assertThat(event.idempotencyKey()).isEqualTo("void-request-1");
+        assertThat(event.source()).isEqualTo("WEB");
+        assertThat(event.occurredAt()).isNotNull();
+    }
 }

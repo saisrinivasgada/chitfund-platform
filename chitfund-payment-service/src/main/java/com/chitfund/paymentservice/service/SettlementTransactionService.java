@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.domain.Settlement;
 import com.chitfund.paymentservice.domain.SettlementChitItem;
 import com.chitfund.paymentservice.domain.SettlementPaymentTransaction;
@@ -28,7 +29,9 @@ import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -57,6 +60,7 @@ public class SettlementTransactionService {
     private final SettlementPaymentTransactionRepository transactionRepository;
     private final SettlementRepository settlementRepository;
     private final AdminWalletService adminWalletService;
+    private final AuditClient auditClient;
 
     /**
      * Records one payment transaction for a confirmed settlement and updates the
@@ -64,7 +68,7 @@ public class SettlementTransactionService {
      *
      * @param settlementId the settlement being paid
      * @param req          the transaction details (amount, mode, idempotency key, …)
-     * @param adminId      the admin recording this transaction
+     * @param adminId      compatibility overload for an administrator actor
      * @return the saved transaction + updated settlement totals
      */
     @Transactional
@@ -72,6 +76,15 @@ public class SettlementTransactionService {
             UUID settlementId,
             RecordSettlementTransactionRequest req,
             UUID adminId) {
+        return recordTransaction(settlementId, req, adminId, "ADMIN");
+    }
+
+    @Transactional
+    public SettlementTransactionResponse recordTransaction(
+            UUID settlementId,
+            RecordSettlementTransactionRequest req,
+            UUID actorId,
+            String actorRole) {
 
         String tenantId = requireTenantId();
         String requestHash = IdempotencyFingerprint.of(
@@ -129,6 +142,9 @@ public class SettlementTransactionService {
                 ? settlement.getCollectedAmount()
                 : settlement.getDisbursedAmount();
         BigDecimal remaining = absNet.subtract(alreadyMoved);
+        SettlementPaymentStatus previousStatus = settlement.getPaymentStatus();
+        BigDecimal previousCollected = settlement.getCollectedAmount();
+        BigDecimal previousDisbursed = settlement.getDisbursedAmount();
 
         // ── 6. Overpayment guard ──────────────────────────────────────────────
         if (req.getAmount().compareTo(remaining) > 0) {
@@ -146,7 +162,7 @@ public class SettlementTransactionService {
                 .direction(direction)
                 .referenceNumber(req.getReferenceNumber())
                 .notes(req.getNotes())
-                .recordedBy(adminId)
+                .recordedBy(actorId)
                 .recordedAt(LocalDateTime.now())
                 .idempotencyKey(req.getIdempotencyKey())
                 .idempotencyRequestHash(requestHash)
@@ -196,7 +212,40 @@ public class SettlementTransactionService {
         walletReq.setCategory("SETTLEMENT_PAYMENT");
         walletReq.setDescription(description);
         walletReq.setReferenceId(txn.getId()); // payment transaction ID for direct receipt lookup
-        adminWalletService.addEntry(walletReq, adminId, tenantId);
+        adminWalletService.addEntry(walletReq, actorId, tenantId);
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("paymentStatus", previousStatus.name());
+        before.put("collectedAmount", previousCollected);
+        before.put("disbursedAmount", previousDisbursed);
+
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("paymentStatus", settlement.getPaymentStatus().name());
+        after.put("collectedAmount", settlement.getCollectedAmount());
+        after.put("disbursedAmount", settlement.getDisbursedAmount());
+        after.put("memberId", settlement.getMemberId());
+        after.put("amount", req.getAmount());
+        after.put("mode", req.getMode().name());
+        after.put("direction", direction.name());
+        if (req.getReferenceNumber() != null && !req.getReferenceNumber().isBlank()) {
+            after.put("referenceNumber", req.getReferenceNumber());
+        }
+
+        auditClient.log(AuditClient.AuditDetails.builder()
+                .entityType("SETTLEMENT_TRANSACTION")
+                .entityId(txn.getId().toString())
+                .action(direction == TransactionDirection.COLLECTION
+                        ? "SETTLEMENT_PAYMENT_COLLECTED"
+                        : "SETTLEMENT_REFUND_DISBURSED")
+                .actorId(actorId.toString())
+                .actorRole(actorRole)
+                .before(before)
+                .after(after)
+                .metadata(Map.of("settlementId", settlementId))
+                .tenantId(tenantId)
+                .idempotencyKey(req.getIdempotencyKey())
+                .reason(req.getNotes())
+                .build());
 
         log.info("Settlement transaction recorded: settlementId={} direction={} amount={} mode={} status={}",
                 settlementId, direction, req.getAmount(), req.getMode(), settlement.getPaymentStatus());

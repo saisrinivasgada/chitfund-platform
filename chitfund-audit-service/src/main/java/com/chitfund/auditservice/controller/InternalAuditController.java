@@ -4,6 +4,7 @@ import com.chitfund.auditservice.dto.AuditLogRequest;
 import com.chitfund.auditservice.service.AuditService;
 import com.chitfund.common.dto.ApiResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -11,15 +12,15 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Called by all other services to record audit events.
  *
- * WHY fire-and-forget from callers?
- * If audit-service is temporarily down, the primary transaction (e.g. payment) should
- * still succeed. In practice callers POST asynchronously or via Kafka so the audit write
- * never blocks the user-facing response. For now callers do a best-effort HTTP POST
- * and log a warning if it fails — the business operation is not rolled back.
+ * Business services persist audit events to their transactional outbox. Delivery to this
+ * endpoint or the audit queue may happen after the business response, but failed delivery
+ * remains visible and retryable instead of becoming a best-effort log message.
  *
  * WHY batch endpoint?
  * When payment-service opens a month (creates records for all 20 members), it generates
@@ -48,7 +49,7 @@ public class InternalAuditController {
     @PostMapping("/batch")
     public ResponseEntity<ApiResponse<Void>> recordBatch(
             @RequestHeader("X-Internal-Key") String key,
-            @RequestBody List<@Valid AuditLogRequest> requests) {
+            @Valid @Size(max = 500) @RequestBody List<@Valid AuditLogRequest> requests) {
 
         validateKey(key);
         auditService.recordBatch(requests);
@@ -56,7 +57,9 @@ public class InternalAuditController {
     }
 
     private void validateKey(String provided) {
-        if (!internalKey.equals(provided)) {
+        byte[] expected = internalKey.getBytes(StandardCharsets.UTF_8);
+        byte[] actual = provided.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expected, actual)) {
             throw new AccessDeniedException("Invalid internal key");
         }
     }

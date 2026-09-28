@@ -44,6 +44,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1066,6 +1067,10 @@ public class PaymentService {
         long partial  = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID).count();
         long outstanding = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING).count();
         long waived   = all.stream().filter(r -> r.getStatus() == PaymentRecordStatus.WAIVED).count();
+        Instant occurredAt = batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now();
+        Instant synchronizedAt = batch.getSyncedAt() != null ? batch.getSyncedAt() : occurredAt;
+        boolean offlineSync = Duration.between(occurredAt, synchronizedAt).abs().compareTo(
+                Duration.ofSeconds(30)) > 0;
 
         return new PaymentCompletedEvent(
                 batch.getId().toString(),
@@ -1077,9 +1082,12 @@ public class PaymentService {
                 totalPaid,
                 totalDue.subtract(totalPaid),
                 (int) settled, (int) partial, (int) outstanding, (int) waived,
-                LocalDate.ofInstant(batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(), java.time.ZoneOffset.UTC),
+                LocalDate.ofInstant(occurredAt, java.time.ZoneOffset.UTC),
                 actorId.toString(),
-                batch.getRecordedAt() != null ? batch.getRecordedAt() : Instant.now(),
+                occurredAt,
+                batch.getIdempotencyKey(),
+                offlineSync ? "OFFLINE_SYNC" : "UNKNOWN",
+                synchronizedAt,
                 TenantContext.get()
         );
     }

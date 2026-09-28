@@ -143,9 +143,12 @@ public class SettlementController {
             @Valid @RequestBody RecordSettlementTransactionRequest request,
             Authentication auth) {
         if (settlementCapabilityDenied()) return SETTLEMENT_DENIED;
-        UUID adminId = (UUID) auth.getPrincipal();
+        UUID actorId = (UUID) auth.getPrincipal();
+        String actorRole = auth.getAuthorities().iterator().next()
+                .getAuthority().replace("ROLE_", "");
         SettlementTransactionResponse response =
-                settlementTransactionService.recordTransaction(settlementId, request, adminId);
+                settlementTransactionService.recordTransaction(
+                        settlementId, request, actorId, actorRole);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(response, "Transaction recorded"));
     }

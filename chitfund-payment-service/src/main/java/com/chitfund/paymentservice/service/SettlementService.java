@@ -1,5 +1,6 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.paymentservice.client.AuditClient;
 import com.chitfund.paymentservice.client.ChitServiceClient;
 import com.chitfund.paymentservice.client.ChitServiceClient.ChitDto;
 import com.chitfund.paymentservice.client.ChitServiceClient.EnrollmentDto;
@@ -50,6 +51,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -92,6 +94,7 @@ public class SettlementService {
     private final PayoutServiceClient payoutServiceClient;
     private final MemberCreditService memberCreditService;
     private final PlanExpiryChecker planExpiryChecker;
+    private final AuditClient centralAuditClient;
 
     // ─────────────────────────────────────────────────────────────────────────
     // PREVIEW
@@ -206,6 +209,9 @@ public class SettlementService {
             return toSettlementResponse(preparation.idempotentResult());
         }
         Settlement priorSettlement = preparation.priorSettlement();
+        Map<String, Object> priorSettlementAuditState = priorSettlement != null
+                ? settlementAuditState(priorSettlement)
+                : null;
 
         // Historical rows never silently become a clean slate. A correction must
         // explicitly name the row it supersedes and provide a mandatory reason.
@@ -388,6 +394,37 @@ public class SettlementService {
         }
 
         queueMemberStatus(saved, "INACTIVE", tenantId);
+
+        if (priorSettlement != null) {
+            logCentralSettlementAudit(
+                    priorSettlement,
+                    "SETTLEMENT_SUPERSEDED",
+                    adminId,
+                    priorSettlementAuditState,
+                    settlementAuditState(priorSettlement),
+                    request.getSupersessionReason().trim(),
+                    idempotencyKey,
+                    saved.getId());
+            logCentralSettlementAudit(
+                    saved,
+                    "SETTLEMENT_REPLACEMENT_CREATED",
+                    adminId,
+                    null,
+                    settlementAuditState(saved),
+                    request.getSupersessionReason().trim(),
+                    idempotencyKey,
+                    priorSettlement.getId());
+        } else {
+            logCentralSettlementAudit(
+                    saved,
+                    "SETTLEMENT_CONFIRMED",
+                    adminId,
+                    null,
+                    settlementAuditState(saved),
+                    request.getAdjustmentReason(),
+                    idempotencyKey,
+                    null);
+        }
 
         return toSettlementResponse(saved);
     }
@@ -981,6 +1018,8 @@ public class SettlementService {
                     HttpStatus.CONFLICT);
         }
 
+        Map<String, Object> beforeAuditState = settlementAuditState(settlement);
+
         reverseSettlementEffects(settlement, adminId, tenantId);
 
         settlement.setPaymentStatus(SettlementPaymentStatus.VOIDED);
@@ -995,8 +1034,71 @@ public class SettlementService {
                 .reason("Administrative void")
                 .build());
         queueMemberStatus(settlement, "ACTIVE", tenantId);
+        logCentralSettlementAudit(
+                settlement,
+                "SETTLEMENT_VOIDED",
+                adminId,
+                beforeAuditState,
+                settlementAuditState(settlement),
+                "Administrative void",
+                null,
+                null);
 
         return toSettlementResponse(settlement);
+    }
+
+    private void logCentralSettlementAudit(
+            Settlement settlement,
+            String action,
+            UUID actorId,
+            Object before,
+            Object after,
+            String reason,
+            String idempotencyKey,
+            UUID relatedSettlementId) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (relatedSettlementId != null) {
+            metadata.put("relatedSettlementId", relatedSettlementId);
+        }
+        centralAuditClient.log(AuditClient.AuditDetails.builder()
+                .entityType("SETTLEMENT")
+                .entityId(settlement.getId().toString())
+                .action(action)
+                .actorId(actorId != null ? actorId.toString() : null)
+                .actorRole("ADMIN")
+                .before(before)
+                .after(after)
+                .metadata(metadata.isEmpty() ? null : metadata)
+                .tenantId(settlement.getTenantId())
+                .idempotencyKey(idempotencyKey)
+                .reason(reason)
+                .build());
+    }
+
+    private Map<String, Object> settlementAuditState(Settlement settlement) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("memberId", settlement.getMemberId());
+        state.put("version", settlement.getSettlementVersion());
+        state.put("paymentStatus", settlement.getPaymentStatus().name());
+        state.put("totalOwed", settlement.getTotalOwed());
+        state.put("totalRefunded", settlement.getTotalRefunded());
+        state.put("netAmount", settlement.getNetAmount());
+        state.put("creditApplied", settlement.getCreditApplied());
+        state.put("collectedAmount", settlement.getCollectedAmount());
+        state.put("disbursedAmount", settlement.getDisbursedAmount());
+        state.put("chitIds", settlement.getChitItems().stream()
+                .map(SettlementChitItem::getChitId)
+                .toList());
+        if (settlement.getSupersedesId() != null) {
+            state.put("supersedesId", settlement.getSupersedesId());
+        }
+        if (settlement.getSupersededById() != null) {
+            state.put("supersededById", settlement.getSupersededById());
+        }
+        if (settlement.getVoidedAt() != null) {
+            state.put("voidedAt", settlement.getVoidedAt());
+        }
+        return state;
     }
 
     private void reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
