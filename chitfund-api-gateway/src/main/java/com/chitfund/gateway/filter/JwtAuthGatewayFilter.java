@@ -90,6 +90,11 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                             headers.remove("X-Tenant-Id");
                             headers.remove("X-User-Name");
                             headers.remove("X-Internal-Auth");
+                            // X-Internal-Key authenticates direct service-to-service calls.
+                            // It must never be forwarded from an internet-facing request,
+                            // including authenticated requests that happen to target a path
+                            // containing an internal controller segment.
+                            headers.remove("X-Internal-Key");
                             headers.set("X-User-Id", claims.getSubject());
                             headers.set("X-User-Role", role);
                             headers.set("X-Internal-Auth", internalServiceKey);

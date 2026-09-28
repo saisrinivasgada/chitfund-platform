@@ -57,7 +57,8 @@ class JwtAuthGatewayFilterTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header("X-User-Id", "attacker")
                 .header("X-User-Role", "ADMIN")
-                .header("X-Internal-Auth", "attacker-key"));
+                .header("X-Internal-Auth", "attacker-key")
+                .header("X-Internal-Key", "caller-controlled-key"));
 
         factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
 
@@ -67,6 +68,7 @@ class JwtAuthGatewayFilterTest {
         assertThat(headers.getFirst("X-User-Id")).isEqualTo("employee-1");
         assertThat(headers.getFirst("X-User-Role")).isEqualTo("SUPER_ADMIN");
         assertThat(headers.getFirst("X-Internal-Auth")).isEqualTo("trusted-internal-key");
+        assertThat(headers.containsKey("X-Internal-Key")).isFalse();
     }
 
     private String token(String subject, String role, String scope) {
