@@ -3,8 +3,6 @@ package com.chitfund.chitservice.controller;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
-import com.chitfund.chitservice.domain.enums.ChitStatus;
-import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitEnrollmentResponse;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
@@ -144,16 +142,9 @@ public class InternalSettlementController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        try {
-            UpdateChitStatusRequest req = new UpdateChitStatusRequest();
-            req.setStatus(ChitStatus.COMPLETED);
-            chitService.updateStatus(chitId, req);
-            log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
-            return ResponseEntity.ok(ApiResponse.success("Chit completed"));
-        } catch (Exception e) {
-            log.warn("Internal: could not auto-complete chit {} — {}", chitId, e.getMessage());
-            return ResponseEntity.ok(ApiResponse.success("Skipped — " + e.getMessage()));
-        }
+        chitService.completeAfterFinalDisbursement(chitId);
+        log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
+        return ResponseEntity.ok(ApiResponse.success("Chit completed"));
     }
 
     /**
