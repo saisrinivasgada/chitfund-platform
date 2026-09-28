@@ -69,6 +69,15 @@ class EmployeePasswordMigrationMySqlTest {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getLong("CHARACTER_MAXIMUM_LENGTH")).isEqualTo(36);
             }
+
+            try (var statement = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.columns " +
+                            "WHERE table_schema = DATABASE() AND table_name = 'audit_event_outbox' " +
+                            "AND column_name IN ('delivery_id', 'event_id', 'tenant_id', 'lease_token', 'claimed_until')");
+                 var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getInt(1)).isEqualTo(5);
+            }
         }
     }
 }

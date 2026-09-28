@@ -41,7 +41,7 @@ public class HubTicketController {
         var employee = employeeService.getById(employeeId);
         TicketResponse ticket = ticketService.createTicketByHub(
                 employeeId, employee.getFullName() != null ? employee.getFullName() : employee.getUsername(),
-                request);
+                employee.getRole(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", ticket));
     }
@@ -102,16 +102,22 @@ public class HubTicketController {
     public ResponseEntity<?> deleteMessage(@PathVariable String ticketId,
                                             @PathVariable String messageId,
                                             Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        var employee = employeeService.getById(employeeId);
         ticketService.softDeleteMessage(ticketId, messageId,
-                (String) auth.getPrincipal(), null, true);
+                employeeId, employee.getRole(), null, true);
         return ResponseEntity.ok(Map.of("success", true, "message", "Message deleted"));
     }
 
     @PutMapping("/{ticketId}/status")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> updateStatus(@PathVariable String ticketId,
-                                           @Valid @RequestBody UpdateStatusRequest request) {
-        TicketResponse ticket = ticketService.updateStatus(ticketId, request);
+                                           @Valid @RequestBody UpdateStatusRequest request,
+                                           Authentication auth) {
+        String employeeId = (String) auth.getPrincipal();
+        var employee = employeeService.getById(employeeId);
+        TicketResponse ticket = ticketService.updateStatus(
+                ticketId, request, employeeId, employee.getRole());
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 

@@ -36,7 +36,7 @@ public class OrgTicketController {
         if (userName == null) userName = ctx.getUserId();
 
         TicketResponse ticket = ticketService.createTicket(
-                ctx.getUserId(), userName, ctx.getTenantId(), request);
+                ctx.getUserId(), userName, ctx.getRole(), ctx.getTenantId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", ticket));
     }
@@ -106,7 +106,7 @@ public class OrgTicketController {
         if (!ctx.isValid()) return unauthorized();
 
         ticketService.softDeleteMessage(ticketId, messageId, ctx.getUserId(),
-                ctx.getTenantId(), false);
+                ctx.getRole(), ctx.getTenantId(), false);
         return ResponseEntity.ok(Map.of("success", true, "message", "Message deleted"));
     }
 
