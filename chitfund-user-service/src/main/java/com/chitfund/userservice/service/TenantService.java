@@ -27,6 +27,7 @@ import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
+import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -50,6 +51,7 @@ public class TenantService {
     private final MemberUserLinkRepository memberLinkRepository;
     private final TenantCustomLimitsRepository customLimitsRepository;
     private final PlanLimitsRepository planLimitsRepository;
+    private final PlanCapabilityDefRepository capabilityDefRepository;
     private final PromotionRepository promotionRepository;
     private final PasswordEncoder passwordEncoder;
     private final PromotionService promotionService;
@@ -653,7 +655,8 @@ public class TenantService {
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
         if (req.getEnabledCapabilities() != null) {
-            try { limits.setCapabilities(objectMapper.writeValueAsString(req.getEnabledCapabilities())); }
+            java.util.List<String> validated = validateCapabilityKeys(req.getEnabledCapabilities());
+            try { limits.setCapabilities(objectMapper.writeValueAsString(validated)); }
             catch (Exception ignored) {}
         }
         customLimitsRepository.save(limits);
@@ -694,6 +697,25 @@ public class TenantService {
                 java.util.Map.of("plan", prevPlan != null ? prevPlan : "CUSTOM"),
                 java.util.Map.of("plan", planCode),
                 tenantId.toString());
+    }
+
+    private java.util.List<String> validateCapabilityKeys(java.util.List<String> requested) {
+        java.util.List<String> normalized = requested.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.trim().toLowerCase(java.util.Locale.ROOT))
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+        java.util.Set<String> known = capabilityDefRepository.findAllById(normalized).stream()
+                .map(com.chitfund.userservice.domain.entity.PlanCapabilityDef::getKey)
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.List<String> unknown = normalized.stream()
+                .filter(key -> !known.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Unknown capability keys: " + String.join(", ", unknown));
+        }
+        return normalized;
     }
 
     @Transactional(readOnly = true)

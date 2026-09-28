@@ -6,6 +6,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.domain.enums.Role;
+
+import java.util.UUID;
 
 import java.util.Map;
 
@@ -24,6 +30,7 @@ class AuditClientTest {
     @AfterEach
     void clearTransactionFlag() {
         TransactionSynchronizationManager.setActualTransactionActive(false);
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -48,5 +55,25 @@ class AuditClientTest {
                 org.mockito.ArgumentMatchers.eq("entity"), payload.capture(),
                 org.mockito.ArgumentMatchers.eq(SqsQueues.AUDIT_EVENTS));
         assertThat(payload.getValue()).contains("UPDATED", "OLD", "NEW");
+    }
+
+    @Test
+    void resolvesHubOwnerIdFromAuthenticatedPrincipalWhenServiceCallOmitsIt() {
+        UUID ownerId = UUID.randomUUID();
+        User owner = User.builder().id(ownerId).username("owner").passwordHash("HUB_MANAGED")
+                .role(Role.SUPER_ADMIN).enabled(true).build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(owner, null, owner.getAuthorities()));
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        client.log("TENANT", "tenant-1", "PLAN_CHANGED", null, "ROLE_SUPER_ADMIN",
+                Map.of("plan", "BASIC"), Map.of("plan", "GROWTH"), "tenant-1");
+
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(outbox).enqueue(anyString(), org.mockito.ArgumentMatchers.eq("tenant-1"),
+                org.mockito.ArgumentMatchers.eq("TENANT"),
+                org.mockito.ArgumentMatchers.eq("tenant-1"), payload.capture(),
+                org.mockito.ArgumentMatchers.eq(SqsQueues.AUDIT_EVENTS));
+        assertThat(payload.getValue()).contains(ownerId.toString(), "PLAN_CHANGED");
     }
 }

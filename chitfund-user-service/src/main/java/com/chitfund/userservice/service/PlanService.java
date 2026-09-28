@@ -17,9 +17,11 @@ import com.chitfund.userservice.dto.response.TenantDiscountResponse;
 import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantDiscountRepository;
+import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.client.AuditClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,11 +46,14 @@ public class PlanService {
     private final PlanLimitsRepository planRepo;
     private final PlanCapabilityDefRepository capabilityRepo;
     private final TenantDiscountRepository discountRepo;
+    private final TenantCustomLimitsRepository customLimitsRepo;
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final AuditClient auditClient;
 
     private static final List<Role> STAFF_ROLES = List.of(Role.MANAGER, Role.STAFF);
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
 
     public void checkStaffLimit(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) {
@@ -97,9 +105,14 @@ public class PlanService {
 
     @Transactional
     public PlanResponse createPlan(CreatePlanRequest req) {
+        return createPlan(req, null);
+    }
+
+    @Transactional
+    public PlanResponse createPlan(CreatePlanRequest req, String actorId) {
         String code = req.getPlan().toUpperCase();
         List<String> caps = req.getEnabledCapabilities() != null
-                ? req.getEnabledCapabilities() : List.of();
+                ? validateCapabilityKeys(req.getEnabledCapabilities()) : List.of();
         PlanLimits p = PlanLimits.builder()
                 .plan(code)
                 .displayName(req.getDisplayName())
@@ -116,13 +129,22 @@ public class PlanService {
                 .displayOrder(req.getDisplayOrder())
                 .maxStaff(req.getMaxStaff())
                 .build();
-        return toResponse(planRepo.save(p));
+        PlanResponse created = toResponse(planRepo.save(p));
+        auditClient.log("PLAN", code, "CREATED", actorId, "SUPER_ADMIN",
+                null, created, PLATFORM_AUDIT_TENANT);
+        return created;
     }
 
     @Transactional
     public PlanResponse updatePlan(String code, UpdatePlanRequest req) {
+        return updatePlan(code, req, null);
+    }
+
+    @Transactional
+    public PlanResponse updatePlan(String code, UpdatePlanRequest req, String actorId) {
         PlanLimits p = planRepo.findById(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
+        PlanResponse before = toResponse(p);
         if (req.getDisplayName() != null) p.setDisplayName(req.getDisplayName());
         if (req.getTagline() != null) p.setTagline(req.getTagline());
         if (req.getFeatures() != null) p.setFeatures(serializeFeatures(req.getFeatures()));
@@ -136,21 +158,40 @@ public class PlanService {
         if (req.getDisplayOrder() != null) p.setDisplayOrder(req.getDisplayOrder());
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
         if (req.getEnabledCapabilities() != null)
-            p.setCapabilities(serializeFeatures(req.getEnabledCapabilities()));
-        return toResponse(planRepo.save(p));
+            p.setCapabilities(serializeFeatures(validateCapabilityKeys(req.getEnabledCapabilities())));
+        PlanResponse after = toResponse(planRepo.save(p));
+        auditClient.log("PLAN", p.getPlan(), "UPDATED", actorId, "SUPER_ADMIN",
+                before, after, PLATFORM_AUDIT_TENANT);
+        return after;
     }
 
     @Transactional
     public void deletePlan(String code) {
+        deletePlan(code, null);
+    }
+
+    @Transactional
+    public void deletePlan(String code, String actorId) {
         PlanLimits p = planRepo.findById(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
         p.setActive(false);
         p.setPublic(false);
         planRepo.save(p);
+        auditClient.log("PLAN", p.getPlan(), "DEACTIVATED", actorId, "SUPER_ADMIN",
+                java.util.Map.of("active", true), java.util.Map.of("active", false),
+                PLATFORM_AUDIT_TENANT, "Plan deactivated by Super Admin");
     }
 
     @Transactional
     public TenantDiscountResponse setTenantDiscount(String tenantId, SetTenantDiscountRequest req) {
+        return setTenantDiscount(tenantId, req, null);
+    }
+
+    @Transactional
+    public TenantDiscountResponse setTenantDiscount(String tenantId, SetTenantDiscountRequest req,
+                                                     String actorId) {
+        TenantDiscountResponse before = discountRepo.findByTenantId(tenantId)
+                .map(this::toDiscountResponse).orElse(null);
         TenantDiscount d = discountRepo.findByTenantId(tenantId)
                 .orElse(TenantDiscount.builder().tenantId(tenantId).build());
         d.setDiscountType(TenantDiscount.DiscountType.valueOf(req.getDiscountType()));
@@ -158,12 +199,25 @@ public class PlanService {
         d.setReason(req.getReason());
         d.setExpiresAt(req.getExpiresAt() != null && !req.getExpiresAt().isBlank()
                 ? LocalDateTime.parse(req.getExpiresAt()) : null);
-        return toDiscountResponse(discountRepo.save(d));
+        TenantDiscountResponse after = toDiscountResponse(discountRepo.save(d));
+        auditClient.log("TENANT", tenantId, "DISCOUNT_SET", actorId, "SUPER_ADMIN",
+                before, after, tenantId, req.getReason());
+        return after;
     }
 
     @Transactional
     public void removeTenantDiscount(String tenantId) {
+        removeTenantDiscount(tenantId, null);
+    }
+
+    @Transactional
+    public void removeTenantDiscount(String tenantId, String actorId) {
+        Optional<TenantDiscount> existing = discountRepo.findByTenantId(tenantId);
         discountRepo.deleteByTenantId(tenantId);
+        existing.ifPresent(discount -> auditClient.log(
+                "TENANT", tenantId, "DISCOUNT_REMOVED", actorId, "SUPER_ADMIN",
+                toDiscountResponse(discount), null, tenantId,
+                "Tenant discount removed by Super Admin"));
     }
 
     public Optional<TenantDiscountResponse> getTenantDiscount(String tenantId) {
@@ -183,6 +237,11 @@ public class PlanService {
 
     @Transactional
     public CapabilityDefResponse addCapabilityDef(CreateCapabilityDefRequest req) {
+        return addCapabilityDef(req, null);
+    }
+
+    @Transactional
+    public CapabilityDefResponse addCapabilityDef(CreateCapabilityDefRequest req, String actorId) {
         String label = req.getLabel().trim();
         if (capabilityRepo.existsByLabel(label)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Capability \"" + label + "\" already exists");
@@ -193,12 +252,35 @@ public class PlanService {
                 .stream().mapToInt(PlanCapabilityDef::getSortOrder).max().orElse(0);
         PlanCapabilityDef def = PlanCapabilityDef.builder()
                 .key(key).label(label).sortOrder(maxOrder + 1).build();
-        return toCapabilityResponse(capabilityRepo.save(def));
+        CapabilityDefResponse created = toCapabilityResponse(capabilityRepo.save(def));
+        auditClient.log("CAPABILITY", key, "CREATED", actorId, "SUPER_ADMIN",
+                null, created, PLATFORM_AUDIT_TENANT);
+        return created;
     }
 
     @Transactional
     public void deleteCapabilityDef(String key) {
-        capabilityRepo.deleteById(key);
+        deleteCapabilityDef(key, null);
+    }
+
+    @Transactional
+    public void deleteCapabilityDef(String key, String actorId) {
+        PlanCapabilityDef definition = capabilityRepo.findById(key)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.RESOURCE_NOT_FOUND, "Capability not found: " + key));
+        boolean assignedToPlan = planRepo.findAll().stream()
+                .anyMatch(plan -> CapabilityJson.parse(plan.getCapabilities(), objectMapper).contains(key));
+        boolean assignedToCustomPlan = customLimitsRepo.findAll().stream()
+                .anyMatch(custom -> CapabilityJson.parse(custom.getCapabilities(), objectMapper).contains(key));
+        if (assignedToPlan || assignedToCustomPlan) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Remove this capability from every standard and custom plan before deleting it");
+        }
+        CapabilityDefResponse before = toCapabilityResponse(definition);
+        capabilityRepo.delete(definition);
+        auditClient.log("CAPABILITY", key, "DELETED", actorId, "SUPER_ADMIN",
+                before, null, PLATFORM_AUDIT_TENANT,
+                "Unassigned capability definition deleted by Super Admin");
     }
 
     private CapabilityDefResponse toCapabilityResponse(PlanCapabilityDef d) {
@@ -257,5 +339,22 @@ public class PlanService {
         } catch (Exception e) {
             return "[]";
         }
+    }
+
+    private List<String> validateCapabilityKeys(List<String> requested) {
+        List<String> normalized = requested.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+        Set<String> known = capabilityRepo.findAllById(normalized).stream()
+                .map(PlanCapabilityDef::getKey).collect(Collectors.toSet());
+        List<String> unknown = normalized.stream().filter(key -> !known.contains(key)).toList();
+        if (!unknown.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Unknown capability keys: " + String.join(", ", unknown));
+        }
+        return normalized;
     }
 }
