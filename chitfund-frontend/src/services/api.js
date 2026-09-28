@@ -1191,6 +1191,36 @@ export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
+// Organization-wide activity for dashboard and audit views. The audit service
+// scopes this request to the authenticated tenant and orders by the business
+// occurrence time, so offline-synced actions retain their original chronology.
+export const searchAuditLogs = async ({ from, to, entityType, outcome, source, q,
+  page = 0, size = 50 } = {}) => {
+  const res = await api.get('/audit/logs', {
+    params: {
+      from: from ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      ...(to ? { to } : {}),
+      ...(entityType && entityType !== 'ALL' ? { entityType } : {}),
+      ...(outcome && outcome !== 'ALL' ? { outcome } : {}),
+      ...(source && source !== 'ALL' ? { source } : {}),
+      ...(q?.trim() ? { q: q.trim() } : {}),
+      page, size,
+      sort: 'occurredAt,desc',
+    },
+  });
+  const data = res.data.data;
+  if (Array.isArray(data)) {
+    return { content: data, number: page, totalPages: data.length < size ? page + 1 : page + 2,
+      totalElements: data.length, first: page === 0, last: data.length < size };
+  }
+  return data ?? { content: [], number: page, totalPages: 0, totalElements: 0, first: true, last: true };
+};
+
+export const getRecentAuditLogs = async (params = {}) => {
+  const page = await searchAuditLogs(params);
+  return page.content ?? [];
+};
+
 // Member profile change history from audit log
 export const getMemberAuditHistory = async (memberId) => {
   try {

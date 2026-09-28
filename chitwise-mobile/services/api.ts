@@ -643,6 +643,23 @@ export const redeemMemberCredit = async (body: any) => unwrapObj(await api.post(
 export const getAuditLogs = async (params: any = {}) => {
   try { return unwrapList(await api.get('/audit/logs', { params })); } catch { return []; }
 };
+export const getAuditLogPage = async (params: any = {}) => {
+  const response = await api.get('/audit/logs', { params });
+  const data = response.data?.data ?? response.data ?? {};
+  if (Array.isArray(data)) {
+    const page = Number(params.page ?? 0);
+    const size = Number(params.size ?? (data.length || 1));
+    return {
+      content: data,
+      number: page,
+      totalPages: data.length < size ? page + 1 : page + 2,
+      totalElements: data.length,
+      first: page === 0,
+      last: data.length < size,
+    };
+  }
+  return data;
+};
 export const getPaginatedAuditLogs = async (params: any = {}) =>
   unwrapList(await api.get('/audit/logs', { params }));
 /**

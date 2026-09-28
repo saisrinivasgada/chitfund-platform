@@ -38,6 +38,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Lock,
+  Activity,
 } from 'lucide-react';
 
 const ALL_NAV = [
@@ -51,6 +52,7 @@ const ALL_NAV = [
   { to: '/payouts',   icon: Banknote,        label: 'Payouts',     roles: ['ADMIN', 'MANAGER'] },
   { to: '/draws',     icon: Shuffle,         label: 'Draws',       roles: ['ADMIN', 'MANAGER'] },
   { to: '/reports',   icon: BarChart2,       label: 'Reports',     roles: ['ADMIN', 'MANAGER'], capability: 'analytics' },
+  { to: '/activity',  icon: Activity,        label: 'Activity',    roles: ['ADMIN', 'MANAGER'] },
   { to: '/treasury',   icon: Wallet,          label: 'Treasury',    roles: ['ADMIN'] },
   { to: '/settlement', icon: HandCoins,       label: 'Settlement',  roles: ['ADMIN'], capability: 'settlement' },
   { to: '/myorg',      icon: Building2,       label: 'My Organization', roles: ['ADMIN', 'MANAGER'] },
