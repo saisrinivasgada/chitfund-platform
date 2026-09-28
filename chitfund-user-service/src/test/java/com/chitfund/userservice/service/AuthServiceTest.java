@@ -2,6 +2,7 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.domain.entity.User;
+import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
 import com.chitfund.userservice.mapper.UserMapper;
@@ -47,7 +48,56 @@ class AuthServiceTest {
     @Mock OtpService otpService;
     @Mock PasswordValidator passwordValidator;
     @Mock AccountEmailOtpService accountEmailOtpService;
+    @Mock AuthenticationSecurityService authenticationSecurityService;
     @InjectMocks AuthService authService;
+
+    @Test
+    void unknownUsernameReturnsGenericCredentialsErrorAndAuditsFingerprint() {
+        LoginRequest request = new LoginRequest();
+        request.setUsername("missing.user");
+        request.setPassword("NotThePassword@1");
+        when(userRepository.findByUsername("missing.user")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(request, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid credentials");
+
+        verify(authenticationSecurityService).recordUnknownLoginAttempt("missing.user");
+    }
+
+    @Test
+    void failedPasswordUsesIndependentSecurityTransaction() {
+        User user = User.builder().id(UUID.randomUUID()).username("member.failed")
+                .passwordHash("hash").role(Role.MEMBER).build();
+        LoginRequest request = new LoginRequest();
+        request.setUsername(user.getUsername());
+        request.setPassword("WrongPassword@1");
+        when(userRepository.findByUsername(user.getUsername())).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any())).thenThrow(
+                new org.springframework.security.authentication.BadCredentialsException("bad"));
+        when(authenticationSecurityService.recordFailedLoginAttempt(user.getId())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(request, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid credentials");
+
+        verify(authenticationSecurityService).recordFailedLoginAttempt(user.getId());
+    }
+
+    @Test
+    void revokedRefreshTokenReplayRevokesSessionsOutsideRejectedTransaction() {
+        User user = User.builder().id(UUID.randomUUID()).username("member.replay")
+                .role(Role.MEMBER).build();
+        RefreshToken token = RefreshToken.builder().user(user).token("stored-hash")
+                .expiresAt(LocalDateTime.now().plusDays(1)).revoked(true).build();
+        when(refreshTokenRepository.findByToken(AuthService.sha256Value("replayed-token")))
+                .thenReturn(Optional.of(token));
+
+        assertThatThrownBy(() -> authService.refreshByToken("replayed-token"))
+                .isInstanceOf(BusinessException.class);
+
+        verify(authenticationSecurityService).recordRefreshTokenReplay(user.getId());
+    }
 
     @Test
     void regularLoginRejectsLegacySuperAdminAccount() {
