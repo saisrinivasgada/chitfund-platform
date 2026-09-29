@@ -244,6 +244,7 @@ public class MemberService {
                     ? memberRepository.findByIdAndTenantId(newReferredById, tenantId())
                             .map(Member::getFullName).orElse(null) : null;
             memberEventPublisher.publish(new MemberUpdatedEvent(
+                    tenantId(),
                     id.toString(), "referredById",
                     oldReferredById != null ? oldReferredById.toString() : null,
                     newReferredById != null ? newReferredById.toString() : null,

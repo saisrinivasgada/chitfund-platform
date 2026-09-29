@@ -45,14 +45,16 @@ public class InternalMemberController {
     @GetMapping("/{memberId}/validate")
     public ResponseEntity<Map<String, Object>> validateMember(
             @PathVariable UUID memberId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
 
-        if (!internalKey.equals(key)) {
+        if (!authorized(key, tenantId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("active", false, "reason", "Unauthorized"));
         }
 
-        boolean active = memberRepository.existsByIdAndStatus(memberId, MemberStatus.ACTIVE);
+        boolean active = memberRepository.existsByIdAndTenantIdAndStatusAndDeletedAtIsNull(
+                memberId, tenantId, MemberStatus.ACTIVE);
         return ResponseEntity.ok(Map.of(
                 "active", active,
                 "memberId", memberId.toString()
@@ -65,11 +67,13 @@ public class InternalMemberController {
     @GetMapping("/{memberId}/name")
     public ResponseEntity<Map<String, String>> getMemberName(
             @PathVariable UUID memberId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!authorized(key, tenantId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         }
-        return memberRepository.findById(memberId)
+        return memberRepository.findByIdAndTenantId(memberId, tenantId)
+                .filter(member -> member.getDeletedAt() == null)
                 .map(m -> ResponseEntity.ok(Map.of("name", m.getFullName() != null ? m.getFullName() : "")))
                 .orElse(ResponseEntity.ok(Map.of("name", "")));
     }
@@ -84,8 +88,9 @@ public class InternalMemberController {
     public ResponseEntity<Map<String, String>> getProfileIdByUserId(
             @PathVariable UUID userId,
             @PathVariable String tenantId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantHeader) {
+        if (!authorized(key, tenantHeader) || !tenantId.equals(tenantHeader)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         }
         return memberRepository.findByUserIdAndTenantId(userId, tenantId)
@@ -100,11 +105,13 @@ public class InternalMemberController {
     @PatchMapping("/{memberId}/deactivate")
     public ResponseEntity<Map<String, Object>> deactivateMember(
             @PathVariable UUID memberId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!authorized(key, tenantId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
         }
-        return memberRepository.findById(memberId).map(m -> {
+        return memberRepository.findByIdAndTenantId(memberId, tenantId)
+                .filter(member -> member.getDeletedAt() == null).map(m -> {
             if (m.getStatus() == MemberStatus.BLACKLISTED) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
@@ -119,11 +126,13 @@ public class InternalMemberController {
     @PatchMapping("/{memberId}/activate")
     public ResponseEntity<Map<String, Object>> activateMember(
             @PathVariable UUID memberId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!authorized(key, tenantId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
         }
-        return memberRepository.findById(memberId).map(m -> {
+        return memberRepository.findByIdAndTenantId(memberId, tenantId)
+                .filter(member -> member.getDeletedAt() == null).map(m -> {
             if (m.getStatus() == MemberStatus.BLACKLISTED) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.<String, Object>of("success", false, "reason", "member is blacklisted"));
@@ -141,12 +150,14 @@ public class InternalMemberController {
     @PostMapping("/batch-user-ids")
     public ResponseEntity<Map<String, String>> batchGetUserIds(
             @RequestBody List<String> memberIds,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!authorized(key, tenantId)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
         }
         List<UUID> ids = memberIds.stream().map(UUID::fromString).toList();
-        List<Member> members = memberRepository.findAllById(ids);
+        List<Member> members = memberRepository
+                .findAllByTenantIdAndIdInAndDeletedAtIsNull(tenantId, ids);
         Map<String, String> result = members.stream()
                 .filter(m -> m.getUserId() != null)
                 .collect(Collectors.toMap(
@@ -160,13 +171,14 @@ public class InternalMemberController {
     public ResponseEntity<Map<String, Object>> activateAppAccess(
             @PathVariable UUID memberId,
             @RequestBody Map<String, String> body,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantHeader) {
+        if (!authorized(key, tenantHeader)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
         }
         String tenantId = body.get("tenantId");
         String userId = body.get("userId");
-        if (tenantId == null || userId == null) {
+        if (tenantId == null || userId == null || !tenantId.equals(tenantHeader)) {
             return ResponseEntity.badRequest().body(Map.of("success", false, "reason", "tenantId and userId are required"));
         }
         return memberRepository.findByIdAndTenantId(memberId, tenantId)
@@ -198,13 +210,18 @@ public class InternalMemberController {
     public ResponseEntity<Map<String, Boolean>> memberProfileExists(
             @PathVariable UUID memberId,
             @PathVariable String tenantId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
-        if (!internalKey.equals(key)) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantHeader) {
+        if (!authorized(key, tenantHeader) || !tenantId.equals(tenantHeader)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("exists", false));
         }
         return ResponseEntity.ok(Map.of("exists",
                 memberRepository.findByIdAndTenantId(memberId, tenantId)
                         .filter(member -> member.getDeletedAt() == null)
                         .isPresent()));
+    }
+
+    private boolean authorized(String key, String tenantId) {
+        return internalKey.equals(key) && tenantId != null && !tenantId.isBlank();
     }
 }

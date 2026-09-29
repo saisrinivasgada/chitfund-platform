@@ -130,7 +130,8 @@ public class NotificationEventConsumer {
             String amtFormatted = "₹" + event.installmentAmount().toPlainString();
             String chitLabel = event.chitName() != null ? event.chitName() : event.chitId();
 
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
 
             for (String memberId : event.memberIds()) {
                 NotifyRequest req = buildRequest(
@@ -183,7 +184,8 @@ public class NotificationEventConsumer {
                     "monthNumber", event.monthNumber().toString(),
                     "reason",      reason
             );
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
 
             for (String memberId : event.memberIds()) {
                 NotifyRequest req = buildRequest(
@@ -278,7 +280,7 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payment Received";
                 String body  = amtFormatted + " payment recorded. " + remaining;
@@ -318,7 +320,7 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            String winnerUserId = memberServiceClient.getUserId(event.memberId());
+            String winnerUserId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (winnerUserId != null) {
                 String title = "You Won the Draw!";
                 String body  = "Congratulations! Payout of " + amtFormatted + " approved for month " + event.monthNumber();
@@ -332,7 +334,8 @@ public class NotificationEventConsumer {
             }
 
             List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId(), event.tenantId());
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(allMemberIds);
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), allMemberIds);
             for (String memberId : allMemberIds) {
                 if (memberId.equals(event.memberId())) continue;
                 String userId = userIdMap.get(memberId);
@@ -376,7 +379,7 @@ public class NotificationEventConsumer {
             );
             notificationService.send(req);
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payout Disbursed";
                 String body  = amtFormatted + " sent via " + event.disbursementMode() + " (Ref: " + ref + ")";
@@ -404,7 +407,7 @@ public class NotificationEventConsumer {
         try {
             String newValue = event.newReferredByName() != null ? event.newReferredByName() : "None";
 
-            String userId = memberServiceClient.getUserId(event.memberId());
+            String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Profile Updated";
                 String body  = "Your referral has been updated by an admin. Referred by: " + newValue;
@@ -666,7 +669,8 @@ public class NotificationEventConsumer {
     private void onBulkInAppByMemberIds(BulkInAppByMemberIdsEvent event) {
         try {
             if (event.memberIds() == null || event.memberIds().isEmpty()) return;
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(event.memberIds());
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(
+                    event.tenantId(), event.memberIds());
             for (String memberId : event.memberIds()) {
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {

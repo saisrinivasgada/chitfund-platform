@@ -23,6 +23,7 @@ public class MemberServiceClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId.toString());
         Map<String, String> body = Map.of(
                 "tenantId", tenantId.toString(),
                 "userId", userId.toString(),
@@ -40,6 +41,7 @@ public class MemberServiceClient {
     public boolean memberProfileExists(UUID tenantId, UUID memberId) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId.toString());
         ResponseEntity<Map> response = restTemplate.exchange(
                 memberServiceUrl + "/internal/members/" + memberId + "/tenant/" + tenantId + "/exists",
                 HttpMethod.GET, new HttpEntity<>(headers), Map.class);

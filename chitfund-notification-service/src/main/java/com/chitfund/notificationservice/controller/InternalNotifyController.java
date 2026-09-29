@@ -111,11 +111,16 @@ public class InternalNotifyController {
     @PostMapping("/in-app/bulk-by-member-ids")
     public ResponseEntity<ApiResponse<Void>> inAppBulkByMemberIds(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.error("AUTH_003", "Organization context is required"));
         }
 
         try {
@@ -132,7 +137,7 @@ public class InternalNotifyController {
                 return ResponseEntity.ok(ApiResponse.success(null));
             }
 
-            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(memberIds);
+            Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(tenantId, memberIds);
             int count = 0;
             for (String memberId : memberIds) {
                 String userId = userIdMap.get(memberId);

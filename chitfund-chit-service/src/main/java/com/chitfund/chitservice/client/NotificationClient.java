@@ -59,7 +59,7 @@ public class NotificationClient {
         if (memberIds == null || memberIds.isEmpty()) return;
         try {
             BulkInAppByMemberIdsEvent event = new BulkInAppByMemberIdsEvent(
-                    memberIds, type, title, message, null, link);
+                    requireTenantContext(), memberIds, type, title, message, null, link);
             String payload  = objectMapper.writeValueAsString(event);
             String envelope = objectMapper.writeValueAsString(
                     new SqsEventEnvelope(UUID.randomUUID().toString(),
@@ -69,6 +69,14 @@ public class NotificationClient {
         } catch (Exception e) {
             log.warn("Could not queue bulk in-app notification: {}", e.getMessage());
         }
+    }
+
+    private String requireTenantContext() {
+        String tenantId = com.chitfund.common.context.TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Organization context is required for notifications");
+        }
+        return tenantId;
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.chitfund.chitservice.client;
 
+import com.chitfund.common.context.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.operations.SqsTemplate;
 import org.junit.jupiter.api.AfterEach;
@@ -22,6 +23,7 @@ class NotificationClientAfterCommitTest {
 
     @AfterEach
     void clearTransactionState() {
+        TenantContext.clear();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -30,6 +32,7 @@ class NotificationClientAfterCommitTest {
 
     @Test
     void committedTransactionPublishesExactlyOnce() {
+        TenantContext.set("tenant-a");
         beginTransactionSynchronization();
 
         client.notifyUsersInAppAfterCommit(
@@ -43,6 +46,7 @@ class NotificationClientAfterCommitTest {
 
     @Test
     void rolledBackTransactionPublishesNothing() {
+        TenantContext.set("tenant-a");
         beginTransactionSynchronization();
 
         client.notifyUsersInAppAfterCommit(

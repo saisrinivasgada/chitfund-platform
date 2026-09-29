@@ -30,11 +30,15 @@ public class MemberServiceClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
-    public Map<String, String> batchGetUserIds(List<String> memberIds) {
+    public Map<String, String> batchGetUserIds(String tenantId, List<String> memberIds) {
         if (memberIds == null || memberIds.isEmpty()) return Collections.emptyMap();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId is required for member resolution");
+        }
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", tenantId);
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             ResponseEntity<Map<String, String>> resp = restTemplate.exchange(
@@ -50,7 +54,7 @@ public class MemberServiceClient {
         }
     }
 
-    public String getUserId(String memberId) {
-        return batchGetUserIds(List.of(memberId)).getOrDefault(memberId, null);
+    public String getUserId(String tenantId, String memberId) {
+        return batchGetUserIds(tenantId, List.of(memberId)).getOrDefault(memberId, null);
     }
 }
