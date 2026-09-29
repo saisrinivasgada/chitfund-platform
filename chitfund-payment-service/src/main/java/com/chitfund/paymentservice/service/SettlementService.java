@@ -68,13 +68,10 @@ import java.util.stream.Collectors;
  * write coordination: one service owns one aggregate.
  *
  * For reads about chits and payouts we call their respective services via HTTP clients.
- * This is the "Application-layer join" pattern in microservices.
- *
- * INTERVIEW: "We made SettlementService a transactional unit inside payment-service.
- * The cross-service calls (chit, payout) are read-only lookups that happen before
- * the transaction. Within the transaction we only write to our own tables:
- * PaymentRecord, Settlement, AdminWalletEntry. If chit-service is down, preview
- * still fails gracefully — we don't partially commit."
+ * This is the "Application-layer join" pattern in microservices. Every dependency
+ * used for settlement arithmetic fails closed: unavailable or malformed remote data
+ * aborts the local transaction before any payment, credit, settlement, or member-status
+ * mutation can commit.
  */
 @Service
 @RequiredArgsConstructor
@@ -234,10 +231,6 @@ public class SettlementService {
 
             // Re-compute at confirm time (state may have changed since preview)
             SettlementChitPreviewResponse preview = computeChitPreview(memberId, chitId, mode);
-            if (preview == null) {
-                log.warn("Settlement confirm: could not compute preview for member {} chit {} — skipping", memberId, chitId);
-                continue;
-            }
 
             BigDecimal netAmount = preview.getNetAmount();
 
@@ -569,8 +562,9 @@ public class SettlementService {
         // 1. Chit details
         ChitDto chit = chitServiceClient.getChit(chitId);
         if (chit == null) {
-            log.warn("computeChitPreview: chit {} not found", chitId);
-            return null;
+            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                    "Chit data could not be verified. Please try again.",
+                    HttpStatus.SERVICE_UNAVAILABLE);
         }
 
         // 2. Payout

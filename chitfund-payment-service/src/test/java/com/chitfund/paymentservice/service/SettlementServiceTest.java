@@ -815,6 +815,23 @@ class SettlementServiceTest {
     }
 
     @Test
+    @DisplayName("Unverifiable chit data aborts confirmation without settlement or member-status writes")
+    void unavailableChitDataCannotCreateEmptySettlement() {
+        ConfirmSettlementRequest req = confirmationRequest(CHIT_A_ID);
+        when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> settlementService.confirm(req, ADMIN_ID, "settle-key"))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(
+                                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE));
+
+        verify(settlementRepository, never()).saveAndFlush(any());
+        verify(recordEffectRepository, never()).saveAll(any());
+        verify(memberStatusSyncRepository, never()).save(any());
+        verify(memberCreditService, never()).consumeCreditForSettlement(any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("Phase B refuses legacy settlement without an exact reversal snapshot")
     void supersessionRefusesLegacySettlementWithoutSnapshot() {
         UUID priorId = UUID.randomUUID();

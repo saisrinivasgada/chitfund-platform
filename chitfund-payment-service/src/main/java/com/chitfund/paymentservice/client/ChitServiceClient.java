@@ -125,10 +125,18 @@ public class ChitServiceClient {
                     new HttpEntity<>(headers),
                     new ParameterizedTypeReference<>() {});
 
-            return extractDataList(resp, EnrollmentDto.class);
+            List<EnrollmentDto> enrollments = extractRequiredDataList(
+                    resp, EnrollmentDto.class, "Chit enrollment service returned an invalid response");
+            if (enrollments.stream().anyMatch(enrollment -> enrollment.getChitId() == null
+                    || enrollment.getMemberId() == null
+                    || !memberId.equals(enrollment.getMemberId()))) {
+                throw unavailable("Chit enrollment service returned data outside the requested scope", null);
+            }
+            return enrollments;
         } catch (RestClientException e) {
-            log.warn("chit-service unreachable for enrollments of member {}: {}", memberId, e.getMessage());
-            return Collections.emptyList();
+            log.error("chit-service unavailable while verifying settlement enrollments for member {}: {}",
+                    memberId, e.getClass().getSimpleName());
+            throw unavailable("Chit enrollments could not be verified. Please try again.", e);
         }
     }
 
@@ -169,11 +177,19 @@ public class ChitServiceClient {
                     new HttpEntity<>(headers),
                     new ParameterizedTypeReference<>() {});
 
-            return extractDataList(resp, ReservationDto.class);
+            List<ReservationDto> reservations = extractRequiredDataList(
+                    resp, ReservationDto.class, "Chit reservation service returned an invalid response");
+            if (reservations.stream().anyMatch(reservation -> reservation.getChitId() == null
+                    || reservation.getMemberId() == null
+                    || !chitId.equals(reservation.getChitId())
+                    || !memberId.equals(reservation.getMemberId()))) {
+                throw unavailable("Chit reservation service returned data outside the requested scope", null);
+            }
+            return reservations;
         } catch (RestClientException e) {
-            log.warn("chit-service unreachable for reservations of member {} in chit {}: {}",
-                    memberId, chitId, e.getMessage());
-            return Collections.emptyList();
+            log.error("chit-service unavailable while verifying settlement reservations for member {} in chit {}: {}",
+                    memberId, chitId, e.getClass().getSimpleName());
+            throw unavailable("Chit reservations could not be verified. Please try again.", e);
         }
     }
 
@@ -268,6 +284,23 @@ public class ChitServiceClient {
         List<T> result = new java.util.ArrayList<>();
         for (Map<String, Object> raw : rawList) {
             result.add(mapToDto(raw, type));
+        }
+        return result;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private <T> List<T> extractRequiredDataList(ResponseEntity<Map<String, Object>> resp,
+                                                 Class<T> type, String invalidMessage) {
+        Map<String, Object> body = resp.getBody();
+        if (body == null || !(body.get("data") instanceof List<?> rawList)) {
+            throw unavailable(invalidMessage, null);
+        }
+        List<T> result = new java.util.ArrayList<>();
+        for (Object raw : rawList) {
+            if (!(raw instanceof Map<?, ?> rawMap)) {
+                throw unavailable(invalidMessage, null);
+            }
+            result.add(mapToDto((Map<String, Object>) rawMap, type));
         }
         return result;
     }

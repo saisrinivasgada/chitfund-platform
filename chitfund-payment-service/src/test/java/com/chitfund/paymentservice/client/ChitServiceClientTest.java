@@ -70,4 +70,61 @@ class ChitServiceClientTest {
                         assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         server.verify();
     }
+
+    @Test
+    void enrollmentFailureBlocksSettlementPreview() {
+        UUID memberId = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/enrollments/member/" + memberId))
+                .andExpect(header("X-Tenant-ID", "tenant-a"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.getEnrollmentsForMember(memberId))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        server.verify();
+    }
+
+    @Test
+    void malformedEnrollmentResponseDoesNotLookLikeNoChits() {
+        UUID memberId = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/enrollments/member/" + memberId))
+                .andRespond(withSuccess("{\"data\":{}}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.getEnrollmentsForMember(memberId))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        server.verify();
+    }
+
+    @Test
+    void reservationFailureBlocksSettlementCalculation() {
+        UUID memberId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/reservations/chit/" + chitId
+                        + "/member/" + memberId))
+                .andExpect(header("X-Tenant-ID", "tenant-a"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.getReservationsForMemberInChit(chitId, memberId))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        server.verify();
+    }
+
+    @Test
+    void crossScopeReservationResponseIsRejected() {
+        UUID memberId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        server.expect(requestTo("http://chit.test/internal/reservations/chit/" + chitId
+                        + "/member/" + memberId))
+                .andRespond(withSuccess("""
+                        {"data":[{"id":"%s","chitId":"%s","memberId":"%s","status":"RESERVED"}]}
+                        """.formatted(UUID.randomUUID(), chitId, UUID.randomUUID()),
+                        MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.getReservationsForMemberInChit(chitId, memberId))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        server.verify();
+    }
 }
