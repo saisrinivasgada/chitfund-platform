@@ -10,9 +10,12 @@ import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @Component
 @RequiredArgsConstructor
@@ -39,13 +42,28 @@ public class NotificationEventPublisher {
     }
 
     private void publish(String eventType, Object payload) {
-        try {
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String envelopeJson = objectMapper.writeValueAsString(
-                    new SqsEventEnvelope(UUID.randomUUID().toString(), eventType, payloadJson));
-            sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelopeJson);
-        } catch (Exception e) {
-            log.error("Failed to publish {} event to SQS: {}", eventType, e.getMessage(), e);
+        String eventId = UUID.randomUUID().toString();
+        Runnable send = () -> {
+            try {
+                String payloadJson = objectMapper.writeValueAsString(payload);
+                String envelopeJson = objectMapper.writeValueAsString(
+                        new SqsEventEnvelope(eventId, eventType, payloadJson));
+                sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelopeJson);
+            } catch (Exception e) {
+                log.error("Failed to publish {} event {} to SQS: {}",
+                        eventType, eventId, e.getClass().getSimpleName());
+            }
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    CompletableFuture.runAsync(send);
+                }
+            });
+        } else {
+            CompletableFuture.runAsync(send);
         }
     }
 }
