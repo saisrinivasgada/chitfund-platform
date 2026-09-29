@@ -1,62 +1,42 @@
 package com.chitfund.memberservice.messaging;
 
 import com.chitfund.common.event.MemberUpdatedEvent;
+import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 class MemberEventPublisherTest {
 
-    private final SqsTemplate sqsTemplate = mock(SqsTemplate.class);
+    private final DurableEventOutbox outbox = mock(DurableEventOutbox.class);
     private final MemberEventPublisher publisher = new MemberEventPublisher(
-            sqsTemplate, new ObjectMapper().findAndRegisterModules());
+            outbox, new ObjectMapper().findAndRegisterModules());
 
-    @AfterEach
-    void clearTransactionState() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
-        TransactionSynchronizationManager.setActualTransactionActive(false);
+    @Test
+    void memberUpdateIsPersistedForDurableDelivery() {
+        publisher.publish(event());
+
+        verify(outbox).enqueue(anyString(),
+                org.mockito.ArgumentMatchers.eq(SqsQueues.EVT_MEMBER_UPDATED),
+                anyString(), org.mockito.ArgumentMatchers.eq(SqsQueues.NOTIFICATION_EVENTS));
     }
 
     @Test
-    void committedMemberUpdatePublishesExactlyOnce() {
-        beginTransaction();
+    void persistenceFailureFailsTheBusinessOperation() {
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(outbox).enqueue(anyString(), anyString(), anyString(), anyString());
 
-        publisher.publish(event());
-
-        verify(sqsTemplate, never()).send(anyString(), any(Object.class));
-        TransactionSynchronizationManager.getSynchronizations()
-                .forEach(TransactionSynchronization::afterCommit);
-        verify(sqsTemplate, timeout(1000).times(1)).send(anyString(), any(Object.class));
-    }
-
-    @Test
-    void rolledBackMemberUpdatePublishesNothing() {
-        beginTransaction();
-
-        publisher.publish(event());
-        TransactionSynchronizationManager.getSynchronizations().forEach(
-                sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
-
-        verify(sqsTemplate, never()).send(anyString(), any(Object.class));
-    }
-
-    private void beginTransaction() {
-        TransactionSynchronizationManager.setActualTransactionActive(true);
-        TransactionSynchronizationManager.initSynchronization();
+        assertThatThrownBy(() -> publisher.publish(event()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Could not persist MemberUpdatedEvent");
     }
 
     private MemberUpdatedEvent event() {

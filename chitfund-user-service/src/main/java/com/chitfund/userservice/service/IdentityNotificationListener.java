@@ -1,34 +1,26 @@
 package com.chitfund.userservice.service;
 
-import com.chitfund.userservice.client.MemberServiceClient;
+import com.chitfund.userservice.outbox.MemberActivationCommandOutbox;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.event.NotificationEventPublisher;
 import com.chitfund.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.context.event.EventListener;
 
 import java.util.List;
 import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class IdentityNotificationListener {
     private final NotificationEventPublisher eventPublisher;
-    private final MemberServiceClient memberServiceClient;
+    private final MemberActivationCommandOutbox activationOutbox;
     private final UserRepository userRepository;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @EventListener
     public void onIdentityNotification(IdentityNotificationEvent event) {
-        try {
-            deliver(event);
-        } catch (RuntimeException ex) {
-            log.error("Post-commit identity notification failed for type {}: {}",
-                    event.type(), ex.getClass().getSimpleName());
-        }
+        deliver(event);
     }
 
     private void deliver(IdentityNotificationEvent event) {
@@ -44,14 +36,8 @@ public class IdentityNotificationListener {
             }
             case CHITFUND_ACCESS_ACTIVATED -> {
                 if (event.activationTenantId() != null && event.activationMemberId() != null) {
-                    try {
-                        memberServiceClient.activateAppAccess(
-                                event.activationTenantId(), event.activationMemberId(),
-                                event.recipientUserId(), event.requestId());
-                    } catch (RuntimeException ex) {
-                        log.error("member-service activateAppAccess failed post-commit for request {}: {}",
-                                event.requestId(), ex.getMessage());
-                    }
+                    activationOutbox.enqueue(event.requestId(), event.activationTenantId(),
+                            event.activationMemberId(), event.recipientUserId());
                 }
                 eventPublisher.publishInApp(
                         event.tenantId().toString(), event.recipientUserId(), "Chitfund Access Active",

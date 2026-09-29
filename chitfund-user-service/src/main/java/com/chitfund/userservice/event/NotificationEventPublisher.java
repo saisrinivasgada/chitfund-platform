@@ -2,27 +2,21 @@ package com.chitfund.userservice.event;
 
 import com.chitfund.common.event.InAppNotificationEvent;
 import com.chitfund.common.event.PushNotificationEvent;
-import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.chitfund.common.event.TransactionalEmailEvent;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class NotificationEventPublisher {
 
-    private final SqsTemplate sqsTemplate;
+    private final DurableEventOutbox outbox;
     private final ObjectMapper objectMapper;
 
     public void publishInApp(String tenantId, UUID recipientId, String title, String message,
@@ -43,27 +37,11 @@ public class NotificationEventPublisher {
 
     private void publish(String eventType, Object payload) {
         String eventId = UUID.randomUUID().toString();
-        Runnable send = () -> {
-            try {
-                String payloadJson = objectMapper.writeValueAsString(payload);
-                String envelopeJson = objectMapper.writeValueAsString(
-                        new SqsEventEnvelope(eventId, eventType, payloadJson));
-                sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelopeJson);
-            } catch (Exception e) {
-                log.error("Failed to publish {} event {} to SQS: {}",
-                        eventType, eventId, e.getClass().getSimpleName());
-            }
-        };
-        if (TransactionSynchronizationManager.isActualTransactionActive()
-                && TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    CompletableFuture.runAsync(send);
-                }
-            });
-        } else {
-            CompletableFuture.runAsync(send);
+        try {
+            outbox.enqueue(eventId, eventType, objectMapper.writeValueAsString(payload),
+                    SqsQueues.NOTIFICATION_EVENTS);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not persist " + eventType + " event", e);
         }
     }
 }

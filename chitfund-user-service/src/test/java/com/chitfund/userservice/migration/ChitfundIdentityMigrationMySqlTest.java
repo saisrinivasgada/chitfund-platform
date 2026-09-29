@@ -1,7 +1,9 @@
 package com.chitfund.userservice.migration;
 
 import com.chitfund.common.outbox.DurableAuditOutbox;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.chitfund.userservice.client.AuditClient;
+import com.chitfund.userservice.outbox.MemberActivationCommandOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -127,6 +130,66 @@ class ChitfundIdentityMigrationMySqlTest {
                 null, java.util.Map.of("status", "ACTIVE"), "tenant-id"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event_outbox", Long.class))
                 .isEqualTo(1L);
+    }
+
+    @Test
+    void domainEventOutboxEntryCommitsAndRollsBackWithTheBusinessTransaction() {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var outbox = new DurableEventOutbox(jdbc);
+        jdbc.update("DELETE FROM domain_event_outbox");
+
+        transactions.executeWithoutResult(status -> {
+            outbox.enqueue("rolled-back-event", "PUSH_NOTIFICATION", "{\"title\":\"Test\"}",
+                    "notification-events");
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isZero();
+
+        transactions.executeWithoutResult(status -> outbox.enqueue(
+                "committed-event", "PUSH_NOTIFICATION", "{\"title\":\"Test\"}",
+                "notification-events"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM domain_event_outbox WHERE event_id='committed-event'", String.class))
+                .isEqualTo("PENDING");
+    }
+
+    @Test
+    void memberActivationCommandCommitsAndRollsBackWithTheAccessDecision() {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var outbox = new MemberActivationCommandOutbox(jdbc);
+        jdbc.update("DELETE FROM member_activation_command_outbox");
+        UUID requestId = UUID.randomUUID();
+        UUID tenantId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        transactions.executeWithoutResult(status -> {
+            outbox.enqueue(requestId, tenantId, memberId, userId);
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM member_activation_command_outbox", Long.class)).isZero();
+
+        transactions.executeWithoutResult(status -> outbox.enqueue(requestId, tenantId, memberId, userId));
+        transactions.executeWithoutResult(status -> outbox.enqueue(requestId, tenantId, memberId, userId));
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM member_activation_command_outbox", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM member_activation_command_outbox WHERE request_id=?",
+                String.class, requestId.toString())).isEqualTo("PENDING");
     }
 
     private static void insertRequest(java.sql.Connection connection, String sql, String id,

@@ -356,8 +356,8 @@ public class ChitfundRequestService {
         requestRepository.save(request);
         audit(request, "ACCESS_ACTIVATED", previous, ChitfundRequestStatus.ACTIVE,
                 actorId, actorType, auditDetail);
-        // Post-commit: avoids holding a DB connection during the HTTP call to member-service.
-        // The member-service endpoint is idempotent so safe to retry on failure.
+        // The synchronous listener stores notifications and the member-service command in this
+        // transaction. A leased relay executes the idempotent HTTP command after commit.
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED,
                 request.getCandidateUserId(), request.getId(),

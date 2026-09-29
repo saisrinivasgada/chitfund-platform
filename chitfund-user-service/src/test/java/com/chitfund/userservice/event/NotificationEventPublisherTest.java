@@ -1,72 +1,56 @@
 package com.chitfund.userservice.event;
 
+import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Map;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class NotificationEventPublisherTest {
 
-    private final SqsTemplate sqsTemplate = mock(SqsTemplate.class);
+    private final DurableEventOutbox outbox = mock(DurableEventOutbox.class);
     private final NotificationEventPublisher publisher = new NotificationEventPublisher(
-            sqsTemplate, new ObjectMapper());
-
-    @AfterEach
-    void clearTransactionState() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
-        TransactionSynchronizationManager.setActualTransactionActive(false);
-    }
+            outbox, new ObjectMapper());
 
     @Test
-    void committedNotificationPublishesExactlyOnce() {
-        beginTransaction();
-
+    void pushIsPersistedForDurableDelivery() {
         publisher.publishPush(UUID.randomUUID(), "Title", "Body", Map.of("screen", "home"));
 
-        verify(sqsTemplate, never()).send(anyString(), anyString());
-        TransactionSynchronizationManager.getSynchronizations()
-                .forEach(TransactionSynchronization::afterCommit);
-        verify(sqsTemplate, timeout(1000).times(1)).send(anyString(), anyString());
+        verify(outbox).enqueue(anyString(),
+                org.mockito.ArgumentMatchers.eq(SqsQueues.EVT_PUSH_NOTIFICATION),
+                anyString(), org.mockito.ArgumentMatchers.eq(SqsQueues.NOTIFICATION_EVENTS));
     }
 
     @Test
-    void rolledBackNotificationPublishesNothing() {
-        beginTransaction();
+    void persistenceFailureFailsTheBusinessOperation() {
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(outbox).enqueue(anyString(), anyString(), anyString(), anyString());
 
-        publisher.publishEmail("recipient@example.test", "Subject", "<p>Body</p>", "Body");
-        TransactionSynchronizationManager.getSynchronizations().forEach(
-                sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
-
-        verify(sqsTemplate, never()).send(anyString(), anyString());
+        assertThatThrownBy(() -> publisher.publishEmail(
+                "recipient@example.test", "Subject", "<p>Body</p>", "Body"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Could not persist");
     }
 
     @Test
     void inAppEventCarriesExplicitTenant() {
-        var message = org.mockito.ArgumentCaptor.forClass(String.class);
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
 
         publisher.publishInApp("tenant-a", UUID.randomUUID(), "Title", "Body",
                 "GENERAL", null, "/home");
 
-        verify(sqsTemplate, timeout(1000)).send(anyString(), message.capture());
-        assertThat(message.getValue()).contains("\\\"tenantId\\\":\\\"tenant-a\\\"");
-    }
-
-    private void beginTransaction() {
-        TransactionSynchronizationManager.setActualTransactionActive(true);
-        TransactionSynchronizationManager.initSynchronization();
+        verify(outbox).enqueue(anyString(),
+                org.mockito.ArgumentMatchers.eq(SqsQueues.EVT_IN_APP_NOTIFICATION),
+                payload.capture(), org.mockito.ArgumentMatchers.eq(SqsQueues.NOTIFICATION_EVENTS));
+        assertThat(payload.getValue()).contains("\"tenantId\":\"tenant-a\"");
     }
 }

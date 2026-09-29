@@ -1,0 +1,21 @@
+CREATE TABLE member_activation_command_outbox (
+    delivery_id      VARCHAR(36) NOT NULL,
+    request_id       VARCHAR(36) NOT NULL,
+    tenant_id        VARCHAR(36) NOT NULL,
+    member_id        VARCHAR(36) NOT NULL,
+    user_id          VARCHAR(36) NOT NULL,
+    status           VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    attempts         INT NOT NULL DEFAULT 0,
+    available_at     DATETIME(6) NOT NULL,
+    lease_token      VARCHAR(36) NULL,
+    claimed_until    DATETIME(6) NULL,
+    last_error_code  VARCHAR(100) NULL,
+    last_error       VARCHAR(2000) NULL,
+    created_at       DATETIME(6) NOT NULL,
+    completed_at     DATETIME(6) NULL,
+    PRIMARY KEY (delivery_id),
+    UNIQUE KEY uq_member_activation_request (request_id),
+    INDEX idx_member_activation_pending (status, available_at, delivery_id),
+    INDEX idx_member_activation_expired_lease (status, claimed_until, delivery_id),
+    INDEX idx_member_activation_member (tenant_id, member_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
