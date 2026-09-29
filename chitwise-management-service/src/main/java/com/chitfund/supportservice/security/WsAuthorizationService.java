@@ -26,13 +26,14 @@ public class WsAuthorizationService {
 
     /**
      * Can this user subscribe to /topic/conversation.{convId}?
-     * - Hub employees (tenantId == null) can subscribe to any conversation.
+     * - Authenticated Hub employees can subscribe to any conversation.
      * - Org users: conversation must belong to their tenant.
      * - Member role: conversation.memberId must match their userId.
      */
     public boolean canSubscribeToConversation(String convId, String tenantId,
-                                               String userId, String role) {
-        if (tenantId == null) return true; // hub employee
+                                               String userId, String role, boolean isHub) {
+        if (isHub) return true;
+        if (tenantId == null) return false;
 
         return conversationRepo.findById(convId)
                 .map(conv -> {
@@ -45,22 +46,26 @@ public class WsAuthorizationService {
 
     /**
      * Can this user subscribe to /topic/support-ticket.{ticketId}?
-     * - Hub employees (tenantId == null): yes.
+     * - Authenticated Hub employees: yes.
      * - Org users: ticket must belong to their tenant.
      */
-    public boolean canSubscribeToTicket(String ticketId, String tenantId) {
-        if (tenantId == null) return true; // hub employee
+    public boolean canSubscribeToTicket(String ticketId, String tenantId,
+                                        String userId, String role, boolean isHub) {
+        if (isHub) return true;
+        if (tenantId == null) return false;
 
         return ticketRepo.findById(ticketId)
-                .map(ticket -> ticket.getTenantId().equals(tenantId))
+                .map(ticket -> ticket.getTenantId().equals(tenantId)
+                        && (!"MEMBER".equals(role)
+                            || java.util.Objects.equals(ticket.getCreatedBy(), userId)))
                 .orElse(false);
     }
 
     /**
      * Hub employees can subscribe to the global pool topic.
      */
-    public boolean canSubscribeToPool(String tenantId) {
-        return tenantId == null;
+    public boolean canSubscribeToPool(boolean isHub) {
+        return isHub;
     }
 
     /**
@@ -68,8 +73,10 @@ public class WsAuthorizationService {
      * - User must be a member of the group.
      * - Group must belong to the user's tenant.
      */
-    public boolean canSubscribeToGroup(String groupId, String tenantId, String userId) {
-        if (tenantId == null) return true; // hub employee — full access
+    public boolean canSubscribeToGroup(String groupId, String tenantId,
+                                       String userId, boolean isHub) {
+        if (isHub) return true;
+        if (tenantId == null) return false;
 
         return groupRepo.findByIdAndTenantId(groupId, tenantId)
                 .map(group -> groupMemberRepo.existsByGroupIdAndUserId(groupId, userId))

@@ -92,7 +92,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             if (accessor.getSessionAttributes() != null) {
                 accessor.getSessionAttributes().put("userId", employeeId);
                 accessor.getSessionAttributes().put("role", role);
-                // tenantId null → hub employee, has cross-tenant access
+                accessor.getSessionAttributes().put("identityType", "HUB");
             }
             return;
         }
@@ -109,6 +109,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 accessor.getSessionAttributes().put("userId", userId);
                 accessor.getSessionAttributes().put("role", role);
                 accessor.getSessionAttributes().put("tenantId", tenantId);
+                accessor.getSessionAttributes().put("identityType", "ORG");
             }
             return;
         }
@@ -130,28 +131,29 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         String userId = attrs != null ? (String) attrs.get("userId") : null;
         String tenantId = attrs != null ? (String) attrs.get("tenantId") : null;
         String role = attrs != null ? (String) attrs.get("role") : null;
+        String identityType = attrs != null ? (String) attrs.get("identityType") : null;
+        boolean isHub = "HUB".equals(identityType);
 
         if (destination.startsWith("/topic/conversation.")) {
             String convId = destination.substring("/topic/conversation.".length());
-            if (!wsAuthz.canSubscribeToConversation(convId, tenantId, userId, role)) {
+            if (!wsAuthz.canSubscribeToConversation(convId, tenantId, userId, role, isHub)) {
                 log.warn("WS SUBSCRIBE denied: userId={} tenantId={} topic={}", userId, tenantId, destination);
                 throw new MessagingException("Access denied to conversation " + convId);
             }
         } else if (destination.startsWith("/topic/support-ticket.")) {
             String ticketId = destination.substring("/topic/support-ticket.".length());
-            if (!wsAuthz.canSubscribeToTicket(ticketId, tenantId)) {
+            if (!wsAuthz.canSubscribeToTicket(ticketId, tenantId, userId, role, isHub)) {
                 log.warn("WS SUBSCRIBE denied: userId={} tenantId={} topic={}", userId, tenantId, destination);
                 throw new MessagingException("Access denied to ticket " + ticketId);
             }
         } else if (destination.startsWith("/topic/group.")) {
                 String groupId = destination.substring("/topic/group.".length());
-                if (!wsAuthz.canSubscribeToGroup(groupId, tenantId, userId)) {
+                if (!wsAuthz.canSubscribeToGroup(groupId, tenantId, userId, isHub)) {
                     log.warn("WS SUBSCRIBE denied: userId={} tenantId={} topic={}", userId, tenantId, destination);
                     throw new MessagingException("Access denied to group " + groupId);
                 }
         } else if (destination.startsWith("/topic/hub.dm.")) {
-            if (tenantId != null) {
-                // Only hub employees (tenantId == null) can access hub DMs
+            if (!isHub) {
                 throw new MessagingException("Only hub employees can subscribe to hub DMs");
             }
             String convId = destination.substring("/topic/hub.dm.".length());
@@ -160,7 +162,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 throw new MessagingException("Access denied to hub DM " + convId);
             }
         } else if (destination.startsWith("/topic/hub.group.")) {
-            if (tenantId != null) {
+            if (!isHub) {
                 throw new MessagingException("Only hub employees can subscribe to hub groups");
             }
             String groupId = destination.substring("/topic/hub.group.".length());
@@ -169,9 +171,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 throw new MessagingException("Access denied to hub group " + groupId);
             }
         } else if ("/topic/chitwise-pool".equals(destination)) {
-            if (!wsAuthz.canSubscribeToPool(tenantId)) {
+            if (!wsAuthz.canSubscribeToPool(isHub)) {
                 throw new MessagingException("Only hub employees can subscribe to the pool");
             }
+        } else {
+            // The simple broker otherwise accepts arbitrary destinations.  Keep
+            // subscriptions default-deny so new topics cannot bypass auth by omission.
+            throw new MessagingException("Subscription destination is not allowed");
         }
     }
 }
