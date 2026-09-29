@@ -40,6 +40,16 @@ public interface ChitEnrollmentRepository extends JpaRepository<ChitEnrollment, 
     // ALL enrollments for a member (active AND inactive) — used by settlement service
     List<ChitEnrollment> findAllByMemberId(UUID memberId);
 
+    // Internal service lookups must retain tenant isolation even though they use
+    // service credentials instead of a user JWT.
+    @Query("SELECT e FROM ChitEnrollment e WHERE e.memberId = :memberId AND e.chit.tenantId = :tenantId")
+    List<ChitEnrollment> findAllByMemberIdAndTenantId(@Param("memberId") UUID memberId,
+                                                      @Param("tenantId") String tenantId);
+
+    @Query("SELECT e.memberId FROM ChitEnrollment e WHERE e.chit.id = :chitId AND e.chit.tenantId = :tenantId AND e.active = true")
+    List<UUID> findActiveMemberIdsByChitIdAndTenantId(@Param("chitId") UUID chitId,
+                                                      @Param("tenantId") String tenantId);
+
     // One spot at a time (first found) — used by remove endpoint
     @Query("SELECT e FROM ChitEnrollment e WHERE e.chit.id = :chitId AND e.memberId = :memberId AND e.active = true ORDER BY e.enrolledAt ASC")
     Optional<ChitEnrollment> findFirstActiveSpot(UUID chitId, UUID memberId);

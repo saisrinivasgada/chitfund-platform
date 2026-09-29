@@ -269,7 +269,8 @@ public class ChitService {
                         sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
                                 "Chit Completed — " + completedChit.getName(),
                                 "Your chit '" + completedChit.getName() + "' has been completed. Thank you for participating!");
-                        notificationClient.closeDrawsForChit(completedChit.getId());
+                        notificationClient.closeDrawsForChit(
+                                completedChit.getId(), completedChit.getTenantId());
                     });
                 }
             });
@@ -487,14 +488,11 @@ public class ChitService {
         return response;
     }
 
-    /**
-     * Internal payout callback. It intentionally performs an unscoped lookup because
-     * service-to-service requests have no tenant JWT; the caller is authenticated by
-     * the internal key and the persisted chit supplies the audit tenant.
-     */
+    /** Internal payout callback. Service authentication does not replace tenant isolation. */
     @Transactional
-    public ChitResponse completeAfterFinalDisbursement(UUID id) {
-        Chit chit = findById(id);
+    public ChitResponse completeAfterFinalDisbursement(UUID id, String tenantId) {
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
         if (chit.getStatus() == ChitStatus.COMPLETED) return enrich(chit);
 
         Map<String, Object> before = chitAuditState(chit);
@@ -511,7 +509,8 @@ public class ChitService {
                             "Chit Completed — " + completedChit.getName(),
                             "Your chit '" + completedChit.getName()
                                     + "' has been completed. Thank you for participating!");
-                    notificationClient.closeDrawsForChit(completedChit.getId());
+                    notificationClient.closeDrawsForChit(
+                            completedChit.getId(), completedChit.getTenantId());
                 });
             }
         });

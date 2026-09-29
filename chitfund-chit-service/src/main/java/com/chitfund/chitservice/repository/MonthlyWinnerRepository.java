@@ -22,6 +22,10 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
     @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId")
     List<UUID> findWinnerMemberIdsByChitId(UUID chitId);
 
+    @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId AND w.chit.tenantId = :tenantId")
+    List<UUID> findWinnerMemberIdsByChitIdAndTenantId(@Param("chitId") UUID chitId,
+                                                      @Param("tenantId") String tenantId);
+
     long countByChitId(UUID chitId);
 
     // Batch winner counts for a list of chits — avoids N+1 in list views

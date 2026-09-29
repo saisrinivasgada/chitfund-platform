@@ -31,10 +31,11 @@ public class ChitServiceClient {
     private String internalKey;
 
     @SuppressWarnings("unchecked")
-    public List<String> getActiveMemberIds(String chitId) {
+    public List<String> getActiveMemberIds(String chitId, String tenantId) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", tenantId);
 
             ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
                     chitServiceUrl + "/internal/chits/" + chitId + "/member-ids",

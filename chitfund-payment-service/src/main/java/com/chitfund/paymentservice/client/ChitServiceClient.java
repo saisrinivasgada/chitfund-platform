@@ -3,6 +3,7 @@ package com.chitfund.paymentservice.client;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.chitfund.common.context.TenantContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -70,6 +71,8 @@ public class ChitServiceClient {
         private BigDecimal installmentAmount;
         private Integer capacity;
         private Integer durationMonths;
+        private String winnerSelectionMode;
+        private String auctionMode;
         private boolean postPayoutContributionEnabled;
         private BigDecimal defaultPostPayoutContribution;
     }
@@ -85,6 +88,12 @@ public class ChitServiceClient {
         private BigDecimal postPayoutContribution;
         private String status;   // RESERVED / UNALLOCATED / PROCESSED / VOIDED
         private String voidReason;
+    }
+
+    @Data
+    public static class MemberAmountDto {
+        private UUID memberId;
+        private BigDecimal amountDue;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -156,6 +165,43 @@ public class ChitServiceClient {
         }
     }
 
+    /** Returns the distinct active member profiles for this tenant's chit. */
+    @SuppressWarnings("unchecked")
+    public List<UUID> getActiveMemberIds(UUID chitId) {
+        try {
+            HttpHeaders headers = buildHeaders();
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
+                    chitServiceUrl + "/internal/chits/" + chitId + "/member-ids",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    new ParameterizedTypeReference<>() {});
+            Map<String, Object> body = resp.getBody();
+            if (body == null || !(body.get("data") instanceof List<?> raw)) {
+                return Collections.emptyList();
+            }
+            return raw.stream().map(Object::toString).map(UUID::fromString).distinct().toList();
+        } catch (RestClientException | IllegalArgumentException e) {
+            log.warn("chit-service unreachable for active members of chit {}: {}", chitId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Server-authoritative member dues used when opening/skipping a draw. */
+    public List<MemberAmountDto> getDrawMemberAmounts(UUID chitId) {
+        try {
+            HttpHeaders headers = buildHeaders();
+            ResponseEntity<Map<String, Object>> resp = restTemplate.exchange(
+                    chitServiceUrl + "/internal/chits/" + chitId + "/draw-member-amounts",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    new ParameterizedTypeReference<>() {});
+            return extractDataList(resp, MemberAmountDto.class);
+        } catch (RestClientException | IllegalArgumentException e) {
+            log.warn("chit-service unreachable for draw amounts of chit {}: {}", chitId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -163,6 +209,11 @@ public class ChitServiceClient {
     private HttpHeaders buildHeaders() {
         HttpHeaders h = new HttpHeaders();
         h.set("X-Internal-Key", internalKey);
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Organization context is required for chit-service calls");
+        }
+        h.set("X-Tenant-ID", tenantId);
         return h;
     }
 
@@ -208,6 +259,12 @@ public class ChitServiceClient {
             }
             return (T) dto;
         }
+        if (type == MemberAmountDto.class) {
+            MemberAmountDto dto = new MemberAmountDto();
+            dto.setMemberId(parseUuid(raw.get("memberId")));
+            dto.setAmountDue(parseBigDecimal(raw.get("amountDue")));
+            return (T) dto;
+        }
         throw new IllegalArgumentException("Unknown DTO type: " + type);
     }
 
@@ -221,6 +278,9 @@ public class ChitServiceClient {
         dto.setInstallmentAmount(parseBigDecimal(raw.get("installmentAmount")));
         dto.setCapacity(parseInteger(raw.get("capacity")));
         dto.setDurationMonths(parseInteger(raw.get("durationMonths")));
+        dto.setWinnerSelectionMode(raw.get("winnerSelectionMode") != null
+                ? raw.get("winnerSelectionMode").toString() : null);
+        dto.setAuctionMode(raw.get("auctionMode") != null ? raw.get("auctionMode").toString() : null);
         dto.setPostPayoutContributionEnabled(Boolean.TRUE.equals(raw.get("postPayoutContributionEnabled")));
         dto.setDefaultPostPayoutContribution(parseBigDecimal(raw.get("defaultPostPayoutContribution")));
         return dto;

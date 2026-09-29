@@ -526,13 +526,14 @@ public class PayoutService {
 
     private void checkAndAutoCompleteChit(UUID chitId) {
         try {
-            int durationMonths = chitServiceClient.getChitDurationMonths(chitId);
+            String currentTenant = tenantId();
+            int durationMonths = chitServiceClient.getChitDurationMonths(chitId, currentTenant);
             if (durationMonths <= 0) return;
             long disbursedCount = payoutRepository.countByTenantIdAndChitIdAndStatus(
-                    tenantId(), chitId, PayoutStatus.DISBURSED);
+                    currentTenant, chitId, PayoutStatus.DISBURSED);
             if (disbursedCount >= durationMonths) {
                 log.info("All {} draws disbursed for chit {} — triggering auto-complete", durationMonths, chitId);
-                chitServiceClient.markChitCompleted(chitId);
+                chitServiceClient.markChitCompleted(chitId, currentTenant);
             } else {
                 log.debug("Chit {} has {}/{} draws disbursed — not yet complete", chitId, disbursedCount, durationMonths);
             }

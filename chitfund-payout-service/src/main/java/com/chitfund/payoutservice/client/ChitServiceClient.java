@@ -27,9 +27,10 @@ public class ChitServiceClient {
      * Returns the chit's durationMonths so payout-service can check if all draws are done.
      * Returns -1 on error so the caller can skip the completion check safely.
      */
-    public int getChitDurationMonths(UUID chitId) {
+    public int getChitDurationMonths(UUID chitId, String tenantId) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId);
 
         try {
             @SuppressWarnings("unchecked")
@@ -57,9 +58,10 @@ public class ChitServiceClient {
      * Fire-and-forget: a failure here is logged but never fails the disbursement itself.
      * Chit-service guards against duplicate calls (COMPLETED → COMPLETED is a no-op).
      */
-    public void markChitCompleted(UUID chitId) {
+    public void markChitCompleted(UUID chitId, String tenantId) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", tenantId);
 
         try {
             restTemplate.postForObject(

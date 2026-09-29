@@ -24,6 +24,15 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     // All slots assigned to a specific member within a chit
     List<MonthReservation> findByChitIdAndMemberId(UUID chitId, UUID memberId);
 
+    @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.chit.tenantId = :tenantId")
+    List<MonthReservation> findByChitIdAndTenantId(@Param("chitId") UUID chitId,
+                                                   @Param("tenantId") String tenantId);
+
+    @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.chit.tenantId = :tenantId AND r.memberId = :memberId")
+    List<MonthReservation> findByChitIdAndMemberIdAndTenantId(@Param("chitId") UUID chitId,
+                                                              @Param("memberId") UUID memberId,
+                                                              @Param("tenantId") String tenantId);
+
     // Legacy: look up by ordinal month number
     List<MonthReservation> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 

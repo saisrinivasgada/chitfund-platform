@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -26,15 +27,20 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @ExtendWith(MockitoExtension.class)
 class ChitMonthDrawEventTimingTest {
 
     private static final String TENANT = "10000000-0000-0000-0000-000000000001";
+    private static final UUID activeMemberId = UUID.fromString("20000000-0000-0000-0000-000000000001");
 
     @Mock private ChitMonthDrawRepository drawRepository;
     @Mock private PaymentRecordRepository paymentRecordRepository;
@@ -45,6 +51,7 @@ class ChitMonthDrawEventTimingTest {
     @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
     @Mock private PlanExpiryChecker planExpiryChecker;
     @Mock private MemberCreditService memberCreditService;
+    @Mock private com.chitfund.paymentservice.client.ChitServiceClient chitServiceClient;
 
     private ChitMonthDrawService service;
 
@@ -54,14 +61,31 @@ class ChitMonthDrawEventTimingTest {
         service = new ChitMonthDrawService(
                 drawRepository, paymentRecordRepository, allocationRepository,
                 eventPublisher, notificationService, memberServiceClient,
-                auditClient, planExpiryChecker, memberCreditService);
+                auditClient, planExpiryChecker, memberCreditService, chitServiceClient);
 
-        lenient().when(drawRepository.countByChitIdAndStatusNot(any(), any())).thenReturn(0L);
-        when(drawRepository.existsByChitIdAndMonthNumber(any(), anyInt())).thenReturn(false);
-        when(drawRepository.save(any(ChitMonthDraw.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(paymentRecordRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(drawRepository.countByTenantIdAndChitIdAndStatusNot(anyString(), any(), any()))
+                .thenReturn(0L);
+        lenient().when(drawRepository.existsByTenantIdAndChitIdAndMonthNumber(anyString(), any(), anyInt()))
+                .thenReturn(false);
+        lenient().when(drawRepository.save(any(ChitMonthDraw.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(paymentRecordRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
         lenient().when(memberServiceClient.batchGetUserIds(anyList())).thenReturn(Map.of());
+        lenient().when(chitServiceClient.getChit(any())).thenAnswer(invocation -> {
+            var dto = new com.chitfund.paymentservice.client.ChitServiceClient.ChitDto();
+            dto.setId(invocation.getArgument(0));
+            dto.setStatus("ACTIVE");
+            dto.setDurationMonths(12);
+            dto.setInstallmentAmount(new BigDecimal("1000.00"));
+            dto.setWinnerSelectionMode("LOTTERY");
+            return dto;
+        });
+        lenient().when(chitServiceClient.getDrawMemberAmounts(any())).thenAnswer(invocation -> {
+            var dto = new com.chitfund.paymentservice.client.ChitServiceClient.MemberAmountDto();
+            dto.setMemberId(activeMemberId);
+            dto.setAmountDue(new BigDecimal("1000.00"));
+            return List.of(dto);
+        });
     }
 
     @AfterEach
@@ -81,10 +105,66 @@ class ChitMonthDrawEventTimingTest {
         verify(eventPublisher, times(1)).publish(any(ChitMonthSkippedEvent.class));
     }
 
+    @Test
+    void foreignTenantChitIsRejectedBeforeAnyFinancialWrite() {
+        OpenMonthRequest request = openRequest();
+        when(chitServiceClient.getChit(request.getChitId())).thenReturn(null);
+
+        assertThatThrownBy(() -> service.openDraw(request, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("not found in this organization");
+
+        verify(drawRepository, never()).save(any());
+        verify(paymentRecordRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void clientCannotInsertAProfileThatIsNotEnrolled() {
+        OpenMonthRequest request = openRequest();
+        request.getMembers().get(0).setMemberId(UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.openDraw(request, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("exactly match");
+
+        verify(drawRepository, never()).save(any());
+    }
+
+    @Test
+    void clientCannotIncreaseTheConfiguredCycleLimit() {
+        OpenMonthRequest request = openRequest();
+        request.setMaxCycles(120);
+
+        assertThatThrownBy(() -> service.openDraw(request, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("cycle limit");
+
+        verify(drawRepository, never()).save(any());
+    }
+
+    @Test
+    void clientCannotUnderstateAMembersAmountDue() {
+        OpenMonthRequest request = openRequest();
+        request.getMembers().get(0).setAmountDue(new BigDecimal("1.00"));
+
+        assertThatThrownBy(() -> service.openDraw(request, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("ledger configuration");
+
+        verify(drawRepository, never()).save(any());
+    }
+
+    @Test
+    void skippedDrawPersistsAuthenticatedTenant() {
+        service.skipDraw(skipRequest(), UUID.randomUUID(), "ADMIN");
+        ArgumentCaptor<ChitMonthDraw> saved = ArgumentCaptor.forClass(ChitMonthDraw.class);
+        verify(drawRepository).save(saved.capture());
+        assertThat(saved.getValue().getTenantId()).isEqualTo(TENANT);
+    }
+
     private OpenMonthRequest openRequest() {
-        UUID memberId = UUID.randomUUID();
         OpenMonthRequest.MemberAmount member = new OpenMonthRequest.MemberAmount();
-        member.setMemberId(memberId);
+        member.setMemberId(activeMemberId);
         member.setAmountDue(new BigDecimal("1000.00"));
 
         OpenMonthRequest request = new OpenMonthRequest();
@@ -104,7 +184,7 @@ class ChitMonthDrawEventTimingTest {
         request.setDueDate(LocalDate.of(2026, 10, 1));
         request.setInstallmentAmount(new BigDecimal("1000.00"));
         request.setSkipReason("Holiday pause");
-        request.setMemberIds(List.of(UUID.randomUUID()));
+        request.setMemberIds(List.of(activeMemberId));
         return request;
     }
 }

@@ -6,10 +6,14 @@ import com.chitfund.chitservice.domain.entity.MonthReservation;
 import com.chitfund.chitservice.dto.response.ChitEnrollmentResponse;
 import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
+import com.chitfund.chitservice.dto.response.DrawMemberAmountResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
+import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
+import com.chitfund.chitservice.domain.enums.ReservationStatus;
+import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -22,6 +26,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +53,7 @@ public class InternalSettlementController {
     private final ChitEnrollmentRepository enrollmentRepository;
     private final ChitRepository chitRepository;
     private final MonthReservationRepository reservationRepository;
+    private final MonthlyWinnerRepository winnerRepository;
     private final ChitMapper chitMapper;
     private final ChitService chitService;
 
@@ -64,6 +72,7 @@ public class InternalSettlementController {
     @GetMapping("/enrollments/member/{memberId}")
     public ResponseEntity<?> getEnrollmentsForMember(
             @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
@@ -71,7 +80,8 @@ public class InternalSettlementController {
         }
 
         // Find all enrollments — active AND inactive (settlement covers completed chits too)
-        List<ChitEnrollment> enrollments = enrollmentRepository.findAllByMemberId(memberId);
+        List<ChitEnrollment> enrollments = enrollmentRepository
+                .findAllByMemberIdAndTenantId(memberId, tenantId);
 
         List<ChitEnrollmentResponse> responses = enrollments.stream()
                 .map(chitMapper::toEnrollmentResponse)
@@ -88,13 +98,14 @@ public class InternalSettlementController {
     @GetMapping("/chits/{chitId}")
     public ResponseEntity<?> getChit(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        Chit chit = chitRepository.findById(chitId)
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
 
         // Map manually to include all fields needed by settlement service
@@ -112,6 +123,7 @@ public class InternalSettlementController {
     public ResponseEntity<?> getReservationsForMemberInChit(
             @PathVariable UUID chitId,
             @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
@@ -119,7 +131,7 @@ public class InternalSettlementController {
         }
 
         List<MonthReservationResponse> responses = reservationRepository
-                .findByChitIdAndMemberId(chitId, memberId)
+                .findByChitIdAndMemberIdAndTenantId(chitId, memberId, tenantId)
                 .stream()
                 .map(chitMapper::toReservationResponse)
                 .collect(Collectors.toList());
@@ -136,13 +148,14 @@ public class InternalSettlementController {
     @PostMapping("/chits/{chitId}/complete")
     public ResponseEntity<?> completeChit(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        chitService.completeAfterFinalDisbursement(chitId);
+        chitService.completeAfterFinalDisbursement(chitId, tenantId);
         log.info("Internal: chit {} marked COMPLETED — all draws disbursed", chitId);
         return ResponseEntity.ok(ApiResponse.success("Chit completed"));
     }
@@ -154,14 +167,61 @@ public class InternalSettlementController {
     @GetMapping("/chits/{chitId}/member-ids")
     public ResponseEntity<?> getActiveMemberIds(
             @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = false) String key) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chitId)
+        List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitIdAndTenantId(chitId, tenantId)
                 .stream().distinct().map(UUID::toString).toList();
         return ResponseEntity.ok(ApiResponse.success(memberIds));
+    }
+
+    /**
+     * Returns server-calculated dues for draw creation. Payment-service must not
+     * trust amounts supplied by web/mobile clients for this financial operation.
+     */
+    @GetMapping("/chits/{chitId}/draw-member-amounts")
+    public ResponseEntity<?> getDrawMemberAmounts(
+            @PathVariable UUID chitId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
+        BigDecimal base = chit.getInstallmentAmount();
+        Map<UUID, BigDecimal> dues = new LinkedHashMap<>();
+        enrollmentRepository.findActiveMemberIdsByChitIdAndTenantId(chitId, tenantId)
+                .forEach(memberId -> dues.merge(memberId, base, BigDecimal::add));
+
+        if (chit.isPostPayoutContributionEnabled()
+                && chit.getWinnerSelectionMode() != WinnerSelectionMode.AUCTION) {
+            BigDecimal fallback = chit.getDefaultPostPayoutContribution() == null
+                    ? base : chit.getDefaultPostPayoutContribution();
+            if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
+                reservationRepository.findByChitIdAndTenantId(chitId, tenantId).stream()
+                        .filter(r -> r.getStatus() == ReservationStatus.PROCESSED && r.getMemberId() != null)
+                        .forEach(r -> replaceOneSpotDue(dues, r.getMemberId(), base,
+                                r.getPostPayoutContribution() == null ? fallback : r.getPostPayoutContribution()));
+            } else {
+                winnerRepository.findWinnerMemberIdsByChitIdAndTenantId(chitId, tenantId)
+                        .forEach(memberId -> replaceOneSpotDue(dues, memberId, base, fallback));
+            }
+        }
+
+        List<DrawMemberAmountResponse> response = dues.entrySet().stream()
+                .map(e -> new DrawMemberAmountResponse(e.getKey(), e.getValue()))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    private void replaceOneSpotDue(Map<UUID, BigDecimal> dues, UUID memberId,
+                                   BigDecimal base, BigDecimal postPayout) {
+        dues.computeIfPresent(memberId, (ignored, current) -> current.subtract(base).add(postPayout));
     }
 }

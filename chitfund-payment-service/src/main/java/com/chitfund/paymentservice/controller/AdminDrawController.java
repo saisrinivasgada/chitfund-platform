@@ -204,11 +204,12 @@ public class AdminDrawController {
     @PreAuthorize("true")
     public ResponseEntity<Void> closeDrawsForChit(
             @PathVariable UUID chitId,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        drawService.closeOpenDrawsForChit(chitId);
+        drawService.closeOpenDrawsForChit(chitId, tenantId);
         return ResponseEntity.ok().build();
     }
 }

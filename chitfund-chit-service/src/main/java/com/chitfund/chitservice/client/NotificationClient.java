@@ -39,11 +39,12 @@ public class NotificationClient {
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
 
-    public void closeDrawsForChit(java.util.UUID chitId) {
+    public void closeDrawsForChit(java.util.UUID chitId, String tenantId) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", tenantId);
             restTemplate.postForObject(
                     paymentServiceUrl + "/admin/draws/internal/close-for-chit/" + chitId,
                     new HttpEntity<>(null, headers),

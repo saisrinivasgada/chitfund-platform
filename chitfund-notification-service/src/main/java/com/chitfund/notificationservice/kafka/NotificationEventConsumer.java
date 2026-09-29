@@ -331,7 +331,7 @@ public class NotificationEventConsumer {
                 pushService.sendToUser(UUID.fromString(winnerUserId), title, body);
             }
 
-            List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId());
+            List<String> allMemberIds = chitServiceClient.getActiveMemberIds(event.chitId(), event.tenantId());
             Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(allMemberIds);
             for (String memberId : allMemberIds) {
                 if (memberId.equals(event.memberId())) continue;

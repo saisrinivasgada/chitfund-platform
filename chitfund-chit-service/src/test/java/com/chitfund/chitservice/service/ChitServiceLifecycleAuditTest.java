@@ -35,6 +35,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ChitServiceLifecycleAuditTest {
+    private static final String TENANT_ID = "tenant-1";
     @Mock ChitRepository chitRepository;
     @Mock ChitEnrollmentRepository enrollmentRepository;
     @Mock MonthlyWinnerRepository winnerRepository;
@@ -63,12 +64,13 @@ class ChitServiceLifecycleAuditTest {
     @Test
     void payoutCompletionUsesPersistedTenantAndCreatesSystemAudit() {
         Chit chit = chit(ChitStatus.ACTIVE);
-        when(chitRepository.findById(chit.getId())).thenReturn(Optional.of(chit));
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chit.getId(), TENANT_ID))
+                .thenReturn(Optional.of(chit));
         when(chitRepository.save(chit)).thenReturn(chit);
         when(chitMapper.toResponse(chit)).thenReturn(mock(ChitResponse.class));
         when(attributeService.getAll(chit)).thenReturn(Map.of());
 
-        service.completeAfterFinalDisbursement(chit.getId());
+        service.completeAfterFinalDisbursement(chit.getId(), TENANT_ID);
 
         assertThat(chit.getStatus()).isEqualTo(ChitStatus.COMPLETED);
         verify(auditClient).log(eq("CHIT"), eq(chit.getId().toString()),
@@ -79,11 +81,12 @@ class ChitServiceLifecycleAuditTest {
     @Test
     void duplicatePayoutCompletionIsIdempotentAndDoesNotDuplicateAudit() {
         Chit chit = chit(ChitStatus.COMPLETED);
-        when(chitRepository.findById(chit.getId())).thenReturn(Optional.of(chit));
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chit.getId(), TENANT_ID))
+                .thenReturn(Optional.of(chit));
         when(chitMapper.toResponse(chit)).thenReturn(mock(ChitResponse.class));
         when(attributeService.getAll(chit)).thenReturn(Map.of());
 
-        service.completeAfterFinalDisbursement(chit.getId());
+        service.completeAfterFinalDisbursement(chit.getId(), TENANT_ID);
 
         verify(chitRepository, never()).save(any());
         verify(auditClient, never()).log(any(), any(), any(), any(), any(), any(),
