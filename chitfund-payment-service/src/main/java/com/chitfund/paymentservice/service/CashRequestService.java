@@ -87,6 +87,7 @@ public class CashRequestService {
                           CashRequestStatus from, CashRequestStatus to,
                           UUID performedBy, String performedByRole, String reason) {
         auditLogRepository.save(CashRequestAuditLog.builder()
+                .tenantId(tenantId())
                 .requestId(requestId)
                 .action(action)
                 .fromStatus(from != null ? from.name() : null)
@@ -791,7 +792,8 @@ public class CashRequestService {
 
     public List<CashRequestAuditLogResponse> getAuditLog(UUID requestId) {
         findOrThrow(requestId); // validates request exists
-        return auditLogRepository.findByRequestIdOrderByPerformedAtAsc(requestId)
+        return auditLogRepository.findByTenantIdAndRequestIdOrderByPerformedAtAsc(
+                        tenantId(), requestId)
                 .stream().map(this::toAuditResponse).toList();
     }
 

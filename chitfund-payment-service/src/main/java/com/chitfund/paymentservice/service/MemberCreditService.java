@@ -5,6 +5,9 @@ import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
 import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
+import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,7 +27,7 @@ public class MemberCreditService {
 
     @Transactional(readOnly = true)
     public BigDecimal getBalance(UUID memberId) {
-        return creditBalanceRepository.findByMemberId(memberId)
+        return creditBalanceRepository.findByTenantIdAndMemberId(tenantId(), memberId)
                 .map(MemberCreditBalance::getBalance)
                 .orElse(BigDecimal.ZERO);
     }
@@ -32,7 +35,7 @@ public class MemberCreditService {
     /** Locks the balance while a financial workflow decides and records its use. */
     @Transactional
     public BigDecimal getBalanceForUpdate(UUID memberId) {
-        return creditBalanceRepository.findByMemberIdForUpdate(memberId)
+        return creditBalanceRepository.findByTenantIdAndMemberIdForUpdate(tenantId(), memberId)
                 .map(MemberCreditBalance::getBalance)
                 .orElse(BigDecimal.ZERO);
     }
@@ -41,7 +44,7 @@ public class MemberCreditService {
     public MemberCreditResponse getCreditDetails(UUID memberId) {
         BigDecimal balance = getBalance(memberId);
         List<MemberCreditTransaction> txns = creditTxnRepository
-                .findByMemberIdOrderByCreatedAtDesc(memberId);
+                .findByTenantIdAndMemberIdOrderByCreatedAtDesc(tenantId(), memberId);
 
         List<MemberCreditResponse.CreditTransaction> txnDtos = txns.stream()
                 .limit(20)
@@ -91,14 +94,16 @@ public class MemberCreditService {
     /** Restores exactly the credit movements created by one reversible settlement. */
     @Transactional
     public BigDecimal reverseCreditForSettlement(UUID settlementId, UUID memberId, UUID actorId) {
-        List<MemberCreditTransaction> originals = creditTxnRepository.findBySourceSettlementId(settlementId);
+        String tenantId = tenantId();
+        List<MemberCreditTransaction> originals =
+                creditTxnRepository.findByTenantIdAndSourceSettlementId(tenantId, settlementId);
         BigDecimal reversed = BigDecimal.ZERO;
         for (MemberCreditTransaction original : originals) {
             if (original.getReversalOfId() != null) {
                 continue;
             }
             reversed = reversed.add(original.getAmount());
-            if (creditTxnRepository.existsByReversalOfId(original.getId())) continue;
+            if (creditTxnRepository.existsByTenantIdAndReversalOfId(tenantId, original.getId())) continue;
             String reverseType = "IN".equals(original.getType()) ? "OUT" : "IN";
             recordMovement(memberId, original.getAmount(), reverseType, null, settlementId,
                     original.getId(), original.getChitId(), actorId,
@@ -112,8 +117,11 @@ public class MemberCreditService {
                                 UUID chitId, UUID actorId, String description) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
 
-        MemberCreditBalance credit = creditBalanceRepository.findByMemberIdForUpdate(memberId)
+        String tenantId = tenantId();
+        MemberCreditBalance credit = creditBalanceRepository
+                .findByTenantIdAndMemberIdForUpdate(tenantId, memberId)
                 .orElseGet(() -> MemberCreditBalance.builder()
+                        .tenantId(tenantId)
                         .memberId(memberId)
                         .balance(BigDecimal.ZERO)
                         .build());
@@ -132,6 +140,7 @@ public class MemberCreditService {
         creditBalanceRepository.save(credit);
 
         creditTxnRepository.save(MemberCreditTransaction.builder()
+                .tenantId(tenantId)
                 .memberId(memberId)
                 .amount(amount)
                 .type(type)
@@ -158,7 +167,8 @@ public class MemberCreditService {
      */
     @Transactional
     public void reverseCreditForVoidedBatch(UUID batchId, UUID memberId, UUID actorId) {
-        List<MemberCreditTransaction> txns = creditTxnRepository.findBySourceBatchId(batchId);
+        List<MemberCreditTransaction> txns =
+                creditTxnRepository.findByTenantIdAndSourceBatchId(tenantId(), batchId);
         if (txns.isEmpty()) return;
 
         for (MemberCreditTransaction txn : txns) {
@@ -174,5 +184,14 @@ public class MemberCreditService {
         }
         log.info("Reversed {} credit transaction(s) for voided batch {} (member {})",
                 txns.size(), batchId, memberId);
+    }
+
+    private String tenantId() {
+        String tenantId = TenantContext.get();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED,
+                    "Organization context is required");
+        }
+        return tenantId;
     }
 }

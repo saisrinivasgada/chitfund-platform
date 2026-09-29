@@ -4,6 +4,9 @@ import com.chitfund.paymentservice.domain.MemberCreditBalance;
 import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
+import com.chitfund.common.context.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -21,9 +24,20 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class MemberCreditSettlementReversalTest {
+    private static final String TENANT = "tenant-a";
     @Mock private MemberCreditBalanceRepository creditBalanceRepository;
     @Mock private MemberCreditTransactionRepository creditTxnRepository;
     @InjectMocks private MemberCreditService service;
+
+    @BeforeEach
+    void setUp() {
+        TenantContext.set(TENANT);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
 
     @Test
     void restoresConsumedCreditWithAnExactlyLinkedCompensatingTransaction() {
@@ -32,20 +46,22 @@ class MemberCreditSettlementReversalTest {
         UUID originalId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         MemberCreditBalance balance = MemberCreditBalance.builder()
+                .tenantId(TENANT)
                 .memberId(memberId)
                 .balance(new BigDecimal("25.00"))
                 .build();
         MemberCreditTransaction original = MemberCreditTransaction.builder()
                 .id(originalId)
+                .tenantId(TENANT)
                 .memberId(memberId)
                 .amount(new BigDecimal("100.00"))
                 .type("OUT")
                 .sourceSettlementId(settlementId)
                 .build();
-        when(creditTxnRepository.findBySourceSettlementId(settlementId))
+        when(creditTxnRepository.findByTenantIdAndSourceSettlementId(TENANT, settlementId))
                 .thenReturn(List.of(original));
-        when(creditTxnRepository.existsByReversalOfId(originalId)).thenReturn(false);
-        when(creditBalanceRepository.findByMemberIdForUpdate(memberId))
+        when(creditTxnRepository.existsByTenantIdAndReversalOfId(TENANT, originalId)).thenReturn(false);
+        when(creditBalanceRepository.findByTenantIdAndMemberIdForUpdate(TENANT, memberId))
                 .thenReturn(Optional.of(balance));
 
         BigDecimal reversed = service.reverseCreditForSettlement(settlementId, memberId, actorId);
@@ -59,6 +75,7 @@ class MemberCreditSettlementReversalTest {
         assertThat(saved.getValue().getSourceSettlementId()).isEqualTo(settlementId);
         assertThat(saved.getValue().getReversalOfId()).isEqualTo(originalId);
         assertThat(saved.getValue().getCreatedBy()).isEqualTo(actorId);
+        assertThat(saved.getValue().getTenantId()).isEqualTo(TENANT);
     }
 
     @Test
@@ -68,20 +85,21 @@ class MemberCreditSettlementReversalTest {
         UUID originalId = UUID.randomUUID();
         MemberCreditTransaction original = MemberCreditTransaction.builder()
                 .id(originalId)
+                .tenantId(TENANT)
                 .memberId(memberId)
                 .amount(new BigDecimal("100.00"))
                 .type("OUT")
                 .sourceSettlementId(settlementId)
                 .build();
-        when(creditTxnRepository.findBySourceSettlementId(settlementId))
+        when(creditTxnRepository.findByTenantIdAndSourceSettlementId(TENANT, settlementId))
                 .thenReturn(List.of(original));
-        when(creditTxnRepository.existsByReversalOfId(originalId)).thenReturn(true);
+        when(creditTxnRepository.existsByTenantIdAndReversalOfId(TENANT, originalId)).thenReturn(true);
 
         BigDecimal reversed = service.reverseCreditForSettlement(
                 settlementId, memberId, UUID.randomUUID());
 
         assertThat(reversed).isEqualByComparingTo("100.00");
-        verify(creditBalanceRepository, never()).findByMemberIdForUpdate(any());
+        verify(creditBalanceRepository, never()).findByTenantIdAndMemberIdForUpdate(any(), any());
         verify(creditTxnRepository, never()).save(any());
     }
 }

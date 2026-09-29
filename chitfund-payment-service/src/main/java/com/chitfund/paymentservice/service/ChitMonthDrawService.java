@@ -764,7 +764,7 @@ public class ChitMonthDrawService {
         // Delete any orphaned allocations pointing to these records (from previously voided batches)
         List<UUID> recordIds = records.stream().map(PaymentRecord::getId).toList();
         if (!recordIds.isEmpty()) {
-            allocationRepository.deleteByPaymentRecordIdIn(recordIds);
+            allocationRepository.deleteByTenantIdAndPaymentRecordIdIn(cycle.getTenantId(), recordIds);
             paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(
                     cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
         }

@@ -88,9 +88,11 @@ class FifoAllocationTest {
 
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
         when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findTotalOutstandingByMemberId(any(), anyList()))
+        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                anyString(), any(), anyList()))
                 .thenReturn(BigDecimal.ZERO);
-        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdate(any(), any(), anyList()))
+        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdateByTenant(
+                anyString(), any(), any(), anyList()))
                 .thenReturn(List.of());
         when(batchRepository.saveAndFlush(any(PaymentBatch.class))).thenAnswer(inv -> {
             PaymentBatch b = inv.getArgument(0);
@@ -99,7 +101,7 @@ class FifoAllocationTest {
         });
         when(allocationRepository.save(any(PaymentAllocation.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
-        when(allocationRepository.findByBatchId(any())).thenReturn(List.of());
+        when(allocationRepository.findByTenantIdAndBatchId(anyString(), any())).thenReturn(List.of());
     }
 
     @AfterEach
@@ -130,14 +132,15 @@ class FifoAllocationTest {
 
     private void withCurrentChitRecords(List<PaymentRecord> records) {
         when(paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                        eq(memberId), eq(chitA), anyList()))
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        eq(TENANT), eq(memberId), eq(chitA), anyList()))
                 .thenReturn(new ArrayList<>(records));
     }
 
     private void withOtherChitRecords(List<PaymentRecord> records) {
         when(paymentRecordRepository
-                .findOutstandingAcrossOtherChitsForUpdate(eq(memberId), eq(chitA), anyList()))
+                .findOutstandingAcrossOtherChitsForUpdateByTenant(
+                        eq(TENANT), eq(memberId), eq(chitA), anyList()))
                 .thenReturn(new ArrayList<>(records));
     }
 
@@ -287,7 +290,8 @@ class FifoAllocationTest {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
         withCurrentChitRecords(List.of(m1));
         when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("400"));
-        when(paymentRecordRepository.findTotalOutstandingByMemberId(eq(memberId), anyList()))
+        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new BigDecimal("1000"));
 
         pay("600");
@@ -307,7 +311,8 @@ class FifoAllocationTest {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
         withCurrentChitRecords(List.of(m1));
         when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("5000"));
-        when(paymentRecordRepository.findTotalOutstandingByMemberId(eq(memberId), anyList()))
+        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new BigDecimal("1000"));
 
         pay("0.00");
@@ -330,7 +335,8 @@ class FifoAllocationTest {
         withCurrentChitRecords(List.of(a1));
         when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("3000"));
         // 1,000 in this chit + 2,000 elsewhere.
-        when(paymentRecordRepository.findTotalOutstandingByMemberId(eq(memberId), anyList()))
+        when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
+                eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new BigDecimal("3000"));
 
         pay("0.00");
@@ -376,9 +382,9 @@ class FifoAllocationTest {
         PaymentRecord a1 = outstanding(chitA, 1, "1000");
         PaymentRecord b1 = outstanding(chitB, 1, "1000");
         when(paymentRecordRepository
-                .findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
-                        eq(memberId), any(UUID.class), anyList()))
-                .thenAnswer(invocation -> invocation.getArgument(1, UUID.class).equals(chitA)
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        eq(TENANT), eq(memberId), any(UUID.class), anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(2, UUID.class).equals(chitA)
                         ? new ArrayList<>(List.of(a1)) : new ArrayList<>(List.of(b1)));
 
         payExplicit("1000", chitA, chitB);
@@ -386,7 +392,8 @@ class FifoAllocationTest {
         assertThat(a1.getAmountPaid()).isEqualByComparingTo("500");
         assertThat(b1.getAmountPaid()).isEqualByComparingTo("500");
         verify(paymentRecordRepository, never())
-                .findOutstandingAcrossOtherChitsForUpdate(any(), any(), anyList());
+                .findOutstandingAcrossOtherChitsForUpdateByTenant(
+                        anyString(), any(), any(), anyList());
         verify(memberCreditService, never()).addCredit(any(), any(), any(), any(), any(), anyString());
     }
 

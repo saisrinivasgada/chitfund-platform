@@ -8,7 +8,9 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "member_credit_balance")
+@Table(name = "member_credit_balance",
+        uniqueConstraints = @UniqueConstraint(name = "uq_credit_tenant_member",
+                columnNames = {"tenant_id", "member_id"}))
 @Data
 @Builder
 @NoArgsConstructor
@@ -19,7 +21,10 @@ public class MemberCreditBalance {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, length = 36)
+    private String tenantId;
+
+    @Column(nullable = false)
     private UUID memberId;
 
     @Column(nullable = false, precision = 15, scale = 2)

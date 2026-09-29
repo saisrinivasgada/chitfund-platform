@@ -243,8 +243,8 @@ public class SettlementService {
 
             // 1. Mark OUTSTANDING/PARTIALLY_PAID PaymentRecords as SETTLEMENT_CLEARED
             List<PaymentRecord> openRecords = paymentRecordRepository
-                    .findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                            memberId, chitId,
+                    .findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                            tenantId, memberId, chitId,
                             List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID));
             for (PaymentRecord rec : openRecords) {
                 recordEffects.add(SettlementPaymentRecordEffect.builder()
@@ -578,7 +578,8 @@ public class SettlementService {
 
         // 3. Payment records (ALL statuses)
         List<PaymentRecord> allRecords = paymentRecordRepository
-                .findByMemberIdAndChitIdOrderByMonthNumberAsc(memberId, chitId);
+                .findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                        TenantContext.get(), memberId, chitId);
 
         // Unpaid dues: sum of (amountDue - amountPaid) for OUTSTANDING / PARTIALLY_PAID
         BigDecimal unpaidDues = allRecords.stream()
@@ -631,7 +632,7 @@ public class SettlementService {
 
         // 5. Max billed month → future months
         int maxBilledMonth = chitMonthDrawRepository
-                .findByChitIdOrderByMonthNumberAsc(chitId)
+                .findByTenantIdAndChitIdOrderByMonthNumberAsc(TenantContext.get(), chitId)
                 .stream()
                 .mapToInt(d -> d.getMonthNumber())
                 .max()

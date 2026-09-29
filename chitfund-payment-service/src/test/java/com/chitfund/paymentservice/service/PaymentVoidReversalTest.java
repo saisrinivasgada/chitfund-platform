@@ -87,7 +87,7 @@ class PaymentVoidReversalTest {
         adminId = UUID.randomUUID();
         when(batchRepository.save(any(PaymentBatch.class))).thenAnswer(i -> i.getArgument(0));
         when(paymentRecordRepository.save(any(PaymentRecord.class))).thenAnswer(i -> i.getArgument(0));
-        when(allocationRepository.findByBatchId(any())).thenReturn(List.of());
+        when(allocationRepository.findByTenantIdAndBatchId(anyString(), any())).thenReturn(List.of());
         // voidPayment builds a notification and calls isBlank() on the name, so an
         // unstubbed lookup surfaces as an NPE well away from the logic under test.
         when(memberServiceClient.getMemberName(any())).thenReturn("Test Member");
@@ -120,7 +120,7 @@ class PaymentVoidReversalTest {
 
     private PaymentAllocation alloc(PaymentRecord r, String amount) {
         return PaymentAllocation.builder()
-                .id(UUID.randomUUID()).batchId(batchId)
+                .id(UUID.randomUUID()).tenantId(TENANT).batchId(batchId)
                 .paymentRecordId(r.getId()).chitId(r.getChitId()).memberId(r.getMemberId())
                 .monthNumber(r.getMonthNumber())
                 .allocatedAmount(new BigDecimal(amount))
@@ -129,7 +129,8 @@ class PaymentVoidReversalTest {
 
     private void arrange(PaymentBatch b, List<PaymentRecord> records, List<PaymentAllocation> allocs) {
         when(batchRepository.findByIdAndTenantIdForUpdate(batchId, TENANT)).thenReturn(Optional.of(b));
-        when(allocationRepository.findByBatchId(batchId)).thenReturn(new ArrayList<>(allocs));
+        when(allocationRepository.findByTenantIdAndBatchId(TENANT, batchId))
+                .thenReturn(new ArrayList<>(allocs));
         for (PaymentRecord r : records) {
             when(paymentRecordRepository.findById(r.getId())).thenReturn(Optional.of(r));
         }

@@ -9,5 +9,6 @@ import java.util.UUID;
 
 @Repository
 public interface CashRequestAuditLogRepository extends JpaRepository<CashRequestAuditLog, UUID> {
-    List<CashRequestAuditLog> findByRequestIdOrderByPerformedAtAsc(UUID requestId);
+    List<CashRequestAuditLog> findByTenantIdAndRequestIdOrderByPerformedAtAsc(
+            String tenantId, UUID requestId);
 }

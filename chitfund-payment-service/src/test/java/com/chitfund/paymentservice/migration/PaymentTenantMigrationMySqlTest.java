@@ -65,6 +65,40 @@ class PaymentTenantMigrationMySqlTest {
     }
 
     @Test
+    void auxiliaryFinancialRowsRequireTenantAndCreditIsUniqueWithinTenant() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            for (String table : java.util.List.of(
+                    "payment_allocations",
+                    "member_credit_balance",
+                    "member_credit_transactions",
+                    "cash_request_audit_logs")) {
+                try (var statement = connection.prepareStatement(
+                        "SELECT COLUMN_DEFAULT, IS_NULLABLE FROM information_schema.COLUMNS " +
+                                "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME='tenant_id'")) {
+                    statement.setString(1, table);
+                    try (var result = statement.executeQuery()) {
+                        assertThat(result.next()).as(table + " tenant column exists").isTrue();
+                        assertThat(result.getString("COLUMN_DEFAULT")).as(table + " has no default tenant").isNull();
+                        assertThat(result.getString("IS_NULLABLE")).as(table + " requires tenant").isEqualTo("NO");
+                    }
+                }
+            }
+
+            String memberId = UUID.randomUUID().toString();
+            insertCreditBalance(connection, UUID.randomUUID().toString(), "tenant-a", memberId);
+            insertCreditBalance(connection, UUID.randomUUID().toString(), "tenant-b", memberId);
+
+            assertThatThrownBy(() -> insertCreditBalance(
+                    connection, UUID.randomUUID().toString(), "tenant-a", memberId))
+                    .isInstanceOf(SQLException.class);
+        }
+    }
+
+    @Test
     void payoutCommandReceiptAllowsOnlyOneConcurrentWinnerOnRealMySql() throws Exception {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration").load().migrate();
@@ -151,6 +185,22 @@ class PaymentTenantMigrationMySqlTest {
             statement.setString(4, UUID.randomUUID().toString());
             statement.setString(5, mode);
             statement.setString(6, reference);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertCreditBalance(
+            java.sql.Connection connection,
+            String id,
+            String tenantId,
+            String memberId) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "INSERT INTO member_credit_balance " +
+                        "(id, tenant_id, member_id, balance, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, 0.00, NOW(6), NOW(6))")) {
+            statement.setString(1, id);
+            statement.setString(2, tenantId);
+            statement.setString(3, memberId);
             statement.executeUpdate();
         }
     }

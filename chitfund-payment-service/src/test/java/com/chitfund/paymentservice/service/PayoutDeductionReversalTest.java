@@ -27,6 +27,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,15 +68,17 @@ class PayoutDeductionReversalTest {
 
         UUID cashBatchId = UUID.randomUUID();
         PaymentAllocation originalCash = PaymentAllocation.builder()
-                .id(UUID.randomUUID()).batchId(cashBatchId)
+                .id(UUID.randomUUID()).tenantId(TENANT).batchId(cashBatchId)
                 .paymentRecordId(record.getId()).allocatedAmount(new BigDecimal("200"))
                 .build();
         when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId))
                 .thenReturn(List.of(record));
-        when(allocationRepository.findByPaymentRecordIdIn(List.of(record.getId())))
+        when(allocationRepository.findByTenantIdAndPaymentRecordIdIn(
+                TENANT, List.of(record.getId())))
                 .thenReturn(List.of(originalCash));
-        when(batchRepository.findAllById(any())).thenReturn(List.of(
-                PaymentBatch.builder().id(cashBatchId).status(BatchStatus.COMPLETED).build()));
+        when(batchRepository.findAllByTenantIdAndIdIn(eq(TENANT), any())).thenReturn(List.of(
+                PaymentBatch.builder().id(cashBatchId).tenantId(TENANT)
+                        .status(BatchStatus.COMPLETED).build()));
 
         service.revertPayoutDeductions(payoutId, TENANT);
 

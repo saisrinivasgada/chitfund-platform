@@ -26,6 +26,9 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
             String tenantId, com.chitfund.paymentservice.domain.enums.PaymentMode paymentMode,
             String paymentReference);
 
+    Optional<PaymentBatch> findByIdAndTenantId(UUID id, String tenantId);
+    List<PaymentBatch> findAllByTenantIdAndIdIn(String tenantId, List<UUID> ids);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id AND b.tenantId = :tenantId")
     Optional<PaymentBatch> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);

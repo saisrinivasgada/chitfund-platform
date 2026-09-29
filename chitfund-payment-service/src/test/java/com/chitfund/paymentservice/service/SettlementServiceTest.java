@@ -212,12 +212,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(p);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());  // no OUTSTANDING / PARTIALLY_PAID
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -257,12 +259,14 @@ class SettlementServiceTest {
                 record(CHIT_A_ID, 2, 10_000, 10_000, PaymentRecordStatus.SETTLED)
         );
 
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         // Has reserved slot for month 5
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(List.of(reservation(CHIT_A_ID, 5, 55_000)));
@@ -309,12 +313,14 @@ class SettlementServiceTest {
                 record(CHIT_A_ID, 3, 10_000, 10_000, PaymentRecordStatus.SETTLED)
         );
 
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList()); // no reservation
 
@@ -360,12 +366,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(p);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList()); // no OUTSTANDING
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -409,12 +417,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(p);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -468,12 +478,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chitA);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(payoutA);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(recordsA);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(drawsA);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(drawsA);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -488,12 +500,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_B_ID)).thenReturn(chitB);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_B_ID)).thenReturn(null);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_B_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_B_ID))
                 .thenReturn(recordsB);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_B_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_B_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_B_ID)).thenReturn(drawsB);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_B_ID)).thenReturn(drawsB);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_B_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -550,12 +564,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chitA);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(payoutA);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(recordsA);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(drawsA);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(drawsA);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -599,12 +615,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(p);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(allRecords);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(List.of(outstanding)); // one OUTSTANDING
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -678,12 +696,14 @@ class SettlementServiceTest {
 
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(p);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(records);
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList()))
                 .thenReturn(Collections.emptyList());
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID)).thenReturn(draws);
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID)).thenReturn(draws);
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(Collections.emptyList());
 
@@ -914,11 +934,13 @@ class SettlementServiceTest {
         ChitDto chit = chit(CHIT_A_ID, 1, 1000, false, null);
         when(chitServiceClient.getChit(CHIT_A_ID)).thenReturn(chit);
         when(payoutServiceClient.getPayoutForMemberInChit(MEMBER_ID, CHIT_A_ID)).thenReturn(null);
-        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(MEMBER_ID, CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", MEMBER_ID, CHIT_A_ID))
                 .thenReturn(List.of(record));
-        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
-                eq(MEMBER_ID), eq(CHIT_A_ID), anyList())).thenReturn(List.of(record));
-        when(chitMonthDrawRepository.findByChitIdOrderByMonthNumberAsc(CHIT_A_ID))
+        when(paymentRecordRepository.findByTenantIdAndMemberIdAndChitIdAndStatusInOrderByMonthNumberAsc(
+                eq("tenant-test"), eq(MEMBER_ID), eq(CHIT_A_ID), anyList())).thenReturn(List.of(record));
+        when(chitMonthDrawRepository.findByTenantIdAndChitIdOrderByMonthNumberAsc(
+                "tenant-test", CHIT_A_ID))
                 .thenReturn(List.of(draw(CHIT_A_ID, 1)));
         when(chitServiceClient.getReservationsForMemberInChit(CHIT_A_ID, MEMBER_ID))
                 .thenReturn(List.of());
