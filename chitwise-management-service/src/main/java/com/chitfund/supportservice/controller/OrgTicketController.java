@@ -63,7 +63,8 @@ public class OrgTicketController {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
 
-        TicketResponse ticket = ticketService.getTicket(ticketId, ctx.getTenantId(), false);
+        TicketResponse ticket = ticketService.getTicket(
+                ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx));
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 
@@ -76,7 +77,7 @@ public class OrgTicketController {
         if (!ctx.isValid()) return unauthorized();
 
         PagedResponse<TicketMessageResponse> result = ticketService.getMessages(
-                ticketId, ctx.getTenantId(), false, cursor, limit);
+                ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx), cursor, limit);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
@@ -116,8 +117,13 @@ public class OrgTicketController {
         OrgRequestContext ctx = new OrgRequestContext(httpRequest);
         if (!ctx.isValid()) return unauthorized();
 
-        ticketService.markRead(ticketId, ctx.getTenantId(), false);
+        ticketService.markRead(
+                ticketId, ctx.getTenantId(), false, ctx.getUserId(), isMember(ctx));
         return ResponseEntity.ok(Map.of("success", true));
+    }
+
+    private boolean isMember(OrgRequestContext ctx) {
+        return "MEMBER".equals(ctx.getRole());
     }
 
     private ResponseEntity<?> unauthorized() {

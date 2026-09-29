@@ -221,15 +221,19 @@ public class TicketService {
     }
 
     @Transactional(readOnly = true)
-    public TicketResponse getTicket(String ticketId, String tenantId, boolean isHub) {
-        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub);
+    public TicketResponse getTicket(String ticketId, String tenantId, boolean isHub,
+                                    String requesterId, boolean restrictToCreator) {
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, requesterId, restrictToCreator);
         return toResponse(ticket, countUnread(ticketId, isHub));
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<TicketMessageResponse> getMessages(String ticketId, String tenantId,
-                                                             boolean isHub, String cursor, int limit) {
-        findTicketSecure(ticketId, tenantId, isHub);
+                                                             boolean isHub, String requesterId,
+                                                             boolean restrictToCreator,
+                                                             String cursor, int limit) {
+        findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
 
         limit = Math.min(limit, 50);
         List<TicketMessage> messages;
@@ -259,7 +263,9 @@ public class TicketService {
     public TicketMessageResponse sendMessage(String ticketId, String tenantId, boolean isHub,
                                               String senderId, String senderName,
                                               SenderType senderType, SendMessageRequest request) {
-        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub);
+        boolean restrictToCreator = !isHub && senderType == SenderType.ORG_MEMBER;
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, senderId, restrictToCreator);
 
         if (ticket.getStatus() == TicketStatus.CLOSED || ticket.getStatus() == TicketStatus.RESOLVED) {
             throw new IllegalStateException("Cannot message on a " + ticket.getStatus().name().toLowerCase() + " ticket");
@@ -294,15 +300,10 @@ public class TicketService {
 
     @Transactional
     public void softDeleteMessage(String ticketId, String messageId, String senderId,
-                                   String tenantId, boolean isHub) {
-        softDeleteMessage(ticketId, messageId, senderId,
-                isHub ? "HUB_EMPLOYEE" : "ORG_USER", tenantId, isHub);
-    }
-
-    @Transactional
-    public void softDeleteMessage(String ticketId, String messageId, String senderId,
                                   String actorRole, String tenantId, boolean isHub) {
-        SupportTicket ticket = findTicketSecure(ticketId, tenantId, isHub);
+        boolean restrictToCreator = !isHub && "MEMBER".equals(actorRole);
+        SupportTicket ticket = findTicketSecure(
+                ticketId, tenantId, isHub, senderId, restrictToCreator);
 
         TicketMessage message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new IllegalArgumentException("Message not found"));
@@ -337,8 +338,9 @@ public class TicketService {
     }
 
     @Transactional
-    public void markRead(String ticketId, String tenantId, boolean isHub) {
-        findTicketSecure(ticketId, tenantId, isHub);
+    public void markRead(String ticketId, String tenantId, boolean isHub,
+                         String requesterId, boolean restrictToCreator) {
+        findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
         if (isHub) {
             messageRepository.markReadByHandler(ticketId);
         } else {
@@ -408,11 +410,17 @@ public class TicketService {
         return toResponse(ticket, 0);
     }
 
-    private SupportTicket findTicketSecure(String ticketId, String tenantId, boolean isHub) {
+    private SupportTicket findTicketSecure(String ticketId, String tenantId, boolean isHub,
+                                           String requesterId, boolean restrictToCreator) {
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
         if (!isHub && !java.util.Objects.equals(ticket.getTenantId(), tenantId)) {
+            throw new IllegalArgumentException("Ticket not found");
+        }
+        if (!isHub && restrictToCreator
+                && !java.util.Objects.equals(ticket.getCreatedBy(), requesterId)) {
+            // Deliberately indistinguishable from an unknown ticket to avoid identifier probing.
             throw new IllegalArgumentException("Ticket not found");
         }
         return ticket;

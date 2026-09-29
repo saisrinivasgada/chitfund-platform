@@ -66,7 +66,7 @@ public class HubTicketController {
     @GetMapping("/{ticketId}")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> getTicket(@PathVariable String ticketId) {
-        TicketResponse ticket = ticketService.getTicket(ticketId, null, true);
+        TicketResponse ticket = ticketService.getTicket(ticketId, null, true, null, false);
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 
@@ -76,7 +76,7 @@ public class HubTicketController {
                                           @RequestParam(required = false) String cursor,
                                           @RequestParam(defaultValue = "50") int limit) {
         PagedResponse<TicketMessageResponse> result = ticketService.getMessages(
-                ticketId, null, true, cursor, limit);
+                ticketId, null, true, null, false, cursor, limit);
         return ResponseEntity.ok(Map.of("success", true, "data", result));
     }
 
@@ -124,7 +124,7 @@ public class HubTicketController {
     @PutMapping("/{ticketId}/read")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'SUPPORT_AGENT')")
     public ResponseEntity<?> markRead(@PathVariable String ticketId) {
-        ticketService.markRead(ticketId, null, true);
+        ticketService.markRead(ticketId, null, true, null, false);
         return ResponseEntity.ok(Map.of("success", true));
     }
 

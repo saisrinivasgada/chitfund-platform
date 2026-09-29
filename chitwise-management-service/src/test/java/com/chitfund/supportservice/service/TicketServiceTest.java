@@ -22,6 +22,7 @@ import java.time.Year;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
@@ -116,6 +117,58 @@ class TicketServiceTest {
         verify(auditClient).log(eq("ticket-1"), eq("MESSAGE_SENT"), eq("member-1"),
                 eq("ORG_MEMBER"), org.mockito.ArgumentMatchers.isNull(), any(), any(),
                 eq("tenant-1"), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void memberCannotReadAnotherUsersTicketInTheSameTenant() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> ticketService.getTicket(
+                "ticket-1", "tenant-1", false, "member-1", true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Ticket not found");
+    }
+
+    @Test
+    void memberCannotPostToAnotherUsersTicketInTheSameTenant() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("This must not be accepted.");
+
+        assertThatThrownBy(() -> ticketService.sendMessage(
+                "ticket-1", "tenant-1", false,
+                "member-1", "Member One", SenderType.ORG_MEMBER, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Ticket not found");
+        verify(messageRepository, never()).save(any());
+    }
+
+    @Test
+    void organizationAdminCanReadAnyTicketWithinTheirTenant() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+
+        var result = ticketService.getTicket(
+                "ticket-1", "tenant-1", false, "admin-1", false);
+
+        assertThat(result.getId()).isEqualTo("ticket-1");
+    }
+
+    private SupportTicket ticket(String id, String tenantId, String createdBy) {
+        return SupportTicket.builder()
+                .id(id)
+                .ticketNumber("CW-2026-0001")
+                .type(TicketType.ACCOUNT)
+                .source(TicketSource.ORGANIZATION)
+                .tenantId(tenantId)
+                .createdBy(createdBy)
+                .createdByName("Member")
+                .subject("Account access")
+                .priority(TicketPriority.NORMAL)
+                .status(TicketStatus.OPEN)
+                .build();
     }
 
     private void stubSequence() {
