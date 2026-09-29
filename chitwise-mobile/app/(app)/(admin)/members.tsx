@@ -359,22 +359,13 @@ export default function AdminMembersScreen() {
   });
 
   const reminderMutation = useOnlineMutation({
-    mutationFn: () => sendPaymentReminder(selected!.userId ?? selected!.linkedUserId),
+    mutationFn: () => sendPaymentReminder(selected!.id),
     onSuccess: () => toast.noted('Payment reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send reminder'),
   });
 
   const whatsappMutation = useOnlineMutation({
-    mutationFn: () => {
-      const totalOutstanding = Number((memberBalance as any)?.totalBalance ?? 0);
-      return sendWhatsAppReminder({
-        userId: selected!.userId ?? selected!.linkedUserId,
-        phone: selected!.phone,
-        memberName: selected!.fullName ?? selected!.name,
-        outstandingAmount: totalOutstanding > 0 ? `₹${totalOutstanding.toLocaleString('en-IN')}` : '',
-        chitName: '',
-      });
-    },
+    mutationFn: () => sendWhatsAppReminder(selected!.id),
     onSuccess: (res: any) => toast.noted(res?.message ?? 'WhatsApp reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send WhatsApp message'),
   });

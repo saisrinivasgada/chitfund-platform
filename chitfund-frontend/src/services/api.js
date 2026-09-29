@@ -1242,13 +1242,13 @@ export const markAllNotificationsRead = async () => {
   await api.patch('/notifications/read-all');
 };
 
-export const sendPaymentReminder = async (userId) => {
-  const res = await api.post(`/notifications/reminder/${userId}`);
+export const sendPaymentReminder = async (memberId) => {
+  const res = await api.post(`/notifications/reminder/${memberId}`);
   return res.data.data;
 };
 
-export const sendWhatsAppReminder = async ({ userId, phone, memberName, outstandingAmount, chitName }) => {
-  const res = await api.post(`/notifications/whatsapp/${userId}`, { phone, memberName, outstandingAmount, chitName });
+export const sendWhatsAppReminder = async (memberId) => {
+  const res = await api.post(`/notifications/whatsapp/${memberId}`);
   return res.data;
 };
 

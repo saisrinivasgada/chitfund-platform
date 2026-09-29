@@ -2376,19 +2376,13 @@ export default function MemberDetailPage() {
   });
 
   const reminderMutation = useMutation({
-    mutationFn: () => sendPaymentReminder(member.userId),
+    mutationFn: () => sendPaymentReminder(member.id),
     onSuccess: () => toast.success('Payment reminder sent.'),
     onError: () => toast.error('Could not send reminder.'),
   });
 
   const whatsappMutation = useMutation({
-    mutationFn: () => sendWhatsAppReminder({
-      userId: member.userId,
-      phone: member.phone,
-      memberName: member.fullName ?? member.name,
-      outstandingAmount: totalOutstanding > 0 ? (hidden ? '••••••' : `₹${Number(totalOutstanding).toLocaleString('en-IN')}`) : '',
-      chitName: '',
-    }),
+    mutationFn: () => sendWhatsAppReminder(member.id),
     onSuccess: (res) => toast.success(res?.message ?? 'WhatsApp reminder sent.'),
     onError: () => toast.error('Could not send WhatsApp message.'),
   });

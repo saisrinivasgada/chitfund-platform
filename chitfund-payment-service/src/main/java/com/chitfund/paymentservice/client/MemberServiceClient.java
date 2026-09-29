@@ -138,6 +138,35 @@ public class MemberServiceClient {
         return result.getOrDefault(memberId.toString(), null);
     }
 
+    /** Resolves the authoritative reminder recipient inside the active tenant. */
+    @SuppressWarnings("unchecked")
+    public MemberNotificationContact getNotificationContact(UUID memberId) {
+        try {
+            HttpHeaders headers = buildHeaders(requireTenant());
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    memberServiceUrl + "/internal/members/" + memberId + "/notification-contact",
+                    HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+            Map<String, Object> body = response.getBody();
+            if (body == null || !memberId.toString().equals(body.get("memberId"))) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Member not found", HttpStatus.NOT_FOUND);
+            }
+            Object userId = body.get("userId");
+            return new MemberNotificationContact(
+                    memberId,
+                    userId != null ? UUID.fromString(userId.toString()) : null,
+                    string(body.get("phone")),
+                    string(body.get("phoneCountryCode")),
+                    string(body.get("fullName")));
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            log.error("member-service unavailable during notification contact lookup for member {}: {}",
+                    memberId, exception.getClass().getSimpleName());
+            throw unavailable("Member notification contact could not be verified. Please try again.", exception);
+        }
+    }
+
     /** Strict, idempotent status synchronization used by the settlement saga. */
     public void setMemberStatus(UUID memberId, String desiredStatus, String tenantId) {
         if (!"ACTIVE".equals(desiredStatus) && !"INACTIVE".equals(desiredStatus)) {
@@ -207,4 +236,11 @@ public class MemberServiceClient {
         exception.initCause(cause);
         return exception;
     }
+
+    private String string(Object value) {
+        return value != null ? value.toString() : "";
+    }
+
+    public record MemberNotificationContact(
+            UUID memberId, UUID userId, String phone, String phoneCountryCode, String fullName) { }
 }

@@ -102,4 +102,36 @@ class InternalMemberControllerTest {
         verify(memberRepository).findAllByTenantIdAndIdInAndDeletedAtIsNull(
                 tenantId, List.of(memberId));
     }
+
+    @Test
+    void notificationContactIsResolvedFromTenantMemberInsteadOfCallerInput() {
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        String tenantId = UUID.randomUUID().toString();
+        Member member = Member.builder().id(memberId).tenantId(tenantId)
+                .fullName("Tenant Member").phone("9876543210").phoneCountryCode("+91")
+                .userId(userId).hasAppAccess(true).build();
+        when(memberRepository.findByIdAndTenantId(memberId, tenantId)).thenReturn(Optional.of(member));
+
+        var response = controller.getNotificationContact(memberId, "test-key", tenantId);
+
+        assertThat(response.getBody())
+                .containsEntry("memberId", memberId.toString())
+                .containsEntry("userId", userId.toString())
+                .containsEntry("phone", "9876543210")
+                .containsEntry("fullName", "Tenant Member");
+        verify(memberRepository).findByIdAndTenantId(memberId, tenantId);
+    }
+
+    @Test
+    void notificationContactCannotCrossTenantBoundary() {
+        UUID memberId = UUID.randomUUID();
+        when(memberRepository.findByIdAndTenantId(memberId, "tenant-a"))
+                .thenReturn(Optional.empty());
+
+        var response = controller.getNotificationContact(memberId, "test-key", "tenant-a");
+
+        assertThat(response.getBody()).isEmpty();
+        verify(memberRepository, never()).findById(memberId);
+    }
 }

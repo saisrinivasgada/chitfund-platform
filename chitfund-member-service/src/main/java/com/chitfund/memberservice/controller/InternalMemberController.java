@@ -79,6 +79,37 @@ public class InternalMemberController {
     }
 
     /**
+     * Minimal, tenant-scoped recipient data for payment reminders. The caller
+     * supplies only the member profile id; phone, name and linked user identity
+     * are resolved from the owning service so a client cannot redirect a
+     * ChitWise-branded message to an arbitrary number or account.
+     */
+    @GetMapping("/{memberId}/notification-contact")
+    public ResponseEntity<Map<String, String>> getNotificationContact(
+            @PathVariable UUID memberId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
+        if (!authorized(key, tenantId)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of());
+        }
+        return memberRepository.findByIdAndTenantId(memberId, tenantId)
+                .filter(member -> member.getDeletedAt() == null)
+                .map(member -> {
+                    Map<String, String> contact = new java.util.LinkedHashMap<>();
+                    contact.put("memberId", member.getId().toString());
+                    contact.put("fullName", member.getFullName() != null ? member.getFullName() : "");
+                    contact.put("phone", member.getPhone() != null ? member.getPhone() : "");
+                    contact.put("phoneCountryCode", member.getPhoneCountryCode() != null
+                            ? member.getPhoneCountryCode() : "");
+                    if (member.getUserId() != null && member.isHasAppAccess()) {
+                        contact.put("userId", member.getUserId().toString());
+                    }
+                    return ResponseEntity.ok(contact);
+                })
+                .orElse(ResponseEntity.ok(Map.of()));
+    }
+
+    /**
      * Reverse-resolve a user-service UUID back to the member profile UUID.
      * Used by payment-service when crediting a cash request: the request stores
      * the user UUID but payment records are keyed by member profile UUID.

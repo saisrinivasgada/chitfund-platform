@@ -91,4 +91,25 @@ class MemberServiceClientTest {
 
         server.verify();
     }
+
+    @Test
+    void notificationContactIsResolvedWithTenantHeader() {
+        UUID memberId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        server.expect(requestTo("http://member.test/internal/members/" + memberId + "/notification-contact"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("X-Internal-Key", "internal-secret"))
+                .andExpect(header("X-Tenant-ID", "tenant-a"))
+                .andRespond(withSuccess("""
+                        {"memberId":"%s","userId":"%s","phone":"9876543210",
+                         "phoneCountryCode":"+91","fullName":"Tenant Member"}
+                        """.formatted(memberId, userId), MediaType.APPLICATION_JSON));
+
+        var contact = client.getNotificationContact(memberId);
+
+        assertThat(contact.userId()).isEqualTo(userId);
+        assertThat(contact.phone()).isEqualTo("9876543210");
+        assertThat(contact.fullName()).isEqualTo("Tenant Member");
+        server.verify();
+    }
 }

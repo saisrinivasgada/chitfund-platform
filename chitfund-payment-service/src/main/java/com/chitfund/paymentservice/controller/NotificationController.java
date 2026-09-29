@@ -1,14 +1,14 @@
 package com.chitfund.paymentservice.controller;
 
-import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.client.NotificationServiceClient;
-import com.chitfund.paymentservice.client.UserServiceClient;
+import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.CreateNotifRequest;
 import com.chitfund.paymentservice.dto.response.NotificationResponse;
 import com.chitfund.paymentservice.service.NotificationService;
+import com.chitfund.paymentservice.service.PaymentService;
 import com.chitfund.paymentservice.service.WhatsAppService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,7 +29,8 @@ public class NotificationController {
     private final NotificationService notificationService;
     private final WhatsAppService whatsAppService;
     private final NotificationServiceClient notificationServiceClient;
-    private final UserServiceClient userServiceClient;
+    private final MemberServiceClient memberServiceClient;
+    private final PaymentService paymentService;
 
     @Value("${app.internal-key:chitfund-internal-service-key}")
     private String internalKey;
@@ -81,59 +82,53 @@ public class NotificationController {
      * org push a notification to a member of another. Fails closed if the tenant
      * cannot be resolved, since falling open would defeat the check.
      */
-    @PostMapping("/reminder/{userId}")
-    @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_MANAGER')")
-    public ResponseEntity<ApiResponse<Void>> sendReminder(@PathVariable UUID userId,
+    @PostMapping("/reminder/{memberId}")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
+    public ResponseEntity<ApiResponse<Void>> sendReminder(@PathVariable UUID memberId,
                                                           @RequestBody(required = false) Map<String, String> body) {
-        String callerTenant = TenantContext.get();
-        String targetTenant = userServiceClient.getUserTenantId(userId);
-        if (callerTenant == null || callerTenant.isBlank()
-                || targetTenant == null || targetTenant.isBlank()
-                || !callerTenant.equals(targetTenant)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN,
-                    "That user is not in your organisation.");
+        MemberServiceClient.MemberNotificationContact contact =
+                memberServiceClient.getNotificationContact(memberId);
+        if (contact.userId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "This member has not activated ChitWise app access.");
         }
         String msg = (body != null)
                 ? body.getOrDefault("message", "You have outstanding payments. Please clear your dues.")
                 : "You have outstanding payments. Please clear your dues.";
-        notificationService.notifyUser(userId,
+        if (msg.isBlank() || msg.length() > 500) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Reminder message must contain 1 to 500 characters.");
+        }
+        notificationService.notifyUser(contact.userId(),
                 com.chitfund.paymentservice.domain.enums.NotificationType.PAYMENT_REMINDER,
                 "Payment Reminder",
                 msg,
                 null, null, "/member");
         // In-app bell + Expo push notification to the member's device
-        notificationServiceClient.createInApp(userId, "Payment Reminder", msg, "PAYMENT_REMINDER", "/member");
-        notificationServiceClient.sendPushWithData(userId, "Payment Reminder", msg, Map.of("screen", "reminders"));
+        notificationServiceClient.createInApp(contact.userId(), "Payment Reminder", msg, "PAYMENT_REMINDER", "/member");
+        notificationServiceClient.sendPushWithData(contact.userId(), "Payment Reminder", msg,
+                Map.of("screen", "reminders"));
         return ResponseEntity.ok(ApiResponse.success(null, "Reminder sent"));
     }
 
     /**
      * Admin sends a WhatsApp message to a member.
-     * Body: { phone, memberName, outstandingAmount, chitName }
-     * The member's phone is passed by the frontend (which already has member data loaded).
-     * This avoids a cross-service DB call just to fetch a phone number.
-     *
-     * INTERVIEW: "Why pass phone from frontend instead of looking it up in backend?"
-     * payment-service doesn't own member data. Calling user-service synchronously adds
-     * latency and a failure point for what is a best-effort notification. The admin
-     * is already on the member's detail page — the phone is already on screen.
-     *
-     * <p>Before enabling WhatsApp in production (whatsapp.enabled is false today,
-     * so this is currently inert): the recipient comes from the request body, so
-     * the path userId does not constrain who is messaged and tenant-scoping it —
-     * as sendReminder does — would not help. An admin could message any number,
-     * at per-message cost. Verifying the phone against the member record would
-     * close that, at the price of the cross-service call this comment avoids.
+     * The client supplies only a tenant member profile id. Recipient, display name
+     * and outstanding amount are resolved server-side from their owning services;
+     * request-body overrides are deliberately ignored.
      */
-    @PostMapping("/whatsapp/{userId}")
+    @PostMapping("/whatsapp/{memberId}")
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendWhatsApp(
-            @PathVariable UUID userId,
-            @RequestBody Map<String, String> body) {
-        String phone = body.get("phone");
-        String memberName = body.getOrDefault("memberName", "Member");
-        String amount = body.getOrDefault("outstandingAmount", "");
-        String chitName = body.getOrDefault("chitName", "");
+            @PathVariable UUID memberId,
+            Authentication authentication) {
+        MemberServiceClient.MemberNotificationContact contact =
+                memberServiceClient.getNotificationContact(memberId);
+        String phone = contact.phone();
+        String memberName = contact.fullName().isBlank() ? "Member" : contact.fullName();
+        java.math.BigDecimal outstanding = paymentService.getMemberTotalBalance(memberId);
+        String amount = outstanding != null && outstanding.signum() > 0
+                ? "₹" + outstanding.stripTrailingZeros().toPlainString() : "";
 
         if (phone == null || phone.isBlank()) {
             return ResponseEntity.badRequest()
@@ -142,13 +137,14 @@ public class NotificationController {
 
         boolean sent = amount.isBlank()
                 ? whatsAppService.sendText(phone, "Hi " + memberName + ", this is a reminder from your chit fund admin.")
-                : whatsAppService.sendPaymentReminder(phone, memberName, amount, chitName.isBlank() ? "your chit" : chitName);
+                : whatsAppService.sendPaymentReminder(phone, memberName, amount, "your ChitWise account");
 
-        // Also create an in-app notification so the admin knows it was triggered
-        notificationService.notifyUser(userId,
+        // Confirm the attempt to the actor, not the member being contacted.
+        notificationService.notifyUser((UUID) authentication.getPrincipal(),
                 com.chitfund.paymentservice.domain.enums.NotificationType.PAYMENT_REMINDER,
                 "WhatsApp Reminder Sent",
-                "A WhatsApp payment reminder was sent to " + memberName + (sent ? "" : " (delivery pending — check WhatsApp config)"),
+                "A WhatsApp payment reminder was requested for " + memberName
+                        + (sent ? "" : " (delivery pending — check WhatsApp config)"),
                 null, null, "/member");
 
         return ResponseEntity.ok(ApiResponse.success(

@@ -387,10 +387,10 @@ export const getUserById = async (userId: string) =>
   unwrapObj(await api.get(`/users/${userId}`));
 export const resendSetupLink = async (userId: string) =>
   unwrapObj(await api.post(`/users/${userId}/resend-setup-link`));
-export const sendPaymentReminder = async (userId: string) =>
-  unwrapObj(await api.post(`/notifications/reminder/${userId}`));
-export const sendWhatsAppReminder = async (body: { userId: string; phone?: string; memberName?: string; outstandingAmount?: string; chitName?: string }) =>
-  (await api.post(`/notifications/whatsapp/${body.userId}`, body)).data;
+export const sendPaymentReminder = async (memberId: string) =>
+  unwrapObj(await api.post(`/notifications/reminder/${memberId}`));
+export const sendWhatsAppReminder = async (memberId: string) =>
+  (await api.post(`/notifications/whatsapp/${memberId}`)).data;
 
 // ── Members ───────────────────────────────────────────────────────────────────
 export const getMembers = async (params: any = {}) =>
