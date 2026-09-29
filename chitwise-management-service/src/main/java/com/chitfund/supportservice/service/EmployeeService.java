@@ -23,8 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -115,7 +113,7 @@ public class EmployeeService {
         employee = employeeRepository.save(employee);
 
         log.info("Employee invite created for email=[{}]", req.getEmail());
-        sendInvitationAfterCommit(employee, rawToken);
+        queueInvitation(employee, rawToken);
         return toResponse(employee);
     }
 
@@ -130,7 +128,7 @@ public class EmployeeService {
         employee.setInviteToken(sha256Hex(rawToken));
         employee.setInviteExpiresAt(Instant.now().plusSeconds(7 * 24 * 3600));
         employeeRepository.save(employee);
-        sendInvitationAfterCommit(employee, rawToken);
+        queueInvitation(employee, rawToken);
         return toResponse(employee);
     }
 
@@ -358,25 +356,9 @@ public class EmployeeService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private void sendInvitationAfterCommit(Employee employee, String rawToken) {
-        Runnable send = () -> {
-            try {
-                invitationMailer.sendInvitation(employee.getEmail(), employee.getFullName(), rawToken);
-            } catch (RuntimeException ex) {
-                log.error("Employee invitation email failed for email=[{}]", employee.getEmail());
-            }
-        };
-
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    send.run();
-                }
-            });
-        } else {
-            send.run();
-        }
+    private void queueInvitation(Employee employee, String rawToken) {
+        // The email outbox row and token hash commit or roll back together.
+        invitationMailer.sendInvitation(employee.getEmail(), employee.getFullName(), rawToken);
     }
 
     public EmployeeMeResponse getMe(String employeeId) {

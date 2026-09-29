@@ -90,7 +90,8 @@ public class DurableEventOutbox {
                 UPDATE domain_event_outbox
                 SET status='PUBLISHED', published_at=UTC_TIMESTAMP(6),
                     lease_token=NULL, claimed_until=NULL,
-                    last_error_code=NULL, last_error=NULL
+                    last_error_code=NULL, last_error=NULL,
+                    payload=JSON_OBJECT()
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
                 """, delivery.deliveryId(), delivery.leaseToken()) == 1;
     }

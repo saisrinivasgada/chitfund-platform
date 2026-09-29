@@ -2,6 +2,8 @@ package com.chitfund.supportservice.config;
 
 import com.chitfund.common.outbox.DurableAuditOutbox;
 import com.chitfund.common.outbox.DurableAuditOutboxRelay;
+import com.chitfund.common.outbox.DurableEventOutbox;
+import com.chitfund.common.outbox.DurableEventOutboxRelay;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.awspring.cloud.sqs.operations.SqsTemplate;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -28,6 +30,22 @@ public class AuditOutboxConfiguration {
             @Value("${chitwise.audit-outbox.max-attempts:10}") int maxAttempts,
             @Value("${chitwise.audit-outbox.lease-duration:PT30S}") Duration leaseDuration) {
         return new DurableAuditOutboxRelay(store, sqsTemplate, objectMapper, meterRegistry,
+                "management-service", batchSize, maxAttempts, leaseDuration);
+    }
+
+    @Bean
+    DurableEventOutbox durableEventOutbox(JdbcTemplate jdbcTemplate) {
+        return new DurableEventOutbox(jdbcTemplate);
+    }
+
+    @Bean
+    DurableEventOutboxRelay durableEventOutboxRelay(
+            DurableEventOutbox store, SqsTemplate sqsTemplate, ObjectMapper objectMapper,
+            MeterRegistry meterRegistry,
+            @Value("${chitwise.event-outbox.batch-size:100}") int batchSize,
+            @Value("${chitwise.event-outbox.max-attempts:10}") int maxAttempts,
+            @Value("${chitwise.event-outbox.lease-duration:PT30S}") Duration leaseDuration) {
+        return new DurableEventOutboxRelay(store, sqsTemplate, objectMapper, meterRegistry,
                 "management-service", batchSize, maxAttempts, leaseDuration);
     }
 }

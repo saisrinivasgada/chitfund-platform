@@ -1,10 +1,9 @@
 package com.chitfund.supportservice.service;
 
-import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
 import com.chitfund.common.event.TransactionalEmailEvent;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,7 +26,7 @@ public class EmployeeInvitationMailer {
         "stroke=\"white\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"none\"/>" +
         "</svg>";
 
-    private final SqsTemplate sqsTemplate;
+    private final DurableEventOutbox eventOutbox;
     private final ObjectMapper objectMapper;
 
     @org.springframework.beans.factory.annotation.Value("${app.hub-url}")
@@ -59,14 +58,13 @@ public class EmployeeInvitationMailer {
         try {
             String payloadJson = objectMapper.writeValueAsString(
                     new TransactionalEmailEvent(email, subject, html, text));
-            String envelopeJson = objectMapper.writeValueAsString(
-                    new SqsEventEnvelope(UUID.randomUUID().toString(),
-                            SqsQueues.EVT_TRANSACTIONAL_EMAIL, payloadJson));
-            sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelopeJson);
-            log.info("Hub invite email queued for {}", email);
+            eventOutbox.enqueue(UUID.randomUUID().toString(), SqsQueues.EVT_TRANSACTIONAL_EMAIL,
+                    payloadJson, SqsQueues.NOTIFICATION_EVENTS);
+            log.info("Hub invite email persisted for delivery to {}", email);
         } catch (Exception e) {
-            log.error("Failed to queue hub invite email for {}: {}", email, e.getMessage());
-            throw new RuntimeException("Failed to send invitation email. Please try again.");
+            log.error("Failed to persist Hub invite email for {}: {}",
+                    email, e.getClass().getSimpleName());
+            throw new IllegalStateException("Failed to persist invitation email", e);
         }
     }
 

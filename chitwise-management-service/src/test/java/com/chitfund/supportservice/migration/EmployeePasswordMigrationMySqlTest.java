@@ -1,7 +1,13 @@
 package com.chitfund.supportservice.migration;
 
+import com.chitfund.common.outbox.DurableEventOutbox;
+import com.chitfund.common.outbox.EventOutboxDelivery;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -78,6 +84,52 @@ class EmployeePasswordMigrationMySqlTest {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getInt(1)).isEqualTo(5);
             }
+
+            try (var statement = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.columns " +
+                            "WHERE table_schema = DATABASE() AND table_name = 'domain_event_outbox' " +
+                            "AND column_name IN ('delivery_id', 'event_id', 'event_type', 'lease_token', 'claimed_until')");
+                 var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getInt(1)).isEqualTo(5);
+            }
         }
+    }
+
+    @Test
+    void invitationEmailOutboxCommitsAndRollsBackWithEmployeeTransaction() {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var outbox = new DurableEventOutbox(jdbc);
+        jdbc.update("DELETE FROM domain_event_outbox");
+
+        transactions.executeWithoutResult(status -> {
+            outbox.enqueue("rolled-back", "TRANSACTIONAL_EMAIL",
+                    "{\"toEmail\":\"employee@example.test\"}", "notification-events");
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isZero();
+
+        transactions.executeWithoutResult(status -> outbox.enqueue(
+                "committed", "TRANSACTIONAL_EMAIL",
+                "{\"toEmail\":\"employee@example.test\"}", "notification-events"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isEqualTo(1L);
+
+        String deliveryId = jdbc.queryForObject(
+                "SELECT delivery_id FROM domain_event_outbox WHERE event_id='committed'", String.class);
+        jdbc.update("UPDATE domain_event_outbox SET status='IN_FLIGHT', lease_token='lease' " +
+                "WHERE delivery_id=?", deliveryId);
+        assertThat(outbox.markPublished(new EventOutboxDelivery(
+                deliveryId, "committed", "TRANSACTIONAL_EMAIL", "notification-events",
+                "{\"toEmail\":\"employee@example.test\"}", 0, "lease"))).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT JSON_LENGTH(payload) FROM domain_event_outbox WHERE delivery_id=?",
+                Integer.class, deliveryId)).isZero();
     }
 }
