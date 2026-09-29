@@ -38,12 +38,14 @@ public class PayoutController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PayoutResponse>> createPayout(
             @Valid @RequestBody CreatePayoutRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         String role = auth.getAuthorities().stream().findFirst()
                 .map(a -> a.getAuthority().replace("ROLE_", "")).orElse("ADMIN");
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(payoutService.createPayout(request, adminId, role)));
+                .body(ApiResponse.success(
+                        payoutService.createPayout(request, adminId, role, idempotencyKey)));
     }
 
     /**
@@ -125,7 +127,7 @@ public class PayoutController {
     public ResponseEntity<ApiResponse<PayoutResponse>> disburse(
             @PathVariable UUID id,
             @Valid @RequestBody DisburseRequest request,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(

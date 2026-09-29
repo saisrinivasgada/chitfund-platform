@@ -1,7 +1,12 @@
 package com.chitfund.payoutservice.migration;
 
+import com.chitfund.payoutservice.service.PayoutCreationIdempotencyStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -12,6 +17,11 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -118,6 +128,96 @@ class PayoutIdempotencyMigrationMySqlTest {
             // A historical voided payout does not consume the active slot.
             insertScopedPayout(connection, "tenant-a", chit, memberA, 5, "VOIDED");
             insertScopedPayout(connection, "tenant-a", chit, memberA, 5, "PENDING");
+        }
+    }
+
+    @Test
+    void concurrentCreationWithSameKeyReturnsTheCommittedResultOnRealMySql() throws Exception {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        PayoutCreationIdempotencyStore store = new PayoutCreationIdempotencyStore(
+                new JdbcTemplate(dataSource));
+        TransactionTemplate transaction = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        String tenant = UUID.randomUUID().toString();
+        String key = UUID.randomUUID().toString();
+        String hash = "b".repeat(64);
+        UUID payoutId = UUID.randomUUID();
+        CountDownLatch firstHasLock = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> transaction.executeWithoutResult(ignored -> {
+                assertThat(store.claim(tenant, key, hash)).isEmpty();
+                firstHasLock.countDown();
+                await(releaseFirst);
+                store.complete(tenant, key, hash, payoutId);
+            }));
+            if (!firstHasLock.await(20, TimeUnit.SECONDS)) {
+                releaseFirst.countDown();
+                first.get(20, TimeUnit.SECONDS);
+                throw new AssertionError("First payout request did not acquire its idempotency row");
+            }
+
+            var retry = executor.submit(() -> transaction.execute(ignored -> {
+                secondStarted.countDown();
+                return store.claim(tenant, key, hash);
+            }));
+            assertThat(secondStarted.await(20, TimeUnit.SECONDS)).isTrue();
+            releaseFirst.countDown();
+
+            first.get(20, TimeUnit.SECONDS);
+            assertThat(retry.get(20, TimeUnit.SECONDS)).contains(payoutId);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        TransactionTemplate verify = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        Optional<UUID> verified = verify.execute(ignored -> store.claim(tenant, key, hash));
+        assertThat(verified).contains(payoutId);
+    }
+
+    @Test
+    void creationKeyIsTenantScopedAndRejectsDifferentPayloadOnRealMySql() {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        PayoutCreationIdempotencyStore store = new PayoutCreationIdempotencyStore(
+                new JdbcTemplate(dataSource));
+        TransactionTemplate transaction = new TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        String key = UUID.randomUUID().toString();
+        String hash = "c".repeat(64);
+
+        transaction.executeWithoutResult(ignored -> {
+            assertThat(store.claim("tenant-a", key, hash)).isEmpty();
+            store.complete("tenant-a", key, hash, UUID.randomUUID());
+        });
+        transaction.executeWithoutResult(ignored ->
+                assertThat(store.claim("tenant-b", key, hash)).isEmpty());
+        assertThatThrownBy(() -> transaction.executeWithoutResult(ignored ->
+                store.claim("tenant-a", key, "d".repeat(64))))
+                .hasMessageContaining("different payout details");
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(20, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for concurrent payout request");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while testing payout concurrency", exception);
         }
     }
 

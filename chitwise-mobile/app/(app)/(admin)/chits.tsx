@@ -224,6 +224,7 @@ export default function AdminChitsScreen() {
   const [wpWinner, setWpWinner] = useState<any>(null);
   const [wpAmount, setWpAmount] = useState('');
   const [wpNotes, setWpNotes] = useState('');
+  const [wpIdempotencyKey, setWpIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // ── Disburse Payout ────────────────────────────────────────────────────────
   const [showDisburse, setShowDisburse] = useState(false);
@@ -812,6 +813,7 @@ export default function AdminChitsScreen() {
   // Payout from winner tab
   const winnerPayoutMut = useOnlineMutation({
     mutationFn: () => createPayout({
+      idempotencyKey: wpIdempotencyKey,
       memberId: wpWinner?.memberId ?? wpWinner?.winnerId,
       chitId: selected?.id,
       monthNumber: wpWinner?.monthNumber ?? wpWinner?.drawNumber,
@@ -820,6 +822,7 @@ export default function AdminChitsScreen() {
       notes: wpNotes || undefined,
     }),
     onSuccess: () => {
+      setWpIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['a-chit-payouts', selected?.id] });
       setShowWinnerPayout(false); setWpWinner(null); setWpAmount(''); setWpNotes('');
       toast.created('Payout created — go to Finance → Payouts to disburse');

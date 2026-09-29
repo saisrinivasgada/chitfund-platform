@@ -57,6 +57,7 @@ export default function PayoutCreationForm({
   const [installmentOverride, setInstallmentOverride] = useState('');
   const [crossChitCollect,    setCrossChitCollect]    = useState({});
   const [sameChitOtherCollect, setSameChitOtherCollect] = useState({});
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   // All chits this member is enrolled in
   const { data: memberChits = [] } = useQuery({
@@ -177,6 +178,7 @@ export default function PayoutCreationForm({
       ].sort((a, b) => a.month - b.month);
 
       return createPayout({
+        idempotencyKey,
         chitId,
         memberId,
         monthNumber,
@@ -192,6 +194,7 @@ export default function PayoutCreationForm({
       });
     },
     onSuccess: (payout) => {
+      setIdempotencyKey(crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['memberBalancesAllChits', memberId] });
       const anySettlement = currentMonthDed > 0 || crossDed > 0 || sameChitDed > 0;
       const msg = anySettlement

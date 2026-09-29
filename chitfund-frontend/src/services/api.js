@@ -1090,8 +1090,10 @@ export const getTodaysChitActivity = async () => {
 };
 
 // ─── Payouts (payout-service, strip /api) ─────────────────────────────────
-export const createPayout = async (body) => {
-  const res = await api.post('/payouts', body);
+export const createPayout = async ({ idempotencyKey, ...body }) => {
+  const res = await api.post('/payouts', body, {
+    headers: { 'X-Idempotency-Key': idempotencyKey },
+  });
   return res.data.data;
 };
 

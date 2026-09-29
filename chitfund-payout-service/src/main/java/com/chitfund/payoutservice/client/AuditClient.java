@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 
 @Component
 @RequiredArgsConstructor
@@ -21,6 +22,14 @@ public class AuditClient {
     public void log(String entityType, String entityId, String chitId,
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId) {
+        log(entityType, entityId, chitId, action, actorId, actorRole,
+                before, after, tenantId, null);
+    }
+
+    public void log(String entityType, String entityId, String chitId,
+                    String action, String actorId, String actorRole,
+                    Object before, Object after, String tenantId,
+                    String idempotencyKey) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
                     "A payout audit event must be recorded inside the business transaction");
@@ -30,7 +39,8 @@ public class AuditClient {
                     action, actorId, actorRole, null,
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId);
+                    null, tenantId, null, idempotencyKey, null, "SUCCESS", null,
+                    null, null, null, Instant.now(), null, null);
             outboxStore.enqueue(UUID.randomUUID().toString(), tenantId, entityType, entityId,
                     SqsQueues.EVT_AUDIT_LOG, objectMapper.writeValueAsString(event),
                     List.of(SqsQueues.AUDIT_EVENTS));

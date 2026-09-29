@@ -47,6 +47,26 @@ class AuditClientTest {
         assertThat(event.action()).isEqualTo("PAYOUT_DISBURSED");
         assertThat(event.beforeState()).contains("PENDING");
         assertThat(event.afterState()).contains("DISBURSED");
+        assertThat(event.outcome()).isEqualTo("SUCCESS");
+    }
+
+    @Test
+    void carriesFinancialIdempotencyKeyIntoTheAuditEvent() throws Exception {
+        PayoutOutboxStore store = mock(PayoutOutboxStore.class);
+        ObjectMapper mapper = new ObjectMapper();
+        AuditClient client = new AuditClient(store, mapper);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        client.log("PAYOUT", "payout-1", "chit-1", "PAYOUT_CREATED",
+                "admin-1", "ADMIN", null, Map.of("status", "PENDING"),
+                "tenant-1", "create-key-1");
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(store).enqueue(anyString(), eq("tenant-1"), eq("PAYOUT"), eq("payout-1"),
+                eq(SqsQueues.EVT_AUDIT_LOG), payload.capture(),
+                eq(List.of(SqsQueues.AUDIT_EVENTS)));
+        AuditLogEvent event = mapper.readValue(payload.getValue(), AuditLogEvent.class);
+        assertThat(event.idempotencyKey()).isEqualTo("create-key-1");
     }
 
     @Test

@@ -128,6 +128,7 @@ export default function ManagerChitsScreen() {
   const [showPayout, setShowPayout] = useState(false);
   const [payoutWinner, setPayoutWinner] = useState<any>(null);
   const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutIdempotencyKey, setPayoutIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const [showDisburse, setShowDisburse] = useState(false);
   const [disbursePay, setDisbursePay] = useState<any>(null);
@@ -324,6 +325,7 @@ export default function ManagerChitsScreen() {
 
   const payoutMut = useMutation({
     mutationFn: () => createPayout({
+      idempotencyKey: payoutIdempotencyKey,
       memberId: payoutWinner.memberId ?? payoutWinner.winnerId,
       chitId: selected.id,
       monthNumber: payoutWinner.monthNumber ?? payoutWinner.drawNumber,
@@ -332,6 +334,7 @@ export default function ManagerChitsScreen() {
       notes: null,
     }),
     onSuccess: () => {
+      setPayoutIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-chit-payouts', selected.id] });
       setShowPayout(false); setPayoutWinner(null); setPayoutAmount('');
       toast.saved('Payout created');

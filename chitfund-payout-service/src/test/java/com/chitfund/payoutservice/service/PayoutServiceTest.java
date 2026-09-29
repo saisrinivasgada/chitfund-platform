@@ -64,6 +64,7 @@ class PayoutServiceTest {
     @Mock AuditClient auditClient;
     @Mock PayoutFinancialCommandStore financialCommandStore;
     @Mock PayoutFinancialCommandRepository financialCommandRepository;
+    @Mock PayoutCreationIdempotencyStore creationIdempotencyStore;
     @InjectMocks PayoutService payoutService;
 
     UUID adminId;
@@ -86,6 +87,8 @@ class PayoutServiceTest {
         winner.setWinningAmount(bd(50_000));
         lenient().when(chitServiceClient.getWinnerForPayout(
                 chitId, 1, memberId, "test-tenant-id")).thenReturn(winner);
+        lenient().when(creationIdempotencyStore.claim(anyString(), anyString(), anyString()))
+                .thenReturn(Optional.empty());
     }
 
     @AfterEach
@@ -163,11 +166,44 @@ class PayoutServiceTest {
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
 
-            payoutService.createPayout(createRequest(bd(50_000), bd(5_000)), adminId, "test-tenant-id");
+            payoutService.createPayout(createRequest(bd(50_000), bd(5_000)), adminId,
+                    "test-tenant-id", "create-key");
 
             Payout p = saved.getValue();
             assertThat(p.getNetPayoutAmount()).isEqualByComparingTo(bd(45_000));
             assertThat(p.getStatus()).isNull(); // @PrePersist sets it; not called in unit test
+            verify(creationIdempotencyStore).complete(
+                    eq("test-tenant-id"), eq("create-key"), anyString(), eq(payoutId));
+        }
+
+        @Test
+        @DisplayName("same creation key and request returns the original payout")
+        void sameCreationKeyReturnsOriginalResult() {
+            Payout prior = pendingPayout(bd(45_000));
+            when(creationIdempotencyStore.claim(
+                    eq("test-tenant-id"), eq("same-key"), anyString()))
+                    .thenReturn(Optional.of(payoutId));
+            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id"))
+                    .thenReturn(Optional.of(prior));
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(payoutId))
+                    .thenReturn(Collections.emptyList());
+
+            PayoutResponse response = payoutService.createPayout(
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN", "same-key");
+
+            assertThat(response.getId()).isEqualTo(payoutId);
+            verifyNoInteractions(chitServiceClient, eventPublisher, financialCommandStore);
+            verify(payoutRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("creation requires an idempotency key")
+        void creationRequiresIdempotencyKey() {
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN", " "))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("required for payout creation");
+            verifyNoInteractions(creationIdempotencyStore, payoutRepository);
         }
 
         @Test
@@ -177,7 +213,8 @@ class PayoutServiceTest {
                     .thenReturn(true);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(5_000));
-            assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    req, adminId, "test-tenant-id", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("active payout already exists");
         }
@@ -189,7 +226,8 @@ class PayoutServiceTest {
                     .thenReturn(false);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(50_000)); // equal
-            assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    req, adminId, "test-tenant-id", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Discount amount cannot be equal to or greater than");
         }
@@ -201,7 +239,8 @@ class PayoutServiceTest {
                     .thenReturn(false);
 
             CreatePayoutRequest req = createRequest(bd(50_000), bd(60_000)); // discount > winning
-            assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    req, adminId, "test-tenant-id", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Discount amount cannot be equal to or greater than");
         }
@@ -237,7 +276,7 @@ class PayoutServiceTest {
             cross.setAmount(bd(1_500));
             request.setCrossChitDeductions(List.of(cross));
 
-            payoutService.createPayout(request, adminId, "ADMIN");
+            payoutService.createPayout(request, adminId, "ADMIN", "create-key");
 
             ArgumentCaptor<PayoutFinancialCommand> commands =
                     ArgumentCaptor.forClass(PayoutFinancialCommand.class);
@@ -261,7 +300,8 @@ class PayoutServiceTest {
             CreatePayoutRequest request = createRequest(bd(50_000), bd(5_000));
             request.setManualAdjustment(bd(4_999));
 
-            assertThatThrownBy(() -> payoutService.createPayout(request, adminId, "ADMIN"))
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    request, adminId, "ADMIN", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("must equal the total withheld amount");
             verify(payoutRepository, never()).save(any());
@@ -276,7 +316,7 @@ class PayoutServiceTest {
                     .thenReturn(missing);
 
             assertThatThrownBy(() -> payoutService.createPayout(
-                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN"))
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("No recorded winner");
             verifyNoInteractions(payoutRepository);
@@ -287,7 +327,8 @@ class PayoutServiceTest {
         void rejectsForgedWinningAmount() {
             CreatePayoutRequest request = createRequest(bd(90_000), bd(5_000));
 
-            assertThatThrownBy(() -> payoutService.createPayout(request, adminId, "ADMIN"))
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    request, adminId, "ADMIN", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("does not match the recorded draw result");
             verifyNoInteractions(payoutRepository);
@@ -302,7 +343,7 @@ class PayoutServiceTest {
                     .thenReturn(duplicate);
 
             assertThatThrownBy(() -> payoutService.createPayout(
-                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN"))
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN", "create-key"))
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Multiple winner records");
             verifyNoInteractions(payoutRepository);
@@ -788,7 +829,8 @@ class PayoutServiceTest {
 
             // Should succeed — no active duplicate
             assertThatNoException().isThrownBy(() ->
-                    payoutService.createPayout(createRequest(bd(50_000), bd(5_000)), adminId, "test-tenant-id"));
+                    payoutService.createPayout(createRequest(bd(50_000), bd(5_000)), adminId,
+                            "test-tenant-id", "create-key"));
         }
 
         @Test

@@ -1471,6 +1471,7 @@ function PayoutsTab() {
   const [cpSameChitOtherCollect, setCpSameChitOtherCollect] = useState<Record<string, { enabled: boolean; amount: string }>>({});
   const [cpDiscount, setCpDiscount] = useState('0');
   const [cpNotes, setCpNotes] = useState('');
+  const [cpIdempotencyKey, setCpIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // ── Disburse state ────────────────────────────────────────────────────────
   const [disburseTarget, setDisburseTarget] = useState<any>(null);
@@ -1656,6 +1657,7 @@ function PayoutsTab() {
           .map(([mNum, v]) => ({ month: Number(mNum), amount: Number(v.amount) })),
       ].sort((a, b) => a.month - b.month);
       return createPayout({
+        idempotencyKey: cpIdempotencyKey,
         chitId: cpChitId,
         memberId: mid,
         monthNumber: selectedWinner.monthNumber,
@@ -1673,6 +1675,7 @@ function PayoutsTab() {
       });
     },
     onSuccess: () => {
+      setCpIdempotencyKey(Crypto.randomUUID());
       qc.invalidateQueries({ queryKey: ['m-payouts-pending'] });
       qc.invalidateQueries({ queryKey: ['m-payouts-all'] });
       qc.invalidateQueries({ queryKey: ['m-cp-all-payouts'] });

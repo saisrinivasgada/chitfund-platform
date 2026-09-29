@@ -50,6 +50,7 @@ public class PayoutService {
     private final com.chitfund.payoutservice.client.AuditClient auditClient;
     private final PayoutFinancialCommandStore financialCommandStore;
     private final PayoutFinancialCommandRepository financialCommandRepository;
+    private final PayoutCreationIdempotencyStore creationIdempotencyStore;
 
     /**
      * Admin registers a payout obligation after the winner is announced in chit-service.
@@ -61,9 +62,27 @@ public class PayoutService {
      * a Kafka consumer, called automatically. For now, admin calls it manually.
      */
     @Transactional
-    public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId, String actorRole) {
+    public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId, String actorRole,
+                                       String rawIdempotencyKey) {
+        String currentTenant = tenantId();
+        String idempotencyKey = normalizeRequiredIdempotencyKey(
+                rawIdempotencyKey, "payout creation");
+        String requestHash = PayoutIdempotencyFingerprint.forCreation(request);
+        var priorPayoutId = creationIdempotencyStore.claim(
+                currentTenant, idempotencyKey, requestHash);
+        if (priorPayoutId.isPresent()) {
+            Payout prior = payoutRepository.findByIdAndTenantId(
+                            priorPayoutId.get(), currentTenant)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+                            "The prior payout result could not be loaded",
+                            HttpStatus.SERVICE_UNAVAILABLE));
+            log.info("Idempotent payout creation retry detected for payout={} key={}",
+                    prior.getId(), idempotencyKey);
+            return toResponse(prior);
+        }
+
         ChitServiceClient.WinnerDto winner = chitServiceClient.getWinnerForPayout(
-                request.getChitId(), request.getMonthNumber(), request.getMemberId(), tenantId());
+                request.getChitId(), request.getMonthNumber(), request.getMemberId(), currentTenant);
         if (winner.getWinnerCount() == 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "No recorded winner exists for this member, chit, and draw");
@@ -77,7 +96,7 @@ public class PayoutService {
                     "Winning amount does not match the recorded draw result");
         }
         if (payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
-                tenantId(), request.getChitId(), request.getMonthNumber(), request.getMemberId(),
+                currentTenant, request.getChitId(), request.getMonthNumber(), request.getMemberId(),
                 List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))) {
             throw new BusinessException(ErrorCode.PAYOUT_ALREADY_EXISTS,
                     "An active payout already exists for this member in chit " + request.getChitId()
@@ -96,7 +115,7 @@ public class PayoutService {
 
         BigDecimal zero = BigDecimal.ZERO;
         Payout payout = Payout.builder()
-                .tenantId(tenantId())
+                .tenantId(currentTenant)
                 .chitId(request.getChitId())
                 .memberId(request.getMemberId())
                 .monthNumber(request.getMonthNumber())
@@ -118,6 +137,8 @@ public class PayoutService {
                 .build();
 
         payoutRepository.save(payout);
+        creationIdempotencyStore.complete(
+                currentTenant, idempotencyKey, requestHash, payout.getId());
         log.info("Payout created for member {} — chit {} month {} — net ₹{}",
                 request.getMemberId(), request.getChitId(), request.getMonthNumber(), netAmount);
 
@@ -127,7 +148,7 @@ public class PayoutService {
         List<InstallmentMonthBreakdownDto> installmentDeductions = resolvedInstallmentDeductions(request);
         for (InstallmentMonthBreakdownDto deduction : installmentDeductions) {
             queueFinancialCommand(PayoutFinancialCommand.builder()
-                    .tenantId(tenantId())
+                    .tenantId(currentTenant)
                     .actorId(adminId)
                     .payoutId(payout.getId())
                     .dedupeKey(payout.getId() + ":INSTALLMENT_DEDUCTION:" + deduction.getMonth())
@@ -142,7 +163,7 @@ public class PayoutService {
             int deductionIndex = 0;
             for (var deduction : request.getCrossChitDeductions()) {
                 queueFinancialCommand(PayoutFinancialCommand.builder()
-                        .tenantId(tenantId())
+                        .tenantId(currentTenant)
                         .actorId(adminId)
                         .payoutId(payout.getId())
                         .dedupeKey(payout.getId() + ":CROSS_DEDUCTION:" + deductionIndex++)
@@ -164,7 +185,7 @@ public class PayoutService {
                 payout.getNetPayoutAmount(),
                 adminId.toString(),
                 Instant.now(),
-                tenantId()
+                currentTenant
         );
         eventPublisher.publish(createdEvent);
 
@@ -174,7 +195,7 @@ public class PayoutService {
                 Map.of("memberId", payout.getMemberId().toString(),
                         "monthNumber", payout.getMonthNumber(),
                         "netAmount", payout.getNetPayoutAmount().toPlainString()),
-                tenantId());
+                currentTenant, idempotencyKey);
 
         return toResponse(payout);
     }
@@ -189,7 +210,8 @@ public class PayoutService {
                                    String rawIdempotencyKey) {
         Payout payout = findOrThrowForWrite(payoutId);
 
-        String idempotencyKey = normalizeRequiredIdempotencyKey(rawIdempotencyKey);
+        String idempotencyKey = normalizeRequiredIdempotencyKey(
+                rawIdempotencyKey, "payout disbursement");
         String requestHash = PayoutIdempotencyFingerprint.of(
                 payoutId, request.getAmount(), request.getDisbursementMode(),
                 request.getReferenceNumber(), request.getNotes());
@@ -313,7 +335,7 @@ public class PayoutService {
                         "amount", thisAmount.toPlainString(),
                         "totalDisbursed", newDisbursed.toPlainString(),
                         "mode", request.getDisbursementMode().name()),
-                tenantId());
+                tenantId(), idempotencyKey);
 
         return toResponse(payout);
     }
@@ -581,10 +603,10 @@ public class PayoutService {
                         "Payout not found: " + id));
     }
 
-    private String normalizeRequiredIdempotencyKey(String key) {
+    private String normalizeRequiredIdempotencyKey(String key, String operation) {
         if (key == null || key.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-                    "X-Idempotency-Key is required for payout disbursement");
+                    "X-Idempotency-Key is required for " + operation);
         }
         String normalized = key.trim();
         if (normalized.length() > 64) {
