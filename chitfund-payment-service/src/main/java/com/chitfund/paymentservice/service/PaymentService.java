@@ -70,7 +70,7 @@ public class PaymentService {
 
     private String tenantId() {
         String tid = TenantContext.get();
-        if (tid == null) throw new com.chitfund.common.exception.BusinessException(
+        if (tid == null || tid.isBlank()) throw new com.chitfund.common.exception.BusinessException(
                 com.chitfund.common.exception.ErrorCode.UNAUTHORIZED, "No tenant context");
         return tid;
     }
@@ -320,7 +320,7 @@ public class PaymentService {
      */
     @Transactional
     public PaymentBatchResponse remitCash(UUID batchId, UUID adminId) {
-        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, TenantContext.get())
+        PaymentBatch batch = batchRepository.findByIdAndTenantIdForUpdate(batchId, tenantId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAYMENT_NOT_FOUND,
                         "Payment batch not found: " + batchId));
 
