@@ -71,7 +71,8 @@ public class MemberService {
                     "Direct account linking is disabled. Use Send ChitWise App Access.",
                     HttpStatus.FORBIDDEN);
         }
-        if (request.getReferredById() != null && !memberRepository.existsById(request.getReferredById())) {
+        if (request.getReferredById() != null
+                && !memberRepository.existsByIdAndTenantIdAndDeletedAtIsNull(request.getReferredById(), tid)) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
 
@@ -131,19 +132,13 @@ public class MemberService {
 
     @Transactional(readOnly = true)
     public MemberResponse getById(UUID id) {
-        Member member = findOrThrow(id);
-        // Tenant isolation check: member must belong to current tenant
-        if (!tenantId().equals(member.getTenantId())) {
-            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
-        }
-        return toResponse(member);
+        return toResponse(findOrThrowScoped(id));
     }
 
     @Transactional(readOnly = true)
     public MemberResponse getByPhone(String phone) {
         String tid = tenantId();
-        return memberRepository.findByPhoneAndDeletedAtIsNull(phone)
-                .filter(m -> tid.equals(m.getTenantId()))
+        return memberRepository.findByPhoneAndTenantIdAndDeletedAtIsNull(phone, tid)
                 .map(this::toResponse)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "No member found with phone " + phone));
@@ -227,7 +222,8 @@ public class MemberService {
         UUID newReferredById = request.isReferredByIdPresent()
                 ? request.getReferredById() : oldReferredById;
         if (!Objects.equals(oldReferredById, newReferredById)
-                && newReferredById != null && !memberRepository.existsById(newReferredById)) {
+                && newReferredById != null
+                && !memberRepository.existsByIdAndTenantIdAndDeletedAtIsNull(newReferredById, tenantId())) {
             throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Referring member not found");
         }
         if (request.isReferredByIdPresent()) member.setReferredById(newReferredById);
@@ -242,9 +238,11 @@ public class MemberService {
 
         if (!Objects.equals(oldReferredById, newReferredById)) {
             String prevName = oldReferredById != null
-                    ? memberRepository.findById(oldReferredById).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(oldReferredById, tenantId())
+                            .map(Member::getFullName).orElse(null) : null;
             String newName = newReferredById != null
-                    ? memberRepository.findById(newReferredById).map(Member::getFullName).orElse(null) : null;
+                    ? memberRepository.findByIdAndTenantId(newReferredById, tenantId())
+                            .map(Member::getFullName).orElse(null) : null;
             memberEventPublisher.publish(new MemberUpdatedEvent(
                     id.toString(), "referredById",
                     oldReferredById != null ? oldReferredById.toString() : null,
@@ -397,24 +395,17 @@ public class MemberService {
         return result;
     }
 
-    private Member findOrThrow(UUID id) {
-        return memberRepository.findById(id)
+    // Tenant-scoped findOrThrow: returns 404 for cross-tenant access (no existence disclosure)
+    private Member findOrThrowScoped(UUID id) {
+        return memberRepository.findByIdAndTenantId(id, tenantId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEMBER_NOT_FOUND,
                         "Member not found: " + id));
     }
 
-    // Tenant-scoped findOrThrow: returns 404 for cross-tenant access (no existence disclosure)
-    private Member findOrThrowScoped(UUID id) {
-        Member m = findOrThrow(id);
-        if (!tenantId().equals(m.getTenantId())) {
-            throw new BusinessException(ErrorCode.MEMBER_NOT_FOUND, "Member not found: " + id);
-        }
-        return m;
-    }
-
     private MemberResponse toResponse(Member m) {
         String referredByName = m.getReferredById() != null
-                ? memberRepository.findById(m.getReferredById()).map(Member::getFullName).orElse(null)
+                ? memberRepository.findByIdAndTenantId(m.getReferredById(), m.getTenantId())
+                        .map(Member::getFullName).orElse(null)
                 : null;
         return MemberResponse.builder()
                 .id(m.getId())

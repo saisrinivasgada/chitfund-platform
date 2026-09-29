@@ -23,11 +23,15 @@ public interface MemberRepository extends JpaRepository<Member, UUID> {
     Optional<Member> findByPhoneAndPhoneCountryCodeAndTenantIdAndDeletedAtIsNull(
             String phone, String phoneCountryCode, String tenantId);
 
+    Optional<Member> findByPhoneAndTenantIdAndDeletedAtIsNull(String phone, String tenantId);
+
     boolean existsByUserIdAndTenantId(UUID userId, String tenantId);
 
     Optional<Member> findByUserIdAndTenantId(UUID userId, String tenantId);
 
     Optional<Member> findByIdAndTenantId(UUID id, String tenantId);
+
+    boolean existsByIdAndTenantIdAndDeletedAtIsNull(UUID id, String tenantId);
 
     // Clears userId on any member in the same tenant that already occupies the unique slot,
     // so a new member can claim it without violating uk_member_user_tenant.

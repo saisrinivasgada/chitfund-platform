@@ -47,7 +47,8 @@ class MemberServiceIdentityOwnershipTest {
         member = Member.builder().id(UUID.randomUUID()).tenantId(TENANT).fullName("Member One")
                 .phone("9876543210").phoneCountryCode("+91").email("contact@example.com")
                 .city("Hyderabad").hasAppAccess(true).build();
-        lenient().when(memberRepository.findById(member.getId())).thenReturn(Optional.of(member));
+        lenient().when(memberRepository.findByIdAndTenantId(member.getId(), TENANT))
+                .thenReturn(Optional.of(member));
     }
 
     @AfterEach
@@ -98,7 +99,7 @@ class MemberServiceIdentityOwnershipTest {
         member.setHasAppAccess(false);
         member.setReferredById(referrer);
         when(memberRepository.save(any())).thenAnswer(call -> call.getArgument(0));
-        when(memberRepository.findById(referrer)).thenReturn(Optional.empty());
+        when(memberRepository.findByIdAndTenantId(referrer, TENANT)).thenReturn(Optional.empty());
 
         UpdateMemberRequest omitted = new UpdateMemberRequest();
         omitted.setNotes("unchanged referral");
@@ -202,6 +203,18 @@ class MemberServiceIdentityOwnershipTest {
                 eq("STATUS_CHANGED"), eq(actorId.toString()), eq("ROLE_ADMIN"),
                 eq(Map.of("status", "ACTIVE")), eq(Map.of("status", "BLACKLISTED")),
                 eq(TENANT), eq("Repeated payment fraud"));
+    }
+
+    @Test
+    void memberLookupNeverFallsBackToAnUnscopedIdentifierQuery() {
+        UUID foreignMemberId = UUID.randomUUID();
+        when(memberRepository.findByIdAndTenantId(foreignMemberId, TENANT)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getById(foreignMemberId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Member not found");
+
+        verify(memberRepository, never()).findById(foreignMemberId);
     }
 
     private UpdateMemberRequest unchangedRequest() {
