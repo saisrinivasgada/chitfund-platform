@@ -13,6 +13,7 @@ import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.context.MemberContext;
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.common.dto.PagedResponse;
@@ -176,7 +177,7 @@ public class ChitController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
     public ResponseEntity<ApiResponse<List<MonthReservationResponse>>> getOrgReservations() {
         LocalDate today = LocalDate.now();
-        List<MonthReservationResponse> list = reservationRepository.findAllOrgHeld()
+        List<MonthReservationResponse> list = reservationRepository.findAllOrgHeldByTenant(TenantContext.get())
                 .stream()
                 .map(r -> {
                     MonthReservationResponse resp = chitMapper.toReservationResponse(r);

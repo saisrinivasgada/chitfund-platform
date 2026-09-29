@@ -35,7 +35,7 @@ public class EnrollmentService {
     @Transactional
     public ChitEnrollmentResponse enrollMember(UUID chitId, EnrollMemberRequest request) {
         planLimitChecker.checkNotExpired();
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
@@ -63,7 +63,7 @@ public class EnrollmentService {
     }
 
     public List<ChitEnrollmentResponse> listEnrollments(UUID chitId) {
-        chitService.findById(chitId); // validate chit exists
+        chitService.findByIdScoped(chitId); // validate tenant ownership
         return enrollmentRepository.findByChitIdAndActiveTrue(chitId)
                 .stream()
                 .map(chitMapper::toEnrollmentResponse)
@@ -72,7 +72,7 @@ public class EnrollmentService {
 
     @Transactional
     public void removeEnrollment(UUID chitId, UUID memberId) {
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,

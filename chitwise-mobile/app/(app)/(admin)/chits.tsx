@@ -15,7 +15,7 @@ import {
   getDraws, openDraw, closeDraw, skipDraw, deleteDraw, getDrawPayments,
   getReservations, addReservationSlot, removeReservationSlot,
   swapReservationSlots, shiftReservations, markSlotProcessed,
-  updateReservationSlot, hardDeleteReservationSlot,
+  updateReservationSlot,
   createPayout, disbursePayout, getPaymentBatches, voidPaymentBatch, getPayoutsByChit,
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
@@ -807,15 +807,6 @@ export default function AdminChitsScreen() {
       toast.saved('Slot updated');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save slot'),
-  });
-
-  const hardDeleteSlotMut = useOnlineMutation({
-    mutationFn: (resId: string) => hardDeleteReservationSlot(selected.id, resId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['a-reservations', selected.id] });
-      toast.deleted('Slot permanently deleted');
-    },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete'),
   });
 
   // Payout from winner tab
@@ -2106,23 +2097,15 @@ export default function AdminChitsScreen() {
                               )}
                               {slot.status === 'UNALLOCATED' && (
                                 <TouchableOpacity
-                                  onPress={() => Alert.alert('Delete Slot', 'Permanently delete this empty slot?', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => hardDeleteSlotMut.mutate(slot.id) },
-                                  ])}
+                                  onPress={() => { setVsSlot(slot); setVsReason(''); setVsReplaceAt('same'); setShowVoidSlot(true); }}
                                   style={{ backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>Delete</Text>
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.red }}>Void</Text>
                                 </TouchableOpacity>
                               )}
                               {isVoided && (
-                                <TouchableOpacity
-                                  onPress={() => Alert.alert('Delete Voided Slot', 'Permanently delete this voided slot?', [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => hardDeleteSlotMut.mutate(slot.id) },
-                                  ])}
-                                  style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500 }}>Delete</Text>
-                                </TouchableOpacity>
+                                <View style={{ backgroundColor: C.gray100, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.gray500 }}>Audit retained</Text>
+                                </View>
                               )}
                             </View>
                           </View>

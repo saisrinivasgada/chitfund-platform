@@ -46,7 +46,7 @@ public class WinnerService {
     @Transactional
     public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
         planLimitChecker.checkNotExpired();
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         if (chit.getStatus() != ChitStatus.ACTIVE && chit.getStatus() != ChitStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
@@ -111,20 +111,21 @@ public class WinnerService {
     }
 
     public List<MonthlyWinnerResponse> listWinners(UUID chitId) {
-        chitService.findById(chitId);
+        chitService.findByIdScoped(chitId);
         return winnerRepository.findByChitIdOrderByMonthNumberAsc(chitId)
                 .stream().map(chitMapper::toWinnerResponse).collect(Collectors.toList());
     }
 
     @Transactional
     public void deleteWinnerForDraw(UUID chitId, Integer monthNumber) {
+        chitService.findByIdScoped(chitId);
         // No-op if no winner was recorded — non-fatal when called as part of cycle deletion
         winnerRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
     }
 
     @Transactional
     public MonthReservationResponse reserveMonth(UUID chitId, ReserveMonthRequest request, UUID createdBy) {
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
 
         if (chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
@@ -159,7 +160,7 @@ public class WinnerService {
     }
 
     public List<MonthReservationResponse> listReservations(UUID chitId) {
-        chitService.findById(chitId);
+        chitService.findByIdScoped(chitId);
         return reservationRepository.findByChitIdOrderByReservationMonthAscMonthNumberAsc(chitId)
                 .stream().map(chitMapper::toReservationResponse).collect(Collectors.toList());
     }

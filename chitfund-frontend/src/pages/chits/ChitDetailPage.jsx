@@ -7,7 +7,7 @@ import {
   getMembers,
   getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
   getWinners, recordWinner, deleteWinnerForDraw,
-  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, hardDeleteReservationSlot, swapSlots, getSlotHistory,
+  getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
   getDrawPayments, recordPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
   getPaymentBatches, voidPaymentBatch,
@@ -1354,7 +1354,6 @@ function ReservationScheduleTab({ chitId, chit }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [voidingSlot, setVoidingSlot] = useState(null);    // slot being confirmed for void
-  const [deletingSlot, setDeletingSlot] = useState(null);  // voided slot being permanently deleted
   const [fillingSlot, setFillingSlot] = useState(null);    // voided slot being filled with a new slot at same position
   const [historySlot, setHistorySlot] = useState(null);    // slot whose audit history is being viewed
   const [pickerSlot, setPickerSlot] = useState(null);      // slot whose member picker popup is open
@@ -1528,31 +1527,12 @@ function ReservationScheduleTab({ chitId, chit }) {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to restore slot'),
   });
 
-  const hardDeleteMutation = useMutation({
-    mutationFn: (slot) => hardDeleteReservationSlot({ chitId, reservationId: slot.id }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['reservations', chitId] });
-      setDeletingSlot(null);
-      toast.success('Slot permanently deleted');
-    },
-    onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to delete slot'),
-  });
-
   const active = slots.filter((s) => s.status !== 'VOIDED');
   const totalPayout = active.reduce((sum, s) => sum + Number(s.payoutAmount ?? 0), 0);
   const maxSlots = chit?.durationMonths ?? chit?.capacity ?? Infinity;
   const slotsAreFull = active.length >= maxSlots;
-
-  // Extra slots: active slots beyond the chit's member count — admin can delete these directly
   const memberCount = chit?.capacity ?? 0;
-  const extraSlotIds = memberCount > 0 && active.length > memberCount
-    ? new Set(
-        [...active]
-          .sort((a, b) => (a.monthNumber ?? Infinity) - (b.monthNumber ?? Infinity))
-          .slice(memberCount)
-          .map((s) => s.id)
-      )
-    : new Set();
+  const extraSlotCount = memberCount > 0 ? Math.max(0, active.length - memberCount) : 0;
 
   if (isAuction) {
     return (
@@ -1702,10 +1682,10 @@ function ReservationScheduleTab({ chitId, chit }) {
 
   return (
     <div className="space-y-4">
-      {extraSlotIds.size > 0 && (
+      {extraSlotCount > 0 && (
         <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
           <AlertTriangle size={13} className="flex-shrink-0" />
-          {extraSlotIds.size} slot{extraSlotIds.size > 1 ? 's' : ''} exceed{extraSlotIds.size === 1 ? 's' : ''} the chit's {memberCount}-member limit. Use the Delete button on the extra slot{extraSlotIds.size > 1 ? 's' : ''} to remove them.
+          {extraSlotCount} slot{extraSlotCount > 1 ? 's' : ''} exceed{extraSlotCount === 1 ? 's' : ''} the chit's {memberCount}-member limit. Void the extra slot{extraSlotCount > 1 ? 's' : ''}; its history will remain available for audit.
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -1865,10 +1845,9 @@ function ReservationScheduleTab({ chitId, chit }) {
                                 title="Add a new slot at this same position">
                                 <Plus size={13} /> Fill Slot
                               </Button>
-                              <Button variant="danger" size="sm"
-                                onClick={() => setDeletingSlot(slot)}>
-                                <Trash2 size={13} /> Delete
-                              </Button>
+                              <span className="text-xs text-gray-400" title="Retained as part of the audit history">
+                                Retained for audit
+                              </span>
                             </>
                           ) : (
                             <>
@@ -1879,18 +1858,10 @@ function ReservationScheduleTab({ chitId, chit }) {
                                   <CheckCircle size={13} /> Save
                                 </Button>
                               )}
-                              {extraSlotIds.has(slot.id) && slot.status !== 'PROCESSED' ? (
-                                <Button variant="danger" size="sm"
-                                  title="Extra slot beyond member count — delete permanently"
-                                  onClick={() => setDeletingSlot(slot)}>
-                                  <Trash2 size={13} /> Delete
-                                </Button>
-                              ) : (
-                                <Button variant="danger" size="sm"
-                                  onClick={() => setVoidingSlot(slot)}>
-                                  <XCircle size={13} /> Void
-                                </Button>
-                              )}
+                              <Button variant="danger" size="sm"
+                                onClick={() => setVoidingSlot(slot)}>
+                                <XCircle size={13} /> Void
+                              </Button>
                             </>
                           )) : (
                             <span className="text-xs text-gray-400 italic">—</span>
@@ -1942,18 +1913,6 @@ function ReservationScheduleTab({ chitId, chit }) {
           loading={voidMutation.isPending}
           onClose={() => setVoidingSlot(null)}
           onConfirm={({ reason, replaceAt }) => voidMutation.mutate({ slot: voidingSlot, reason, replaceAt })}
-        />
-      )}
-
-      {deletingSlot && (
-        <DestructiveDialog
-          title="Permanently Delete Slot"
-          description={`This will permanently delete the ${formatMonthLabel(deletingSlot.reservationMonth, deletingSlot.monthNumber)} slot. The voided record and audit trail will be erased. This cannot be undone.`}
-          confirmWord="DELETE"
-          actionLabel="Permanently Delete"
-          loading={hardDeleteMutation.isPending}
-          onConfirm={() => hardDeleteMutation.mutate(deletingSlot)}
-          onClose={() => setDeletingSlot(null)}
         />
       )}
 

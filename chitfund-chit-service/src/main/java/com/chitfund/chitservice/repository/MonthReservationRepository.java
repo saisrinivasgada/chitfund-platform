@@ -13,6 +13,8 @@ import java.util.UUID;
 
 public interface MonthReservationRepository extends JpaRepository<MonthReservation, UUID> {
 
+    Optional<MonthReservation> findByIdAndChitId(UUID id, UUID chitId);
+
     // All slots for a chit, ordered by calendar month
     List<MonthReservation> findByChitIdOrderByReservationMonthAscMonthNumberAsc(UUID chitId);
 
@@ -41,7 +43,7 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     @Query("SELECT r FROM MonthReservation r WHERE r.chit.id = :chitId AND r.monthNumber >= :fromMonth AND r.status IN :statuses ORDER BY r.monthNumber ASC")
     List<MonthReservation> findShiftableFromMonth(@Param("chitId") UUID chitId, @Param("fromMonth") int fromMonth, @Param("statuses") List<ReservationStatus> statuses);
 
-    // All org-held slots across all chits (excludes VOIDED)
-    @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit WHERE r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
-    List<MonthReservation> findAllOrgHeld();
+    // All org-held slots for one tenant (excludes VOIDED)
+    @Query("SELECT r FROM MonthReservation r JOIN FETCH r.chit c WHERE c.tenantId = :tenantId AND c.deletedAt IS NULL AND r.orgHeld = true AND r.status != com.chitfund.chitservice.domain.enums.ReservationStatus.VOIDED ORDER BY r.reservationMonth ASC")
+    List<MonthReservation> findAllOrgHeldByTenant(@Param("tenantId") String tenantId);
 }

@@ -59,7 +59,7 @@ public class InvitationService {
 
     @Transactional
     public ChitInvitationResponse sendInvitation(UUID chitId, UUID createdBy, SendInvitationRequest req) {
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
         if (chit.getStatus() != ChitStatus.DRAFT && chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_EDITABLE,
                     "Invitations can only be sent for DRAFT or ACTIVE chits");
@@ -121,7 +121,7 @@ public class InvitationService {
 
     public List<ChitInvitationResponse> listInvitations(UUID chitId) {
         String tenantId = TenantContext.get();
-        chitService.findById(chitId);
+        chitService.findByIdScoped(chitId);
         return invitationRepository.findByChitIdAndTenantIdOrderByCreatedAtDesc(chitId, tenantId)
                 .stream()
                 .map(inv -> {
@@ -135,7 +135,7 @@ public class InvitationService {
     }
 
     public ChitInvitationResponse getInvitationWithResponses(UUID chitId, UUID invId) {
-        ChitInvitation inv = loadInvitation(invId);
+        ChitInvitation inv = loadInvitation(chitId, invId);
         Chit chit = inv.getChit();
         List<InvitationResponse> raw = responseRepository.findByInvitationId(invId);
         List<InvitationResponseDTO> dtos = raw.stream()
@@ -163,7 +163,7 @@ public class InvitationService {
 
     @Transactional
     public ChitInvitationResponse closeInvitation(UUID chitId, UUID invId) {
-        ChitInvitation inv = loadInvitation(invId);
+        ChitInvitation inv = loadInvitation(chitId, invId);
         if (inv.getStatus() == InvitationStatus.CLOSED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Invitation is already closed");
         }
@@ -200,8 +200,9 @@ public class InvitationService {
     }
 
     @Transactional
-    public InvitationResponseDTO overrideResponse(UUID invId, UUID responseId, OverrideResponseRequest req) {
-        InvitationResponse r = loadResponse(responseId);
+    public InvitationResponseDTO overrideResponse(UUID chitId, UUID invId, UUID responseId, OverrideResponseRequest req) {
+        chitService.findByIdScoped(chitId);
+        InvitationResponse r = loadResponse(chitId, invId, responseId);
         if (req.getApprovedSpots() != null) r.setApprovedSpots(req.getApprovedSpots());
         if (req.getApprovedDrawNumbers() != null) {
             r.setApprovedDrawNumbers(toJson(req.getApprovedDrawNumbers()));
@@ -212,8 +213,8 @@ public class InvitationService {
 
     @Transactional
     public InvitationResponseDTO approveResponse(UUID chitId, UUID invId, UUID responseId, UUID approverId) {
-        InvitationResponse r = loadResponse(responseId);
-        Chit chit = chitService.findById(chitId);
+        Chit chit = chitService.findByIdScoped(chitId);
+        InvitationResponse r = loadResponse(chitId, invId, responseId);
 
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Response is already approved");
@@ -281,7 +282,8 @@ public class InvitationService {
 
     @Transactional
     public InvitationResponseDTO respondToInvitation(UUID invId, UUID memberId, RespondToInvitationRequest req) {
-        InvitationResponse r = responseRepository.findByInvitationIdAndMemberId(invId, memberId)
+        InvitationResponse r = responseRepository
+                .findByInvitationIdAndMemberIdAndInvitation_TenantId(invId, memberId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("InvitationResponse", invId));
 
         if (r.getInvitation().getStatus() == InvitationStatus.CLOSED) {
@@ -372,8 +374,10 @@ public class InvitationService {
     }
 
     @Transactional
-    public InvitationResponseDTO rejectResponse(UUID invId, UUID responseId, UUID adminId, String reason) {
-        InvitationResponse r = loadResponse(responseId);
+    public InvitationResponseDTO rejectResponse(
+            UUID chitId, UUID invId, UUID responseId, UUID adminId, String reason) {
+        chitService.findByIdScoped(chitId);
+        InvitationResponse r = loadResponse(chitId, invId, responseId);
         if (r.isApproved()) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Cannot reject a response that has already been approved");
@@ -495,14 +499,14 @@ public class InvitationService {
                 .build();
     }
 
-    private ChitInvitation loadInvitation(UUID invId) {
+    private ChitInvitation loadInvitation(UUID chitId, UUID invId) {
         String tenantId = TenantContext.get();
-        return invitationRepository.findByIdAndTenantId(invId, tenantId)
+        return invitationRepository.findByIdAndChitIdAndTenantId(invId, chitId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("ChitInvitation", invId));
     }
 
-    private InvitationResponse loadResponse(UUID responseId) {
-        return responseRepository.findById(responseId)
+    private InvitationResponse loadResponse(UUID chitId, UUID invitationId, UUID responseId) {
+        return responseRepository.findScopedResponse(responseId, invitationId, chitId, TenantContext.get())
                 .orElseThrow(() -> new ResourceNotFoundException("InvitationResponse", responseId));
     }
 
