@@ -80,9 +80,13 @@ class AuctionServiceConcurrencyTest {
                 auctionId, tenantId)).thenReturn(Optional.empty());
         when(bidRepository.findByAuctionSessionIdAndTenantIdOrderByDiscountOfferedDescBidTimeAsc(
                 auctionId, tenantId)).thenReturn(List.of());
-        when(bidRepository.save(any(AuctionBid.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bidRepository.save(any(AuctionBid.class))).thenAnswer(invocation -> {
+            AuctionBid bid = invocation.getArgument(0);
+            bid.setId(UUID.randomUUID());
+            return bid;
+        });
 
-        service().placeBid(chitId, auctionId, request, memberId);
+        service().placeBid(chitId, auctionId, request, memberId, memberId, "MEMBER");
 
         verify(sessionRepository).findByIdAndChitIdAndTenantIdForUpdate(auctionId, chitId, tenantId);
         ArgumentCaptor<AuctionBid> captor = ArgumentCaptor.forClass(AuctionBid.class);

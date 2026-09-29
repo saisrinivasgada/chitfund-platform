@@ -12,6 +12,8 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -65,6 +67,26 @@ public class NotificationClient {
             log.info("Queued bulk in-app notification '{}' for {} member(s)", type, memberIds.size());
         } catch (Exception e) {
             log.warn("Could not queue bulk in-app notification: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Queue a user notification only after the surrounding business transaction
+     * commits. If the caller is not transactional, delivery happens immediately.
+     */
+    public void notifyUsersInAppAfterCommit(List<String> memberIds, String type, String title,
+                                             String message, String link) {
+        Runnable delivery = () -> notifyUsersInApp(memberIds, type, title, message, link);
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    delivery.run();
+                }
+            });
+        } else {
+            delivery.run();
         }
     }
 

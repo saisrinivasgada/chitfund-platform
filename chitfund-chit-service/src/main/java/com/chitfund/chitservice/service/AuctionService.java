@@ -27,6 +27,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -114,7 +116,8 @@ public class AuctionService {
     }
 
     @Transactional
-    public AuctionSessionResponse placeBid(UUID chitId, UUID auctionId, PlaceBidRequest request, UUID memberId) {
+    public AuctionSessionResponse placeBid(UUID chitId, UUID auctionId, PlaceBidRequest request,
+                                           UUID memberId, UUID actorId, String actorRole) {
         AuctionSession session = getOpenSessionForUpdate(auctionId, chitId);
         String tenantId = session.getTenantId();
 
@@ -166,7 +169,7 @@ public class AuctionService {
                 .bidAmount(request.getBidAmount())
                 .discountOffered(discount)
                 .build();
-        auctionBidRepository.save(bid);
+        bid = auctionBidRepository.save(bid);
 
         String proxyNote = (request.getOnBehalfOfMemberId() != null)
                 ? " [proxy bid by admin]" : "";
@@ -174,16 +177,28 @@ public class AuctionService {
                 bid.getId(), auctionId, chitId, memberId, request.getBidAmount(), discount,
                 currentBest.map(b -> b.getBidAmount().toPlainString()).orElse("none"), proxyNote);
 
+        auditClient.log("AUCTION_BID", bid.getId().toString(), chitId.toString(),
+                "BID_PLACED", actorId != null ? actorId.toString() : null, actorRole,
+                currentBest.<Map<String, Object>>map(previous -> Map.of(
+                        "leadingMemberId", previous.getMemberId().toString(),
+                        "leadingBidAmount", previous.getBidAmount().toPlainString()))
+                        .orElse(null),
+                Map.of("auctionId", auctionId.toString(),
+                        "memberId", memberId.toString(),
+                        "bidAmount", request.getBidAmount().toPlainString(),
+                        "discountOffered", discount.toPlainString(),
+                        "proxy", request.getOnBehalfOfMemberId() != null),
+                tenantId);
+
         AuctionSessionResponse response = buildResponse(session);
-        // Broadcast to all viewers of this auction room
-        messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response);
+        afterCommit(() -> messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response));
 
         String auctionLink = "/chits/" + chitId + "/auction/" + auctionId;
 
         // Notify the previous leader that they've been outbid
         UUID previousLeaderId = currentBest.map(AuctionBid::getMemberId).orElse(null);
         if (previousLeaderId != null && !previousLeaderId.equals(memberId)) {
-            notificationClient.notifyUsersInApp(
+            notificationClient.notifyUsersInAppAfterCommit(
                 List.of(previousLeaderId.toString()),
                 "AUCTION_OUTBID",
                 "You've been outbid!",
@@ -193,7 +208,7 @@ public class AuctionService {
         }
 
         // Notify the new bidder they're now winning
-        notificationClient.notifyUsersInApp(
+        notificationClient.notifyUsersInAppAfterCommit(
             List.of(memberId.toString()),
             "AUCTION_WINNING",
             "You're winning! 🏆",
@@ -329,11 +344,11 @@ public class AuctionService {
                 tenantId);
 
         AuctionSessionResponse response = buildResponse(session);
-        messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response);
+        afterCommit(() -> messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response));
 
         // Notify auction participants
         String chitLink = "/chits/" + chitId;
-        notificationClient.notifyUsersInApp(
+        notificationClient.notifyUsersInAppAfterCommit(
             List.of(winnerId.toString()),
             "AUCTION_WON",
             "You won the auction! 🎉",
@@ -349,7 +364,7 @@ public class AuctionService {
             .distinct()
             .collect(Collectors.toList());
         if (!otherBidderIds.isEmpty()) {
-            notificationClient.notifyUsersInApp(
+            notificationClient.notifyUsersInAppAfterCommit(
                 otherBidderIds,
                 "AUCTION_LOST",
                 "Auction closed",
@@ -374,6 +389,8 @@ public class AuctionService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cannot extend a voided auction");
         }
 
+        Map<String, Object> before = auctionSnapshot(session);
+
         // If session was auto-closed by timer, reopen it (reverse the close effects)
         if (session.getStatus() == AuctionStatus.CLOSED) {
             reopenClosedSession(chitId, session, adminId);
@@ -383,8 +400,11 @@ public class AuctionService {
         session.setClosesAt(newClosesAt);
         auctionSessionRepository.save(session);
         log.info("Auction timer extended: id={} chit={} newClosesAt={} by={}", auctionId, chitId, newClosesAt, adminId);
+        auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
+                "AUCTION_EXTENDED", adminId != null ? adminId.toString() : null, null,
+                before, auctionSnapshot(session), TenantContext.get());
         AuctionSessionResponse response = buildResponse(session);
-        messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response);
+        afterCommit(() -> messagingTemplate.convertAndSend("/topic/auction/" + auctionId, response));
         return response;
     }
 
@@ -401,6 +421,7 @@ public class AuctionService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Close the auction before voiding it");
         }
 
+        Map<String, Object> before = auctionSnapshot(session);
         reopenClosedSession(chitId, session, adminId);
         session.setStatus(AuctionStatus.VOIDED);
         auctionSessionRepository.save(session);
@@ -409,8 +430,8 @@ public class AuctionService {
 
         auditClient.log("AUCTION_SESSION", auctionId.toString(), chitId.toString(),
                 "AUCTION_VOIDED", adminId != null ? adminId.toString() : null, null,
-                Map.of("monthNumber", session.getMonthNumber(), "status", "VOIDED"),
-                null,
+                before,
+                auctionSnapshot(session),
                 TenantContext.get());
 
         return buildResponse(session);
@@ -453,6 +474,33 @@ public class AuctionService {
         if (chit.getStatus() != ChitStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
         }
+    }
+
+    private void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
+    }
+
+    private Map<String, Object> auctionSnapshot(AuctionSession session) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("status", session.getStatus() != null ? session.getStatus().name() : null);
+        state.put("monthNumber", session.getMonthNumber());
+        state.put("closesAt", session.getClosesAt());
+        state.put("winnerId", session.getWinnerId());
+        state.put("wonAmount", session.getWonAmount());
+        state.put("discountAmount", session.getDiscountAmount());
+        state.put("dividendPerSpot", session.getDividendPerSpot());
+        state.put("commissionAmount", session.getCommissionAmount());
+        return state;
     }
 
     private AuctionSessionResponse buildResponse(AuctionSession session) {
