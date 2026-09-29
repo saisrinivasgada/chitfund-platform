@@ -23,8 +23,14 @@ public class PayoutFinancialCommandService {
     private final AdminWalletService walletService;
 
     @Transactional
-    public void execute(PayoutFinancialCommandRequest request) {
+    public void execute(PayoutFinancialCommandRequest request, String authenticatedTenantId) {
         validateEnvelope(request);
+        if (authenticatedTenantId == null || authenticatedTenantId.isBlank()
+                || !authenticatedTenantId.equals(request.tenantId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Financial command organization does not match its authenticated context",
+                    HttpStatus.FORBIDDEN);
+        }
         validateCommand(request);
         String requestHash = IdempotencyFingerprint.of(
                 request.commandType(), request.tenantId(), request.actorId(), request.payoutId(),

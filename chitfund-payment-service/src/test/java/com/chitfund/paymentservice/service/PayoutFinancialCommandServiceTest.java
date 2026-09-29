@@ -45,8 +45,8 @@ class PayoutFinancialCommandServiceTest {
         when(receiptRepository.saveAndFlush(receipt.capture()))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        service.execute(request);
-        service.execute(request);
+        service.execute(request, request.tenantId());
+        service.execute(request, request.tenantId());
 
         verify(paymentService, times(1)).markPayoutDeducted(
                 request.chitId(), request.memberId(), request.monthNumber(), request.amount(),
@@ -63,7 +63,7 @@ class PayoutFinancialCommandServiceTest {
         when(receiptRepository.findById(original.commandId())).thenReturn(Optional.empty());
         when(receiptRepository.saveAndFlush(receipt.capture()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        service.execute(original);
+        service.execute(original, original.tenantId());
 
         reset(receiptRepository, paymentService, walletService);
         when(receiptRepository.findById(original.commandId()))
@@ -73,7 +73,7 @@ class PayoutFinancialCommandServiceTest {
                 original.actorId(), original.payoutId(), original.chitId(), original.memberId(),
                 original.monthNumber(), BigDecimal.valueOf(751), null);
 
-        assertThatThrownBy(() -> service.execute(changed))
+        assertThatThrownBy(() -> service.execute(changed, changed.tenantId()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("different details");
         verifyNoInteractions(paymentService, walletService);
@@ -88,7 +88,7 @@ class PayoutFinancialCommandServiceTest {
         doThrow(new IllegalStateException("test failure")).when(paymentService)
                 .markPayoutDeducted(any(), any(), anyInt(), any(), any(), any());
 
-        assertThatThrownBy(() -> service.execute(request))
+        assertThatThrownBy(() -> service.execute(request, request.tenantId()))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(TenantContext.get()).isEqualTo("caller-tenant");
     }
@@ -99,11 +99,23 @@ class PayoutFinancialCommandServiceTest {
                 UUID.randomUUID(), "RECORD_TREASURY_DEBIT", "tenant-a",
                 UUID.randomUUID(), UUID.randomUUID(), null, UUID.randomUUID(), null,
                 BigDecimal.valueOf(100), "CRYPTO");
-        assertThatThrownBy(() -> service.execute(request))
+        assertThatThrownBy(() -> service.execute(request, request.tenantId()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Unsupported disbursement mode");
         verifyNoInteractions(walletService);
         verify(receiptRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void rejectsTenantHeaderMismatchBeforeWritingReceiptOrMoney() {
+        PayoutFinancialCommandRequest request = installmentCommand(BigDecimal.valueOf(750));
+
+        assertThatThrownBy(() -> service.execute(request, "different-tenant"))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(
+                                org.springframework.http.HttpStatus.FORBIDDEN));
+
+        verifyNoInteractions(receiptRepository, paymentService, walletService);
     }
 
     private PayoutFinancialCommandRequest installmentCommand(BigDecimal amount) {

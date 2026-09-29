@@ -327,11 +327,12 @@ public class PaymentController {
     @PostMapping("/internal/payout-financial-command")
     public ResponseEntity<Void> executePayoutFinancialCommand(
             @RequestBody PayoutFinancialCommandRequest request,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        payoutFinancialCommandService.execute(request);
+        payoutFinancialCommandService.execute(request, tenantId);
         return ResponseEntity.noContent().build();
     }
 

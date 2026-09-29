@@ -26,6 +26,7 @@ public class PaymentServiceClient {
     public void execute(PayoutFinancialCommand command) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", command.getTenantId());
         headers.set("Content-Type", "application/json");
         PayoutFinancialCommandRequest request = new PayoutFinancialCommandRequest(
                 command.getId(), command.getCommandType().name(), command.getTenantId(),
