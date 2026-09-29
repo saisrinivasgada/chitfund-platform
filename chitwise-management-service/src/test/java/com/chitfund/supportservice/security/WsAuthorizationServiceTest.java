@@ -1,12 +1,14 @@
 package com.chitfund.supportservice.security;
 
 import com.chitfund.supportservice.domain.entity.SupportTicket;
+import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.repository.ChatGroupMemberRepository;
 import com.chitfund.supportservice.repository.ChatGroupRepository;
 import com.chitfund.supportservice.repository.ConversationRepository;
 import com.chitfund.supportservice.repository.HubConversationRepository;
 import com.chitfund.supportservice.repository.HubGroupMemberRepository;
 import com.chitfund.supportservice.repository.SupportTicketRepository;
+import com.chitfund.supportservice.repository.EmployeeRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -26,6 +28,7 @@ class WsAuthorizationServiceTest {
     @Mock ChatGroupMemberRepository groupMemberRepo;
     @Mock HubConversationRepository hubConvRepo;
     @Mock HubGroupMemberRepository hubGroupMemberRepo;
+    @Mock EmployeeRepository employeeRepo;
     @InjectMocks WsAuthorizationService service;
 
     @Test
@@ -49,6 +52,25 @@ class WsAuthorizationServiceTest {
         assertThat(service.canSubscribeToPool(false)).isFalse();
         assertThat(service.canSubscribeToTicket(
                 "ticket-1", null, "user-1", "ADMIN", false)).isFalse();
+    }
+
+    @Test
+    void activeHubEmployeeWithCurrentAuthVersionCanConnect() {
+        Employee employee = Employee.builder().id("employee-1").active(true).authVersion(4).build();
+        when(employeeRepo.findById("employee-1")).thenReturn(Optional.of(employee));
+
+        assertThat(service.authenticateHubEmployee("employee-1", 4)).contains(employee);
+    }
+
+    @Test
+    void deactivatedOrRevokedHubEmployeeCannotConnect() {
+        Employee inactive = Employee.builder().id("employee-1").active(false).authVersion(4).build();
+        when(employeeRepo.findById("employee-1")).thenReturn(Optional.of(inactive));
+        assertThat(service.authenticateHubEmployee("employee-1", 4)).isEmpty();
+
+        Employee current = Employee.builder().id("employee-1").active(true).authVersion(5).build();
+        when(employeeRepo.findById("employee-1")).thenReturn(Optional.of(current));
+        assertThat(service.authenticateHubEmployee("employee-1", 4)).isEmpty();
     }
 
     private SupportTicket ticket(String createdBy) {

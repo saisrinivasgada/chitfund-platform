@@ -86,7 +86,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Try hub JWT first (has "type":"HUB" claim)
         if (hubJwtTokenProvider.validateToken(token)) {
             String employeeId = hubJwtTokenProvider.extractEmployeeId(token);
-            String role = hubJwtTokenProvider.extractRole(token);
+            long authVersion = hubJwtTokenProvider.extractAuthVersion(token);
+            var employee = wsAuthz.authenticateHubEmployee(employeeId, authVersion)
+                    .orElseThrow(() -> new MessagingException("Hub account is inactive or token was revoked"));
+            String role = employee.getRole();
             accessor.setUser(new UsernamePasswordAuthenticationToken(
                     employeeId, null, List.of(new SimpleGrantedAuthority(role))));
             if (accessor.getSessionAttributes() != null) {

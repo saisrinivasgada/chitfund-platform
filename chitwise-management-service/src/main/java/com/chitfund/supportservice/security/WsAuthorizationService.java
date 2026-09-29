@@ -6,8 +6,12 @@ import com.chitfund.supportservice.repository.ConversationRepository;
 import com.chitfund.supportservice.repository.HubConversationRepository;
 import com.chitfund.supportservice.repository.HubGroupMemberRepository;
 import com.chitfund.supportservice.repository.SupportTicketRepository;
+import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.domain.entity.Employee;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 /**
  * Verifies that a WebSocket subscriber is allowed to listen on a given STOMP topic.
@@ -23,6 +27,18 @@ public class WsAuthorizationService {
     private final ChatGroupMemberRepository groupMemberRepo;
     private final HubConversationRepository hubConvRepo;
     private final HubGroupMemberRepository hubGroupMemberRepo;
+    private final EmployeeRepository employeeRepo;
+
+    /**
+     * Hub access tokens are not sufficient by themselves: deactivation, password
+     * reset and role changes must invalidate a socket before it is established.
+     */
+    public Optional<Employee> authenticateHubEmployee(String employeeId, long tokenAuthVersion) {
+        return employeeRepo.findById(employeeId)
+                .filter(Employee::isActive)
+                .filter(employee -> !employee.isMustChangePassword())
+                .filter(employee -> employee.getAuthVersion() == tokenAuthVersion);
+    }
 
     /**
      * Can this user subscribe to /topic/conversation.{convId}?
