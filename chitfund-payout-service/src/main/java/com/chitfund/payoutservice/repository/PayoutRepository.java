@@ -21,15 +21,9 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
     @Query("SELECT p FROM Payout p WHERE p.id = :id AND p.tenantId = :tenantId")
     Optional<Payout> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
-    boolean existsByChitIdAndMonthNumberAndStatusNot(UUID chitId, int monthNumber, PayoutStatus status);
-
-    boolean existsByChitIdAndMonthNumberAndStatusNotIn(UUID chitId, int monthNumber, java.util.List<PayoutStatus> statuses);
-
     boolean existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
             String tenantId, UUID chitId, int monthNumber, UUID memberId,
             java.util.List<PayoutStatus> statuses);
-
-    Optional<Payout> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
     // ── Tenant-scoped list queries ─────────────────────────────────────────────
     List<Payout> findByTenantIdAndStatusInOrderByCreatedAtAsc(String tenantId, List<PayoutStatus> statuses);
@@ -55,29 +49,8 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
 
     List<Payout> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, UUID chitId);
     List<Payout> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId);
-
-    // ── Cross-tenant fallbacks (kept for super-admin/internal use) ─────────────
-    List<Payout> findByStatusOrderByCreatedAtAsc(PayoutStatus status);
-    List<Payout> findByStatusInOrderByCreatedAtAsc(List<PayoutStatus> statuses);
-    List<Payout> findByChitIdOrderByMonthNumberAsc(UUID chitId);
-    List<Payout> findByMemberIdOrderByCreatedAtDesc(UUID memberId);
-
-    @Query("SELECT p FROM Payout p WHERE " +
-           "(p.createdAt >= :start AND p.createdAt < :end) OR " +
-           "(p.disbursedAt >= :start AND p.disbursedAt < :end) " +
-           "ORDER BY p.createdAt DESC")
-    List<Payout> findTodaysPayouts(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
-
-    @Query("SELECT p FROM Payout p WHERE " +
-           "p.createdAt >= :start AND p.createdAt < :end " +
-           "AND (:chitId IS NULL OR p.chitId = :chitId) " +
-           "ORDER BY p.createdAt DESC")
-    List<Payout> findByDateRange(
-            @Param("start") LocalDateTime start,
-            @Param("end") LocalDateTime end,
-            @Param("chitId") UUID chitId);
-
-    List<Payout> findAllByOrderByCreatedAtDesc();
+    List<Payout> findByTenantIdAndMemberIdAndChitIdAndStatusNotInOrderByCreatedAtDesc(
+            String tenantId, UUID memberId, UUID chitId, List<PayoutStatus> excludedStatuses);
 
     long countByTenantIdAndChitIdAndStatus(String tenantId, UUID chitId, PayoutStatus status);
 }

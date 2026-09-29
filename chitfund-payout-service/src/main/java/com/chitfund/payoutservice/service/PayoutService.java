@@ -431,6 +431,19 @@ public class PayoutService {
         return toResponse(findOrThrow(payoutId));
     }
 
+    /** Internal callers must supply the tenant explicitly; service credentials never imply scope. */
+    @Transactional(readOnly = true)
+    public PayoutResponse getByIdForTenant(UUID payoutId, String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        Payout payout = payoutRepository.findByIdAndTenantId(payoutId, tenantId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAYOUT_NOT_FOUND,
+                        "Payout not found: " + payoutId));
+        return toResponse(payout);
+    }
+
     @Transactional(readOnly = true)
     public PayoutFinancialSyncResponse getFinancialSync(UUID payoutId) {
         findOrThrow(payoutId); // tenant authorization and non-enumerating not-found behavior
