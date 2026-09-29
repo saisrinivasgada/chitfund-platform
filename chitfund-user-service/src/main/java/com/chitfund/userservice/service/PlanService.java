@@ -59,7 +59,9 @@ public class PlanService {
         if (tenantId == null || tenantId.isBlank()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
         }
-        Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId))
+        // The tenant row is the quota mutex. The caller creates the employee in
+        // the same transaction, so concurrent exact-limit requests serialize.
+        Tenant tenant = tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Organization not found"));
 

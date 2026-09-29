@@ -18,6 +18,7 @@ public class PlanLimitChecker {
 
     private final MemberRepository memberRepository;
     private final UserServiceClient userServiceClient;
+    private final TenantOperationLock tenantOperationLock;
 
     public void checkCanAddMember() {
         String tenantId = TenantContext.get();
@@ -40,6 +41,7 @@ public class PlanLimitChecker {
         int maxMembers = maxMembersRaw instanceof Number ? ((Number) maxMembersRaw).intValue() : 20;
         if (maxMembers == -1) return; // unlimited
 
+        tenantOperationLock.acquire(tenantId);
         long current = memberRepository.countByTenantIdAndDeletedAtIsNull(tenantId);
         if (current >= maxMembers) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,

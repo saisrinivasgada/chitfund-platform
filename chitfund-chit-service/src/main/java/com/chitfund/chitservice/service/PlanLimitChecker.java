@@ -23,6 +23,7 @@ public class PlanLimitChecker {
 
     private final ChitRepository chitRepository;
     private final UserServiceClient userServiceClient;
+    private final TenantOperationLock tenantOperationLock;
 
     public void checkCanCreateChit(ChitType chitType) {
         String tenantId = requireTenant();
@@ -61,6 +62,7 @@ public class PlanLimitChecker {
         int maxChits = maxChitsRaw instanceof Number ? ((Number) maxChitsRaw).intValue() : 1;
         if (maxChits == -1) return;
 
+        tenantOperationLock.acquire(tenantId);
         long activeCount = chitRepository.countByTenantIdAndStatusAndDeletedAtIsNull(tenantId, ChitStatus.ACTIVE);
         if (activeCount >= maxChits) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,

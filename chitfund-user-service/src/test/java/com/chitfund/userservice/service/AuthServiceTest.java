@@ -5,6 +5,8 @@ import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
+import com.chitfund.userservice.dto.request.RegisterRequest;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.userservice.mapper.UserMapper;
 import com.chitfund.userservice.repository.AccountSetupTokenRepository;
 import com.chitfund.userservice.repository.RefreshTokenRepository;
@@ -12,6 +14,7 @@ import com.chitfund.userservice.repository.TrustedDeviceRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.security.JwtTokenProvider;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -49,7 +52,13 @@ class AuthServiceTest {
     @Mock PasswordValidator passwordValidator;
     @Mock AccountEmailOtpService accountEmailOtpService;
     @Mock AuthenticationSecurityService authenticationSecurityService;
+    @Mock PlanService planService;
     @InjectMocks AuthService authService;
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Test
     void unknownUsernameReturnsGenericCredentialsErrorAndAuditsFingerprint() {
@@ -97,6 +106,26 @@ class AuthServiceTest {
                 .isInstanceOf(BusinessException.class);
 
         verify(authenticationSecurityService).recordRefreshTokenReplay(user.getId());
+    }
+
+    @Test
+    void staffRegistrationChecksQuotaInsideTheRegistrationService() {
+        String tenantId = UUID.randomUUID().toString();
+        TenantContext.set(tenantId);
+        RegisterRequest request = new RegisterRequest();
+        request.setRole(Role.MANAGER);
+        request.setUsername("new.manager");
+        request.setEmail("manager@example.com");
+        request.setFullName("New Manager");
+        request.setPhone("9876543210");
+        request.setPhoneCountryCode("+91");
+        request.setPassword("StrongPassword@1");
+        when(passwordEncoder.encode("StrongPassword@1")).thenReturn("encoded");
+
+        authService.register(request, UUID.randomUUID());
+
+        verify(planService).checkStaffLimit(tenantId);
+        verify(userRepository).save(any(User.class));
     }
 
     @Test

@@ -333,10 +333,6 @@ public class UserController {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Managers can only create Staff accounts");
         }
-        // Enforce staff limit for non-ADMIN accounts
-        if (request.getRole() != Role.ADMIN) {
-            planService.checkStaffLimit(requireTenant());
-        }
         User actor = (User) authentication.getPrincipal();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(authService.register(request, actor.getId()), "Staff account created"));

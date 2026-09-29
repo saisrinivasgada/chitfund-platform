@@ -50,6 +50,7 @@ public class AuthService {
     private final PasswordValidator passwordValidator;
     private final AccountEmailOtpService accountEmailOtpService;
     private final AuthenticationSecurityService authenticationSecurityService;
+    private final PlanService planService;
 
     private static final String LOGIN_EMAIL_VERIFICATION = "LOGIN_EMAIL_VERIFY";
 
@@ -292,6 +293,9 @@ public class AuthService {
         if (tenantId == null || tenantId.isBlank()) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Organization context is required", HttpStatus.FORBIDDEN);
+        }
+        if (role != Role.ADMIN) {
+            planService.checkStaffLimit(tenantId);
         }
 
         User user = User.builder()
