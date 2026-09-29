@@ -3,6 +3,8 @@ package com.chitfund.paymentservice.repository;
 import com.chitfund.paymentservice.domain.ChitMonthDraw;
 import com.chitfund.paymentservice.domain.enums.DrawStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +20,14 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
     long countByChitIdAndStatusNot(UUID chitId, DrawStatus status);
 
     Optional<ChitMonthDraw> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.tenantId = :tenantId " +
+            "AND d.chitId = :chitId AND d.monthNumber = :monthNumber")
+    Optional<ChitMonthDraw> findAuctionDrawForUpdate(
+            @Param("tenantId") String tenantId,
+            @Param("chitId") UUID chitId,
+            @Param("monthNumber") int monthNumber);
 
     List<ChitMonthDraw> findByStatusOrderByDueDateAsc(DrawStatus status);
 

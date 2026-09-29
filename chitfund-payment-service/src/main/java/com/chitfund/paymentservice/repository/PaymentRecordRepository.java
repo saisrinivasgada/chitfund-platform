@@ -42,6 +42,9 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     // All records for a given cycle (used in dashboard stats)
     List<PaymentRecord> findByChitIdAndMonthNumber(UUID chitId, int monthNumber);
 
+    List<PaymentRecord> findByTenantIdAndChitIdAndMonthNumber(
+            String tenantId, UUID chitId, int monthNumber);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM PaymentRecord r WHERE r.tenantId=:tenantId AND r.chitId=:chitId "
             + "AND r.memberId=:memberId AND r.monthNumber=:monthNumber")
@@ -79,6 +82,8 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, UU
     boolean existsByMemberIdAndChitId(UUID memberId, UUID chitId);
 
     void deleteByChitIdAndMonthNumber(UUID chitId, int monthNumber);
+
+    void deleteByTenantIdAndChitIdAndMonthNumber(String tenantId, UUID chitId, int monthNumber);
 
     // Cross-chit FIFO: all outstanding records for a member across every chit EXCEPT the one being paid.
     // Ordered by dueDate so the oldest debt across all chits clears first.

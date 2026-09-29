@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -201,14 +202,55 @@ public class ChitMonthDrawService {
                                      List<MemberSpotEntry> memberSpots,
                                      String tenantId,
                                      BigDecimal distributableDiscount) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+        requireTenant(tenantId);
+        ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(tenantId, chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
                         chitId + "/" + monthNumber));
 
-        if (draw.getStatus() != DrawStatus.AWAITING_AUCTION) {
+        List<PaymentRecord> expectedRecords = buildAuctionRecords(
+                draw, chitId, monthNumber, grossInstallmentAmount, dividendPerSpot,
+                memberSpots, tenantId, distributableDiscount);
+
+        if (draw.getStatus() == DrawStatus.OPEN && draw.getAuctionMode() != null) {
+            List<PaymentRecord> existing = paymentRecordRepository
+                    .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+            if (sameAuctionAssessment(existing, expectedRecords)) {
+                log.info("Auction dividend command already applied for chit {} month {}; returning idempotently",
+                        chitId, monthNumber);
+                return;
+            }
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Auction dividend was already applied with different financial values");
+        }
+
+        if (draw.getStatus() != DrawStatus.AWAITING_AUCTION || draw.getAuctionMode() == null) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Draw is not in AWAITING_AUCTION state. Current: " + draw.getStatus());
         }
+
+        paymentRecordRepository.saveAll(expectedRecords);
+
+        draw.setStatus(DrawStatus.OPEN);
+        drawRepository.save(draw);
+
+        log.info("Auction dividend applied: drawId={} chit={} month={} members={} grossInstallment={} dividendPerSpot={}",
+                draw.getId(), chitId, monthNumber, expectedRecords.size(), grossInstallmentAmount, dividendPerSpot);
+
+        if (log.isDebugEnabled()) {
+            expectedRecords.forEach(r -> log.debug(
+                    "  payment record: memberId={} spots={} gross={} dividend={} netDue={}",
+                    r.getMemberId(),
+                    r.getGrossInstallmentAmount() == null ? 1
+                            : r.getGrossInstallmentAmount().divide(grossInstallmentAmount, 0, java.math.RoundingMode.DOWN).intValue(),
+                    r.getGrossInstallmentAmount(), r.getDividendDeductedAmount(), r.getAmountDue()));
+        }
+    }
+
+    private List<PaymentRecord> buildAuctionRecords(
+            ChitMonthDraw draw, UUID chitId, Integer monthNumber,
+            BigDecimal grossInstallmentAmount, BigDecimal dividendPerSpot,
+            List<MemberSpotEntry> memberSpots, String tenantId,
+            BigDecimal distributableDiscount) {
 
         // dividendPerSpot is rounded down, so spots x perSpot can fall a few paise
         // short of what was actually distributable. Those paise belong to the
@@ -247,21 +289,30 @@ public class ChitMonthDrawService {
                     .build());
         }
 
-        paymentRecordRepository.saveAll(records);
+        return records;
+    }
 
-        draw.setStatus(DrawStatus.OPEN);
-        drawRepository.save(draw);
+    private boolean sameAuctionAssessment(List<PaymentRecord> existing, List<PaymentRecord> expected) {
+        if (existing.size() != expected.size()) return false;
+        Map<UUID, PaymentRecord> byMember = existing.stream()
+                .collect(Collectors.toMap(PaymentRecord::getMemberId, record -> record, (a, b) -> a));
+        return expected.stream().allMatch(wanted -> {
+            PaymentRecord actual = byMember.get(wanted.getMemberId());
+            return actual != null
+                    && sameMoney(actual.getGrossInstallmentAmount(), wanted.getGrossInstallmentAmount())
+                    && sameMoney(actual.getDividendDeductedAmount(), wanted.getDividendDeductedAmount())
+                    && sameMoney(actual.getAmountDue(), wanted.getAmountDue())
+                    && Objects.equals(actual.getDueDate(), wanted.getDueDate());
+        });
+    }
 
-        log.info("Auction dividend applied: drawId={} chit={} month={} members={} grossInstallment={} dividendPerSpot={}",
-                draw.getId(), chitId, monthNumber, records.size(), grossInstallmentAmount, dividendPerSpot);
+    private boolean sameMoney(BigDecimal left, BigDecimal right) {
+        return left != null && right != null && left.compareTo(right) == 0;
+    }
 
-        if (log.isDebugEnabled()) {
-            records.forEach(r -> log.debug(
-                    "  payment record: memberId={} spots={} gross={} dividend={} netDue={}",
-                    r.getMemberId(),
-                    r.getGrossInstallmentAmount() == null ? 1
-                            : r.getGrossInstallmentAmount().divide(grossInstallmentAmount, 0, java.math.RoundingMode.DOWN).intValue(),
-                    r.getGrossInstallmentAmount(), r.getDividendDeductedAmount(), r.getAmountDue()));
+    private void requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Organization context is required");
         }
     }
 
@@ -300,17 +351,30 @@ public class ChitMonthDrawService {
      */
     @Transactional
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
-        ChitMonthDraw draw = drawRepository.findByChitIdAndMonthNumber(chitId, monthNumber)
+        requireTenant(tenantId);
+        ChitMonthDraw draw = drawRepository.findAuctionDrawForUpdate(tenantId, chitId, monthNumber)
                 .orElseThrow(() -> new com.chitfund.common.exception.ResourceNotFoundException("Draw",
                         chitId + "/" + monthNumber));
 
-        if (draw.getStatus() != DrawStatus.OPEN) {
+        if (draw.getStatus() == DrawStatus.AWAITING_AUCTION) {
+            List<PaymentRecord> remaining = paymentRecordRepository
+                    .findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+            if (remaining.isEmpty()) {
+                log.info("Auction dividend command already reversed for chit {} month {}; returning idempotently",
+                        chitId, monthNumber);
+                return;
+            }
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Auction draw is awaiting auction but payment records still exist");
+        }
+
+        if (draw.getStatus() != DrawStatus.OPEN || draw.getAuctionMode() == null) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Draw is not in OPEN state. Cannot reverse auction dividend. Current: " + draw.getStatus());
         }
 
         List<com.chitfund.paymentservice.domain.PaymentRecord> records =
-                paymentRecordRepository.findByChitIdAndMonthNumber(chitId, monthNumber);
+                paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
 
         boolean hasPayments = records.stream()
                 .anyMatch(r -> r.getAmountPaid() != null
@@ -324,7 +388,7 @@ public class ChitMonthDrawService {
                     count + " member(s) have already paid. Void their payment batches first, then re-auction.");
         }
 
-        paymentRecordRepository.deleteByChitIdAndMonthNumber(chitId, monthNumber);
+        paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
         draw.setStatus(DrawStatus.AWAITING_AUCTION);
         drawRepository.save(draw);
 
