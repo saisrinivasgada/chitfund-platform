@@ -57,13 +57,14 @@ public class InternalNotifyController {
     @PostMapping
     public ResponseEntity<ApiResponse<NotificationResponse>> notify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @Valid @RequestBody NotifyRequest request) {
 
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
         }
-        return ResponseEntity.ok(ApiResponse.success(notificationService.send(request)));
+        return ResponseEntity.ok(ApiResponse.success(notificationService.send(tenantId, request)));
     }
 
     /**
@@ -73,6 +74,7 @@ public class InternalNotifyController {
     @PostMapping("/in-app")
     public ResponseEntity<ApiResponse<Void>> inAppNotify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -89,7 +91,7 @@ public class InternalNotifyController {
             @SuppressWarnings("unchecked")
             Map<String, String> meta = (Map<String, String>) body.getOrDefault("metadata", Map.of());
 
-            inAppService.create(recipientId, title, message, type, meta, link);
+            inAppService.create(tenantId, recipientId, title, message, type, meta, link);
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
             if (wsEvent != null) broadcaster.broadcast(wsEvent);
             if (RENEWAL_TYPES.contains(type)) broadcaster.broadcast("RENEWAL_REQUESTS_UPDATED");
@@ -142,7 +144,7 @@ public class InternalNotifyController {
             for (String memberId : memberIds) {
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
-                    inAppService.create(UUID.fromString(userId), title, message, type, meta, link);
+                    inAppService.create(tenantId, UUID.fromString(userId), title, message, type, meta, link);
                     count++;
                 }
             }
@@ -161,6 +163,7 @@ public class InternalNotifyController {
     @PostMapping("/push")
     public ResponseEntity<ApiResponse<Void>> pushNotify(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -185,6 +188,7 @@ public class InternalNotifyController {
     @PostMapping("/bulk")
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> notifyBulk(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader("X-Tenant-ID") String tenantId,
             @Valid @RequestBody BulkNotifyRequest request) {
 
         if (!internalKey.equals(key)) {
@@ -192,7 +196,7 @@ public class InternalNotifyController {
                     .body(ApiResponse.error("GENERAL_004", "Invalid internal service key"));
         }
 
-        List<NotificationResponse> results = notificationService.sendBulk(request);
+        List<NotificationResponse> results = notificationService.sendBulk(tenantId, request);
         log.info("Bulk notification sent: {} recipients, event={}",
                 results.size(), request.getEventType());
         return ResponseEntity.ok(ApiResponse.success(results));

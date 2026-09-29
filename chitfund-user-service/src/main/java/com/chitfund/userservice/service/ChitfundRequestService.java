@@ -132,6 +132,7 @@ public class ChitfundRequestService {
             eventPublisher.publishEvent(new IdentityNotificationEvent(
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     candidate.getId(), request.getId(),
+                    tenantId,
                     tenantRepository.findById(tenantId).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
@@ -292,6 +293,7 @@ public class ChitfundRequestService {
             eventPublisher.publishEvent(new IdentityNotificationEvent(
                     IdentityNotificationEvent.Type.CHITFUND_REQUEST_CREATED,
                     request.getCandidateUserId(), request.getId(),
+                    request.getTenantId(),
                     tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                     List.of(), null, null, null));
         }
@@ -312,6 +314,7 @@ public class ChitfundRequestService {
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_REQUEST_REVOKED,
                 request.getCandidateUserId(), request.getId(),
+                request.getTenantId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                 List.of(), null, null, request.getRequestedEmail()));
         return toResponse(request, null);
@@ -358,6 +361,7 @@ public class ChitfundRequestService {
         eventPublisher.publishEvent(new IdentityNotificationEvent(
                 IdentityNotificationEvent.Type.CHITFUND_ACCESS_ACTIVATED,
                 request.getCandidateUserId(), request.getId(),
+                request.getTenantId(),
                 tenantRepository.findById(request.getTenantId()).map(Tenant::getName).orElse("Organization"),
                 List.of(), request.getTenantId(), request.getMemberId(),
                 request.getRequestedEmail()));

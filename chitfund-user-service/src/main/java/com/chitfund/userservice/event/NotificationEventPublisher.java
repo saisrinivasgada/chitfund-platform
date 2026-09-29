@@ -25,10 +25,10 @@ public class NotificationEventPublisher {
     private final SqsTemplate sqsTemplate;
     private final ObjectMapper objectMapper;
 
-    public void publishInApp(UUID recipientId, String title, String message,
+    public void publishInApp(String tenantId, UUID recipientId, String title, String message,
                              String type, Map<String, String> metadata, String link) {
         publish(SqsQueues.EVT_IN_APP_NOTIFICATION,
-                new InAppNotificationEvent(recipientId.toString(), title, message, type, metadata, link));
+                new InAppNotificationEvent(tenantId, recipientId.toString(), title, message, type, metadata, link));
     }
 
     public void publishPush(UUID userId, String title, String body, Map<String, String> data) {

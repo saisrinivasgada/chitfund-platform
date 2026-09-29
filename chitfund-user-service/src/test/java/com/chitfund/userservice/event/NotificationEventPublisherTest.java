@@ -15,6 +15,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class NotificationEventPublisherTest {
 
@@ -51,6 +52,17 @@ class NotificationEventPublisherTest {
                 sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
 
         verify(sqsTemplate, never()).send(anyString(), anyString());
+    }
+
+    @Test
+    void inAppEventCarriesExplicitTenant() {
+        var message = org.mockito.ArgumentCaptor.forClass(String.class);
+
+        publisher.publishInApp("tenant-a", UUID.randomUUID(), "Title", "Body",
+                "GENERAL", null, "/home");
+
+        verify(sqsTemplate, timeout(1000)).send(anyString(), message.capture());
+        assertThat(message.getValue()).contains("\\\"tenantId\\\":\\\"tenant-a\\\"");
     }
 
     private void beginTransaction() {

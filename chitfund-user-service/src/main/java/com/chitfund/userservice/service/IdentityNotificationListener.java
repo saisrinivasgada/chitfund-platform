@@ -35,7 +35,7 @@ public class IdentityNotificationListener {
         switch (event.type()) {
             case CHITFUND_REQUEST_CREATED -> {
                 String org = event.organizationName() == null ? "An organization" : event.organizationName();
-                eventPublisher.publishInApp(event.recipientUserId(), "New Chitfund Request",
+                eventPublisher.publishInApp(event.tenantId().toString(), event.recipientUserId(), "New Chitfund Request",
                         org + " asked to connect a member profile to your ChitWise account.",
                         "CHITFUND_REQUEST", null, "/member/chitfund-requests");
                 eventPublisher.publishPush(event.recipientUserId(), "New Chitfund Request",
@@ -54,7 +54,7 @@ public class IdentityNotificationListener {
                     }
                 }
                 eventPublisher.publishInApp(
-                        event.recipientUserId(), "Chitfund Access Active",
+                        event.tenantId().toString(), event.recipientUserId(), "Chitfund Access Active",
                         "Your verified member profile is now active for " + event.organizationName() + ".",
                         "CHITFUND_REQUEST", null, "/member/chitfund-requests");
                 String approvalEmail = resolveEmail(event);
@@ -69,7 +69,7 @@ public class IdentityNotificationListener {
             }
             case CHITFUND_REQUEST_REVOKED -> {
                 eventPublisher.publishInApp(
-                        event.recipientUserId(), "App Access Request Cancelled",
+                        event.tenantId().toString(), event.recipientUserId(), "App Access Request Cancelled",
                         (event.organizationName() == null ? "The organization" : event.organizationName())
                                 + " has cancelled your app-access request.",
                         "CHITFUND_REQUEST", null, "/member/chitfund-requests");
@@ -84,13 +84,13 @@ public class IdentityNotificationListener {
                 }
             }
             case PHONE_IDENTITY_REASSIGNED -> {
-                eventPublisher.publishInApp(event.recipientUserId(), "Account identity updated",
+                eventPublisher.publishInApp(null, event.recipientUserId(), "Account identity updated",
                         "A support-approved phone identity change was completed. Your historical organization and financial records were not transferred or deleted.",
                         "ACCOUNT_ACCESS", null, "/member/support");
                 for (var tenantId : event.affectedTenantIds() == null ? List.<java.util.UUID>of() : event.affectedTenantIds()) {
                     userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
                                     tenantId.toString(), List.of(Role.ADMIN))
-                            .forEach(admin -> eventPublisher.publishInApp(admin.getId(),
+                            .forEach(admin -> eventPublisher.publishInApp(tenantId.toString(), admin.getId(),
                                     "Member identity access updated",
                                     "ChitWise Support completed an approved identity-access change affecting a member profile in your organization. Financial history was not changed.",
                                     "ACCOUNT_ACCESS", null, "/support"));

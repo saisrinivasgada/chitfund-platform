@@ -74,12 +74,14 @@ public class InternalUserController {
     @GetMapping("/ids-by-role")
     public ResponseEntity<List<String>> getUserIdsByRole(
             @RequestParam String role,
+            @RequestHeader(value = "X-Tenant-ID", required = true) String tenantId,
             @RequestHeader(value = "X-Internal-Key", required = true) String key) {
         if (!internalKey.equals(key)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(List.of());
+        if (tenantId.isBlank()) return ResponseEntity.status(HttpStatus.FORBIDDEN).body(List.of());
         try {
             Role r = Role.valueOf(role.toUpperCase());
             return ResponseEntity.ok(
-                    userRepository.findByRoleInAndDeletedAtIsNull(List.of(r))
+                    userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(tenantId, List.of(r))
                             .stream().map(u -> u.getId().toString()).toList());
         } catch (IllegalArgumentException e) {
             return ResponseEntity.ok(List.of());

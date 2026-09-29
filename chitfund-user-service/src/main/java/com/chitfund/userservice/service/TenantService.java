@@ -423,7 +423,7 @@ public class TenantService {
         // Notify all super-admin accounts
         userRepository.findByRoleIn(java.util.List.of(com.chitfund.userservice.domain.enums.Role.SUPER_ADMIN))
                 .forEach(admin -> notificationEventPublisher.publishInApp(
-                        admin.getId(),
+                        null, admin.getId(),
                         "Renewal Request",
                         t.getName() + " (" + t.getPlan() + " plan) has requested a renewal.",
                         "RENEWAL_REQUEST", null,

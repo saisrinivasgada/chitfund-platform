@@ -3,6 +3,7 @@ package com.chitfund.common.event;
 import java.util.Map;
 
 public record InAppNotificationEvent(
+        String tenantId,
         String recipientId,
         String title,
         String message,

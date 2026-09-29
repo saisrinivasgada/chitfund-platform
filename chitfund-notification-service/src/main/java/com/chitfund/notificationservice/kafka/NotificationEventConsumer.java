@@ -145,14 +145,14 @@ public class NotificationEventConsumer {
                                 "dueDate",     event.dueDate().toString()
                         )
                 );
-                notificationService.send(req);
+                notificationService.send(event.tenantId(), req);
 
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
                     String title = "Installment Due";
                     String body  = amtFormatted + " due for draw " + event.monthNumber() + " — " + chitLabel;
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "PAYMENT_DUE",
+                        event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_DUE",
                         Map.of("chitId", event.chitId(), "amount", event.installmentAmount().toPlainString(),
                                "monthNumber", event.monthNumber().toString()),
                         "/member/chits/" + event.chitId()
@@ -191,14 +191,14 @@ public class NotificationEventConsumer {
                 NotifyRequest req = buildRequest(
                         UUID.fromString(memberId), null, null,
                         NotificationEventType.MONTH_SKIPPED, params);
-                notificationService.send(req);
+                notificationService.send(event.tenantId(), req);
 
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
                     String title = "Draw Skipped";
                     String body  = "Draw " + event.monthNumber() + " of " + chitLabel + " was skipped. Reason: " + reason;
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "MONTH_SKIPPED",
+                        event.tenantId(), UUID.fromString(userId), title, body, "MONTH_SKIPPED",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString(), "reason", reason),
                         "/member/chits/" + event.chitId()
                     );
@@ -234,12 +234,12 @@ public class NotificationEventConsumer {
                             "chitId",     event.chitId()
                     )
             );
-            notificationService.send(req);
+            notificationService.send(event.tenantId(), req);
 
             String cashTitle = "Cash Collected";
             String cashBody  = amtFormatted + " collected successfully";
             inAppService.create(
-                UUID.fromString(event.collectedByUserId()),
+                event.tenantId(), UUID.fromString(event.collectedByUserId()),
                 cashTitle, cashBody, "CASH_COLLECTED",
                 Map.of("memberId", event.memberId(), "chitId", event.chitId(),
                        "amount", event.amount().toPlainString(),
@@ -278,14 +278,14 @@ public class NotificationEventConsumer {
                             "recordedAt",       event.occurredAt().toString()
                     )
             );
-            notificationService.send(req);
+            notificationService.send(event.tenantId(), req);
 
             String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payment Received";
                 String body  = amtFormatted + " payment recorded. " + remaining;
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
                     Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
                            "monthsSettled", String.valueOf(event.monthsSettled()),
                            "recordedAt", event.occurredAt().toString()),
@@ -318,14 +318,14 @@ public class NotificationEventConsumer {
                             "amount",      event.netPayoutAmount().toPlainString()
                     )
             );
-            notificationService.send(req);
+            notificationService.send(event.tenantId(), req);
 
             String winnerUserId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (winnerUserId != null) {
                 String title = "You Won the Draw!";
                 String body  = "Congratulations! Payout of " + amtFormatted + " approved for month " + event.monthNumber();
                 inAppService.create(
-                    UUID.fromString(winnerUserId), title, body, "WINNER_SELECTED",
+                    event.tenantId(), UUID.fromString(winnerUserId), title, body, "WINNER_SELECTED",
                     Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                            "monthNumber", event.monthNumber().toString()),
                     "/member/chits/" + event.chitId()
@@ -343,7 +343,7 @@ public class NotificationEventConsumer {
                     String title = "Draw Result — Draw " + event.monthNumber();
                     String body  = "Draw " + event.monthNumber() + " is complete. Payout approved.";
                     inAppService.create(
-                        UUID.fromString(userId), title, body, "DRAW_RESULT",
+                        event.tenantId(), UUID.fromString(userId), title, body, "DRAW_RESULT",
                         Map.of("chitId", event.chitId(), "monthNumber", event.monthNumber().toString()),
                         "/member/chits/" + event.chitId()
                     );
@@ -377,14 +377,14 @@ public class NotificationEventConsumer {
                             "reference", ref
                     )
             );
-            notificationService.send(req);
+            notificationService.send(event.tenantId(), req);
 
             String userId = memberServiceClient.getUserId(event.tenantId(), event.memberId());
             if (userId != null) {
                 String title = "Payout Disbursed";
                 String body  = amtFormatted + " sent via " + event.disbursementMode() + " (Ref: " + ref + ")";
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PAYOUT_DISBURSED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PAYOUT_DISBURSED",
                     Map.of("chitId", event.chitId(), "amount", event.netPayoutAmount().toPlainString(),
                            "mode", event.disbursementMode(), "reference", ref),
                     "/member/chits/" + event.chitId()
@@ -412,7 +412,7 @@ public class NotificationEventConsumer {
                 String title = "Profile Updated";
                 String body  = "Your referral has been updated by an admin. Referred by: " + newValue;
                 inAppService.create(
-                    UUID.fromString(userId), title, body, "PROFILE_UPDATED",
+                    event.tenantId(), UUID.fromString(userId), title, body, "PROFILE_UPDATED",
                     Map.of("fieldChanged", "Referred by", "newValue", newValue),
                     "/member"
                 );
@@ -460,7 +460,7 @@ public class NotificationEventConsumer {
             String title = "Cash Pickup Requested";
             String body  = "Your cash pickup request" + amtStr + " has been submitted and is pending assignment.";
             inAppService.create(
-                UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_SUBMITTED",
+                event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_SUBMITTED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests"
             );
             pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
@@ -468,6 +468,7 @@ public class NotificationEventConsumer {
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "New Cash Pickup Request",
             memberDisplay + " has requested a cash pickup" + amtStr + ". Assign a staff member.",
             "CASH_REQUEST_SUBMITTED",
@@ -486,7 +487,7 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Staff Assigned";
             String body  = staffDisplay + " has been assigned to collect your cash payment" + amtStr + " and will contact you shortly.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_ASSIGNED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_ASSIGNED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
             pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
@@ -495,7 +496,7 @@ public class NotificationEventConsumer {
         if (event.staffId() != null) {
             String title = "New Cash Pickup Task";
             String body  = "You have been assigned to collect cash" + amtStr + " from " + memberDisplay + ". Check your tasks.";
-            inAppService.create(UUID.fromString(event.staffId()), title, body, "CASH_REQUEST_ASSIGNED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "CASH_REQUEST_ASSIGNED",
                 Map.of("requestId", event.requestId()), "/tasks");
             pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
                     Map.of("screen", "tasks", "requestId", event.requestId()));
@@ -512,13 +513,14 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Cash Picked Up";
             String body  = workerDisplay + " has picked up your cash payment" + amtStr + ". You'll be notified once admin confirms receipt.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PICKED_UP",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PICKED_UP",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
             pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "Cash Ready to Confirm",
             workerDisplay + " has picked up" + amtStr + " from " + memberDisplay + ". Please confirm receipt.",
             "CASH_REQUEST_PICKED_UP",
@@ -533,7 +535,7 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Payment Confirmed";
             String body  = amtStr + " confirmed by admin. Your account has been credited.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_COLLECTED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_COLLECTED",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
             pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
@@ -542,7 +544,7 @@ public class NotificationEventConsumer {
         if (event.staffId() != null) {
             String title = "Collection Confirmed";
             String body  = "Admin confirmed your cash handover of " + amtStr + ". Task complete.";
-            inAppService.create(UUID.fromString(event.staffId()), title, body, "CASH_COLLECTED",
+            inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "CASH_COLLECTED",
                 Map.of("requestId", event.requestId()), "/tasks");
             pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
                     Map.of("screen", "tasks", "requestId", event.requestId()));
@@ -563,13 +565,14 @@ public class NotificationEventConsumer {
         if (event.memberUserId() != null) {
             String title = "Partial Cash Pickup — Action Needed";
             String body  = workerDisplay + " collected " + collectedStr + requestedStr + " from you. Please approve or reject on your requests page.";
-            inAppService.create(UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PARTIAL",
+            inAppService.create(event.tenantId(), UUID.fromString(event.memberUserId()), title, body, "CASH_REQUEST_PARTIAL",
                 Map.of("requestId", event.requestId()), "/member?tab=requests");
             pushService.sendToUserWithData(UUID.fromString(event.memberUserId()), title, body,
                     Map.of("screen", "requests", "requestId", event.requestId()));
         }
 
         notifyAdminsAndManagers(
+            event.tenantId(),
             "Partial Cash Pickup Recorded",
             workerDisplay + " collected " + collectedStr + requestedStr + " from " + memberDisplay + ". Awaiting member approval.",
             "CASH_REQUEST_PARTIAL",
@@ -587,6 +590,7 @@ public class NotificationEventConsumer {
 
         if (approved) {
             notifyAdminsAndManagers(
+                event.tenantId(),
                 "Member Approved Partial Collection",
                 memberDisplay + " confirmed " + collectedStr + " was collected. Proceed to remit.",
                 "MEMBER_APPROVED_PARTIAL",
@@ -596,7 +600,7 @@ public class NotificationEventConsumer {
             if (event.staffId() != null) {
                 String title = "Member Approved Your Collection";
                 String body  = memberDisplay + " confirmed " + collectedStr + ". Admin will remit soon.";
-                inAppService.create(UUID.fromString(event.staffId()), title, body, "MEMBER_APPROVED_PARTIAL",
+                inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "MEMBER_APPROVED_PARTIAL",
                     Map.of("requestId", event.requestId()), "/tasks");
                 pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
                         Map.of("screen", "tasks", "requestId", event.requestId()));
@@ -604,6 +608,7 @@ public class NotificationEventConsumer {
         } else {
             String reasonStr = extraData != null && !extraData.isBlank() ? " Reason: " + extraData : "";
             notifyAdminsAndManagers(
+                event.tenantId(),
                 "Member Disputed Partial Collection",
                 memberDisplay + " rejected the " + collectedStr + " partial collection." + reasonStr + " Review and edit if needed.",
                 "MEMBER_REJECTED_PARTIAL",
@@ -613,7 +618,7 @@ public class NotificationEventConsumer {
             if (event.staffId() != null) {
                 String title = "Member Disputed Your Collection";
                 String body  = memberDisplay + " rejected the partial collection." + reasonStr;
-                inAppService.create(UUID.fromString(event.staffId()), title, body, "MEMBER_REJECTED_PARTIAL",
+                inAppService.create(event.tenantId(), UUID.fromString(event.staffId()), title, body, "MEMBER_REJECTED_PARTIAL",
                     Map.of("requestId", event.requestId()), "/tasks");
                 pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
                         Map.of("screen", "tasks", "requestId", event.requestId()));
@@ -621,18 +626,18 @@ public class NotificationEventConsumer {
         }
     }
 
-    private void notifyAdminsAndManagers(String title, String message, String type,
+    private void notifyAdminsAndManagers(String tenantId, String title, String message, String type,
                                           Map<String, String> metadata, String link) {
-        List<String> adminIds = userServiceClient.getUserIdsByRole("ADMIN");
-        List<String> managerIds = userServiceClient.getUserIdsByRole("MANAGER");
+        List<String> adminIds = userServiceClient.getUserIdsByRole(tenantId, "ADMIN");
+        List<String> managerIds = userServiceClient.getUserIdsByRole(tenantId, "MANAGER");
 
         for (String userId : adminIds) {
-            inAppService.create(UUID.fromString(userId), title, message, type, metadata, link);
+            inAppService.create(tenantId, UUID.fromString(userId), title, message, type, metadata, link);
             pushService.sendToUserWithData(UUID.fromString(userId), title, message,
                     Map.of("screen", "payments"));
         }
         for (String userId : managerIds) {
-            inAppService.create(UUID.fromString(userId), title, message, type, metadata, link);
+            inAppService.create(tenantId, UUID.fromString(userId), title, message, type, metadata, link);
             pushService.sendToUserWithData(UUID.fromString(userId), title, message,
                     Map.of("screen", "payments"));
         }
@@ -654,7 +659,7 @@ public class NotificationEventConsumer {
     private void onInAppNotification(InAppNotificationEvent event) {
         try {
             inAppService.create(
-                    UUID.fromString(event.recipientId()),
+                    event.tenantId(), UUID.fromString(event.recipientId()),
                     event.title(), event.message(), event.type(),
                     event.metadata(), event.link());
             broadcaster.broadcast("IN_APP_UPDATED");
@@ -674,7 +679,7 @@ public class NotificationEventConsumer {
             for (String memberId : event.memberIds()) {
                 String userId = userIdMap.get(memberId);
                 if (userId != null) {
-                    inAppService.create(UUID.fromString(userId),
+                    inAppService.create(event.tenantId(), UUID.fromString(userId),
                             event.title(), event.message(), event.type(),
                             event.metadata(), event.link());
                 }

@@ -1,6 +1,7 @@
 package com.chitfund.notificationservice.controller;
 
 import com.chitfund.common.dto.ApiResponse;
+import com.chitfund.common.context.TenantContext;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
 import com.chitfund.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,6 @@ public class NotificationHistoryController {
             @PathVariable UUID recipientId,
             @PageableDefault(size = 20) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.success(
-                notificationService.getHistory(recipientId, pageable)));
+                notificationService.getHistory(TenantContext.get(), recipientId, pageable)));
     }
 }

@@ -94,7 +94,8 @@ public class ReminderService {
         notificationEventPublisher.publishPush(member.getId(), pushTitle, pushBody, pushData);
 
         // In-app notification for web members (and as fallback for mobile)
-        notificationEventPublisher.publishInApp(member.getId(), pushTitle, pushBody, "REMINDER", null, null);
+        notificationEventPublisher.publishInApp(sender.getTenantId(), member.getId(), pushTitle, pushBody,
+                "REMINDER", null, null);
 
         return toResponse(reminder);
     }

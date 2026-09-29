@@ -11,6 +11,11 @@ import com.chitfund.notificationservice.repository.EventInboxRepository;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,7 +64,7 @@ class NotificationEventConsumerTest {
                  "eventType":"PAYMENT_COMPLETED","payload":"{}"}
                 """);
 
-        verify(notificationService, never()).send(any());
+        verify(notificationService, never()).send(any(), any());
     }
 
     @Test
@@ -82,5 +87,32 @@ class NotificationEventConsumerTest {
                 "{\"eventType\":\"LEGACY_UNKNOWN\",\"payload\":\"{}\"}");
 
         verify(inbox, never()).claimIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void adminAndManagerFanoutIsRestrictedToEventTenant() {
+        UserServiceClient users = mock(UserServiceClient.class);
+        InAppNotificationService inApp = mock(InAppNotificationService.class);
+        ExpoPushService push = mock(ExpoPushService.class);
+        String adminId = UUID.randomUUID().toString();
+        String managerId = UUID.randomUUID().toString();
+        when(users.getUserIdsByRole("tenant-a", "ADMIN")).thenReturn(List.of(adminId));
+        when(users.getUserIdsByRole("tenant-a", "MANAGER")).thenReturn(List.of(managerId));
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), inApp, push, mock(EmailSender.class),
+                new ObjectMapper(), mock(WebSocketBroadcaster.class),
+                mock(MemberServiceClient.class), users, mock(ChitServiceClient.class),
+                mock(EventInboxRepository.class));
+
+        ReflectionTestUtils.invokeMethod(consumer, "notifyAdminsAndManagers",
+                "tenant-a", "Title", "Message", "CASH_REQUEST_SUBMITTED",
+                Map.of("requestId", "request-a"), "/payments");
+
+        verify(users).getUserIdsByRole("tenant-a", "ADMIN");
+        verify(users).getUserIdsByRole("tenant-a", "MANAGER");
+        verify(inApp).create(eq("tenant-a"), eq(UUID.fromString(adminId)), eq("Title"),
+                eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
+        verify(inApp).create(eq("tenant-a"), eq(UUID.fromString(managerId)), eq("Title"),
+                eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
     }
 }
