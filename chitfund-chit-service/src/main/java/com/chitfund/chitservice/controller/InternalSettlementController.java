@@ -12,6 +12,7 @@ import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
+import com.chitfund.chitservice.repository.AuctionSessionRepository;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
 import com.chitfund.chitservice.domain.enums.WinnerSelectionMode;
 import com.chitfund.chitservice.service.ChitService;
@@ -54,6 +55,7 @@ public class InternalSettlementController {
     private final ChitRepository chitRepository;
     private final MonthReservationRepository reservationRepository;
     private final MonthlyWinnerRepository winnerRepository;
+    private final AuctionSessionRepository auctionSessionRepository;
     private final ChitMapper chitMapper;
     private final ChitService chitService;
 
@@ -218,6 +220,40 @@ public class InternalSettlementController {
                 .map(e -> new DrawMemberAmountResponse(e.getKey(), e.getValue()))
                 .toList();
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    /**
+     * Returns immutable/history-bearing dependencies that make physical draw deletion unsafe.
+     * Payment-service uses this as a fail-closed guard before discarding a pristine draw.
+     */
+    @GetMapping("/chits/{chitId}/draws/{monthNumber}/dependencies")
+    public ResponseEntity<?> getDrawDependencies(
+            @PathVariable UUID chitId,
+            @PathVariable Integer monthNumber,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        // Resolve the parent through the tenant-scoped repository before exposing dependency state.
+        chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", chitId));
+
+        long winnerCount = winnerRepository
+                .countByChitIdAndMonthNumberAndTenantId(chitId, monthNumber, tenantId);
+        long processedReservationCount = reservationRepository
+                .countByChitIdAndMonthNumberAndTenantIdAndStatus(
+                        chitId, monthNumber, tenantId, ReservationStatus.PROCESSED);
+        boolean auctionHistory = auctionSessionRepository
+                .existsByChitIdAndMonthNumberAndTenantId(chitId, monthNumber, tenantId);
+
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "winnerCount", winnerCount,
+                "processedReservationCount", processedReservationCount,
+                "auctionHistory", auctionHistory)));
     }
 
     private void replaceOneSpotDue(Map<UUID, BigDecimal> dues, UUID memberId,

@@ -68,4 +68,29 @@ class InternalPayoutControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         verifyNoInteractions(repository, service);
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void drawDependencyCountIncludesHistoricalPayoutRowsWithinTenant() {
+        UUID chitId = UUID.randomUUID();
+        when(repository.countByTenantIdAndChitIdAndMonthNumber("tenant-a", chitId, 4))
+                .thenReturn(3L);
+
+        var response = controller.getDrawDependencies(
+                chitId, 4, "internal-secret", "tenant-a");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = (com.chitfund.common.dto.ApiResponse<java.util.Map<String, Object>>) response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getData()).containsEntry("payoutCount", 3L);
+    }
+
+    @Test
+    void drawDependencyProbeRejectsInvalidServiceCredential() {
+        var response = controller.getDrawDependencies(
+                UUID.randomUUID(), 1, "wrong", "tenant-a");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verifyNoInteractions(repository, service);
+    }
 }

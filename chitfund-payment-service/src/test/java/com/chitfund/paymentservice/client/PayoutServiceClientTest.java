@@ -102,4 +102,29 @@ class PayoutServiceClientTest {
                         assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         server.verify();
     }
+
+    @Test
+    void drawDependencyCheckIsTenantScopedAndCountsAllPayoutHistory() {
+        UUID chitId = UUID.randomUUID();
+        server.expect(requestTo("http://payout.test/internal/payouts/chit/" + chitId + "/draw/3/dependencies"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("X-Internal-Key", "internal-secret"))
+                .andExpect(header("X-Tenant-ID", "tenant-a"))
+                .andRespond(withSuccess("{\"data\":{\"payoutCount\":2}}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.getDrawDependencies(chitId, 3).hasHistory()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void payoutDependencyFailureBlocksPhysicalDrawDeletion() {
+        UUID chitId = UUID.randomUUID();
+        server.expect(requestTo("http://payout.test/internal/payouts/chit/" + chitId + "/draw/3/dependencies"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> client.getDrawDependencies(chitId, 3))
+                .isInstanceOfSatisfying(BusinessException.class, error ->
+                        assertThat(error.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        server.verify();
+    }
 }

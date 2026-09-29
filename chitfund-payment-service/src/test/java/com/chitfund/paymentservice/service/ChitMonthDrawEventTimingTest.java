@@ -4,6 +4,10 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.ChitMonthOpenedEvent;
 import com.chitfund.common.event.ChitMonthSkippedEvent;
 import com.chitfund.paymentservice.domain.ChitMonthDraw;
+import com.chitfund.paymentservice.domain.PaymentAllocation;
+import com.chitfund.paymentservice.domain.PaymentRecord;
+import com.chitfund.paymentservice.domain.enums.DrawStatus;
+import com.chitfund.paymentservice.domain.enums.PaymentRecordStatus;
 import com.chitfund.paymentservice.dto.request.OpenMonthRequest;
 import com.chitfund.paymentservice.dto.request.SkipMonthRequest;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
@@ -52,6 +56,7 @@ class ChitMonthDrawEventTimingTest {
     @Mock private PlanExpiryChecker planExpiryChecker;
     @Mock private MemberCreditService memberCreditService;
     @Mock private com.chitfund.paymentservice.client.ChitServiceClient chitServiceClient;
+    @Mock private com.chitfund.paymentservice.client.PayoutServiceClient payoutServiceClient;
 
     private ChitMonthDrawService service;
 
@@ -61,7 +66,7 @@ class ChitMonthDrawEventTimingTest {
         service = new ChitMonthDrawService(
                 drawRepository, paymentRecordRepository, allocationRepository,
                 eventPublisher, notificationService, memberServiceClient,
-                auditClient, planExpiryChecker, memberCreditService, chitServiceClient);
+                auditClient, planExpiryChecker, memberCreditService, chitServiceClient, payoutServiceClient);
 
         lenient().when(drawRepository.countByTenantIdAndChitIdAndStatusNot(anyString(), any(), any()))
                 .thenReturn(0L);
@@ -86,6 +91,8 @@ class ChitMonthDrawEventTimingTest {
             dto.setAmountDue(new BigDecimal("1000.00"));
             return List.of(dto);
         });
+        lenient().when(chitServiceClient.getDrawDependencies(any(), anyInt())).thenReturn(noChitHistory());
+        lenient().when(payoutServiceClient.getDrawDependencies(any(), anyInt())).thenReturn(noPayoutHistory());
     }
 
     @AfterEach
@@ -160,6 +167,123 @@ class ChitMonthDrawEventTimingTest {
         ArgumentCaptor<ChitMonthDraw> saved = ArgumentCaptor.forClass(ChitMonthDraw.class);
         verify(drawRepository).save(saved.capture());
         assertThat(saved.getValue().getTenantId()).isEqualTo(TENANT);
+    }
+
+    @Test
+    void pristineOpenDrawCanBeDiscarded() {
+        UUID drawId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        ChitMonthDraw draw = openDrawEntity(drawId, chitId);
+        PaymentRecord record = outstandingRecord(chitId, 1);
+        when(drawRepository.findByIdAndTenantIdForUpdate(drawId, TENANT)).thenReturn(java.util.Optional.of(draw));
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1))
+                .thenReturn(List.of(record));
+        when(allocationRepository.findByTenantIdAndPaymentRecordIdIn(TENANT, List.of(record.getId())))
+                .thenReturn(List.of());
+
+        service.deleteDraw(drawId, UUID.randomUUID(), "ADMIN");
+
+        verify(paymentRecordRepository).deleteByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1);
+        verify(drawRepository).delete(draw);
+        verify(auditClient).log(anyString(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.eq("DRAW_DELETED"), anyString(), anyString(),
+                any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(TENANT));
+    }
+
+    @Test
+    void creditOrPayoutDeductionHistoryCannotBeSilentlyRevertedAndDeleted() {
+        UUID drawId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        ChitMonthDraw draw = openDrawEntity(drawId, chitId);
+        PaymentRecord record = outstandingRecord(chitId, 1);
+        record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
+        record.setAmountPaid(new BigDecimal("1000.00"));
+        record.setSettledByPayoutId(UUID.randomUUID());
+        when(drawRepository.findByIdAndTenantIdForUpdate(drawId, TENANT)).thenReturn(java.util.Optional.of(draw));
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1))
+                .thenReturn(List.of(record));
+
+        assertThatThrownBy(() -> service.deleteDraw(drawId, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("history");
+
+        verify(paymentRecordRepository, never()).save(any());
+        verify(drawRepository, never()).delete(any());
+    }
+
+    @Test
+    void paymentAllocationHistoryBlocksPhysicalDeletion() {
+        UUID drawId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        ChitMonthDraw draw = openDrawEntity(drawId, chitId);
+        PaymentRecord record = outstandingRecord(chitId, 1);
+        when(drawRepository.findByIdAndTenantIdForUpdate(drawId, TENANT)).thenReturn(java.util.Optional.of(draw));
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1))
+                .thenReturn(List.of(record));
+        when(allocationRepository.findByTenantIdAndPaymentRecordIdIn(TENANT, List.of(record.getId())))
+                .thenReturn(List.of(PaymentAllocation.builder().id(UUID.randomUUID()).build()));
+
+        assertThatThrownBy(() -> service.deleteDraw(drawId, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("allocation history");
+        verify(drawRepository, never()).delete(any());
+    }
+
+    @Test
+    void winnerAuctionOrProcessedReservationHistoryBlocksPhysicalDeletion() {
+        UUID drawId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        ChitMonthDraw draw = openDrawEntity(drawId, chitId);
+        when(drawRepository.findByIdAndTenantIdForUpdate(drawId, TENANT)).thenReturn(java.util.Optional.of(draw));
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1))
+                .thenReturn(List.of());
+        var dependencies = noChitHistory();
+        dependencies.setWinnerCount(1);
+        when(chitServiceClient.getDrawDependencies(chitId, 1)).thenReturn(dependencies);
+
+        assertThatThrownBy(() -> service.deleteDraw(drawId, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("winner, auction, or processed reservation");
+        verify(payoutServiceClient, never()).getDrawDependencies(any(), anyInt());
+        verify(drawRepository, never()).delete(any());
+    }
+
+    @Test
+    void anyPayoutHistoryBlocksPhysicalDeletion() {
+        UUID drawId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        ChitMonthDraw draw = openDrawEntity(drawId, chitId);
+        when(drawRepository.findByIdAndTenantIdForUpdate(drawId, TENANT)).thenReturn(java.util.Optional.of(draw));
+        when(paymentRecordRepository.findByTenantIdAndChitIdAndMonthNumber(TENANT, chitId, 1))
+                .thenReturn(List.of());
+        var dependencies = noPayoutHistory();
+        dependencies.setPayoutCount(1);
+        when(payoutServiceClient.getDrawDependencies(chitId, 1)).thenReturn(dependencies);
+
+        assertThatThrownBy(() -> service.deleteDraw(drawId, UUID.randomUUID(), "ADMIN"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("payout history");
+        verify(drawRepository, never()).delete(any());
+    }
+
+    private ChitMonthDraw openDrawEntity(UUID drawId, UUID chitId) {
+        return ChitMonthDraw.builder().id(drawId).tenantId(TENANT).chitId(chitId)
+                .monthNumber(1).status(DrawStatus.OPEN).build();
+    }
+
+    private PaymentRecord outstandingRecord(UUID chitId, int monthNumber) {
+        return PaymentRecord.builder().id(UUID.randomUUID()).tenantId(TENANT).chitId(chitId)
+                .memberId(UUID.randomUUID()).monthNumber(monthNumber)
+                .amountDue(new BigDecimal("1000.00")).amountPaid(BigDecimal.ZERO)
+                .status(PaymentRecordStatus.OUTSTANDING).build();
+    }
+
+    private com.chitfund.paymentservice.client.ChitServiceClient.DrawDependencyDto noChitHistory() {
+        return new com.chitfund.paymentservice.client.ChitServiceClient.DrawDependencyDto();
+    }
+
+    private com.chitfund.paymentservice.client.PayoutServiceClient.DrawDependencyDto noPayoutHistory() {
+        return new com.chitfund.paymentservice.client.PayoutServiceClient.DrawDependencyDto();
     }
 
     private OpenMonthRequest openRequest() {

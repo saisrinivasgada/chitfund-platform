@@ -844,10 +844,6 @@ export const deleteDraw = async (drawId) => {
   await api.delete(`/admin/draws/${drawId}`);
 };
 
-export const deleteWinnerForDraw = async ({ chitId, monthNumber }) => {
-  await api.delete(`/chits/${chitId}/winners/draw/${monthNumber}`);
-};
-
 export const skipDraw = async (body) => {
   const res = await api.post('/admin/draws/skip', body);
   return res.data.data;

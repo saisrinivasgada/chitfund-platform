@@ -84,6 +84,24 @@ public class InternalPayoutController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    /** Any payout row is financial history, including cancelled or voided rows. */
+    @GetMapping("/payouts/chit/{chitId}/draw/{monthNumber}/dependencies")
+    public ResponseEntity<?> getDrawDependencies(
+            @PathVariable UUID chitId,
+            @PathVariable int monthNumber,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader("X-Tenant-ID") String tenantId) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        long payoutCount = payoutRepository
+                .countByTenantIdAndChitIdAndMonthNumber(tenantId, chitId, monthNumber);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of("payoutCount", payoutCount)));
+    }
+
     private int priorityOf(PayoutStatus status) {
         return switch (status) {
             case DISBURSED -> 3;

@@ -51,6 +51,15 @@ public class PayoutServiceClient {
         private String status;  // PENDING / PARTIALLY_DISBURSED / DISBURSED / CANCELLED / VOIDED
     }
 
+    @Data
+    public static class DrawDependencyDto {
+        private long payoutCount;
+
+        public boolean hasHistory() {
+            return payoutCount > 0;
+        }
+    }
+
     /**
      * Returns the most relevant payout for a member+chit pair.
      * payout-service's internal endpoint prefers DISBURSED/PARTIALLY_DISBURSED over PENDING,
@@ -90,6 +99,38 @@ public class PayoutServiceClient {
             log.error("payout-service unavailable while verifying settlement inputs for member {} chit {}: {}",
                     memberId, chitId, e.getClass().getSimpleName());
             throw unavailable("Payout data could not be verified. Please try again.", e);
+        }
+    }
+
+    /** Strict dependency check used before physically discarding a draw. */
+    @SuppressWarnings("unchecked")
+    public DrawDependencyDto getDrawDependencies(UUID chitId, int monthNumber) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant());
+            ResponseEntity<Map> resp = restTemplate.exchange(
+                    payoutServiceUrl + "/internal/payouts/chit/" + chitId
+                            + "/draw/" + monthNumber + "/dependencies",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+            Map<String, Object> body = resp.getBody();
+            if (body == null || !(body.get("data") instanceof Map<?, ?> raw)) {
+                throw unavailable("Payout history service returned an invalid response", null);
+            }
+            Object value = raw.get("payoutCount");
+            DrawDependencyDto result = new DrawDependencyDto();
+            try {
+                result.setPayoutCount(value == null ? 0L : Long.parseLong(value.toString()));
+            } catch (NumberFormatException e) {
+                throw unavailable("Payout history service returned an invalid count", e);
+            }
+            return result;
+        } catch (RestClientException e) {
+            log.error("payout-service unavailable while checking draw dependencies for chit {} month {}: {}",
+                    chitId, monthNumber, e.getClass().getSimpleName());
+            throw unavailable("Payout history could not be verified. Please try again.", e);
         }
     }
 

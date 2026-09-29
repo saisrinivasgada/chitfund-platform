@@ -39,13 +39,4 @@ public class WinnerController {
         return ResponseEntity.ok(ApiResponse.success(winnerService.listWinners(chitId)));
     }
 
-    // Called when a cycle is deleted — rolls back the winner assignment for that cycle number
-    @DeleteMapping("/winners/draw/{monthNumber}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public ResponseEntity<ApiResponse<Void>> deleteWinnerForDraw(
-            @PathVariable UUID chitId,
-            @PathVariable Integer monthNumber) {
-        winnerService.deleteWinnerForDraw(chitId, monthNumber);
-        return ResponseEntity.ok(ApiResponse.success(null, "Winner record removed for draw " + monthNumber));
-    }
 }

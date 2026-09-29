@@ -668,7 +668,7 @@ export default function AdminChitsScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['a-draws', selected.id] });
       qc.invalidateQueries({ queryKey: ['a-chit-batches', selected.id] });
-      toast.deleted('Draw deleted');
+      toast.deleted('Empty draw discarded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete draw'),
   });
@@ -1734,14 +1734,14 @@ export default function AdminChitsScreen() {
                                 </View>
                                 <Button label="Skip This Draw" variant="ghost" size="sm"
                                   onPress={() => { setSdDrawId(d.id); setSdDrawNum(String(dNum)); setShowSkipDraw(true); }} />
-                                <Button label="Delete Draw" variant="danger" size="sm"
+                                <Button label="Discard Empty Draw" variant="danger" size="sm"
                                   loading={deleteDrawMut.isPending}
                                   onPress={() => Alert.alert(
-                                    `Delete Draw #${dNum}`,
-                                    'This permanently deletes the draw and all payment records.\n\nIf any member has already paid, void their payment batches first.',
+                                    `Discard Empty Draw #${dNum}`,
+                                    'Only a pristine open draw can be discarded. Payment, credit, allocation, winner, auction, reservation, or payout history will block this action.',
                                     [
                                       { text: 'Cancel', style: 'cancel' },
-                                      { text: 'Delete', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
+                                      { text: 'Discard', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
                                     ]
                                   )} />
                               </View>

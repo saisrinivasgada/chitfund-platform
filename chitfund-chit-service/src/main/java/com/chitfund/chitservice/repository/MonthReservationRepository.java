@@ -36,6 +36,14 @@ public interface MonthReservationRepository extends JpaRepository<MonthReservati
     // Legacy: look up by ordinal month number
     List<MonthReservation> findByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
+    @Query("SELECT COUNT(r) FROM MonthReservation r WHERE r.chit.id = :chitId " +
+            "AND r.chit.tenantId = :tenantId AND r.monthNumber = :monthNumber AND r.status = :status")
+    long countByChitIdAndMonthNumberAndTenantIdAndStatus(
+            @Param("chitId") UUID chitId,
+            @Param("monthNumber") Integer monthNumber,
+            @Param("tenantId") String tenantId,
+            @Param("status") ReservationStatus status);
+
     boolean existsByChitIdAndMemberIdAndStatusNot(UUID chitId, UUID memberId, ReservationStatus status);
 
     long countByChitIdAndStatus(UUID chitId, ReservationStatus status);

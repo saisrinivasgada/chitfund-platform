@@ -9,6 +9,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
@@ -94,6 +95,17 @@ public class ChitServiceClient {
     public static class MemberAmountDto {
         private UUID memberId;
         private BigDecimal amountDue;
+    }
+
+    @Data
+    public static class DrawDependencyDto {
+        private long winnerCount;
+        private long processedReservationCount;
+        private boolean auctionHistory;
+
+        public boolean hasHistory() {
+            return winnerCount > 0 || processedReservationCount > 0 || auctionHistory;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -202,6 +214,34 @@ public class ChitServiceClient {
         }
     }
 
+    /**
+     * Financial deletion guard. Unlike read-only display helpers, dependency failure must
+     * fail closed: an unavailable service is not evidence that history is absent.
+     */
+    @SuppressWarnings("unchecked")
+    public DrawDependencyDto getDrawDependencies(UUID chitId, int monthNumber) {
+        try {
+            ResponseEntity<Map> resp = restTemplate.exchange(
+                    chitServiceUrl + "/internal/chits/" + chitId + "/draws/" + monthNumber + "/dependencies",
+                    HttpMethod.GET,
+                    new HttpEntity<>(buildHeaders()),
+                    Map.class);
+            Map<String, Object> body = resp.getBody();
+            if (body == null || !(body.get("data") instanceof Map<?, ?> raw)) {
+                throw unavailable("Chit history service returned an invalid response", null);
+            }
+            DrawDependencyDto result = new DrawDependencyDto();
+            result.setWinnerCount(parseLong(raw.get("winnerCount")));
+            result.setProcessedReservationCount(parseLong(raw.get("processedReservationCount")));
+            result.setAuctionHistory(Boolean.TRUE.equals(raw.get("auctionHistory")));
+            return result;
+        } catch (RestClientException e) {
+            log.error("chit-service unavailable while checking draw dependencies for chit {} month {}: {}",
+                    chitId, monthNumber, e.getClass().getSimpleName());
+            throw unavailable("Draw history could not be verified. Please try again.", e);
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -299,5 +339,19 @@ public class ChitServiceClient {
     private Integer parseInteger(Object val) {
         if (val == null) return null;
         try { return Integer.parseInt(val.toString()); } catch (Exception e) { return null; }
+    }
+
+    private long parseLong(Object val) {
+        if (val == null) return 0L;
+        try { return Long.parseLong(val.toString()); }
+        catch (Exception e) { throw unavailable("Chit history service returned an invalid count", e); }
+    }
+
+    private com.chitfund.common.exception.BusinessException unavailable(String message, Exception cause) {
+        var exception = new com.chitfund.common.exception.BusinessException(
+                com.chitfund.common.exception.ErrorCode.INTERNAL_SERVER_ERROR,
+                message, HttpStatus.SERVICE_UNAVAILABLE);
+        if (cause != null) exception.initCause(cause);
+        return exception;
     }
 }

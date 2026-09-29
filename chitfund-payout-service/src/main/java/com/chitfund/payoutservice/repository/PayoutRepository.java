@@ -48,6 +48,7 @@ public interface PayoutRepository extends JpaRepository<Payout, UUID> {
             @Param("chitId") UUID chitId);
 
     List<Payout> findByTenantIdAndChitIdOrderByMonthNumberAsc(String tenantId, UUID chitId);
+    long countByTenantIdAndChitIdAndMonthNumber(String tenantId, UUID chitId, int monthNumber);
     List<Payout> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId);
     List<Payout> findByTenantIdAndMemberIdAndChitIdAndStatusNotInOrderByCreatedAtDesc(
             String tenantId, UUID memberId, UUID chitId, List<PayoutStatus> excludedStatuses);

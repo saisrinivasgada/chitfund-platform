@@ -18,6 +18,12 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
 
     boolean existsByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
+    @Query("SELECT COUNT(w) FROM MonthlyWinner w WHERE w.chit.id = :chitId " +
+            "AND w.chit.tenantId = :tenantId AND w.monthNumber = :monthNumber")
+    long countByChitIdAndMonthNumberAndTenantId(@Param("chitId") UUID chitId,
+                                                @Param("monthNumber") Integer monthNumber,
+                                                @Param("tenantId") String tenantId);
+
     // Members who have already won — used to exclude from lottery draws
     @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId")
     List<UUID> findWinnerMemberIdsByChitId(UUID chitId);

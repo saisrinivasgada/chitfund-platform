@@ -110,8 +110,8 @@ public class AdminDrawController {
     }
 
     /**
-     * Deletes an accidentally-opened cycle and all its payment records.
-     * Blocked if any member has already paid — admin must void those batches first.
+     * Discards only an accidentally-opened, pristine draw. Any financial or lifecycle
+     * history blocks physical deletion and must be handled by an audited reversal flow.
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")

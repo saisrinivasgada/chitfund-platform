@@ -42,6 +42,11 @@ public interface ChitMonthDrawRepository extends JpaRepository<ChitMonthDraw, UU
 
     Optional<ChitMonthDraw> findByIdAndTenantId(UUID id, String tenantId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM ChitMonthDraw d WHERE d.id = :id AND d.tenantId = :tenantId")
+    Optional<ChitMonthDraw> findByIdAndTenantIdForUpdate(
+            @Param("id") UUID id, @Param("tenantId") String tenantId);
+
     List<ChitMonthDraw> findByTenantIdAndStatusInOrderByDueDateAsc(String tenantId, List<DrawStatus> statuses);
 
     List<ChitMonthDraw> findByChitIdAndStatus(UUID chitId, DrawStatus status);

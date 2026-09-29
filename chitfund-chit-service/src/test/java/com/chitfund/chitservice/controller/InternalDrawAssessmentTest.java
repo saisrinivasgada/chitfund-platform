@@ -12,6 +12,7 @@ import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
+import com.chitfund.chitservice.repository.AuctionSessionRepository;
 import com.chitfund.chitservice.service.ChitService;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.ResourceNotFoundException;
@@ -42,6 +43,7 @@ class InternalDrawAssessmentTest {
     @Mock ChitRepository chitRepository;
     @Mock MonthReservationRepository reservationRepository;
     @Mock MonthlyWinnerRepository winnerRepository;
+    @Mock AuctionSessionRepository auctionSessionRepository;
     @Mock ChitMapper chitMapper;
     @Mock ChitService chitService;
 
@@ -50,7 +52,7 @@ class InternalDrawAssessmentTest {
     @BeforeEach
     void setUp() {
         controller = new InternalSettlementController(enrollmentRepository, chitRepository,
-                reservationRepository, winnerRepository, chitMapper, chitService);
+                reservationRepository, winnerRepository, auctionSessionRepository, chitMapper, chitService);
         ReflectionTestUtils.setField(controller, "internalKey", KEY);
     }
 
@@ -106,5 +108,41 @@ class InternalDrawAssessmentTest {
 
         verify(enrollmentRepository, never())
                 .findActiveMemberIdsByChitIdAndTenantId(chitId, TENANT);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void drawDependenciesAreTenantScopedAndIncludeAllHistoryTypes() {
+        UUID chitId = UUID.randomUUID();
+        Chit chit = Chit.builder().id(chitId).tenantId(TENANT).name("Gold").build();
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, TENANT))
+                .thenReturn(Optional.of(chit));
+        when(winnerRepository.countByChitIdAndMonthNumberAndTenantId(chitId, 2, TENANT))
+                .thenReturn(1L);
+        when(reservationRepository.countByChitIdAndMonthNumberAndTenantIdAndStatus(
+                chitId, 2, TENANT, ReservationStatus.PROCESSED)).thenReturn(2L);
+        when(auctionSessionRepository.existsByChitIdAndMonthNumberAndTenantId(chitId, 2, TENANT))
+                .thenReturn(true);
+
+        ApiResponse<java.util.Map<String, Object>> body =
+                (ApiResponse<java.util.Map<String, Object>>) controller
+                        .getDrawDependencies(chitId, 2, TENANT, KEY).getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.getData()).containsEntry("winnerCount", 1L)
+                .containsEntry("processedReservationCount", 2L)
+                .containsEntry("auctionHistory", true);
+    }
+
+    @Test
+    void drawDependencyProbeCannotCrossTenantBoundary() {
+        UUID chitId = UUID.randomUUID();
+        when(chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(chitId, TENANT))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> controller.getDrawDependencies(chitId, 1, TENANT, KEY))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(winnerRepository, never())
+                .countByChitIdAndMonthNumberAndTenantId(chitId, 1, TENANT);
     }
 }

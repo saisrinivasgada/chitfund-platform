@@ -6,15 +6,15 @@ import {
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
   getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
-  getWinners, recordWinner, deleteWinnerForDraw,
+  getWinners, recordWinner,
   getReservations, addReservationSlot, updateReservationSlot, removeReservationSlot, swapSlots, getSlotHistory,
   getMemberBalanceBulk,
   getDrawPayments, recordPayment, adminCreateCashRequest, getPaymentHistory, updatePromisedDate,
   getPaymentBatches, voidPaymentBatch,
-  getPayoutsByChit, disbursePayout, cancelPayout, waitForPayoutFinancialSync,
+  getPayoutsByChit, disbursePayout, cancelPayout,
   getChitsForMember, getMemberTotalBalance, getMemberBalance, getMemberCredit,
   listStaff, getUserById, getWalletBalance,
-  getChitAuditLogs, listAuctions, voidAuction,
+  getChitAuditLogs, listAuctions,
   sendChitInvitation, getChitInvitations, getChitInvitationDetail, closeChitInvitation, overrideInvitationResponse, approveInvitationResponse, rejectInvitationResponse,
 } from '../../services/api';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -2981,115 +2981,7 @@ function DrawsTab({ chitId, chit }) {
   const isLotteryChit = chit?.chitType === 'LOTTERY';
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ cycleId, monthNumber }) => {
-      const cycleWinnerList = winners.filter((w) => w.monthNumber === monthNumber);
-
-      // 1. Guard: cannot undo a payout that's already been disbursed to the winner
-      const drawPayouts = payoutsByMonth[monthNumber] ?? [];
-      for (const payout of drawPayouts) {
-        if (payout.status === 'PARTIALLY_DISBURSED') {
-          throw new Error('Cannot delete draw — a payout has been partially disbursed. Disburse the remaining amount first.');
-        }
-        if (payout.status === 'DISBURSED') {
-          throw new Error('Cannot delete draw — a payout has already been fully disbursed.');
-        }
-        if (payout.status === 'PENDING') {
-          await cancelPayout({ id: payout.id, reason: 'Draw deleted' });
-          await waitForPayoutFinancialSync(payout.id);
-        }
-      }
-
-      // 2. Auto-void member payment batches for this draw so the backend delete check passes
-      const drawPaymentRecords = await getDrawPayments(cycleId);
-      const paidMemberIds = [...new Set(
-        drawPaymentRecords
-          .filter((r) => Number(r.amountPaid) > 0 && r.status !== 'PAYOUT_DEDUCTED')
-          .map((r) => String(r.memberId)),
-      )];
-      const batchIdsToVoid = new Set();
-      for (const memberId of paidMemberIds) {
-        const memberBatches = await getPaymentBatches({ memberId, chitId }).catch(() => []);
-        for (const batch of memberBatches) {
-          if (batch.status === 'VOIDED') continue;
-          const hasAlloc = (batch.allocations ?? []).some(
-            (a) => a.monthNumber === monthNumber && String(a.chitId) === String(chitId),
-          );
-          if (hasAlloc) batchIdsToVoid.add(batch.id);
-        }
-      }
-      for (const batchId of batchIdsToVoid) {
-        await voidPaymentBatch({ batchId, reason: 'Draw deleted' });
-      }
-
-      if (isAuctionChit) {
-        // 3a. Auction: void the session for this draw (if one exists and isn't already voided)
-        const auctionSession = auctionByMonth[monthNumber];
-        if (auctionSession && auctionSession.status !== 'VOIDED') {
-          await voidAuction({ chitId, auctionId: auctionSession.id }).catch(() => {});
-        }
-        // Auction draws never mark reservation slots PROCESSED — nothing to revert
-
-      } else if (isLotteryChit) {
-        // 3b. Lottery: the slot for this draw was assigned the winner memberId + marked PROCESSED.
-        // Revert it back to UNALLOCATED by clearing memberId.
-        const lotterySlot = reservations.find(
-          (r) => r.monthNumber === monthNumber && r.status === 'PROCESSED'
-        );
-        if (lotterySlot) {
-          await updateReservationSlot({
-            chitId,
-            reservationId: lotterySlot.id,
-            reservationMonth: lotterySlot.reservationMonth,
-            memberId: null,
-            orgHeld: false,
-            payoutAmount: lotterySlot.payoutAmount,
-            postPayoutContribution: lotterySlot.postPayoutContribution ?? null,
-          }).catch(() => {});
-        }
-
-      } else {
-        // 3c. Reservation: revert each winner's PROCESSED slot back to RESERVED (keep member assigned)
-        for (const winner of cycleWinnerList) {
-          const winnerId = winner.memberId ?? winner.winnerId;
-          const slotToRevert = [...reservations]
-            .filter((r) => String(r.memberId) === String(winnerId) && r.status === 'PROCESSED')
-            .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
-          if (slotToRevert) {
-            await updateReservationSlot({
-              chitId,
-              reservationId: slotToRevert.id,
-              reservationMonth: slotToRevert.reservationMonth,
-              memberId: slotToRevert.memberId,
-              payoutAmount: slotToRevert.payoutAmount,
-              postPayoutContribution: slotToRevert.postPayoutContribution ?? null,
-            }).catch(() => {});
-          }
-        }
-        // Org-held draw: revert the most recently processed org slot
-        if (cycleWinnerList.length === 0) {
-          const orgSlotToRevert = [...reservations]
-            .filter((r) => r.orgHeld && r.status === 'PROCESSED')
-            .sort((a, b) => new Date(b.updatedAt ?? 0) - new Date(a.updatedAt ?? 0))[0];
-          if (orgSlotToRevert) {
-            await updateReservationSlot({
-              chitId,
-              reservationId: orgSlotToRevert.id,
-              reservationMonth: orgSlotToRevert.reservationMonth,
-              memberId: null,
-              orgHeld: true,
-              payoutAmount: orgSlotToRevert.payoutAmount,
-              postPayoutContribution: orgSlotToRevert.postPayoutContribution ?? null,
-            }).catch(() => {});
-          }
-        }
-      }
-
-      // 3. Remove all winner records for this draw
-      await deleteWinnerForDraw({ chitId, monthNumber }).catch(() => {});
-
-      // 4. Delete the draw itself
-      await deleteDraw(cycleId);
-    },
+    mutationFn: ({ cycleId }) => deleteDraw(cycleId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['draws', chitId] });
       qc.invalidateQueries({ queryKey: ['reservations', chitId] });
@@ -3097,12 +2989,7 @@ function DrawsTab({ chitId, chit }) {
       qc.invalidateQueries({ queryKey: ['payouts', chitId] });
       qc.invalidateQueries({ queryKey: ['auctions', chitId] });
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'paymentHistory' && String(q.queryKey[1]) === String(chitId) });
-      const msg = isAuctionChit
-        ? 'Draw deleted — auction session voided'
-        : isLotteryChit
-        ? 'Draw deleted — payout slot reset to unallocated'
-        : 'Draw deleted — schedule slot restored to RESERVED';
-      toast.success(msg);
+      toast.success('Empty draw discarded');
       setPendingDelete(null);
     },
     onError: (err) => toast.error(err.message ?? err.response?.data?.message ?? 'Failed to delete draw'),
@@ -3379,9 +3266,9 @@ function DrawsTab({ chitId, chit }) {
       {pendingDelete && (
         <DestructiveDialog
           title={`Delete Draw ${pendingDelete.monthNumber}`}
-          description="This permanently deletes the draw and all payment records. Any member payments collected for this draw will be automatically reversed. Cannot be undone if the winner's payout has already been disbursed."
+          description="Only a pristine open draw can be discarded. If it has payments, credits, allocations, a winner, auction, processed reservation, or payout history, use the matching audited void or reversal workflow instead."
           confirmWord="DELETE"
-          actionLabel="Delete Draw"
+          actionLabel="Discard Empty Draw"
           loading={deleteMutation.isPending}
           onConfirm={() => deleteMutation.mutate({ cycleId: pendingDelete.cycleId, monthNumber: pendingDelete.monthNumber })}
           onClose={() => setPendingDelete(null)}

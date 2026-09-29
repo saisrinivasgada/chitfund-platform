@@ -299,7 +299,7 @@ export default function ManagerChitsScreen() {
     mutationFn: (drawId: string) => deleteDraw(drawId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-draws', selected.id] });
-      toast.cancelled('Draw deleted');
+      toast.cancelled('Empty draw discarded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -607,16 +607,16 @@ export default function ManagerChitsScreen() {
                             {d.status === 'PENDING' && (
                               <TouchableOpacity
                                 onPress={() => Alert.alert(
-                                  'Delete Draw',
-                                  `Delete draw #${d.drawNumber}?`,
+                                  'Discard Empty Draw',
+                                  `Discard empty draw #${d.drawNumber}? Any financial, winner, auction, reservation, or payout history will block this action.`,
                                   [
                                     { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Delete', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
+                                    { text: 'Discard', style: 'destructive', onPress: () => deleteDrawMut.mutate(d.id) },
                                   ]
                                 )}
                                 style={{ backgroundColor: '#FEE2E2', borderRadius: 10, padding: 9, alignItems: 'center', marginVertical: 6 }}
                               >
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Delete Draw</Text>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Discard Empty Draw</Text>
                               </TouchableOpacity>
                             )}
                             {(d.status === 'OPEN' || d.status === 'CLOSED') && (

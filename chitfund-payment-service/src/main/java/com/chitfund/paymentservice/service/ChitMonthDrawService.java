@@ -48,6 +48,7 @@ public class ChitMonthDrawService {
     private final PlanExpiryChecker planExpiryChecker;
     private final MemberCreditService memberCreditService;
     private final ChitServiceClient chitServiceClient;
+    private final com.chitfund.paymentservice.client.PayoutServiceClient payoutServiceClient;
 
     @Transactional
     public DrawSummaryResponse openDraw(OpenMonthRequest request, UUID adminId, String actorRole) {
@@ -482,7 +483,8 @@ public class ChitMonthDrawService {
 
     @Transactional
     public DrawSummaryResponse closeDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantIdForUpdate(
+                        cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -716,16 +718,16 @@ public class ChitMonthDrawService {
     }
 
     /**
-     * Deletes an accidentally-opened cycle and all its payment records.
+     * Discards an accidentally-opened, pristine cycle and its generated unpaid records.
      *
-     * WHY require zero payments? Deletion reverses time — if any member already paid,
-     * that money is physically with the admin. Deleting the cycle silently would create
-     * untracked cash. Force admin to void those batches first (which reverses FIFO and
-     * returns the record to OUTSTANDING), so the audit trail stays intact.
+     * Financial, winner, auction, reservation, payout, allocation, credit, and settlement
+     * history is never physically erased here. Those states require explicit audited
+     * reversal/void operations. Cross-service checks deliberately fail closed.
      */
     @Transactional
     public void deleteDraw(UUID cycleId, UUID adminId, String actorRole) {
-        ChitMonthDraw cycle = drawRepository.findByIdAndTenantId(cycleId, com.chitfund.common.context.TenantContext.get())
+        ChitMonthDraw cycle = drawRepository.findByIdAndTenantIdForUpdate(
+                        cycleId, com.chitfund.common.context.TenantContext.get())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Cycle not found: " + cycleId));
 
@@ -738,33 +740,37 @@ public class ChitMonthDrawService {
                 .findByTenantIdAndChitIdAndMonthNumber(
                         cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
 
-        // Auto-revert PAYOUT_DEDUCTED records — no real batch exists, safe to undo silently
-        records.stream()
-                .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
-                .forEach(r -> {
-                    r.setAmountPaid(BigDecimal.ZERO);
-                    r.setStatus(PaymentRecordStatus.OUTSTANDING);
-                    r.setSettledByPayoutId(null);
-                    paymentRecordRepository.save(r);
-                });
-
-        boolean hasPayments = records.stream()
-                .anyMatch(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
-                        && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0);
-
-        if (hasPayments) {
-            long count = records.stream()
-                    .filter(r -> r.getStatus() != PaymentRecordStatus.PAYOUT_DEDUCTED
-                            && r.getAmountPaid().compareTo(BigDecimal.ZERO) > 0)
-                    .count();
+        boolean hasFinancialState = records.stream().anyMatch(r ->
+                r.getStatus() != PaymentRecordStatus.OUTSTANDING
+                        || r.getAmountPaid() == null
+                        || r.getAmountPaid().compareTo(BigDecimal.ZERO) != 0
+                        || r.getSettledByPayoutId() != null);
+        if (hasFinancialState) {
             throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
-                    count + " member(s) have already paid for this cycle. Void their payment batches first, then delete.");
+                    "This draw has payment, credit, payout-deduction, waiver, or settlement history and cannot be deleted. Use the matching audited reversal flow.");
         }
 
-        // Delete any orphaned allocations pointing to these records (from previously voided batches)
         List<UUID> recordIds = records.stream().map(PaymentRecord::getId).toList();
+        if (!recordIds.isEmpty() && !allocationRepository
+                .findByTenantIdAndPaymentRecordIdIn(cycle.getTenantId(), recordIds).isEmpty()) {
+            throw new BusinessException(ErrorCode.CYCLE_HAS_PAYMENTS,
+                    "This draw has payment allocation history and cannot be deleted. Void the related payment through its audited reversal flow.");
+        }
+
+        ChitServiceClient.DrawDependencyDto chitDependencies = chitServiceClient
+                .getDrawDependencies(cycle.getChitId(), cycle.getMonthNumber());
+        if (chitDependencies.hasHistory()) {
+            throw new BusinessException(ErrorCode.CYCLE_NOT_DELETABLE,
+                    "This draw has winner, auction, or processed reservation history and cannot be deleted. Use the matching audited void flow.");
+        }
+        var payoutDependencies = payoutServiceClient
+                .getDrawDependencies(cycle.getChitId(), cycle.getMonthNumber());
+        if (payoutDependencies.hasHistory()) {
+            throw new BusinessException(ErrorCode.CYCLE_NOT_DELETABLE,
+                    "This draw has payout history and cannot be deleted. Cancel or void the payout through its audited workflow.");
+        }
+
         if (!recordIds.isEmpty()) {
-            allocationRepository.deleteByTenantIdAndPaymentRecordIdIn(cycle.getTenantId(), recordIds);
             paymentRecordRepository.deleteByTenantIdAndChitIdAndMonthNumber(
                     cycle.getTenantId(), cycle.getChitId(), cycle.getMonthNumber());
         }
