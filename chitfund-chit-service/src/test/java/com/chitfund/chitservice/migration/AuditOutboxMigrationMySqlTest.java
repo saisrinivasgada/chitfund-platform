@@ -1,7 +1,12 @@
 package com.chitfund.chitservice.migration;
 
+import com.chitfund.common.outbox.DurableEventOutbox;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -61,6 +66,32 @@ class AuditOutboxMigrationMySqlTest {
                     .isInstanceOf(SQLException.class);
             insertLifecycleCommand(connection, "tenant-b", chitId);
         }
+    }
+
+    @Test
+    void notificationOutboxCommitsAndRollsBackWithChitTransaction() {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        var outbox = new DurableEventOutbox(jdbc);
+        jdbc.update("DELETE FROM domain_event_outbox");
+
+        transactions.executeWithoutResult(status -> {
+            outbox.enqueue("rolled-back", "BULK_IN_APP_BY_MEMBER_IDS",
+                    "{\"tenantId\":\"tenant-a\",\"memberIds\":[]}", "notification-events");
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isZero();
+
+        transactions.executeWithoutResult(status -> outbox.enqueue(
+                "committed", "BULK_IN_APP_BY_MEMBER_IDS",
+                "{\"tenantId\":\"tenant-a\",\"memberIds\":[]}", "notification-events"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM domain_event_outbox", Long.class))
+                .isEqualTo(1L);
     }
 
     private static void insert(java.sql.Connection connection, String sql,

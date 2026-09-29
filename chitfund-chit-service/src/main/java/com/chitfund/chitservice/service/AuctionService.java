@@ -198,7 +198,7 @@ public class AuctionService {
         // Notify the previous leader that they've been outbid
         UUID previousLeaderId = currentBest.map(AuctionBid::getMemberId).orElse(null);
         if (previousLeaderId != null && !previousLeaderId.equals(memberId)) {
-            notificationClient.notifyUsersInAppAfterCommit(
+            notificationClient.notifyUsersInAppDurably(
                 List.of(previousLeaderId.toString()),
                 "AUCTION_OUTBID",
                 "You've been outbid!",
@@ -208,7 +208,7 @@ public class AuctionService {
         }
 
         // Notify the new bidder they're now winning
-        notificationClient.notifyUsersInAppAfterCommit(
+        notificationClient.notifyUsersInAppDurably(
             List.of(memberId.toString()),
             "AUCTION_WINNING",
             "You're winning! 🏆",
@@ -348,7 +348,7 @@ public class AuctionService {
 
         // Notify auction participants
         String chitLink = "/chits/" + chitId;
-        notificationClient.notifyUsersInAppAfterCommit(
+        notificationClient.notifyUsersInAppDurably(
             List.of(winnerId.toString()),
             "AUCTION_WON",
             "You won the auction! 🎉",
@@ -364,7 +364,7 @@ public class AuctionService {
             .distinct()
             .collect(Collectors.toList());
         if (!otherBidderIds.isEmpty()) {
-            notificationClient.notifyUsersInAppAfterCommit(
+            notificationClient.notifyUsersInAppDurably(
                 otherBidderIds,
                 "AUCTION_LOST",
                 "Auction closed",

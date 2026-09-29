@@ -1,10 +1,9 @@
 package com.chitfund.chitservice.client;
 
 import com.chitfund.common.event.BulkInAppByMemberIdsEvent;
-import com.chitfund.common.event.SqsEventEnvelope;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,8 +11,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -30,7 +27,7 @@ import java.util.*;
 public class NotificationClient {
 
     private final RestTemplate restTemplate;
-    private final SqsTemplate sqsTemplate;
+    private final DurableEventOutbox eventOutbox;
     private final ObjectMapper objectMapper;
 
     @Value("${app.payment-service-url:http://localhost:8084}")
@@ -62,14 +59,12 @@ public class NotificationClient {
         try {
             BulkInAppByMemberIdsEvent event = new BulkInAppByMemberIdsEvent(
                     requireTenant(tenantId), memberIds, type, title, message, null, link);
-            String payload  = objectMapper.writeValueAsString(event);
-            String envelope = objectMapper.writeValueAsString(
-                    new SqsEventEnvelope(UUID.randomUUID().toString(),
-                            SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS, payload));
-            sqsTemplate.send(SqsQueues.NOTIFICATION_EVENTS, envelope);
-            log.info("Queued bulk in-app notification '{}' for {} member(s)", type, memberIds.size());
+            eventOutbox.enqueue(UUID.randomUUID().toString(),
+                    SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS,
+                    objectMapper.writeValueAsString(event), SqsQueues.NOTIFICATION_EVENTS);
+            log.info("Persisted bulk in-app notification '{}' for {} member(s)", type, memberIds.size());
         } catch (Exception e) {
-            log.warn("Could not queue bulk in-app notification: {}", e.getMessage());
+            throw new IllegalStateException("Could not persist bulk in-app notification", e);
         }
     }
 
@@ -81,25 +76,10 @@ public class NotificationClient {
         return tenantId;
     }
 
-    /**
-     * Queue a user notification only after the surrounding business transaction
-     * commits. If the caller is not transactional, delivery happens immediately.
-     */
-    public void notifyUsersInAppAfterCommit(List<String> memberIds, String type, String title,
-                                             String message, String link) {
-        String tenantId = requireTenantContext();
-        Runnable delivery = () -> notifyUsersInApp(tenantId, memberIds, type, title, message, link);
-        if (TransactionSynchronizationManager.isActualTransactionActive()
-                && TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    delivery.run();
-                }
-            });
-        } else {
-            delivery.run();
-        }
+    /** Persist the notification in the surrounding business transaction. */
+    public void notifyUsersInAppDurably(List<String> memberIds, String type, String title,
+                                        String message, String link) {
+        notifyUsersInApp(requireTenantContext(), memberIds, type, title, message, link);
     }
 
     public void sendBulk(String tenantId, List<Map<String, Object>> notifications) {

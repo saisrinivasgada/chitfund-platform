@@ -101,7 +101,7 @@ public class InvitationService {
 
         List<String> memberIdStrings = req.getMemberIds().stream()
                 .map(UUID::toString).collect(Collectors.toList());
-        notificationClient.notifyUsersInAppAfterCommit(
+        notificationClient.notifyUsersInAppDurably(
                 memberIdStrings,
                 "CHIT_INVITATION",
                 "Payout Plan Invitation",
@@ -177,7 +177,7 @@ public class InvitationService {
                 .map(r -> r.getMemberId().toString())
                 .collect(Collectors.toList());
         if (!pendingMemberIds.isEmpty()) {
-            notificationClient.notifyUsersInAppAfterCommit(
+            notificationClient.notifyUsersInAppDurably(
                     pendingMemberIds,
                     "INVITATION_CLOSED",
                     "Invitation Closed",
@@ -245,7 +245,7 @@ public class InvitationService {
                 "ENROLLMENT_FROM_INVITATION", approverId.toString(), "ADMIN",
                 null, auditAfter, TenantContext.get());
 
-        notificationClient.notifyUsersInAppAfterCommit(
+        notificationClient.notifyUsersInAppDurably(
                 List.of(r.getMemberId().toString()),
                 "INVITATION_APPROVED",
                 "Participation Confirmed",
@@ -391,7 +391,7 @@ public class InvitationService {
         r = responseRepository.save(r);
 
         Chit chit = r.getInvitation().getChit();
-        notificationClient.notifyUsersInAppAfterCommit(
+        notificationClient.notifyUsersInAppDurably(
                 List.of(r.getMemberId().toString()),
                 "INVITATION_REJECTED",
                 "Invitation Response Not Approved",

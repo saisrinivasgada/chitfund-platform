@@ -1,12 +1,11 @@
 package com.chitfund.chitservice.client;
 
 import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.outbox.DurableEventOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.HttpEntity;
 
@@ -19,44 +18,37 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NotificationClientAfterCommitTest {
 
     private final RestTemplate restTemplate = mock(RestTemplate.class);
-    private final SqsTemplate sqsTemplate = mock(SqsTemplate.class);
+    private final DurableEventOutbox eventOutbox = mock(DurableEventOutbox.class);
     private final NotificationClient client = new NotificationClient(
-            restTemplate, sqsTemplate, new ObjectMapper());
+            restTemplate, eventOutbox, new ObjectMapper());
 
     @AfterEach
     void clearTransactionState() {
         TenantContext.clear();
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
-        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 
     @Test
-    void committedTransactionPublishesExactlyOnce() {
+    void notificationIsPersistedImmediatelyForTheBusinessTransaction() {
         TenantContext.set("tenant-a");
-        beginTransactionSynchronization();
 
-        client.notifyUsersInAppAfterCommit(
+        client.notifyUsersInAppDurably(
                 List.of("member-1"), "TYPE", "Title", "Message", "/target");
 
-        verify(sqsTemplate, never()).send(anyString(), anyString());
-        TransactionSynchronizationManager.getSynchronizations()
-                .forEach(TransactionSynchronization::afterCommit);
-        verify(sqsTemplate, times(1)).send(anyString(), anyString());
+        verify(eventOutbox).enqueue(anyString(),
+                eq(SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS),
+                anyString(), eq(SqsQueues.NOTIFICATION_EVENTS));
     }
 
     @Test
-    void rolledBackTransactionPublishesNothing() {
+    void persistenceFailureIsNotSilentlyIgnored() {
         TenantContext.set("tenant-a");
-        beginTransactionSynchronization();
+        doThrow(new IllegalStateException("database unavailable")).when(eventOutbox)
+                .enqueue(anyString(), anyString(), anyString(), anyString());
 
-        client.notifyUsersInAppAfterCommit(
-                List.of("member-1"), "TYPE", "Title", "Message", "/target");
-        TransactionSynchronizationManager.getSynchronizations()
-                .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
-
-        verify(sqsTemplate, never()).send(anyString(), anyString());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.notifyUsersInAppDurably(
+                        List.of("member-1"), "TYPE", "Title", "Message", "/target"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Could not persist");
     }
 
     @Test
@@ -71,10 +63,5 @@ class NotificationClientAfterCommitTest {
                 anyString(), request.capture(), eq(Void.class));
         assertThat(request.getValue().getHeaders().getFirst("X-Tenant-ID"))
                 .isEqualTo("tenant-a");
-    }
-
-    private void beginTransactionSynchronization() {
-        TransactionSynchronizationManager.setActualTransactionActive(true);
-        TransactionSynchronizationManager.initSynchronization();
     }
 }

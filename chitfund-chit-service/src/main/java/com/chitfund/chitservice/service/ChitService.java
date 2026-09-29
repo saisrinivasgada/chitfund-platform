@@ -260,26 +260,13 @@ public class ChitService {
             if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
                 syncEnrollmentsFromSchedule(chit);
             }
-            final Chit activatedChit = chit;
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    CompletableFuture.runAsync(() ->
-                        sendChitStatusNotifications(activatedChit, "CHIT_ACTIVATED",
-                                "Chit Activated — " + activatedChit.getName(),
-                                "Your chit '" + activatedChit.getName() + "' is now active. Payments will begin as scheduled."));
-                }
-            });
+            sendChitStatusNotifications(chit, "CHIT_ACTIVATED",
+                    "Chit Activated — " + chit.getName(),
+                    "Your chit '" + chit.getName() + "' is now active. Payments will begin as scheduled.");
         } else if (completing) {
-            final Chit completedChit = chit;
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() {
-                    CompletableFuture.runAsync(() -> {
-                        sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
-                                "Chit Completed — " + completedChit.getName(),
-                                "Your chit '" + completedChit.getName() + "' has been completed. Thank you for participating!");
-                    });
-                }
-            });
+            sendChitStatusNotifications(chit, "CHIT_COMPLETED",
+                    "Chit Completed — " + chit.getName(),
+                    "Your chit '" + chit.getName() + "' has been completed. Thank you for participating!");
         } else if (revertingToDraft) {
             // Clear enrollments so admin can freely edit the schedule and re-activate
             List<ChitEnrollment> existing = enrollmentRepository.findByChitIdAndActiveTrue(chit.getId());
@@ -290,24 +277,41 @@ public class ChitService {
     }
 
     private void sendChitStatusNotifications(Chit chit, String type, String title, String message) {
-        try {
-            List<String> memberIds = enrollmentRepository
-                    .findActiveMemberIdsByChitIdAndTenantId(chit.getId(), chit.getTenantId())
-                    .stream().distinct().map(UUID::toString).toList();
-            if (!memberIds.isEmpty()) {
-                // In-app bell notification via notification-service (resolves memberId → userId)
-                notificationClient.notifyUsersInApp(chit.getTenantId(), memberIds, type, title, message,
-                        "/member/chits/" + chit.getId());
+        List<String> memberIds = enrollmentRepository
+                .findActiveMemberIdsByChitIdAndTenantId(chit.getId(), chit.getTenantId())
+                .stream().distinct().map(UUID::toString).toList();
+        if (!memberIds.isEmpty()) {
+            // This outbox insert joins the chit transaction. A rollback leaves no false notification.
+            notificationClient.notifyUsersInApp(chit.getTenantId(), memberIds, type, title, message,
+                    "/member/chits/" + chit.getId());
+        }
+
+        Runnable legacyDelivery = () -> {
+            try {
+                if (!memberIds.isEmpty()) {
                 // Legacy payment-service channel (role-based push, kept for existing admin tooling)
                 notificationClient.notifyUsers(chit.getTenantId(), memberIds, type, title, message,
                         "CHIT", chit.getId().toString(), "/member");
+                }
+                notificationClient.notifyRole(chit.getTenantId(), "MANAGER", type,
+                        title.replace("Your chit", "Chit"),
+                        "Chit '" + chit.getName() + "' status changed — "
+                                + type.replace("CHIT_", "").toLowerCase() + ".",
+                        "CHIT", chit.getId().toString(), "/chits");
+            } catch (Exception ex) {
+                log.warn("Could not send legacy chit-status notifications for chit {}: {}",
+                        chit.getId(), ex.getClass().getSimpleName());
             }
-            notificationClient.notifyRole(chit.getTenantId(), "MANAGER", type,
-                    title.replace("Your chit", "Chit"),
-                    "Chit '" + chit.getName() + "' status changed — " + type.replace("CHIT_", "").toLowerCase() + ".",
-                    "CHIT", chit.getId().toString(), "/chits");
-        } catch (Exception ex) {
-            log.warn("Could not send chit-status notifications for chit {}: {}", chit.getId(), ex.getMessage());
+        };
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() {
+                    CompletableFuture.runAsync(legacyDelivery);
+                }
+            });
+        } else {
+            CompletableFuture.runAsync(legacyDelivery);
         }
     }
 
@@ -513,17 +517,10 @@ public class ChitService {
                 "CHIT_COMPLETED", null, "SYSTEM", before, chitAuditState(chit), chit.getTenantId());
         lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
 
-        final Chit completedChit = chit;
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
-                CompletableFuture.runAsync(() -> {
-                    sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
-                            "Chit Completed — " + completedChit.getName(),
-                            "Your chit '" + completedChit.getName()
-                                    + "' has been completed. Thank you for participating!");
-                });
-            }
-        });
+        sendChitStatusNotifications(chit, "CHIT_COMPLETED",
+                "Chit Completed — " + chit.getName(),
+                "Your chit '" + chit.getName()
+                        + "' has been completed. Thank you for participating!");
         return response;
     }
 
