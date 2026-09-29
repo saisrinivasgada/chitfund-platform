@@ -25,7 +25,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -50,8 +49,6 @@ class ChitMonthDrawEventTimingTest {
     @Mock private PaymentRecordRepository paymentRecordRepository;
     @Mock private PaymentAllocationRepository allocationRepository;
     @Mock private PaymentEventPublisher eventPublisher;
-    @Mock private NotificationService notificationService;
-    @Mock private com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
     @Mock private com.chitfund.paymentservice.client.AuditClient auditClient;
     @Mock private PlanExpiryChecker planExpiryChecker;
     @Mock private MemberCreditService memberCreditService;
@@ -65,8 +62,8 @@ class ChitMonthDrawEventTimingTest {
         TenantContext.set(TENANT);
         service = new ChitMonthDrawService(
                 drawRepository, paymentRecordRepository, allocationRepository,
-                eventPublisher, notificationService, memberServiceClient,
-                auditClient, planExpiryChecker, memberCreditService, chitServiceClient, payoutServiceClient);
+                eventPublisher, auditClient, planExpiryChecker, memberCreditService,
+                chitServiceClient, payoutServiceClient);
 
         lenient().when(drawRepository.countByTenantIdAndChitIdAndStatusNot(anyString(), any(), any()))
                 .thenReturn(0L);
@@ -75,7 +72,6 @@ class ChitMonthDrawEventTimingTest {
         lenient().when(drawRepository.save(any(ChitMonthDraw.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(paymentRecordRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
-        lenient().when(memberServiceClient.batchGetUserIds(anyList())).thenReturn(Map.of());
         lenient().when(chitServiceClient.getChit(any())).thenAnswer(invocation -> {
             var dto = new com.chitfund.paymentservice.client.ChitServiceClient.ChitDto();
             dto.setId(invocation.getArgument(0));

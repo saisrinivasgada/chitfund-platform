@@ -42,8 +42,6 @@ public class ChitMonthDrawService {
     private final PaymentRecordRepository paymentRecordRepository;
     private final PaymentAllocationRepository allocationRepository;
     private final PaymentEventPublisher eventPublisher;
-    private final NotificationService notificationService;
-    private final com.chitfund.paymentservice.client.MemberServiceClient memberServiceClient;
     private final com.chitfund.paymentservice.client.AuditClient auditClient;
     private final PlanExpiryChecker planExpiryChecker;
     private final MemberCreditService memberCreditService;
@@ -162,25 +160,6 @@ public class ChitMonthDrawService {
                 Instant.now()
         );
         eventPublisher.publish(openedEvent);
-
-        // Notify enrolled members: their payment is due
-        try {
-            List<java.util.UUID> memberIds = request.getMembers().stream()
-                    .map(m -> m.getMemberId()).toList();
-            java.util.Map<String, String> userIdMap = memberServiceClient.batchGetUserIds(memberIds);
-            List<java.util.UUID> userIds = userIdMap.values().stream()
-                    .map(java.util.UUID::fromString).toList();
-            if (!userIds.isEmpty()) {
-                notificationService.notifyUsers(userIds,
-                        com.chitfund.paymentservice.domain.enums.NotificationType.CYCLE_OPENED,
-                        "Payment Due — Cycle #" + request.getMonthNumber(),
-                        "Your installment of ₹" + request.getInstallmentAmount() +
-                                " is due by " + request.getDueDate() + ".",
-                        "CYCLE", cycle.getId(), "/member");
-            }
-        } catch (Exception ex) {
-            log.warn("Could not send cycle notifications: {}", ex.getMessage());
-        }
 
         return buildSummary(cycle, records);
     }

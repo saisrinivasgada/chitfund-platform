@@ -563,10 +563,7 @@ public class PaymentService {
                 .filter(r -> r.getStatus() == PaymentRecordStatus.PAYOUT_DEDUCTED)
                 .map(PaymentRecord::getMonthNumber)
                 .distinct()
-                .forEach(mn -> {
-                    try { chitMonthDrawService.autoCloseIfAllSettled(chitId, mn); }
-                    catch (Exception e) { log.warn("Auto-close check failed for chit {} month {} — {}", chitId, mn, e.getMessage()); }
-                });
+                .forEach(mn -> chitMonthDrawService.autoCloseIfAllSettled(chitId, mn));
         return amount.subtract(remaining);
     }
 
@@ -616,8 +613,8 @@ public class PaymentService {
                         r -> r.getChitId().toString() + ":" + r.getMonthNumber()))
                 .forEach((key, group) -> {
                     PaymentRecord first = group.get(0);
-                    try { chitMonthDrawService.autoReopenIfNotFullySettled(first.getChitId(), first.getMonthNumber()); }
-                    catch (Exception e) { log.warn("Auto-reopen check failed for chit {} month {} — {}", first.getChitId(), first.getMonthNumber(), e.getMessage()); }
+                    chitMonthDrawService.autoReopenIfNotFullySettled(
+                            first.getChitId(), first.getMonthNumber());
                 });
     }
 

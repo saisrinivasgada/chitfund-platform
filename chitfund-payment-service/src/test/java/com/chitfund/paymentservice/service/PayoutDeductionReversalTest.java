@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -121,6 +122,42 @@ class PayoutDeductionReversalTest {
         assertThat(record.getAmountPaid()).isEqualByComparingTo("500");
         assertThat(record.getStatus()).isEqualTo(PaymentRecordStatus.PARTIALLY_PAID);
         assertThat(record.getSettledByPayoutId()).isEqualTo(payoutId);
+    }
+
+    @Test
+    void autoCloseFailureAbortsCrossChitDeduction() {
+        UUID payoutId = UUID.randomUUID();
+        PaymentRecord record = record("1000", "0");
+        when(paymentRecordRepository
+                .findByTenantIdAndMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                        TENANT, record.getMemberId(), record.getChitId(),
+                        List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID)))
+                .thenReturn(List.of(record));
+        doThrow(new IllegalStateException("draw write failed")).when(chitMonthDrawService)
+                .autoCloseIfAllSettled(record.getChitId(), 1);
+
+        assertThatThrownBy(() -> service.markCrossChitDisbursementSettled(
+                record.getChitId(), record.getMemberId(), new BigDecimal("1000"), payoutId, TENANT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("draw write failed");
+    }
+
+    @Test
+    void autoReopenFailureAbortsPayoutDeductionReversal() {
+        UUID payoutId = UUID.randomUUID();
+        PaymentRecord record = record("1000", "1000");
+        record.setStatus(PaymentRecordStatus.PAYOUT_DEDUCTED);
+        record.setSettledByPayoutId(payoutId);
+        when(paymentRecordRepository.findByTenantIdAndSettledByPayoutIdForUpdate(TENANT, payoutId))
+                .thenReturn(List.of(record));
+        when(allocationRepository.findByTenantIdAndPaymentRecordIdIn(
+                TENANT, List.of(record.getId()))).thenReturn(List.of());
+        doThrow(new IllegalStateException("draw write failed")).when(chitMonthDrawService)
+                .autoReopenIfNotFullySettled(record.getChitId(), 1);
+
+        assertThatThrownBy(() -> service.revertPayoutDeductions(payoutId, TENANT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("draw write failed");
     }
 
     private PaymentRecord record(String due, String paid) {
