@@ -4,6 +4,7 @@ import com.chitfund.paymentservice.domain.AdminWalletEntry;
 import com.chitfund.paymentservice.domain.enums.AccountType;
 import com.chitfund.paymentservice.domain.enums.WalletEntryType;
 import com.chitfund.paymentservice.dto.request.AdminWalletEntryRequest;
+import com.chitfund.paymentservice.dto.request.RedeemCreditRequest;
 import com.chitfund.paymentservice.dto.request.TransferRequest;
 import com.chitfund.paymentservice.repository.AdminWalletRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,7 @@ import static org.mockito.Mockito.when;
 class AdminWalletPaiseDualWriteTest {
 
     private AdminWalletRepository repository;
+    private MemberCreditService memberCreditService;
     private AdminWalletService service;
 
     @BeforeEach
@@ -30,8 +32,9 @@ class AdminWalletPaiseDualWriteTest {
         repository = mock(AdminWalletRepository.class);
         when(repository.save(any(AdminWalletEntry.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        memberCreditService = mock(MemberCreditService.class);
         service = new AdminWalletService(
-                repository, mock(PlanExpiryChecker.class), mock(MemberCreditService.class));
+                repository, mock(PlanExpiryChecker.class), memberCreditService);
     }
 
     @Test
@@ -48,6 +51,25 @@ class AdminWalletPaiseDualWriteTest {
         verify(repository).save(captor.capture());
         assertThat(captor.getValue().getAmount()).isEqualByComparingTo("1234.56");
         assertThat(captor.getValue().getAmountPaise()).isEqualTo(123456L);
+    }
+
+    @Test
+    void redeemCreditWritesDecimalAndExactPaise() {
+        UUID memberId = UUID.randomUUID();
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("999.99"));
+
+        RedeemCreditRequest request = new RedeemCreditRequest();
+        request.setMemberId(memberId);
+        request.setAccountType(AccountType.CASH);
+        request.setAmount(new BigDecimal("45.67"));
+
+        service.redeemCredit(request, UUID.randomUUID(), "tenant-a");
+
+        ArgumentCaptor<AdminWalletEntry> captor =
+                ArgumentCaptor.forClass(AdminWalletEntry.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getAmount()).isEqualByComparingTo("45.67");
+        assertThat(captor.getValue().getAmountPaise()).isEqualTo(4567L);
     }
 
     @Test

@@ -46,7 +46,10 @@ public class WinnerService {
     @Transactional
     public MonthlyWinnerResponse assignWinner(UUID chitId, AssignWinnerRequest request, UUID assignedBy) {
         planLimitChecker.checkNotExpired();
-        Chit chit = chitService.findById(chitId);
+        // Lock the chit row for this transaction so two truly concurrent
+        // assign-winner requests for the same chit serialize instead of both
+        // reading the same pre-assignment eligible/win-count state and racing.
+        Chit chit = chitService.findByIdForUpdate(chitId);
 
         if (chit.getStatus() != ChitStatus.ACTIVE && chit.getStatus() != ChitStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.CHIT_NOT_ACTIVE);
@@ -73,6 +76,17 @@ public class WinnerService {
         // Strategy pattern: the right algorithm is selected by the chit's mode
         WinnerSelectionStrategy strategy = strategyFactory.getStrategy(chit.getWinnerSelectionMode());
         UUID winnerId = strategy.selectWinner(chit, eligible, request);
+
+        // The same member winning the same month twice is never legitimate — unlike
+        // "different member, same month" (intentional, see V8/V9 migrations) or "same
+        // member, different month" (multi-spot) — so this is always a double-submit
+        // or retry of an already-processed request. Reject it rather than silently
+        // recording (and paying out) a second identical win.
+        if (winnerRepository.existsByChitIdAndMonthNumberAndMemberId(chitId, request.getMonthNumber(), winnerId)) {
+            throw new BusinessException(ErrorCode.MEMBER_ALREADY_WON,
+                    "Member " + winnerId + " has already been recorded as winner for month "
+                            + request.getMonthNumber());
+        }
 
         BigDecimal discount = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
         // Use explicitly provided payout amount (from schedule slot) when given; fall back to chit total

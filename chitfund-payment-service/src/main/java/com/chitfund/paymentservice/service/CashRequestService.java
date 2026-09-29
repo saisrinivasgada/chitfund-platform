@@ -360,12 +360,43 @@ public class CashRequestService {
 
     @Transactional
     public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId) {
+        return collectForRequest(requestId, adminId, false, null);
+    }
+
+    /**
+     * @param overrideMemberRejection when the member explicitly rejected the collection —
+     *                                 partial (PARTIALLY_COLLECTED) or full (PICKED_UP),
+     *                                 memberApproved == false either way — this must be
+     *                                 true with a non-blank overrideReason, otherwise the
+     *                                 disputed amount is never silently credited without an
+     *                                 admin's explicit, auditable acknowledgement that
+     *                                 they're proceeding anyway.
+     */
+    @Transactional
+    public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId,
+                                                   boolean overrideMemberRejection, String overrideReason) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.PICKED_UP
                 && req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Request must be in PICKED_UP or PARTIALLY_COLLECTED state before admin can confirm collection — current status: " + req.getStatus());
+        }
+
+        // Member rejection applies to both a disputed partial amount AND a disputed full
+        // pickup (memberApprovePartial can be called against either status) — the guard
+        // must cover both, not just PARTIALLY_COLLECTED, or a rejected full pickup would
+        // be confirmable with zero enforcement.
+        if (Boolean.FALSE.equals(req.getMemberApproved())) {
+            if (!overrideMemberRejection || overrideReason == null || overrideReason.isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Member rejected this "
+                                + (req.getStatus() == CashRequestStatus.PARTIALLY_COLLECTED ? "partial collection" : "collection")
+                                + " (" + (req.getMemberRejectionReason() != null ? req.getMemberRejectionReason() : "no reason given")
+                                + "). Confirming it anyway requires an explicit override with a reason.");
+            }
+            logAudit(requestId, "MEMBER_REJECTION_OVERRIDDEN", req.getStatus(), req.getStatus(),
+                    adminId, "ADMIN", overrideReason);
         }
 
         BigDecimal amountToCredit = req.getCollectedAmount() != null

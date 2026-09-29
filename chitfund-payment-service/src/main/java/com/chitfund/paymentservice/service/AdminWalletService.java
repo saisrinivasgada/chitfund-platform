@@ -131,7 +131,12 @@ public class AdminWalletService {
     @Transactional
     public AdminWalletEntryResponse redeemCredit(RedeemCreditRequest req, UUID adminId, String tenantId) {
         planExpiryChecker.assertNotExpired();
-        java.math.BigDecimal available = memberCreditService.getBalance(req.getMemberId());
+        // Lock the member's credit row for the sufficiency check itself, not just the
+        // later deduction — otherwise two concurrent redemptions can both read the same
+        // pre-deduction balance and both pass this check (TOCTOU), draining the treasury
+        // for more than the member's real credit backs. A concurrent request now blocks
+        // here until this transaction commits, then re-reads the true post-deduction balance.
+        java.math.BigDecimal available = memberCreditService.getBalanceForUpdate(req.getMemberId());
         if (available.compareTo(req.getAmount()) < 0) {
             throw new IllegalArgumentException(
                 "Insufficient credit balance. Available: ₹" + available + ", requested: ₹" + req.getAmount());

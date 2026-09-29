@@ -2,9 +2,11 @@ package com.chitfund.chitservice.repository;
 
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDateTime;
@@ -17,6 +19,13 @@ public interface ChitRepository extends JpaRepository<Chit, UUID> {
 
     // ── Tenant-scoped single-entity lookup ────────────────────────────────────
     java.util.Optional<Chit> findByIdAndTenantIdAndDeletedAtIsNull(UUID id, String tenantId);
+
+    // Row-locks the chit for the duration of the transaction — used by
+    // WinnerService.assignWinner so two truly concurrent assign-winner requests
+    // for the same chit serialize instead of racing past each other's reads.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Chit c WHERE c.id = :id")
+    java.util.Optional<Chit> findByIdForUpdate(UUID id);
 
     // ── Tenant-scoped list queries ─────────────────────────────────────────────
     Page<Chit> findByTenantIdAndDeletedAtIsNull(String tenantId, Pageable pageable);

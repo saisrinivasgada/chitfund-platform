@@ -52,7 +52,7 @@ public class PaymentController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_STAFF') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectCash(
             @Valid @RequestBody CollectCashRequest request,
-            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             Authentication auth) {
         UUID workerId = (UUID) auth.getPrincipal();
         boolean callerIsAdmin = auth.getAuthorities().stream()
@@ -69,7 +69,7 @@ public class PaymentController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> recordPayment(
             @Valid @RequestBody RecordPaymentRequest request,
-            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         PaymentBatchResponse response = paymentService.recordPayment(request, adminId, idempotencyKey);
