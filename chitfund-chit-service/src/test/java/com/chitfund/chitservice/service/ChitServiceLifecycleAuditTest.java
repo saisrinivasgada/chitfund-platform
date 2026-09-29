@@ -10,6 +10,7 @@ import com.chitfund.chitservice.dto.response.ChitResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
+import com.chitfund.chitservice.repository.ChitLifecycleCommandRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +46,8 @@ class ChitServiceLifecycleAuditTest {
     @Mock NotificationClient notificationClient;
     @Mock PlanLimitChecker planLimitChecker;
     @Mock AuditClient auditClient;
+    @Mock ChitLifecycleCommandStore lifecycleCommandStore;
+    @Mock ChitLifecycleCommandRepository lifecycleCommandRepository;
 
     ChitService service;
 
@@ -52,7 +55,8 @@ class ChitServiceLifecycleAuditTest {
     void setUp() {
         service = new ChitService(chitRepository, enrollmentRepository, winnerRepository,
                 reservationRepository, chitMapper, attributeService, notificationClient,
-                planLimitChecker, auditClient);
+                planLimitChecker, auditClient, lifecycleCommandStore,
+                lifecycleCommandRepository);
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -76,6 +80,7 @@ class ChitServiceLifecycleAuditTest {
         verify(auditClient).log(eq("CHIT"), eq(chit.getId().toString()),
                 eq(chit.getId().toString()), eq("CHIT_COMPLETED"), eq(null), eq("SYSTEM"),
                 any(), any(), eq("tenant-1"));
+        verify(lifecycleCommandStore).enqueueCloseDraws(TENANT_ID, chit.getId());
     }
 
     @Test
@@ -91,6 +96,7 @@ class ChitServiceLifecycleAuditTest {
         verify(chitRepository, never()).save(any());
         verify(auditClient, never()).log(any(), any(), any(), any(), any(), any(),
                 any(), any(), any());
+        verify(lifecycleCommandStore).enqueueCloseDraws(TENANT_ID, chit.getId());
     }
 
     private Chit chit(ChitStatus status) {

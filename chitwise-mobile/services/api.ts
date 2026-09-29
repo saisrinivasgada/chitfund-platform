@@ -466,6 +466,10 @@ export const getChit = async (id: string) => unwrapObj(await api.get(`/chits/${i
 export const createChit = async (body: any) => unwrapObj(await api.post('/chits', body));
 export const updateChitStatus = async (id: string, status: string, startDate?: string) =>
   unwrapObj(await api.put(`/chits/${id}/status`, { status, startDate: startDate ?? null }));
+export const getChitLifecycleSync = async (id: string) =>
+  unwrapObj(await api.get(`/chits/${id}/lifecycle-sync`));
+export const retryChitLifecycleSync = async (id: string) =>
+  unwrapObj(await api.post(`/chits/${id}/lifecycle-sync/retry`));
 export const updateChitName = async (id: string, name: string, description?: string) =>
   unwrapObj(await api.patch(`/chits/${id}/name`, { name, description }));
 export const updateChitDetails = async (id: string, body: any) =>

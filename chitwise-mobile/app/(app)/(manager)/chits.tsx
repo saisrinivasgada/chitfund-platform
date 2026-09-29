@@ -13,6 +13,7 @@ import {
   recordPayment, createPayout, disbursePayout,
   getReservations, updateReservationSlot, markSlotProcessed,
   listAuctions, closeAuction, placeBid,
+  getChitLifecycleSync,
 } from '../../../services/api';
 import {
   C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen,
@@ -103,6 +104,15 @@ function DrawPaymentRows({ drawId, drawStatus, memberMap, onCollect }: {
 export default function ManagerChitsScreen() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<any>(null);
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['m-chit-lifecycle-sync', selected?.id],
+    queryFn: () => getChitLifecycleSync(selected.id),
+    enabled: selected?.status === 'COMPLETED' && !!selected?.id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
   const [detailTab, setDetailTab] = useState<DetailTab>('draws');
   const [expandedDrawId, setExpandedDrawId] = useState<string | null>(null);
 
@@ -499,6 +509,20 @@ export default function ManagerChitsScreen() {
                 </View>
               </View>
             </View>
+
+            {selected.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+              <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+                <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
+                  Open payment draws could not be closed automatically. Ask an administrator to retry the sync.
+                </Text>
+              </View>
+            )}
+            {selected.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+              <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+              </View>
+            )}
 
             {/* Tabs */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false}

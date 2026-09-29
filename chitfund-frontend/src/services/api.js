@@ -666,6 +666,16 @@ export const updateChitStatus = async ({ id, status, startDate }) => {
   return res.data.data;
 };
 
+export const getChitLifecycleSync = async (id) => {
+  const res = await api.get(`/chits/${id}/lifecycle-sync`);
+  return res.data.data;
+};
+
+export const retryChitLifecycleSync = async (id) => {
+  const res = await api.post(`/chits/${id}/lifecycle-sync/retry`);
+  return res.data.data;
+};
+
 export const updateChitDetails = async ({ id, ...body }) => {
   const res = await api.patch(`/chits/${id}/details`, body);
   return res.data.data;

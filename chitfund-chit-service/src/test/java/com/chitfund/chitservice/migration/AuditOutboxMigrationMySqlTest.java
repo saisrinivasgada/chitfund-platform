@@ -8,6 +8,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +47,22 @@ class AuditOutboxMigrationMySqlTest {
         }
     }
 
+    @Test
+    void lifecycleCommandIsDeduplicatedWithinTenantOnRealMySql() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            String chitId = "50000000-0000-0000-0000-000000000001";
+            insertLifecycleCommand(connection, "tenant-a", chitId);
+            assertThatThrownBy(() -> insertLifecycleCommand(
+                    connection, "tenant-a", chitId))
+                    .isInstanceOf(SQLException.class);
+            insertLifecycleCommand(connection, "tenant-b", chitId);
+        }
+    }
+
     private static void insert(java.sql.Connection connection, String sql,
                                String deliveryId) throws SQLException {
         try (var ps = connection.prepareStatement(sql)) {
@@ -56,6 +73,23 @@ class AuditOutboxMigrationMySqlTest {
             ps.setString(5, "40000000-0000-0000-0000-000000000001");
             ps.setString(6, "audit-events");
             ps.setString(7, "{\"action\":\"CHIT_CREATED\"}");
+            ps.executeUpdate();
+        }
+    }
+
+    private static void insertLifecycleCommand(java.sql.Connection connection,
+                                               String tenantId, String chitId) throws SQLException {
+        try (var ps = connection.prepareStatement("""
+                INSERT INTO chit_lifecycle_commands (
+                    id,tenant_id,chit_id,command_type,dedupe_key,status,attempts,
+                    available_at,created_at)
+                VALUES(?,?,?,?,?,'PENDING',0,NOW(6),NOW(6))
+                """)) {
+            ps.setString(1, UUID.randomUUID().toString());
+            ps.setString(2, tenantId);
+            ps.setString(3, chitId);
+            ps.setString(4, "CLOSE_DRAWS");
+            ps.setString(5, chitId + ":CLOSE_DRAWS");
             ps.executeUpdate();
         }
     }

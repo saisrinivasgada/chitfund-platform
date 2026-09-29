@@ -40,18 +40,15 @@ public class NotificationClient {
     private String internalKey;
 
     public void closeDrawsForChit(java.util.UUID chitId, String tenantId) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Key", internalKey);
-            headers.set("X-Tenant-ID", tenantId);
-            restTemplate.postForObject(
-                    paymentServiceUrl + "/admin/draws/internal/close-for-chit/" + chitId,
-                    new HttpEntity<>(null, headers),
-                    Void.class);
-        } catch (RestClientException e) {
-            log.warn("Could not close draws for completed chit {}: {}", chitId, e.getMessage());
-        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Internal-Key", internalKey);
+        headers.set("X-Tenant-ID", requireTenant(tenantId));
+        // Deliberately propagate failures: the durable lifecycle worker owns retry.
+        restTemplate.postForObject(
+                paymentServiceUrl + "/admin/draws/internal/close-for-chit/" + chitId,
+                new HttpEntity<>(null, headers),
+                Void.class);
     }
 
     public void notifyUsersInApp(List<String> memberIds, String type, String title,

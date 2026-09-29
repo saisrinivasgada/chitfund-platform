@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getChit, updateChitStatus, updateChitDetails, pauseChit, resumeChit, deleteChit,
+  getChitLifecycleSync, retryChitLifecycleSync,
   getEnrollments, enrollMember, removeEnrollment,
   getMembers,
   getDraws, closeDraw, skipDraw, deleteDraw, shiftReservations,
@@ -5395,6 +5396,26 @@ export default function ChitDetailPage() {
     queryKey: ['chit', id],
     queryFn: () => getChit(id),
   });
+  const qc = useQueryClient();
+  const toast = useToastContext();
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['chit-lifecycle-sync', id],
+    queryFn: () => getChitLifecycleSync(id),
+    enabled: !!id && chit?.status === 'COMPLETED',
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
+  const retryLifecycle = useMutation({
+    mutationFn: () => retryChitLifecycleSync(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['chit-lifecycle-sync', id] });
+      toast.success('Lifecycle synchronization queued again');
+    },
+    onError: (error) => toast.error(
+      error.response?.data?.message ?? 'Could not retry lifecycle synchronization'),
+  });
 
   // Loaded here (shared cache key with sub-tabs) to compute true participant count
   // including reservation-only members who have no formal enrollment
@@ -5467,6 +5488,37 @@ export default function ChitDetailPage() {
               Record is read-only. All data is preserved for audit purposes.
             </p>
           </div>
+        </div>
+      )}
+
+      {chit.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+        <div className="flex items-start justify-between gap-4 bg-red-50 border border-red-200 rounded-xl px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">Completion needs attention</p>
+              <p className="text-xs text-red-600 mt-0.5">
+                The chit is completed, but its payment draws could not be closed automatically.
+                No financial history was removed. Retry after the dependent service recovers.
+              </p>
+            </div>
+          </div>
+          {isAdmin && (
+            <Button variant="secondary" size="sm" disabled={retryLifecycle.isPending}
+              onClick={() => retryLifecycle.mutate()}>
+              <RotateCcw size={13} /> {retryLifecycle.isPending ? 'Retrying…' : 'Retry sync'}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {chit.status === 'COMPLETED' && lifecycleSync
+        && ['PENDING', 'RETRYING'].includes(lifecycleSync.status) && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
+          <RotateCcw size={16} className="text-amber-600 animate-spin" />
+          <p className="text-sm text-amber-800">
+            Finalizing completion — closing remaining open payment draws.
+          </p>
         </div>
       )}
 

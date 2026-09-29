@@ -5,6 +5,7 @@ import com.chitfund.chitservice.client.AuditClient;
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.chitservice.domain.entity.ChitEnrollment;
+import com.chitfund.chitservice.domain.entity.ChitLifecycleCommand;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
@@ -15,9 +16,11 @@ import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
+import com.chitfund.chitservice.dto.response.ChitLifecycleSyncResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.ChitEnrollmentRepository;
 import com.chitfund.chitservice.repository.ChitRepository;
+import com.chitfund.chitservice.repository.ChitLifecycleCommandRepository;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
 import com.chitfund.chitservice.repository.MonthlyWinnerRepository;
 import com.chitfund.common.dto.PagedResponse;
@@ -57,6 +60,8 @@ public class ChitService {
     private final NotificationClient notificationClient;
     private final PlanLimitChecker planLimitChecker;
     private final AuditClient auditClient;
+    private final ChitLifecycleCommandStore lifecycleCommandStore;
+    private final ChitLifecycleCommandRepository lifecycleCommandRepository;
 
     @Transactional
     public ChitResponse createChit(CreateChitRequest req, UUID createdBy) {
@@ -247,6 +252,9 @@ public class ChitService {
         auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
                 "CHIT_STATUS_CHANGED", actorId, actorRole,
                 before, chitAuditState(chit), chit.getTenantId());
+        if (completing) {
+            lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
+        }
         if (activatingFromDraft) {
             // RESERVATION: derive enrollment from the schedule; LOTTERY/AUCTION: admin enrolled members directly
             if (chit.getWinnerSelectionMode() == WinnerSelectionMode.RESERVATION) {
@@ -269,8 +277,6 @@ public class ChitService {
                         sendChitStatusNotifications(completedChit, "CHIT_COMPLETED",
                                 "Chit Completed — " + completedChit.getName(),
                                 "Your chit '" + completedChit.getName() + "' has been completed. Thank you for participating!");
-                        notificationClient.closeDrawsForChit(
-                                completedChit.getId(), completedChit.getTenantId());
                     });
                 }
             });
@@ -495,13 +501,17 @@ public class ChitService {
     public ChitResponse completeAfterFinalDisbursement(UUID id, String tenantId) {
         Chit chit = chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
-        if (chit.getStatus() == ChitStatus.COMPLETED) return enrich(chit);
+        if (chit.getStatus() == ChitStatus.COMPLETED) {
+            lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
+            return enrich(chit);
+        }
 
         Map<String, Object> before = chitAuditState(chit);
         chit.transitionTo(ChitStatus.COMPLETED);
         ChitResponse response = enrich(chitRepository.save(chit));
         auditClient.log("CHIT", chit.getId().toString(), chit.getId().toString(),
                 "CHIT_COMPLETED", null, "SYSTEM", before, chitAuditState(chit), chit.getTenantId());
+        lifecycleCommandStore.enqueueCloseDraws(chit.getTenantId(), chit.getId());
 
         final Chit completedChit = chit;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -511,12 +521,54 @@ public class ChitService {
                             "Chit Completed — " + completedChit.getName(),
                             "Your chit '" + completedChit.getName()
                                     + "' has been completed. Thank you for participating!");
-                    notificationClient.closeDrawsForChit(
-                            completedChit.getId(), completedChit.getTenantId());
                 });
             }
         });
         return response;
+    }
+
+    @Transactional(readOnly = true)
+    public ChitLifecycleSyncResponse getLifecycleSync(UUID chitId) {
+        Chit chit = findByIdScoped(chitId);
+        List<ChitLifecycleCommand> commands = lifecycleCommandRepository
+                .findByTenantIdAndChitIdOrderByCreatedAt(chit.getTenantId(), chitId);
+        long completed = commands.stream().filter(c -> "COMPLETED".equals(c.getStatus())).count();
+        long failed = commands.stream().filter(c -> "FAILED".equals(c.getStatus())).count();
+        long retrying = commands.stream().filter(c -> "RETRY".equals(c.getStatus())).count();
+        long pending = commands.stream().filter(c -> "PENDING".equals(c.getStatus())
+                || "PROCESSING".equals(c.getStatus())).count();
+        String status = commands.isEmpty() ? "NOT_SCHEDULED"
+                : failed > 0 ? "FAILED"
+                : completed == commands.size() ? "COMPLETED"
+                : retrying > 0 ? "RETRYING" : "PENDING";
+        String lastError = commands.stream()
+                .map(ChitLifecycleCommand::getLastErrorCode)
+                .filter(java.util.Objects::nonNull)
+                .reduce((first, second) -> second).orElse(null);
+        return ChitLifecycleSyncResponse.builder()
+                .status(status)
+                .totalOperations(commands.size())
+                .completedOperations(completed)
+                .pendingOperations(pending)
+                .retryingOperations(retrying)
+                .lastErrorCode(lastError)
+                .build();
+    }
+
+    @Transactional
+    public ChitLifecycleSyncResponse retryLifecycleSync(UUID chitId, UUID actorId,
+                                                         String actorRole) {
+        Chit chit = findByIdScoped(chitId);
+        int retried = lifecycleCommandStore.retryFailed(chit.getTenantId(), chitId);
+        if (retried == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "This chit has no terminal lifecycle sync failures to retry");
+        }
+        auditClient.log("CHIT", chitId.toString(), chitId.toString(),
+                "CHIT_LIFECYCLE_SYNC_RETRIED", actorId.toString(), actorRole,
+                Map.of("failedOperations", retried), Map.of("status", "RETRYING"),
+                chit.getTenantId());
+        return getLifecycleSync(chitId);
     }
 
     // ── Reservation schedule helpers ──────────────────────────────────────────

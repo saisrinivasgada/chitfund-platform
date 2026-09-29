@@ -7,6 +7,7 @@ import com.chitfund.chitservice.dto.request.UpdateChitDetailsRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitNameRequest;
 import com.chitfund.chitservice.dto.request.UpdateChitStatusRequest;
 import com.chitfund.chitservice.dto.response.ChitResponse;
+import com.chitfund.chitservice.dto.response.ChitLifecycleSyncResponse;
 import com.chitfund.chitservice.dto.response.MonthReservationResponse;
 import com.chitfund.chitservice.mapper.ChitMapper;
 import com.chitfund.chitservice.repository.MonthReservationRepository;
@@ -157,6 +158,21 @@ public class ChitController {
             @PathVariable UUID id, Authentication auth) {
         return ResponseEntity.ok(ApiResponse.success(
                 chitService.resumeChit(id, (UUID) auth.getPrincipal(), role(auth)), "Chit resumed"));
+    }
+
+    @GetMapping("/{id}/lifecycle-sync")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<ChitLifecycleSyncResponse>> getLifecycleSync(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(chitService.getLifecycleSync(id)));
+    }
+
+    @PostMapping("/{id}/lifecycle-sync/retry")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<ChitLifecycleSyncResponse>> retryLifecycleSync(
+            @PathVariable UUID id, Authentication auth) {
+        return ResponseEntity.ok(ApiResponse.success(chitService.retryLifecycleSync(
+                id, (UUID) auth.getPrincipal(), role(auth))));
     }
 
     @DeleteMapping("/{id}")

@@ -20,6 +20,7 @@ import {
   listStaff, updateChitDetails, getChitAuditHistory, getMyTenantLimits,
   openAuction, listAuctions, closeAuction, extendAuction, voidAuction, placeBid,
   pauseChit, resumeChit, getDeletedChits, deleteChit,
+  getChitLifecycleSync, retryChitLifecycleSync,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EmptyState, LoadingScreen, fmtDate, fmtDateTime } from '../../../components/ui';
 import { useUIStore } from '../../../store/uiStore';
@@ -157,6 +158,24 @@ export default function AdminChitsScreen() {
   const params = useLocalSearchParams<{ openChitId?: string; openTab?: string; openAdd?: string }>();
   const [selected, setSelected] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const { data: lifecycleSync } = useQuery({
+    queryKey: ['a-chit-lifecycle-sync', selected?.id],
+    queryFn: () => getChitLifecycleSync(selected.id),
+    enabled: showDetail && selected?.status === 'COMPLETED' && !!selected?.id,
+    refetchInterval: (query) => {
+      const status = (query.state.data as any)?.status;
+      return status && !['COMPLETED', 'FAILED'].includes(status) ? 3000 : false;
+    },
+  });
+  const retryLifecycleMut = useOnlineMutation({
+    mutationFn: () => retryChitLifecycleSync(selected.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['a-chit-lifecycle-sync', selected?.id] });
+      toast.saved('Completion sync queued again');
+    },
+    onError: (e: any) => Alert.alert('Retry Failed',
+      e.response?.data?.message ?? 'Could not retry completion sync'),
+  });
   // Typed confirmation for chit deletion — mirrors the web DELETE guard.
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -1175,6 +1194,26 @@ export default function AdminChitsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {selected?.status === 'COMPLETED' && lifecycleSync?.status === 'FAILED' && (
+            <View style={{ margin: 12, padding: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: C.red }}>Completion needs attention</Text>
+              <Text style={{ fontSize: 12, color: C.red, marginTop: 3 }}>
+                Open payment draws could not be closed automatically. Financial history is preserved.
+              </Text>
+              <TouchableOpacity onPress={() => retryLifecycleMut.mutate()} disabled={retryLifecycleMut.isPending}
+                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: C.red }}>
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>
+                  {retryLifecycleMut.isPending ? 'Retrying…' : 'Retry sync'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {selected?.status === 'COMPLETED' && ['PENDING', 'RETRYING'].includes(lifecycleSync?.status) && (
+            <View style={{ marginHorizontal: 12, marginTop: 12, padding: 10, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.amber }}>☁ Finalizing completion…</Text>
+            </View>
+          )}
 
           {/* Sub-tabs (scrollable) — no extra margin, border is on tab row itself */}
           <View style={{ borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
