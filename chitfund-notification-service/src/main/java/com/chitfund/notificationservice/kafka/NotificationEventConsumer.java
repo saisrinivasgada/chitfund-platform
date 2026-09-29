@@ -161,8 +161,8 @@ public class NotificationEventConsumer {
                             Map.of("screen", "chits", "chitId", event.chitId()));
                 }
             }
-            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_OPENED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MONTH_OPENED processing failed", e);
@@ -206,8 +206,8 @@ public class NotificationEventConsumer {
                             Map.of("screen", "chits", "chitId", event.chitId()));
                 }
             }
-            broadcaster.broadcast("DRAWS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "DRAWS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MONTH_SKIPPED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MONTH_SKIPPED processing failed", e);
@@ -248,9 +248,9 @@ public class NotificationEventConsumer {
             );
             pushService.sendToUserWithData(UUID.fromString(event.collectedByUserId()), cashTitle, cashBody,
                     Map.of("screen", "tasks"));
-            broadcaster.broadcast("CASH_REQUESTS_UPDATED");
-            broadcaster.broadcast("PAYMENTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "CASH_REQUESTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_COLLECTED event: {}", e.getMessage(), e);
             throw new IllegalStateException("CASH_COLLECTED processing failed", e);
@@ -294,8 +294,8 @@ public class NotificationEventConsumer {
                 pushService.sendToUserWithData(UUID.fromString(userId), title, body,
                         Map.of("screen", "payments", "chitId", event.chitId()));
             }
-            broadcaster.broadcast("PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYMENTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYMENT_COMPLETED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYMENT_COMPLETED processing failed", e);
@@ -351,8 +351,8 @@ public class NotificationEventConsumer {
                 }
             }
 
-            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_CREATED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYOUT_CREATED processing failed", e);
@@ -392,9 +392,9 @@ public class NotificationEventConsumer {
                 pushService.sendToUserWithData(UUID.fromString(userId), title, body,
                         Map.of("screen", "payouts", "chitId", event.chitId()));
             }
-            broadcaster.broadcast("PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
-            broadcaster.broadcast("TREASURY_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "PAYOUTS_UPDATED", Map.of("chitId", event.chitId()));
+            broadcaster.broadcast(event.tenantId(), "TREASURY_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process PAYOUT_DISBURSED event: {}", e.getMessage(), e);
             throw new IllegalStateException("PAYOUT_DISBURSED processing failed", e);
@@ -419,7 +419,7 @@ public class NotificationEventConsumer {
                 pushService.sendToUserWithData(UUID.fromString(userId), title, body,
                         Map.of("screen", "account"));
             }
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process MEMBER_UPDATED event: {}", e.getMessage(), e);
             throw new IllegalStateException("MEMBER_UPDATED processing failed", e);
@@ -443,8 +443,8 @@ public class NotificationEventConsumer {
                 default -> log.warn("Unknown cash request event type: {}", event.eventType());
             }
 
-            broadcaster.broadcast("CASH_REQUESTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "CASH_REQUESTS_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process CASH_REQUEST_EVENT: {}", e.getMessage(), e);
             throw new IllegalStateException("CASH_REQUEST_EVENT processing failed", e);
@@ -662,7 +662,7 @@ public class NotificationEventConsumer {
                     event.tenantId(), UUID.fromString(event.recipientId()),
                     event.title(), event.message(), event.type(),
                     event.metadata(), event.link());
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to create in-app notification for {}: {}", event.recipientId(), e.getMessage(), e);
             throw new IllegalStateException("IN_APP_NOTIFICATION processing failed", e);
@@ -684,7 +684,7 @@ public class NotificationEventConsumer {
                             event.metadata(), event.link());
                 }
             }
-            broadcaster.broadcast("IN_APP_UPDATED");
+            broadcaster.broadcast(event.tenantId(), "IN_APP_UPDATED");
         } catch (Exception e) {
             log.error("Failed to process BULK_IN_APP_BY_MEMBER_IDS event: {}", e.getMessage(), e);
             throw new IllegalStateException("BULK_IN_APP_BY_MEMBER_IDS processing failed", e);

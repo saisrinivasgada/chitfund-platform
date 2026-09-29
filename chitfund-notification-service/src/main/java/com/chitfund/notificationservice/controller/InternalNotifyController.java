@@ -93,9 +93,11 @@ public class InternalNotifyController {
 
             inAppService.create(tenantId, recipientId, title, message, type, meta, link);
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
-            if (wsEvent != null) broadcaster.broadcast(wsEvent);
-            if (RENEWAL_TYPES.contains(type)) broadcaster.broadcast("RENEWAL_REQUESTS_UPDATED");
-            broadcaster.broadcast("IN_APP_UPDATED");
+            if (wsEvent != null) broadcaster.broadcast(tenantId, wsEvent);
+            if (RENEWAL_TYPES.contains(type)) {
+                broadcaster.broadcast(tenantId, "RENEWAL_REQUESTS_UPDATED");
+            }
+            broadcaster.broadcast(tenantId, "IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create in-app notification: {}", e.getMessage());
@@ -151,8 +153,8 @@ public class InternalNotifyController {
             log.info("Bulk in-app by member IDs: {} recipients out of {} member IDs", count, memberIds.size());
 
             String wsEvent = NOTIF_TYPE_TO_WS_EVENT.get(type);
-            if (wsEvent != null) broadcaster.broadcast(wsEvent);
-            broadcaster.broadcast("IN_APP_UPDATED");
+            if (wsEvent != null) broadcaster.broadcast(tenantId, wsEvent);
+            broadcaster.broadcast(tenantId, "IN_APP_UPDATED");
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to create bulk in-app notifications: {}", e.getMessage());
