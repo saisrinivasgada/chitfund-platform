@@ -256,6 +256,36 @@ public class InternalSettlementController {
                 "auctionHistory", auctionHistory)));
     }
 
+    /** Authoritative winner record used by payout-service before creating a liability. */
+    @GetMapping("/chits/{chitId}/draws/{monthNumber}/winners/{memberId}")
+    public ResponseEntity<?> getWinnerForPayout(
+            @PathVariable UUID chitId,
+            @PathVariable Integer monthNumber,
+            @PathVariable UUID memberId,
+            @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+        if (!internalKey.equals(key)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        List<com.chitfund.chitservice.domain.entity.MonthlyWinner> winners = winnerRepository
+                .findForPayoutValidation(chitId, monthNumber, memberId, tenantId);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("winnerCount", winners.size());
+        if (winners.size() == 1) {
+            var winner = winners.get(0);
+            data.put("id", winner.getId());
+            data.put("chitId", winner.getChit().getId());
+            data.put("memberId", winner.getMemberId());
+            data.put("monthNumber", winner.getMonthNumber());
+            data.put("winningAmount", winner.getWinningAmount());
+            data.put("auctionDiscountAmount", winner.getDiscountAmount());
+        }
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
     private void replaceOneSpotDue(Map<UUID, BigDecimal> dues, UUID memberId,
                                    BigDecimal base, BigDecimal postPayout) {
         dues.computeIfPresent(memberId, (ignored, current) -> current.subtract(base).add(postPayout));

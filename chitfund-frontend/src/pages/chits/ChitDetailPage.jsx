@@ -3786,8 +3786,7 @@ function DisburseModal({ chitId, chit, winner, payout: initialPayout, member, on
             memberId={memberId}
             monthNumber={monthNumber}
             defaultWinningAmount={winner.winningAmount ?? chit?.chitValue}
-            defaultAdjustment={winner.discountAmount ?? 0}
-            editableAmount
+            defaultAdjustment={0}
             onSuccess={(p) => {
               setPayout(p);
               setJustCreated(true);

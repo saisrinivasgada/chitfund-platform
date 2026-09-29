@@ -2,6 +2,7 @@ package com.chitfund.chitservice.controller;
 
 import com.chitfund.chitservice.domain.entity.Chit;
 import com.chitfund.chitservice.domain.entity.MonthReservation;
+import com.chitfund.chitservice.domain.entity.MonthlyWinner;
 import com.chitfund.chitservice.domain.enums.ChitStatus;
 import com.chitfund.chitservice.domain.enums.ChitType;
 import com.chitfund.chitservice.domain.enums.ReservationStatus;
@@ -144,5 +145,47 @@ class InternalDrawAssessmentTest {
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(winnerRepository, never())
                 .countByChitIdAndMonthNumberAndTenantId(chitId, 1, TENANT);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void payoutWinnerLookupUsesTenantMemberAndDrawScope() {
+        UUID chitId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        Chit chit = Chit.builder().id(chitId).tenantId(TENANT).name("Gold").build();
+        MonthlyWinner winner = MonthlyWinner.builder()
+                .id(UUID.randomUUID()).chit(chit).memberId(memberId).monthNumber(3)
+                .winningAmount(new BigDecimal("45000.00"))
+                .discountAmount(new BigDecimal("5000.00"))
+                .build();
+        when(winnerRepository.findForPayoutValidation(chitId, 3, memberId, TENANT))
+                .thenReturn(List.of(winner));
+
+        ApiResponse<java.util.Map<String, Object>> body =
+                (ApiResponse<java.util.Map<String, Object>>) controller
+                        .getWinnerForPayout(chitId, 3, memberId, TENANT, KEY).getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.getData()).containsEntry("winnerCount", 1)
+                .containsEntry("memberId", memberId)
+                .containsEntry("winningAmount", new BigDecimal("45000.00"))
+                .containsEntry("auctionDiscountAmount", new BigDecimal("5000.00"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void missingOrForeignWinnerReturnsNoFinancialDetails() {
+        UUID chitId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        when(winnerRepository.findForPayoutValidation(chitId, 1, memberId, TENANT))
+                .thenReturn(List.of());
+
+        ApiResponse<java.util.Map<String, Object>> body =
+                (ApiResponse<java.util.Map<String, Object>>) controller
+                        .getWinnerForPayout(chitId, 1, memberId, TENANT, KEY).getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.getData()).containsOnlyKeys("winnerCount")
+                .containsEntry("winnerCount", 0);
     }
 }

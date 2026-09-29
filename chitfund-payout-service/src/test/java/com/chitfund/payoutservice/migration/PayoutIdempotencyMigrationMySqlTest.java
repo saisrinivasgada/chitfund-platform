@@ -94,6 +94,33 @@ class PayoutIdempotencyMigrationMySqlTest {
         }
     }
 
+    @Test
+    void activePayoutUniquenessIsTenantAndWinnerScopedOnRealMySql() throws Exception {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            String chit = UUID.randomUUID().toString();
+            String memberA = UUID.randomUUID().toString();
+            String memberB = UUID.randomUUID().toString();
+
+            insertScopedPayout(connection, "tenant-a", chit, memberA, 4, "PENDING");
+            assertThatThrownBy(() -> insertScopedPayout(
+                    connection, "tenant-a", chit, memberA, 4, "PENDING"))
+                    .isInstanceOf(SQLException.class);
+
+            // Multiple winners in the same draw and the same UUIDs in another tenant do not collide.
+            insertScopedPayout(connection, "tenant-a", chit, memberB, 4, "PENDING");
+            insertScopedPayout(connection, "tenant-b", chit, memberA, 4, "PENDING");
+
+            // A historical voided payout does not consume the active slot.
+            insertScopedPayout(connection, "tenant-a", chit, memberA, 5, "VOIDED");
+            insertScopedPayout(connection, "tenant-a", chit, memberA, 5, "PENDING");
+        }
+    }
+
     private static void insertPayout(Connection connection, String payoutId, int month)
             throws SQLException {
         try (var statement = connection.prepareStatement("""
@@ -126,6 +153,27 @@ class PayoutIdempotencyMigrationMySqlTest {
             statement.setString(3, UUID.randomUUID().toString());
             statement.setString(4, key);
             statement.setString(5, key == null ? null : "a".repeat(64));
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertScopedPayout(Connection connection, String tenantId, String chitId,
+                                           String memberId, int month, String status) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO payouts (
+                    id, tenant_id, chit_id, member_id, month_number,
+                    winning_amount, discount_amount, net_payout_amount,
+                    status, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1000.00, 100.00, 900.00,
+                        ?, ?, NOW(6), NOW(6))
+                """)) {
+            statement.setString(1, UUID.randomUUID().toString());
+            statement.setString(2, tenantId);
+            statement.setString(3, chitId);
+            statement.setString(4, memberId);
+            statement.setInt(5, month);
+            statement.setString(6, status);
+            statement.setString(7, UUID.randomUUID().toString());
             statement.executeUpdate();
         }
     }

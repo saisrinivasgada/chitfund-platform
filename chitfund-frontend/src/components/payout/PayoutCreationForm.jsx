@@ -30,7 +30,8 @@ function ToggleSwitch({ on, onToggle, disabled = false }) {
  *   memberId            — UUID of the winning member
  *   monthNumber         — draw month number
  *   defaultWinningAmount — pre-filled winning amount
- *   defaultAdjustment   — pre-filled manual adjustment (e.g. from winner.discountAmount)
+ *   defaultAdjustment   — optional admin-entered deduction; never the auction discount,
+ *                         which is already reflected in the recorded winning amount
  *   editableAmount      — if true, winning amount shown as editable input (default false)
  *   onSuccess(payout)   — called after successful creation; parent handles cache cleanup
  */

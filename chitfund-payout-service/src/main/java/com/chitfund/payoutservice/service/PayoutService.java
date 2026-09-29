@@ -62,6 +62,20 @@ public class PayoutService {
      */
     @Transactional
     public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId, String actorRole) {
+        ChitServiceClient.WinnerDto winner = chitServiceClient.getWinnerForPayout(
+                request.getChitId(), request.getMonthNumber(), request.getMemberId(), tenantId());
+        if (winner.getWinnerCount() == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "No recorded winner exists for this member, chit, and draw");
+        }
+        if (winner.getWinnerCount() != 1) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Multiple winner records exist for this member and draw. Resolve the duplicate before creating a payout.");
+        }
+        if (request.getWinningAmount().compareTo(winner.getWinningAmount()) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Winning amount does not match the recorded draw result");
+        }
         if (payoutRepository.existsByTenantIdAndChitIdAndMonthNumberAndMemberIdAndStatusNotIn(
                 tenantId(), request.getChitId(), request.getMonthNumber(), request.getMemberId(),
                 List.of(PayoutStatus.CANCELLED, PayoutStatus.VOIDED))) {

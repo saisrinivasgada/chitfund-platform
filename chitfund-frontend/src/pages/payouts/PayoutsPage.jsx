@@ -231,7 +231,7 @@ function CreatePayoutTab() {
                 memberId={selectedMemberId}
                 monthNumber={selectedWinner.monthNumber}
                 defaultWinningAmount={selectedWinner.winningAmount}
-                defaultAdjustment={selectedWinner.discountAmount ?? 0}
+                defaultAdjustment={0}
                 onSuccess={() => {
                   qc.invalidateQueries({ queryKey: ['payouts'] });
                   qc.invalidateQueries({ queryKey: ['winners-batch'] });
@@ -804,7 +804,7 @@ function PendingPayoutsTab() {
               memberId={createTarget.memberId}
               monthNumber={createTarget.winner.monthNumber}
               defaultWinningAmount={createTarget.winner.winningAmount}
-              defaultAdjustment={createTarget.winner.discountAmount ?? 0}
+              defaultAdjustment={0}
               onSuccess={() => {
                 qc.invalidateQueries({ queryKey: ['payouts'] });
                 qc.invalidateQueries({ queryKey: ['winners-batch'] });

@@ -324,11 +324,11 @@ export default function ManagerChitsScreen() {
 
   const payoutMut = useMutation({
     mutationFn: () => createPayout({
-      winnerId: payoutWinner.memberId ?? payoutWinner.winnerId,
+      memberId: payoutWinner.memberId ?? payoutWinner.winnerId,
       chitId: selected.id,
-      drawId: payoutWinner.drawId,
-      drawNumber: payoutWinner.monthNumber ?? payoutWinner.drawNumber,
+      monthNumber: payoutWinner.monthNumber ?? payoutWinner.drawNumber,
       winningAmount: Number(payoutAmount) || Number(payoutWinner.winningAmount ?? selected?.chitValue ?? 0),
+      discountAmount: 0,
       notes: null,
     }),
     onSuccess: () => {
@@ -1191,11 +1191,11 @@ export default function ManagerChitsScreen() {
                 </Text>
               </View>
               <View>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payout Amount (₹)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
                 <TextInput
-                  value={payoutAmount} onChangeText={setPayoutAmount}
+                  value={payoutAmount} editable={false}
                   keyboardType="numeric" placeholder={String(selected?.chitValue ?? '')}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
+                  style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900 }}
                 />
               </View>
             </ScrollView>

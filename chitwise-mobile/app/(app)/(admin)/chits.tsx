@@ -3937,14 +3937,14 @@ export default function AdminChitsScreen() {
                 </View>
               )}
 
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Payout Amount *</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Recorded Winner Amount</Text>
               <TextInput
-                style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
-                placeholder="Enter amount"
+                style={{ borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.gray50, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, marginBottom: 16 }}
+                placeholder="Recorded amount"
                 placeholderTextColor={C.gray400}
                 keyboardType="decimal-pad"
                 value={wpAmount}
-                onChangeText={setWpAmount}
+                editable={false}
               />
               <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes (optional)</Text>
               <TextInput

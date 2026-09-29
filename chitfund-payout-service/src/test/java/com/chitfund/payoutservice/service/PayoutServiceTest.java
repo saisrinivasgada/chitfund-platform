@@ -78,6 +78,14 @@ class PayoutServiceTest {
         memberId  = UUID.randomUUID();
         payoutId  = UUID.randomUUID();
         TenantContext.set("test-tenant-id");
+        ChitServiceClient.WinnerDto winner = new ChitServiceClient.WinnerDto();
+        winner.setWinnerCount(1);
+        winner.setChitId(chitId);
+        winner.setMemberId(memberId);
+        winner.setMonthNumber(1);
+        winner.setWinningAmount(bd(50_000));
+        lenient().when(chitServiceClient.getWinnerForPayout(
+                chitId, 1, memberId, "test-tenant-id")).thenReturn(winner);
     }
 
     @AfterEach
@@ -258,6 +266,46 @@ class PayoutServiceTest {
                     .hasMessageContaining("must equal the total withheld amount");
             verify(payoutRepository, never()).save(any());
             verify(financialCommandStore, never()).enqueue(any());
+        }
+
+        @Test
+        @DisplayName("rejects payout when tenant-scoped winner does not exist")
+        void rejectsPayoutWithoutRecordedWinner() {
+            ChitServiceClient.WinnerDto missing = new ChitServiceClient.WinnerDto();
+            when(chitServiceClient.getWinnerForPayout(chitId, 1, memberId, "test-tenant-id"))
+                    .thenReturn(missing);
+
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("No recorded winner");
+            verifyNoInteractions(payoutRepository);
+        }
+
+        @Test
+        @DisplayName("rejects client amount that differs from recorded winner")
+        void rejectsForgedWinningAmount() {
+            CreatePayoutRequest request = createRequest(bd(90_000), bd(5_000));
+
+            assertThatThrownBy(() -> payoutService.createPayout(request, adminId, "ADMIN"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("does not match the recorded draw result");
+            verifyNoInteractions(payoutRepository);
+        }
+
+        @Test
+        @DisplayName("blocks ambiguous duplicate winner records")
+        void rejectsAmbiguousWinnerHistory() {
+            ChitServiceClient.WinnerDto duplicate = new ChitServiceClient.WinnerDto();
+            duplicate.setWinnerCount(2);
+            when(chitServiceClient.getWinnerForPayout(chitId, 1, memberId, "test-tenant-id"))
+                    .thenReturn(duplicate);
+
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("Multiple winner records");
+            verifyNoInteractions(payoutRepository);
         }
     }
 
