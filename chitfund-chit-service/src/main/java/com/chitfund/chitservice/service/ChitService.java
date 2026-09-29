@@ -285,16 +285,18 @@ public class ChitService {
 
     private void sendChitStatusNotifications(Chit chit, String type, String title, String message) {
         try {
-            List<String> memberIds = enrollmentRepository.findActiveMemberIdsByChitId(chit.getId())
+            List<String> memberIds = enrollmentRepository
+                    .findActiveMemberIdsByChitIdAndTenantId(chit.getId(), chit.getTenantId())
                     .stream().distinct().map(UUID::toString).toList();
             if (!memberIds.isEmpty()) {
                 // In-app bell notification via notification-service (resolves memberId → userId)
-                notificationClient.notifyUsersInApp(memberIds, type, title, message, "/member/chits/" + chit.getId());
+                notificationClient.notifyUsersInApp(chit.getTenantId(), memberIds, type, title, message,
+                        "/member/chits/" + chit.getId());
                 // Legacy payment-service channel (role-based push, kept for existing admin tooling)
-                notificationClient.notifyUsers(memberIds, type, title, message,
+                notificationClient.notifyUsers(chit.getTenantId(), memberIds, type, title, message,
                         "CHIT", chit.getId().toString(), "/member");
             }
-            notificationClient.notifyRole("MANAGER", type,
+            notificationClient.notifyRole(chit.getTenantId(), "MANAGER", type,
                     title.replace("Your chit", "Chit"),
                     "Chit '" + chit.getName() + "' status changed — " + type.replace("CHIT_", "").toLowerCase() + ".",
                     "CHIT", chit.getId().toString(), "/chits");

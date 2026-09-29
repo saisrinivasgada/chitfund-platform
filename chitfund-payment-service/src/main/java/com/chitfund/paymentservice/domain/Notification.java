@@ -17,6 +17,9 @@ public class Notification {
     @Column(columnDefinition = "varchar(36)")
     private UUID id;
 
+    @Column(name = "tenant_id", nullable = false, length = 36, updatable = false)
+    private String tenantId;
+
     // null = role-based broadcast; non-null = specific user
     @Column(columnDefinition = "varchar(36)")
     private UUID recipientUserId;

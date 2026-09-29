@@ -99,6 +99,26 @@ class PaymentTenantMigrationMySqlTest {
     }
 
     @Test
+    void notificationStorageCanIsolateTheSameRoleAcrossTenants() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            insertNotification(connection, "tenant-a", "ADMIN");
+            insertNotification(connection, "tenant-b", "ADMIN");
+            try (var statement = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM notifications WHERE tenant_id=? AND recipient_role='ADMIN'")) {
+                statement.setString(1, "tenant-a");
+                try (var result = statement.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(1);
+                }
+            }
+        }
+    }
+
+    @Test
     void payoutCommandReceiptAllowsOnlyOneConcurrentWinnerOnRealMySql() throws Exception {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration").load().migrate();
@@ -185,6 +205,19 @@ class PaymentTenantMigrationMySqlTest {
             statement.setString(4, UUID.randomUUID().toString());
             statement.setString(5, mode);
             statement.setString(6, reference);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertNotification(
+            java.sql.Connection connection, String tenantId, String role) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "INSERT INTO notifications " +
+                        "(id, tenant_id, recipient_role, type, title, message, created_at) " +
+                        "VALUES (?, ?, ?, 'GENERAL', 'Title', 'Message', NOW(6))")) {
+            statement.setString(1, UUID.randomUUID().toString());
+            statement.setString(2, tenantId);
+            statement.setString(3, role);
             statement.executeUpdate();
         }
     }

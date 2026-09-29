@@ -8,11 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpEntity;
 
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class NotificationClientAfterCommitTest {
 
@@ -55,6 +57,20 @@ class NotificationClientAfterCommitTest {
                 .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
 
         verify(sqsTemplate, never()).send(anyString(), anyString());
+    }
+
+    @Test
+    void legacyBulkNotificationCarriesExplicitTenantHeader() {
+        client.sendBulk("tenant-a", List.of(java.util.Map.of(
+                "recipientRole", "MANAGER", "type", "GENERAL",
+                "title", "Title", "message", "Message")));
+
+        @SuppressWarnings("rawtypes")
+        var request = org.mockito.ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).postForObject(
+                anyString(), request.capture(), eq(Void.class));
+        assertThat(request.getValue().getHeaders().getFirst("X-Tenant-ID"))
+                .isEqualTo("tenant-a");
     }
 
     private void beginTransactionSynchronization() {

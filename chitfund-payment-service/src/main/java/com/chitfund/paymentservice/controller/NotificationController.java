@@ -55,7 +55,8 @@ public class NotificationController {
     @PatchMapping("/{id}/read")
     public ResponseEntity<ApiResponse<Void>> markRead(@PathVariable UUID id, Authentication auth) {
         UUID userId = (UUID) auth.getPrincipal();
-        notificationService.markRead(id, userId);
+        String role = auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "");
+        notificationService.markRead(id, userId, role);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -163,11 +164,15 @@ public class NotificationController {
     @PostMapping("/internal/bulk")
     public ResponseEntity<Void> createBulk(
             @RequestBody List<CreateNotifRequest> requests,
-            @RequestHeader(value = "X-Internal-Key", required = false) String key) {
+            @RequestHeader(value = "X-Internal-Key", required = false) String key,
+            @RequestHeader(value = "X-Tenant-ID", required = false) String tenantId) {
         if (!internalKey.equals(key)) {
             return ResponseEntity.status(401).build();
         }
-        notificationService.createBulk(requests);
+        if (tenantId == null || tenantId.isBlank()) {
+            return ResponseEntity.status(403).build();
+        }
+        notificationService.createBulk(requests, tenantId);
         return ResponseEntity.ok().build();
     }
 }

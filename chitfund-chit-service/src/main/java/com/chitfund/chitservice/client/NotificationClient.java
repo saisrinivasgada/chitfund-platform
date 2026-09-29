@@ -56,10 +56,15 @@ public class NotificationClient {
 
     public void notifyUsersInApp(List<String> memberIds, String type, String title,
                                   String message, String link) {
+        notifyUsersInApp(requireTenantContext(), memberIds, type, title, message, link);
+    }
+
+    public void notifyUsersInApp(String tenantId, List<String> memberIds, String type, String title,
+                                 String message, String link) {
         if (memberIds == null || memberIds.isEmpty()) return;
         try {
             BulkInAppByMemberIdsEvent event = new BulkInAppByMemberIdsEvent(
-                    requireTenantContext(), memberIds, type, title, message, null, link);
+                    requireTenant(tenantId), memberIds, type, title, message, null, link);
             String payload  = objectMapper.writeValueAsString(event);
             String envelope = objectMapper.writeValueAsString(
                     new SqsEventEnvelope(UUID.randomUUID().toString(),
@@ -85,7 +90,8 @@ public class NotificationClient {
      */
     public void notifyUsersInAppAfterCommit(List<String> memberIds, String type, String title,
                                              String message, String link) {
-        Runnable delivery = () -> notifyUsersInApp(memberIds, type, title, message, link);
+        String tenantId = requireTenantContext();
+        Runnable delivery = () -> notifyUsersInApp(tenantId, memberIds, type, title, message, link);
         if (TransactionSynchronizationManager.isActualTransactionActive()
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -99,12 +105,13 @@ public class NotificationClient {
         }
     }
 
-    public void sendBulk(List<Map<String, Object>> notifications) {
+    public void sendBulk(String tenantId, List<Map<String, Object>> notifications) {
         if (notifications == null || notifications.isEmpty()) return;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("X-Internal-Key", internalKey);
+            headers.set("X-Tenant-ID", requireTenant(tenantId));
 
             restTemplate.postForObject(
                     paymentServiceUrl + "/notifications/internal/bulk",
@@ -115,17 +122,17 @@ public class NotificationClient {
         }
     }
 
-    public void notifyRole(String role, String type, String title, String message,
+    public void notifyRole(String tenantId, String role, String type, String title, String message,
                             String entityType, String entityId, String link) {
-        sendBulk(List.of(notif(null, role, type, title, message, entityType, entityId, link)));
+        sendBulk(tenantId, List.of(notif(null, role, type, title, message, entityType, entityId, link)));
     }
 
-    public void notifyUsers(List<String> userIds, String type, String title, String message,
+    public void notifyUsers(String tenantId, List<String> userIds, String type, String title, String message,
                              String entityType, String entityId, String link) {
         List<Map<String, Object>> batch = userIds.stream()
                 .map(uid -> notif(uid, null, type, title, message, entityType, entityId, link))
                 .toList();
-        sendBulk(batch);
+        sendBulk(tenantId, batch);
     }
 
     private Map<String, Object> notif(String userId, String role, String type, String title,
@@ -140,5 +147,12 @@ public class NotificationClient {
         if (entityId != null)   m.put("entityId", entityId);
         if (link != null)       m.put("link", link);
         return m;
+    }
+
+    private String requireTenant(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Organization context is required for notifications");
+        }
+        return tenantId;
     }
 }
