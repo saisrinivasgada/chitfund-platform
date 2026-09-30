@@ -286,10 +286,11 @@ export const resumeSubscription = async () => {
   return res.data.data;
 };
 
-export const applyDowngrade = async (toPlan) => {
-  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
-  return res.data.data;
-};
+export const applyDowngrade = (toPlan) =>
+  postBillingIdempotently('downgrade', '/billing/downgrade', {
+    toPlan,
+    reason: 'Organization admin requested immediate downgrade',
+  });
 
 export const superAdminReactivateTenant = async (tenantId, newSlug) => {
   const params = newSlug ? { newSlug } : {};

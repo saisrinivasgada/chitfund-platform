@@ -7,6 +7,7 @@ import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.userservice.dto.request.RecordPaymentRequest;
 import com.chitfund.userservice.dto.request.RecordRefundRequest;
 import com.chitfund.userservice.dto.request.RecordUpgradeRequest;
+import com.chitfund.userservice.dto.request.ApplyDowngradeRequest;
 import com.chitfund.userservice.dto.response.PaymentResponse;
 import com.chitfund.userservice.dto.response.ReceiptResponse;
 import com.chitfund.userservice.dto.response.TenantResponse;
@@ -144,12 +145,14 @@ public class BillingController {
     @PostMapping("/api/billing/downgrade")
     @PreAuthorize("hasAuthority('ADMIN')")
     public ResponseEntity<ApiResponse<PaymentResponse>> applyDowngrade(
-            @RequestParam String toPlan,
+            @Valid @RequestBody ApplyDowngradeRequest request,
             @AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                billingService.applyDowngrade(tenantId, toPlan, principal.getId().toString()),
+                billingService.applyDowngrade(tenantId, request.getToPlan(),
+                        request.getReason(), request.getIdempotencyKey(),
+                        principal.getId().toString()),
                 "Plan downgraded successfully — credit added to your balance"));
     }
 

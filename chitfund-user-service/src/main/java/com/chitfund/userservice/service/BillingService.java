@@ -184,7 +184,7 @@ public class BillingService {
         }
 
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
-        auditBilling(payment, type + "_RECORDED", actorUserId, before,
+        auditBilling(payment, type + "_RECORDED", actorUserId, "SUPER_ADMIN", before,
                 tenantBillingState(tenant), req.getNotes(), req.getIdempotencyKey());
         log.info("Recorded {} payment for tenant {} — receipt {}", type, req.getTenantId(), receipt.getReceiptNumber());
 
@@ -268,7 +268,7 @@ public class BillingService {
         syncLimitsFromPlan(req.getTenantId(), newPlan);
 
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
-        auditBilling(payment, "UPGRADE_RECORDED", actorUserId, before,
+        auditBilling(payment, "UPGRADE_RECORDED", actorUserId, "SUPER_ADMIN", before,
                 tenantBillingState(tenant), req.getNotes(), req.getIdempotencyKey());
         log.info("Recorded UPGRADE {} → {} for tenant {} — receipt {}",
                 oldPlan.getPlan(), newPlan.getPlan(), req.getTenantId(), receipt.getReceiptNumber());
@@ -279,9 +279,15 @@ public class BillingService {
     // ── Admin-initiated instant downgrade ─────────────────────────────────────
 
     @Transactional
-    public PaymentResponse applyDowngrade(String tenantId, String newPlanCode, String actorUserId) {
-        Tenant tenant = findTenant(tenantId);
-        PlanLimits newPlan = findPlan(newPlanCode);
+    public PaymentResponse applyDowngrade(String tenantId, String newPlanCode, String reason,
+                                          String idempotencyKey, String actorUserId) {
+        Tenant tenant = findTenantForUpdate(tenantId);
+        Map<String, Object> before = tenantBillingState(tenant);
+        PlanLimits newPlan = findActivePlan(newPlanCode);
+        String requestFingerprint = fingerprint("DOWNGRADE", tenantId,
+                newPlan.getPlan(), reason);
+        PaymentResponse replay = replayIfPresent(idempotencyKey, requestFingerprint, tenant);
+        if (replay != null) return replay;
         PlanLimits oldPlan = findPlan(tenant.getPlan());
 
         if (newPlan.getPriceMonthlyInr() >= oldPlan.getPriceMonthlyInr()) {
@@ -311,7 +317,9 @@ public class BillingService {
                 .planPeriodEnd(preview.getNewPeriodEnd())
                 .paymentMethod("SYSTEM")
                 .paymentDate(today)
-                .notes("Admin-initiated downgrade — prorated credit applied automatically")
+                .notes(reason.trim())
+                .idempotencyKey(idempotencyKey.trim())
+                .requestFingerprint(requestFingerprint)
                 .createdBy(actorUserId)
                 .build();
         paymentRepo.save(payment);
@@ -331,6 +339,8 @@ public class BillingService {
         syncLimitsFromPlan(tenantId, newPlan);
 
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
+        auditBilling(payment, "DOWNGRADE_RECORDED", actorUserId, "ADMIN", before,
+                tenantBillingState(tenant), reason.trim(), idempotencyKey);
         log.info("DOWNGRADE {} → {} for tenant {} — credit returned {}p, receipt {}",
                 oldPlan.getPlan(), newPlan.getPlan(), tenantId,
                 preview.getCreditToReturnPaise(), receipt.getReceiptNumber());
@@ -383,7 +393,7 @@ public class BillingService {
         refundReceipt.setAmountPaise(req.getRefundAmountPaise());
 
         List<PlanReceipt> receipts = receiptRepo.findByPaymentId(paymentId);
-        auditBilling(payment, "REFUND_RECORDED", actorUserId,
+        auditBilling(payment, "REFUND_RECORDED", actorUserId, "SUPER_ADMIN",
                 Map.of("status", "COMPLETED", "refundedAmountPaise", 0L),
                 Map.of("status", payment.getStatus(),
                         "refundedAmountPaise", req.getRefundAmountPaise(),
@@ -578,10 +588,11 @@ public class BillingService {
     }
 
     private void auditBilling(PlanPayment payment, String action, String actorUserId,
+                              String actorRole,
                               Object before, Object after, String reason,
                               String idempotencyKey) {
         auditClient.log("PLAN_PAYMENT", payment.getId(), action,
-                actorUserId, "SUPER_ADMIN", before, after, payment.getTenantId(),
+                actorUserId, actorRole, before, after, payment.getTenantId(),
                 "HUB", "SUCCESS", reason, payment.getId(), idempotencyKey);
     }
 

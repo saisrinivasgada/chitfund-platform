@@ -1365,10 +1365,11 @@ export const resumeSubscription = async (): Promise<any> => {
   return res.data.data;
 };
 
-export const applyDowngrade = async (toPlan: string): Promise<any> => {
-  const res = await api.post('/billing/downgrade', null, { params: { toPlan } });
-  return res.data.data;
-};
+export const applyDowngrade = (toPlan: string): Promise<any> =>
+  postBillingIdempotently('downgrade', '/billing/downgrade', {
+    toPlan,
+    reason: 'Organization admin requested immediate downgrade',
+  });
 
 // ── Account lockout (admin unlocks staff locked out by failed logins) ─────────
 export const lockUser = async (id: string): Promise<any> => {
