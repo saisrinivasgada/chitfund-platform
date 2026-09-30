@@ -39,6 +39,15 @@ public class AuditClient {
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId,
                     String source, String outcome, String reason) {
+        log(entityType, entityId, action, actorId, actorRole, before, after,
+                tenantId, source, outcome, reason, null, null);
+    }
+
+    public void log(String entityType, String entityId,
+                    String action, String actorId, String actorRole,
+                    Object before, Object after, String tenantId,
+                    String source, String outcome, String reason,
+                    String correlationId, String idempotencyKey) {
         requireBusinessTransaction();
         try {
             String eventId = UUID.randomUUID().toString();
@@ -48,7 +57,7 @@ public class AuditClient {
                     action, resolvedActorId, actorRole, null,
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId, null, null, source, outcome, reason,
+                    null, tenantId, correlationId, idempotencyKey, source, outcome, reason,
                     null, null, null, Instant.now(), null, null);
             outbox.enqueue(eventId, Objects.requireNonNull(tenantId, "tenantId"),
                     entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);

@@ -2,6 +2,7 @@ package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.domain.entity.*;
 import com.chitfund.userservice.dto.request.RecordPaymentRequest;
 import com.chitfund.userservice.dto.request.RecordRefundRequest;
@@ -28,7 +29,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -48,6 +51,7 @@ public class BillingService {
     private final PlanLimitsRepository planRepo;
     private final UserRepository userRepo;
     private final TenantCustomLimitsRepository customLimitsRepo;
+    private final AuditClient auditClient;
 
     // ── Preview proration for an upgrade ──────────────────────────────────────
 
@@ -107,6 +111,7 @@ public class BillingService {
     @Transactional
     public PaymentResponse recordPayment(RecordPaymentRequest req, String actorUserId) {
         Tenant tenant = findTenantForUpdate(req.getTenantId());
+        Map<String, Object> before = tenantBillingState(tenant);
         PlanLimits plan = findActivePlan(req.getToPlan());
 
         String type = req.getType().trim().toUpperCase(Locale.ROOT);
@@ -179,6 +184,8 @@ public class BillingService {
         }
 
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
+        auditBilling(payment, type + "_RECORDED", actorUserId, before,
+                tenantBillingState(tenant), req.getNotes(), req.getIdempotencyKey());
         log.info("Recorded {} payment for tenant {} — receipt {}", type, req.getTenantId(), receipt.getReceiptNumber());
 
         return toResponse(payment, tenant, List.of(receipt));
@@ -189,6 +196,7 @@ public class BillingService {
     @Transactional
     public PaymentResponse recordUpgrade(RecordUpgradeRequest req, String actorUserId) {
         Tenant tenant = findTenantForUpdate(req.getTenantId());
+        Map<String, Object> before = tenantBillingState(tenant);
         PlanLimits newPlan = findActivePlan(req.getNewPlan());
 
         UpgradePreviewResponse preview = previewUpgrade(req.getTenantId(), req.getNewPlan());
@@ -260,6 +268,8 @@ public class BillingService {
         syncLimitsFromPlan(req.getTenantId(), newPlan);
 
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
+        auditBilling(payment, "UPGRADE_RECORDED", actorUserId, before,
+                tenantBillingState(tenant), req.getNotes(), req.getIdempotencyKey());
         log.info("Recorded UPGRADE {} → {} for tenant {} — receipt {}",
                 oldPlan.getPlan(), newPlan.getPlan(), req.getTenantId(), receipt.getReceiptNumber());
 
@@ -373,6 +383,13 @@ public class BillingService {
         refundReceipt.setAmountPaise(req.getRefundAmountPaise());
 
         List<PlanReceipt> receipts = receiptRepo.findByPaymentId(paymentId);
+        auditBilling(payment, "REFUND_RECORDED", actorUserId,
+                Map.of("status", "COMPLETED", "refundedAmountPaise", 0L),
+                Map.of("status", payment.getStatus(),
+                        "refundedAmountPaise", req.getRefundAmountPaise(),
+                        "refundMethod", refundMethod,
+                        "refundDate", req.getRefundDate()),
+                req.getRefundReason().trim(), refundKey);
         log.info("Recorded REFUND for payment {} — receipt {}", paymentId, refundReceipt.getReceiptNumber());
 
         return toResponse(payment, tenant, receipts);
@@ -558,6 +575,22 @@ public class BillingService {
         limits.setPlanCode(plan.getPlan());
         limits.setNotes(null);
         customLimitsRepo.save(limits);
+    }
+
+    private void auditBilling(PlanPayment payment, String action, String actorUserId,
+                              Object before, Object after, String reason,
+                              String idempotencyKey) {
+        auditClient.log("PLAN_PAYMENT", payment.getId(), action,
+                actorUserId, "SUPER_ADMIN", before, after, payment.getTenantId(),
+                "HUB", "SUCCESS", reason, payment.getId(), idempotencyKey);
+    }
+
+    private static Map<String, Object> tenantBillingState(Tenant tenant) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("plan", tenant.getPlan());
+        state.put("planExpiresAt", tenant.getPlanExpiresAt());
+        state.put("creditBalanceInr", tenant.getCreditBalanceInr());
+        return state;
     }
 
     private PaymentResponse toResponse(PlanPayment p, Tenant tenant, List<PlanReceipt> receipts) {

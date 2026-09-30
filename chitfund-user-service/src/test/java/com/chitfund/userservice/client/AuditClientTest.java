@@ -76,4 +76,25 @@ class AuditClientTest {
                 org.mockito.ArgumentMatchers.eq(SqsQueues.AUDIT_EVENTS));
         assertThat(payload.getValue()).contains(ownerId.toString(), "PLAN_CHANGED");
     }
+
+    @Test
+    void preservesCorrelationAndIdempotencyContextInDurableEvent() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        client.log("PLAN_PAYMENT", "payment-1", "REFUND_RECORDED", "owner-1",
+                "SUPER_ADMIN", Map.of("status", "COMPLETED"),
+                Map.of("status", "REFUNDED"), "tenant-1", "HUB", "SUCCESS",
+                "Approved correction", "payment-1", "refund-key-1");
+
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(outbox).enqueue(anyString(), org.mockito.ArgumentMatchers.eq("tenant-1"),
+                org.mockito.ArgumentMatchers.eq("PLAN_PAYMENT"),
+                org.mockito.ArgumentMatchers.eq("payment-1"), payload.capture(),
+                org.mockito.ArgumentMatchers.eq(SqsQueues.AUDIT_EVENTS));
+        assertThat(payload.getValue()).contains(
+                "\"correlationId\":\"payment-1\"",
+                "\"idempotencyKey\":\"refund-key-1\"",
+                "\"source\":\"HUB\"",
+                "Approved correction");
+    }
 }

@@ -1,6 +1,7 @@
 package com.chitfund.userservice.service;
 
 import com.chitfund.common.exception.BusinessException;
+import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.domain.entity.PlanPayment;
 import com.chitfund.userservice.domain.entity.PlanReceipt;
 import com.chitfund.userservice.domain.entity.ReceiptNumberSeq;
@@ -32,6 +33,7 @@ class BillingRefundIdempotencyTest {
     @Mock PlanLimitsRepository planRepo;
     @Mock UserRepository userRepo;
     @Mock TenantCustomLimitsRepository customLimitsRepo;
+    @Mock AuditClient auditClient;
     @InjectMocks BillingService billingService;
 
     @Test
@@ -47,6 +49,12 @@ class BillingRefundIdempotencyTest {
         assertThat(replay.getRefundAmountPaise()).isEqualTo(4_000L);
         verify(seqRepo, times(1)).save(any());
         verify(receiptRepo, times(1)).save(any());
+        verify(auditClient, times(1)).log(
+                eq("PLAN_PAYMENT"), eq(fixture.payment.getId()), eq("REFUND_RECORDED"),
+                eq(fixture.actorId), eq("SUPER_ADMIN"), any(), any(),
+                eq(fixture.payment.getTenantId()), eq("HUB"), eq("SUCCESS"),
+                eq("Customer approved correction"), eq(fixture.payment.getId()),
+                eq("refund-key"));
     }
 
     @Test

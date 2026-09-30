@@ -1,6 +1,7 @@
 package com.chitfund.userservice.service;
 
 import com.chitfund.userservice.domain.entity.*;
+import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.dto.request.RecordPaymentRequest;
 import com.chitfund.userservice.repository.*;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ class BillingEffectiveLimitsTest {
     @Mock PlanLimitsRepository planRepo;
     @Mock UserRepository userRepo;
     @Mock TenantCustomLimitsRepository customLimitsRepo;
+    @Mock AuditClient auditClient;
     @InjectMocks BillingService billingService;
 
     @Test
@@ -109,6 +111,16 @@ class BillingEffectiveLimitsTest {
         verify(paymentRepo, times(1)).save(any());
         verify(tenantRepo, times(1)).save(tenant);
         verify(seqRepo, times(1)).save(any());
+        verify(auditClient, times(1)).log(
+                org.mockito.ArgumentMatchers.eq("PLAN_PAYMENT"), any(),
+                org.mockito.ArgumentMatchers.eq("PURCHASE_RECORDED"),
+                org.mockito.ArgumentMatchers.eq(actorId),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"), any(), any(),
+                org.mockito.ArgumentMatchers.eq(tenantId.toString()),
+                org.mockito.ArgumentMatchers.eq("HUB"),
+                org.mockito.ArgumentMatchers.eq("SUCCESS"),
+                org.mockito.ArgumentMatchers.isNull(), any(),
+                org.mockito.ArgumentMatchers.eq("same-key"));
     }
 
     @Test
