@@ -2979,8 +2979,6 @@ function DrawsTab({ chitId, chit }) {
     onError: (err) => toast.error(err.response?.data?.message ?? 'Failed to close draw'),
   });
 
-  const isLotteryChit = chit?.chitType === 'LOTTERY';
-
   const deleteMutation = useMutation({
     mutationFn: ({ cycleId }) => deleteDraw(cycleId),
     onSuccess: () => {
