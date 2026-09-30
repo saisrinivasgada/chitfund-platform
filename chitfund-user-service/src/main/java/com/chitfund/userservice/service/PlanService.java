@@ -74,22 +74,34 @@ public class PlanService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Organization has no subscription plan assigned");
         }
-        PlanLimits limits = planRepo.findById(tenant.getPlan().toUpperCase())
-                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
-                        "Organization subscription plan is invalid"));
+        String planCode = tenant.getPlan().toUpperCase(Locale.ROOT);
+        int maxStaff;
+        String displayName;
+        if ("CUSTOM".equals(planCode)) {
+            var custom = customLimitsRepo.findById(tenantId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                            "Organization custom plan limits are missing"));
+            maxStaff = custom.getMaxStaff();
+            displayName = "Custom";
+        } else {
+            PlanLimits limits = planRepo.findById(planCode)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                            "Organization subscription plan is invalid"));
+            maxStaff = limits.getMaxStaff();
+            displayName = limits.getDisplayName();
+        }
 
-        int maxStaff = limits.getMaxStaff();
         if (maxStaff == -1) return; // unlimited
         if (maxStaff == 0) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
-                    "Your " + limits.getDisplayName() + " plan does not include manager or staff accounts. "
+                    "Your " + displayName + " plan does not include manager or staff accounts. "
                     + "Upgrade to Growth or higher to add team members.");
         }
 
         long currentCount = userRepository.countByTenantIdAndRoleInAndDeletedAtIsNullAndEnabledTrue(tenantId, STAFF_ROLES);
         if (currentCount >= maxStaff) {
             throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
-                    "Your " + limits.getDisplayName() + " plan allows a maximum of " + maxStaff
+                    "Your " + displayName + " plan allows a maximum of " + maxStaff
                     + " staff account" + (maxStaff == 1 ? "" : "s") + " (managers + staff). "
                     + "Contact ChitWise support to upgrade your plan.");
         }
