@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 import java.time.Instant;
 
@@ -63,14 +64,21 @@ public class HubRoleService {
         if (roleRepository.existsByNameIgnoreCaseAndIdNot(req.getName().trim(), id)) {
             throw new IllegalStateException("A role with this name already exists");
         }
+        String requestedDescription = req.getDescription() != null
+                ? req.getDescription().trim() : null;
+        Set<String> requestedPermissions = req.getPermissions() != null
+                ? req.getPermissions() : Set.of();
+        if (role.getName().equals(req.getName().trim())
+                && Objects.equals(role.getDescription(), requestedDescription)
+                && Set.copyOf(role.getPermissions()).equals(Set.copyOf(requestedPermissions))) {
+            return toResponse(role);
+        }
         String previousName = role.getName();
         Set<String> previousPermissions = Set.copyOf(role.getPermissions());
         role.setName(req.getName().trim());
-        role.setDescription(req.getDescription() != null ? req.getDescription().trim() : null);
+        role.setDescription(requestedDescription);
         role.getPermissions().clear();
-        if (req.getPermissions() != null) {
-            role.getPermissions().addAll(req.getPermissions());
-        }
+        role.getPermissions().addAll(requestedPermissions);
         HubRoleResponse response = toResponse(roleRepository.save(role));
         // A role edit may remove platform-console or ticket access. Invalidate
         // every assigned employee's existing access and refresh credentials.

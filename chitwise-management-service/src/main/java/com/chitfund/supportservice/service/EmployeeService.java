@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -176,6 +177,12 @@ public class EmployeeService {
         // Re-fetch to get DB-generated employeeNumber
         employee = employeeRepository.findById(employee.getId()).orElse(employee);
 
+        auditClient.logEntity("HUB_AUTH", employee.getId(), "INVITATION_ACCEPTED",
+                employee.getId(), employee.getRole(),
+                java.util.Map.of("invitePending", true),
+                java.util.Map.of("invitePending", false, "active", true),
+                null, PLATFORM_AUDIT_TENANT, null);
+
         return toLoginResponse(employee);
     }
 
@@ -192,6 +199,12 @@ public class EmployeeService {
         }
 
         validatePassword(req.getTemporaryPassword());
+        if (employee.isMustChangePassword()
+                && passwordEncoder.matches(req.getTemporaryPassword(), employee.getPasswordHash())) {
+            return toResponse(employee);
+        }
+        boolean previousMustChange = employee.isMustChangePassword();
+        long previousAuthVersion = employee.getAuthVersion();
         employee.setPasswordHash(passwordEncoder.encode(req.getTemporaryPassword()));
         employee.setMustChangePassword(true);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
@@ -199,8 +212,8 @@ public class EmployeeService {
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         auditClient.logEntity("HUB_EMPLOYEE", employeeId, "PASSWORD_RESET",
                 actorId, "SUPER_ADMIN",
-                java.util.Map.of("mustChangePassword", false,
-                        "authVersion", employee.getAuthVersion() - 1),
+                java.util.Map.of("mustChangePassword", previousMustChange,
+                        "authVersion", previousAuthVersion),
                 java.util.Map.of("mustChangePassword", true,
                         "authVersion", employee.getAuthVersion()),
                 java.util.Map.of("sessionsRevoked", true), PLATFORM_AUDIT_TENANT, null);
@@ -223,11 +236,19 @@ public class EmployeeService {
             throw new IllegalArgumentException("New password must be different from the current password");
         }
 
+        boolean previousMustChange = employee.isMustChangePassword();
         employee.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
         employee.setMustChangePassword(false);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         employeeRepository.save(employee);
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        auditClient.logEntity("HUB_AUTH", employeeId, "PASSWORD_CHANGED",
+                employeeId, employee.getRole(),
+                java.util.Map.of("mustChangePassword", previousMustChange),
+                java.util.Map.of("mustChangePassword", false),
+                java.util.Map.of("sessionsRevoked", true,
+                        "authVersion", employee.getAuthVersion()),
+                PLATFORM_AUDIT_TENANT, null);
         log.info("Hub employee changed password for employeeId=[{}]", employeeId);
         return toLoginResponse(employee);
     }
@@ -238,6 +259,9 @@ public class EmployeeService {
             throw new IllegalArgumentException("You cannot change your own Hub role");
         }
         Employee employee = getById(employeeId);
+        if (employee.getRole().equals(req.getRole())) {
+            return toResponse(employee);
+        }
         if ("SUPER_ADMIN".equals(employee.getRole()) && !"SUPER_ADMIN".equals(req.getRole())
                 && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
             throw new IllegalStateException("At least one active Super Admin is required");
@@ -263,6 +287,9 @@ public class EmployeeService {
         }
         Employee employee = getById(employeeId);
         boolean previousActive = employee.isActive();
+        if (previousActive == active) {
+            return toResponse(employee);
+        }
         if (!active && "SUPER_ADMIN".equals(employee.getRole())
                 && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
             throw new IllegalStateException("At least one active Super Admin is required");
@@ -291,6 +318,9 @@ public class EmployeeService {
         }
         Employee employee = getById(employeeId);
         boolean previousAccess = employee.isCanManageIdentityCases();
+        if (previousAccess == request.isCanManageIdentityCases()) {
+            return toResponse(employee);
+        }
         employee.setCanManageIdentityCases(request.isCanManageIdentityCases());
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
@@ -319,13 +349,25 @@ public class EmployeeService {
         }
         // Rotate on every use so a stolen old refresh token cannot be replayed.
         session.setRevokedAt(Instant.now());
+        auditClient.logEntity("HUB_AUTH", employee.getId(), "SESSION_REFRESHED",
+                employee.getId(), employee.getRole(), null,
+                java.util.Map.of("rotated", true), null,
+                PLATFORM_AUDIT_TENANT, null);
         return toLoginResponse(employee);
     }
 
     @Transactional
     public void logout(String rawToken) {
         refreshSessionRepository.findByTokenHashForUpdate(sha256Hex(rawToken))
-                .ifPresent(session -> session.setRevokedAt(Instant.now()));
+                .ifPresent(session -> {
+                    if (session.getRevokedAt() != null) return;
+                    session.setRevokedAt(Instant.now());
+                    Employee employee = getById(session.getEmployeeId());
+                    auditClient.logEntity("HUB_AUTH", employee.getId(), "LOGGED_OUT",
+                            employee.getId(), employee.getRole(), null,
+                            java.util.Map.of("sessionRevoked", true), null,
+                            PLATFORM_AUDIT_TENANT, null);
+                });
     }
 
     private String formatCardId(Employee e) {
@@ -445,6 +487,9 @@ public class EmployeeService {
             }
             employee.setEmail(req.getEmail().trim());
         }
+        if (!nameChanged && !emailChanged) {
+            return toResponse(employee);
+        }
         Employee saved = employeeRepository.save(employee);
         auditClient.logEntity("HUB_EMPLOYEE", employeeId, "PROFILE_UPDATED",
                 employeeId, saved.getRole(), null,
@@ -461,6 +506,9 @@ public class EmployeeService {
         }
         Employee employee = getById(employeeId);
         String previousCustomRoleId = employee.getCustomRoleId();
+        if (Objects.equals(previousCustomRoleId, customRoleId)) {
+            return toResponse(employee);
+        }
         if (customRoleId != null && !roleRepository.existsById(customRoleId)) {
             throw new IllegalArgumentException("Custom role not found");
         }

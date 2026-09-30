@@ -22,6 +22,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -60,5 +61,23 @@ class HubRoleServiceTest {
                 org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
                 any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
                 org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void repeatingIdenticalRoleUpdateDoesNotRevokeSessionsOrDuplicateAudit() {
+        HubCustomRole role = HubCustomRole.builder().id("role-1").name("Payments")
+                .permissions(new HashSet<>(Set.of("TICKET_VIEW_PAYMENT"))).build();
+        CreateRoleRequest request = new CreateRoleRequest();
+        request.setName("Payments");
+        request.setPermissions(Set.of("TICKET_VIEW_PAYMENT"));
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(role));
+
+        service.update("role-1", request, "owner-1");
+
+        verify(roleRepository, never()).save(any());
+        verify(employeeRepository, never()).findByCustomRoleId(any());
+        verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
     }
 }

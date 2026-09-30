@@ -316,6 +316,42 @@ class EmployeeServiceTest {
                 org.mockito.ArgumentMatchers.isNull());
     }
 
+    @Test
+    void repeatingSameRoleChangeIsANoOpWithoutDuplicateAudit() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPPORT_AGENT");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+
+        var response = service().updateRole(employee.getId(), "owner-1", request);
+
+        assertThat(response.getRole()).isEqualTo("SUPPORT_AGENT");
+        assertThat(employee.getAuthVersion()).isZero();
+        verify(repository, never()).save(employee);
+        verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void repeatingSameTemporaryPasswordResetIsANoOp() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        employee.setMustChangePassword(true);
+        ResetEmployeePasswordRequest request = new ResetEmployeePasswordRequest();
+        request.setTemporaryPassword("TempPass@9");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(passwordEncoder.matches("TempPass@9", "old-hash")).thenReturn(true);
+
+        service().resetPassword(employee.getId(), "owner-1", request);
+
+        assertThat(employee.getAuthVersion()).isZero();
+        verify(passwordEncoder, never()).encode(any());
+        verify(repository, never()).save(employee);
+        verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
+    }
+
     private com.chitfund.supportservice.dto.response.EmployeeLoginResponse invokeLoginResponse(Employee employee) {
         EmployeeLoginRequest request = new EmployeeLoginRequest();
         request.setUsername(employee.getUsername());
