@@ -2330,7 +2330,7 @@ function AuditEvent({ icon, label, ts, empty }) {
 export default function MemberDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, settlementEnabled } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN';
   const isManager = currentUser?.role === 'MANAGER';
   const { hidden } = useHiddenAmounts();
@@ -2814,8 +2814,8 @@ export default function MemberDetailPage() {
       {/* ── Tab: Payments ─────────────────────────────────────────────── */}
       {activeTab === 'Payments' && (
         <div className="space-y-6 pt-2">
-          <PendingSettlementCard memberId={id} />
-          <SettlementHistorySection memberId={id} />
+          {settlementEnabled && <PendingSettlementCard memberId={id} />}
+          {settlementEnabled && <SettlementHistorySection memberId={id} />}
           <PaymentHistorySection memberId={id} />
         </div>
       )}

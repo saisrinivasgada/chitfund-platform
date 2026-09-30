@@ -6,6 +6,8 @@ import com.chitfund.userservice.domain.entity.RefreshToken;
 import com.chitfund.userservice.domain.enums.Role;
 import com.chitfund.userservice.dto.request.LoginRequest;
 import com.chitfund.userservice.dto.request.RegisterRequest;
+import com.chitfund.userservice.dto.request.SelectTenantRequest;
+import com.chitfund.userservice.dto.response.TenantInfo;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.userservice.mapper.UserMapper;
 import com.chitfund.userservice.repository.AccountSetupTokenRepository;
@@ -192,6 +194,59 @@ class AuthServiceTest {
         assertThat(result.getLoginToken()).isEqualTo("tenant-token");
         verify(accountEmailOtpService).verify(userId.toString(), user.getEmail(),
                 "LOGIN_EMAIL_VERIFY", "123456");
+    }
+
+    @Test
+    void tenantSelectionRevalidatesStatusAndCapabilitiesBeforeIssuingScopedToken() {
+        UUID userId = UUID.randomUUID();
+        String tenantId = UUID.randomUUID().toString();
+        User user = User.builder().id(userId).username("admin.one").role(Role.ADMIN).build();
+        TenantInfo stale = TenantInfo.builder()
+                .tenantId(tenantId).status("ACTIVE").plan("GROWTH")
+                .analyticsEnabled(true).chatEnabled(true).settlementEnabled(true).build();
+        TenantInfo fresh = TenantInfo.builder()
+                .tenantId(tenantId).status("SUSPENDED").plan("BASIC")
+                .analyticsEnabled(false).chatEnabled(false).settlementEnabled(false).build();
+        SelectTenantRequest request = new SelectTenantRequest();
+        request.setLoginToken("pre-scope-token");
+        request.setTenantId(tenantId);
+
+        when(jwtTokenProvider.validateToken("pre-scope-token")).thenReturn(true);
+        when(jwtTokenProvider.extractScope("pre-scope-token")).thenReturn("TENANT_SELECT");
+        when(jwtTokenProvider.extractUserId("pre-scope-token")).thenReturn(userId.toString());
+        when(jwtTokenProvider.extractTenants("pre-scope-token")).thenReturn(List.of(stale));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(tenantService.buildTenantInfoList(userId)).thenReturn(List.of(fresh));
+        when(jwtTokenProvider.generateScopedToken(user, tenantId, null, "BASIC",
+                "SUSPENDED", null, null)).thenReturn("fresh-scoped-token");
+        when(jwtTokenProvider.generateRefreshTokenValue()).thenReturn("fresh-refresh-token");
+
+        var response = authService.selectTenant(request);
+
+        assertThat(response.getAccessToken()).isEqualTo("fresh-scoped-token");
+        assertThat(response.getTenant()).isSameAs(fresh);
+        verify(jwtTokenProvider).generateScopedToken(user, tenantId, null, "BASIC",
+                "SUSPENDED", null, null);
+    }
+
+    @Test
+    void refreshRejectsSessionWhenTenantMembershipWasRemoved() {
+        UUID userId = UUID.randomUUID();
+        String tenantId = UUID.randomUUID().toString();
+        User user = User.builder().id(userId).username("removed.member").role(Role.MEMBER).build();
+        RefreshToken token = RefreshToken.builder().user(user).token("stored-hash")
+                .tenantId(tenantId).expiresAt(LocalDateTime.now().plusDays(1)).revoked(false).build();
+        when(refreshTokenRepository.findByToken(AuthService.sha256Value("removed-membership-token")))
+                .thenReturn(Optional.of(token));
+        when(tenantService.buildTenantInfoList(userId)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> authService.refreshByToken("removed-membership-token"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("You are no longer a member of this organization");
+
+        assertThat(token.isRevoked()).isTrue();
+        verify(refreshTokenRepository).save(token);
+        verify(jwtTokenProvider, never()).generateRefreshTokenValue();
     }
 
     @Test

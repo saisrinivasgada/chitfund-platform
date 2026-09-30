@@ -21,6 +21,7 @@ import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
 import { toast } from '../../../components/Toast';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useUIStore } from '../../../store/uiStore';
+import { useAuthStore } from '../../../store/authStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
@@ -79,6 +80,7 @@ function MemberCreditBadge({ memberId }: { memberId: string }) {
 
 export default function AdminMembersScreen() {
   const { isExpired } = useUIStore();
+  const settlementEnabled = useAuthStore((state) => state.user?.settlementEnabled === true);
   const qc = useQueryClient();
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string; openAdd?: string }>();
@@ -444,7 +446,7 @@ export default function AdminMembersScreen() {
   const { data: memberSettlementsPage } = useQuery({
     queryKey: ['m-member-settlements', selected?.id],
     queryFn: () => getMemberSettlements(selected!.id),
-    enabled: !!selected?.id && showDetail,
+    enabled: settlementEnabled && !!selected?.id && showDetail,
     staleTime: 60_000,
   });
 
@@ -1639,11 +1641,13 @@ export default function AdminMembersScreen() {
 
                 {/* Settle + Delete — bottom of detail */}
                 <View style={{ marginTop: 24, gap: 10, paddingBottom: 8 }}>
-                  <Button label="Settle Account" variant="outline" fullWidth
-                    onPress={() => {
-                      setShowDetail(false);
-                      setTimeout(() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'settlement', memberId: selected.id } }), 300);
-                    }} />
+                  {settlementEnabled && (
+                    <Button label="Settle Account" variant="outline" fullWidth
+                      onPress={() => {
+                        setShowDetail(false);
+                        setTimeout(() => router.push({ pathname: '/(app)/(admin)/payments', params: { tab: 'settlement', memberId: selected.id } }), 300);
+                      }} />
+                  )}
                   {selected.status !== 'DELETED' && (
                     <Button label="Delete Member" variant="danger" fullWidth
                       loading={deleteMutation.isPending}

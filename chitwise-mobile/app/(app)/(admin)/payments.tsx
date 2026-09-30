@@ -28,8 +28,8 @@ import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
-const TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
-type Tab = typeof TABS[number];
+const ALL_TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
+type Tab = typeof ALL_TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status config for cash pickups
@@ -3925,12 +3925,17 @@ function HistoryTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AdminPaymentsScreen() {
   const params = useLocalSearchParams<{ tab?: string; filter?: string; memberId?: string }>();
+  const settlementEnabled = useAuthStore((state) => state.user?.settlementEnabled === true);
+  const tabs: readonly Tab[] = settlementEnabled
+    ? ALL_TABS
+    : ALL_TABS.filter((tab) => tab !== 'Settlement');
   const [activeTab, setActiveTab] = useState<Tab>('Cash Requests');
 
   useEffect(() => {
     const t = params.tab === 'settlement' ? 'Settlement' : params.tab as Tab;
-    if (t && TABS.includes(t)) setActiveTab(t);
-  }, [params.tab]);
+    if (t && tabs.includes(t)) setActiveTab(t);
+    else if (activeTab === 'Settlement' && !settlementEnabled) setActiveTab('Cash Requests');
+  }, [params.tab, settlementEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -3947,7 +3952,7 @@ export default function AdminPaymentsScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: C.gray200 }}
         contentContainerStyle={{ paddingHorizontal: 16 }}>
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <TouchableOpacity key={tab} onPress={() => setActiveTab(tab)}
             style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: activeTab === tab ? C.navy : 'transparent', marginRight: 4 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: activeTab === tab ? C.navy : C.gray400 }}>
@@ -3965,7 +3970,7 @@ export default function AdminPaymentsScreen() {
         {activeTab === 'History'        && <HistoryTab />}
         {activeTab === 'Payouts'        && <PayoutsTab />}
         {activeTab === 'Treasury'       && <TreasuryTab />}
-        {activeTab === 'Settlement'     && <SettlementTab initialMemberId={params.memberId} />}
+        {activeTab === 'Settlement' && settlementEnabled && <SettlementTab initialMemberId={params.memberId} />}
       </View>
     </SafeAreaView>
   );

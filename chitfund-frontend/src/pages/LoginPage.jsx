@@ -561,6 +561,7 @@ export default function LoginPage() {
   }
 
   async function handleScopedAuth(authResponse, tenantInfo = null) {
+    tenantInfo = authResponse?.tenant ?? tenantInfo;
     const accessToken = authResponse?.accessToken ?? authResponse?.token;
     const role = authResponse?.user?.role ?? 'ADMIN';
     const mustChangePassword = authResponse?.user?.mustChangePassword ?? false;
@@ -575,9 +576,9 @@ export default function LoginPage() {
           tenantName:    tenantInfo.name,
           tenantPlan:    tenantInfo.plan ?? 'BASIC',
           tenantStatus:  tenantInfo.status ?? 'ACTIVE',
-          analyticsEnabled: tenantInfo.analyticsEnabled !== false,
+          analyticsEnabled: tenantInfo.analyticsEnabled === true,
           chatEnabled: tenantInfo.chatEnabled === true,
-          settlementEnabled: tenantInfo.settlementEnabled !== false,
+          settlementEnabled: tenantInfo.settlementEnabled === true,
           adminPhone: tenantInfo.adminPhone ?? null,
           adminEmail: tenantInfo.adminEmail ?? null,
           planExpiresAt: tenantInfo.planExpiresAt ?? null,

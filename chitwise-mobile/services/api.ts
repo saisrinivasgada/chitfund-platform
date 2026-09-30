@@ -95,11 +95,24 @@ api.interceptors.response.use(
         const refreshToken = await SecureStore.getItemAsync('chitwise_refresh_token');
         if (!refreshToken) throw new Error('no_refresh');
         const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-        const { accessToken, refreshToken: newRefresh } = resp.data?.data ?? resp.data;
+        const authData = resp.data?.data ?? resp.data;
+        const { accessToken, refreshToken: newRefresh } = authData;
         await SecureStore.setItemAsync('chitwise_token', accessToken);
         if (newRefresh) await SecureStore.setItemAsync('chitwise_refresh_token', newRefresh);
         const { user } = useAuthStore.getState();
-        if (user) await useAuthStore.getState().updateTokenForAccount(accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION'), accessToken, newRefresh);
+        if (user) {
+          const refreshed = parseAuthResponse(authData);
+          await useAuthStore.getState().setUser({
+            ...user,
+            token: accessToken,
+            refreshToken: newRefresh ?? user.refreshToken,
+            tenantId: refreshed.tenantId ?? user.tenantId,
+            tenantName: refreshed.tenantName ?? user.tenantName,
+            analyticsEnabled: refreshed.analyticsEnabled,
+            chatEnabled: refreshed.chatEnabled,
+            settlementEnabled: refreshed.settlementEnabled,
+          });
+        }
         processQueue(null, accessToken);
         original.headers.Authorization = `Bearer ${accessToken}`;
         return api(original);
@@ -133,6 +146,7 @@ function unwrapObj(res: any): any {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export interface TenantOption {
   tenantId: string; name: string; slug: string; plan: string; role: string; status?: string;
+  analyticsEnabled?: boolean; chatEnabled?: boolean; settlementEnabled?: boolean;
 }
 export interface LoginResponse {
   token: string;
@@ -145,6 +159,10 @@ export interface LoginResponse {
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
   tenantId?: string;
+  tenantName?: string;
+  analyticsEnabled?: boolean;
+  chatEnabled?: boolean;
+  settlementEnabled?: boolean;
   // set when requiresTenantSelection = true
   requiresTenantSelection?: boolean;
   loginToken?: string;
@@ -274,6 +292,10 @@ function parseAuthResponse(auth: any): LoginResponse {
     role: auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
     tenantId,
+    tenantName: auth.tenant?.name,
+    analyticsEnabled: auth.tenant?.analyticsEnabled === true,
+    chatEnabled: auth.tenant?.chatEnabled === true,
+    settlementEnabled: auth.tenant?.settlementEnabled === true,
   };
 }
 

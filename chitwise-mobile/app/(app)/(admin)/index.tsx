@@ -100,7 +100,12 @@ export default function AdminDashboard() {
   const { data: todayDrawsRaw   = [], refetch: refetchDraws    } = useQuery({ queryKey: ['m-today-draws'],   queryFn: getTodaysDraws,          staleTime: 60_000 });
   const { data: todayPayoutsRaw = [], refetch: refetchPayouts  } = useQuery({ queryKey: ['m-today-payouts'], queryFn: getTodaysPayouts,        staleTime: 60_000 });
   const { data: cashSummary,          refetch: refetchSummary  } = useQuery({ queryKey: ['m-cash-summary'],  queryFn: getCashRequestSummary,   staleTime: 60_000 });
-  const { data: pendingSettlementsPage, refetch: refetchSettlements } = useQuery({ queryKey: ['m-dash-pending-settlements'], queryFn: () => getPendingSettlements(0, 5), staleTime: 120_000 });
+  const { data: pendingSettlementsPage, refetch: refetchSettlements } = useQuery({
+    queryKey: ['m-dash-pending-settlements'],
+    queryFn: () => getPendingSettlements(0, 5),
+    staleTime: 120_000,
+    enabled: user?.settlementEnabled === true,
+  });
   const pendingSettlements = (pendingSettlementsPage as any)?.content ?? [];
   const pendingSettlementCount = (pendingSettlementsPage as any)?.totalElements ?? 0;
 

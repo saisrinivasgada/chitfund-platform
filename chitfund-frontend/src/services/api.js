@@ -34,7 +34,7 @@ function _flushRefreshQueue(error, token = null) {
 
 function _evictSession() {
   clearAuthToken();
-  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','adminPhone','adminEmail']
+  ['user','tenantId','tenantSlug','tenantName','tenantPlan','tenantStatus','planExpiresAt','analyticsEnabled','chatEnabled','settlementEnabled','adminPhone','adminEmail']
     .forEach((k) => { localStorage.removeItem(k); sessionStorage.removeItem(k); });
   sessionStorage.removeItem('token');
   window.location.href = '/session-expired';
@@ -89,8 +89,11 @@ api.interceptors.response.use(
 
         const newToken = json.data.accessToken;
         setAuthToken(newToken);
-        // Let AuthContext update its in-memory token state (for isAuthenticated / idle-timer reset).
-        window.dispatchEvent(new CustomEvent('auth:token-refreshed', { detail: { token: newToken } }));
+        // Let AuthContext refresh both the token and current server-side tenant
+        // entitlements. Plan changes must not wait for the next full login.
+        window.dispatchEvent(new CustomEvent('auth:token-refreshed', {
+          detail: { token: newToken, auth: json.data },
+        }));
         _flushRefreshQueue(null, newToken);
 
         originalRequest.headers.Authorization = `Bearer ${newToken}`;

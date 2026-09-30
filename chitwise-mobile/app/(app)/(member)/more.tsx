@@ -27,7 +27,7 @@ export default function MemberMoreScreen() {
     refetchInterval: 60_000,
   });
 
-  const chatEnabled = user?.chatEnabled !== false;
+  const chatEnabled = user?.chatEnabled === true;
   const { data: chitfundRequests = [] } = useQuery({
     queryKey: ['m-chitfund-requests'], queryFn: getMyChitfundRequests, refetchInterval: 60_000,
   });

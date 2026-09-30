@@ -165,8 +165,19 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         rejectLegacySuperAdminLogin(user);
 
-        List<TenantInfo> tenants = jwtTokenProvider.extractTenants(request.getLoginToken());
-        TenantInfo selected = tenants.stream()
+        List<TenantInfo> authorizedAtLogin = jwtTokenProvider.extractTenants(request.getLoginToken());
+        boolean wasAuthorized = authorizedAtLogin.stream()
+                .anyMatch(t -> t.getTenantId().equals(request.getTenantId()));
+        if (!wasAuthorized) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "You are not a member of this organization");
+        }
+
+        // Re-read the tenant membership, status, plan and capabilities. The
+        // pre-scope token is valid for five minutes; trusting its embedded
+        // snapshot would let a recently suspended/downgraded tenant mint a
+        // stale ACTIVE token or retain removed capabilities.
+        TenantInfo selected = tenantService.buildTenantInfoList(user.getId()).stream()
                 .filter(t -> t.getTenantId().equals(request.getTenantId()))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN,
@@ -439,7 +450,11 @@ public class AuthService {
                     .filter(t -> tenantId.equals(t.getTenantId()))
                     .findFirst()
                     .map(tenant -> buildScopedAuthResponse(user, tenant))
-                    .orElseGet(() -> buildAuthResponse(user, null));
+                    // A removed membership must terminate the scoped session.
+                    // Falling back to an unscoped role token would turn a
+                    // tenant revocation into a different authenticated session.
+                    .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN,
+                            "You are no longer a member of this organization"));
         }
         if (user.getRole() != null && user.getRole().name().equals("SUPER_ADMIN")) {
             return buildSuperAdminAuthResponse(user);
@@ -831,6 +846,7 @@ public class AuthService {
                 .tokenType("Bearer")
                 .expiresIn(accessTokenExpiryMs / 1000)
                 .user(userMapper.toResponse(user))
+                .tenant(tenant)
                 .build();
     }
 

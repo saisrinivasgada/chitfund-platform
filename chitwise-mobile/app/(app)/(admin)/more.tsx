@@ -30,7 +30,8 @@ export default function MoreScreen() {
     refetchInterval: 60_000,
   });
 
-  const chatEnabled = user?.chatEnabled !== false;
+  const chatEnabled = user?.chatEnabled === true;
+  const analyticsEnabled = user?.analyticsEnabled === true;
 
   const items: NavItem[] = [
     ...(chatEnabled ? [{
@@ -49,13 +50,13 @@ export default function MoreScreen() {
       badge: activityBadge > 0 ? activityBadge : undefined,
       accent: C.navy,
     },
-    {
+    ...(analyticsEnabled ? [{
       emoji: '📊',
       label: 'Reports',
       description: 'Member & payment reports',
       route: '/(app)/(admin)/reports',
       accent: C.navy,
-    },
+    }] : []),
     {
       emoji: '📝',
       label: 'Team Notes',
