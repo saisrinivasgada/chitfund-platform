@@ -200,7 +200,11 @@ export default function HubTicketDetailPage() {
   };
 
   const currentStatus = ticket?.status;
-  const nextStatuses = VALID_TRANSITIONS[currentStatus] ?? [];
+  const canReopen = hubUser.role === 'SUPER_ADMIN' || hubUser.customPermissions?.includes('TICKET_REOPEN');
+  const nextStatuses = [...(VALID_TRANSITIONS[currentStatus] ?? [])];
+  if (canReopen && ['RESOLVED', 'CLOSED'].includes(currentStatus) && !nextStatuses.includes('IN_PROGRESS')) {
+    nextStatuses.unshift('IN_PROGRESS');
+  }
 
   if (ticketLoading) {
     return (

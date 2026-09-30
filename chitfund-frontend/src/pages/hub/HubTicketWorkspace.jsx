@@ -292,7 +292,11 @@ function TicketDetail({ id, hubUser, now }) {
   if (isError || !ticket) return <div className="flex-1 flex items-center justify-center gap-2 text-red-500 text-sm"><AlertCircle size={16} /> Ticket not found</div>;
 
   const currentStatus = ticket.status;
-  const nextStatuses  = VALID_TRANSITIONS[currentStatus] ?? [];
+  const canReopen = hubUser.role === 'SUPER_ADMIN' || hubUser.customPermissions?.includes('TICKET_REOPEN');
+  const nextStatuses  = [...(VALID_TRANSITIONS[currentStatus] ?? [])];
+  if (canReopen && ['RESOLVED', 'CLOSED'].includes(currentStatus) && !nextStatuses.includes('IN_PROGRESS')) {
+    nextStatuses.unshift('IN_PROGRESS');
+  }
   const isPriority    = ticket.priority === 'HIGH' || ticket.priority === 'URGENT';
 
   return (

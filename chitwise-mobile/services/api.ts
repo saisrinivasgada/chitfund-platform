@@ -38,6 +38,7 @@ async function refreshHubSession() {
       refreshToken: data.refreshToken,
       role: data.role,
       mustChangePassword: data.mustChangePassword === true,
+      customPermissions: data.customPermissions ?? current.customPermissions,
     });
     return data;
   })().finally(() => { hubRefreshing = null; });
@@ -190,6 +191,7 @@ export interface HubLoginResponse {
   mustChangePassword: boolean;
   canManageIdentityCases: boolean;
   platformOwner: boolean;
+  customPermissions?: string[];
 }
 
 export const hubLogin = async (username: string, password: string): Promise<HubLoginResponse> => {

@@ -50,6 +50,11 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
     onError: (error: any) => Alert.alert('Status change', error.response?.data?.message ?? 'Could not change ticket status'),
   });
   const ticket: any = ticketQuery.data;
+  const canReopen = hubUser?.role === 'SUPER_ADMIN' || hubUser?.customPermissions?.includes('TICKET_REOPEN');
+  const nextStatuses = [...(VALID_TRANSITIONS[ticket?.status] ?? [])];
+  if (canReopen && ['RESOLVED', 'CLOSED'].includes(ticket?.status) && !nextStatuses.includes('IN_PROGRESS')) {
+    nextStatuses.unshift('IN_PROGRESS');
+  }
   const messages: any[] = (messagesQuery.data as any)?.items ?? [];
   const canReadCase = !!hubUser?.canManageIdentityCases || !!hubUser?.platformOwner;
   const identityQuery = useQuery({ queryKey: ['hub-mobile-identity-case', id], queryFn: () => hubGetIdentityCaseByTicket(id), enabled: ticket?.type === 'ACCOUNT' && canReadCase });
@@ -99,7 +104,7 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </View>}
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CHANGE STATUS</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-          {(VALID_TRANSITIONS[ticket?.status] ?? []).map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => setPendingStatus(s)} />)}
+          {nextStatuses.map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => setPendingStatus(s)} />)}
         </ScrollView>
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CONVERSATION</Text>
         {messagesQuery.isLoading ? <ActivityIndicator color={C.navy} /> : messages.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No replies yet</Text> : messages.slice().reverse().map((message: any) => {

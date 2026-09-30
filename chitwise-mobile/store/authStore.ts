@@ -31,6 +31,7 @@ export interface AuthUser {
   phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
+  customPermissions?: string[];
 }
 
 export interface StoredAccount {
@@ -52,6 +53,7 @@ export interface StoredAccount {
   phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
+  customPermissions?: string[];
   sessionValid: boolean;
   cachedInfo?: AccountCachedInfo;
   savedAt: number;
@@ -140,6 +142,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         phoneCountryCode: user.phoneCountryCode ?? (idx >= 0 ? existing[idx].phoneCountryCode : undefined),
         canManageIdentityCases: user.canManageIdentityCases,
         platformOwner: user.platformOwner,
+        customPermissions: user.customPermissions,
         sessionValid: true,
         cachedInfo: idx >= 0 ? existing[idx].cachedInfo : undefined,
         savedAt: Date.now(),
@@ -255,6 +258,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       phoneCountryCode: target.phoneCountryCode,
       canManageIdentityCases: target.canManageIdentityCases,
       platformOwner: target.platformOwner,
+      customPermissions: target.customPermissions,
     };
     await SecureStore.setItemAsync(TOKEN_KEY, target.token);
     if (target.refreshToken) {
