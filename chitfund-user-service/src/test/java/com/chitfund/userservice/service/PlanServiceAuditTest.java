@@ -4,8 +4,10 @@ import com.chitfund.common.exception.BusinessException;
 import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.domain.entity.PlanCapabilityDef;
 import com.chitfund.userservice.domain.entity.PlanLimits;
+import com.chitfund.userservice.domain.entity.TenantCustomLimits;
 import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
+import com.chitfund.userservice.dto.request.UpdatePlanRequest;
 import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
@@ -129,5 +131,36 @@ class PlanServiceAuditTest {
 
         verify(planRepo, never()).save(any());
         verifyNoInteractions(auditClient);
+    }
+
+    @Test
+    void standardPlanEditPropagatesToExistingTenantEffectiveLimits() {
+        PlanLimits growth = PlanLimits.builder()
+                .plan("GROWTH").displayName("Growth").isActive(true)
+                .maxActiveChits(5).maxMembers(100).maxStaff(3)
+                .capabilities("[\"live_chat\"]")
+                .allowedChitTypes("RESERVATION").priceMonthlyInr(39900).build();
+        TenantCustomLimits tenantLimits = TenantCustomLimits.builder()
+                .tenantId("tenant-1").planCode("GROWTH")
+                .maxActiveChits(5).maxMembers(100).maxStaff(3)
+                .capabilities("[\"live_chat\"]")
+                .allowedChitTypes("RESERVATION").priceMonthlyInr(39900).build();
+        UpdatePlanRequest request = new UpdatePlanRequest();
+        request.setMaxMembers(250);
+        request.setMaxStaff(8);
+        request.setAllowedChitTypes("reservation, auction");
+        when(planRepo.findById("GROWTH")).thenReturn(Optional.of(growth));
+        when(planRepo.save(growth)).thenReturn(growth);
+        when(customLimitsRepo.findAllByPlanCode("GROWTH")).thenReturn(List.of(tenantLimits));
+
+        service.updatePlan("growth", request, "owner-1");
+
+        assertThat(tenantLimits.getMaxMembers()).isEqualTo(250);
+        assertThat(tenantLimits.getMaxStaff()).isEqualTo(8);
+        assertThat(tenantLimits.getAllowedChitTypes()).isEqualTo("RESERVATION,AUCTION");
+        verify(customLimitsRepo).save(tenantLimits);
+        verify(auditClient).log(eq("TENANT"), eq("tenant-1"),
+                eq("PLAN_DEFAULTS_APPLIED"), eq("owner-1"), eq("SUPER_ADMIN"),
+                any(), any(), eq("tenant-1"), any(String.class));
     }
 }

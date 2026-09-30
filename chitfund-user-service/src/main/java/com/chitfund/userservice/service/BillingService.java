@@ -153,8 +153,11 @@ public class BillingService {
         tenant.setRenewalRequestedAt(null);
         tenantRepo.save(tenant);
 
-        // On first PURCHASE, seed limits from plan (RENEWAL keeps existing custom limits)
-        if ("PURCHASE".equals(type) && !customLimitsRepo.existsById(req.getTenantId())) {
+        // Standard-plan payments must refresh the effective limits row. Every
+        // activated tenant already has this row, so an "only when absent"
+        // check leaves purchases on their previous plan's quotas. Bespoke
+        // CUSTOM rows are preserved and only seeded when genuinely missing.
+        if (!"CUSTOM".equals(plan.getPlan()) || !customLimitsRepo.existsById(req.getTenantId())) {
             syncLimitsFromPlan(req.getTenantId(), plan);
         }
 

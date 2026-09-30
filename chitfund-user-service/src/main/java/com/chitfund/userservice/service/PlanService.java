@@ -177,6 +177,7 @@ public class PlanService {
         if (req.getEnabledCapabilities() != null)
             p.setCapabilities(serializeFeatures(validateCapabilityKeys(req.getEnabledCapabilities())));
         PlanResponse after = toResponse(planRepo.save(p));
+        propagateStandardPlanDefaults(p, actorId);
         auditClient.log("PLAN", p.getPlan(), "UPDATED", actorId, "SUPER_ADMIN",
                 before, after, PLATFORM_AUDIT_TENANT);
         return after;
@@ -373,5 +374,38 @@ public class PlanService {
                     "Unknown capability keys: " + String.join(", ", unknown));
         }
         return normalized;
+    }
+
+    private void propagateStandardPlanDefaults(PlanLimits plan, String actorId) {
+        if ("CUSTOM".equals(plan.getPlan())) return;
+        for (var limits : customLimitsRepo.findAllByPlanCode(plan.getPlan())) {
+            var before = limitSnapshot(limits);
+            limits.setMaxActiveChits(plan.getMaxActiveChits());
+            limits.setMaxMembers(plan.getMaxMembers());
+            limits.setMaxStaff(plan.getMaxStaff());
+            limits.setCapabilities(plan.getCapabilities());
+            limits.setAllowedChitTypes(plan.getAllowedChitTypes());
+            limits.setPriceMonthlyInr(plan.getPriceMonthlyInr());
+            var after = limitSnapshot(limits);
+            if (before.equals(after)) continue;
+            customLimitsRepo.save(limits);
+            auditClient.log("TENANT", limits.getTenantId(),
+                    "PLAN_DEFAULTS_APPLIED", actorId, "SUPER_ADMIN",
+                    before, after, limits.getTenantId(),
+                    "Standard plan " + plan.getPlan() + " was updated");
+        }
+    }
+
+    private static java.util.Map<String, Object> limitSnapshot(
+            com.chitfund.userservice.domain.entity.TenantCustomLimits limits) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("plan", limits.getPlanCode());
+        snapshot.put("maxActiveChits", limits.getMaxActiveChits());
+        snapshot.put("maxMembers", limits.getMaxMembers());
+        snapshot.put("maxStaff", limits.getMaxStaff());
+        snapshot.put("capabilities", limits.getCapabilities());
+        snapshot.put("allowedChitTypes", limits.getAllowedChitTypes());
+        snapshot.put("priceMonthlyInr", limits.getPriceMonthlyInr());
+        return snapshot;
     }
 }
