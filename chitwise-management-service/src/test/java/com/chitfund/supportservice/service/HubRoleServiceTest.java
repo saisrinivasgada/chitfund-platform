@@ -6,6 +6,7 @@ import com.chitfund.supportservice.dto.request.CreateRoleRequest;
 import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
+import com.chitfund.supportservice.client.AuditClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,6 +29,7 @@ class HubRoleServiceTest {
     @Mock HubCustomRoleRepository roleRepository;
     @Mock EmployeeRepository employeeRepository;
     @Mock HubRefreshSessionRepository refreshSessionRepository;
+    @Mock AuditClient auditClient;
     @InjectMocks HubRoleService service;
 
     @Test
@@ -44,11 +46,19 @@ class HubRoleServiceTest {
         when(roleRepository.save(role)).thenReturn(role);
         when(employeeRepository.findByCustomRoleId("role-1")).thenReturn(List.of(employee));
 
-        service.update("role-1", request);
+        service.update("role-1", request, "owner-1");
 
         assertThat(employee.getAuthVersion()).isEqualTo(3);
         verify(refreshSessionRepository).revokeAllForEmployee(
                 org.mockito.ArgumentMatchers.eq("employee-1"), any(Instant.class));
         verify(employeeRepository).saveAll(List.of(employee));
+        verify(auditClient).logEntity(
+                org.mockito.ArgumentMatchers.eq("HUB_ROLE"),
+                org.mockito.ArgumentMatchers.eq("role-1"),
+                org.mockito.ArgumentMatchers.eq("UPDATED"),
+                org.mockito.ArgumentMatchers.eq("owner-1"),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
+                any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
     }
 }

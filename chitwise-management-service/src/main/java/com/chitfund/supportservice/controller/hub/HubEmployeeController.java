@@ -52,8 +52,9 @@ public class HubEmployeeController {
 
     @PostMapping("/invite")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> invite(@Valid @RequestBody InviteEmployeeRequest body) {
-        EmployeeResponse employee = employeeService.invite(body);
+    public ResponseEntity<?> invite(@Valid @RequestBody InviteEmployeeRequest body,
+                                    Authentication auth) {
+        EmployeeResponse employee = employeeService.invite(body, (String) auth.getPrincipal());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", employee));
     }
@@ -76,8 +77,8 @@ public class HubEmployeeController {
 
     @PostMapping("/{id}/resend-invite")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> resendInvite(@PathVariable String id) {
-        EmployeeResponse employee = employeeService.resendInvite(id);
+    public ResponseEntity<?> resendInvite(@PathVariable String id, Authentication auth) {
+        EmployeeResponse employee = employeeService.resendInvite(id, (String) auth.getPrincipal());
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 

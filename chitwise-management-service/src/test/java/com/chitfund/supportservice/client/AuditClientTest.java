@@ -53,4 +53,21 @@ class AuditClientTest {
                 .contains("MESSAGE_SENT", "message-1", "SUPPORT_AGENT")
                 .doesNotContain("content", "requesterEmail", "requesterPhone");
     }
+
+    @Test
+    void queuesPlatformEntityAuditWithItsRealEntityType() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        client.logEntity("HUB_EMPLOYEE", "employee-1", "DEACTIVATED",
+                "owner-1", "SUPER_ADMIN", Map.of("active", true),
+                Map.of("active", false), Map.of("sessionsRevoked", true),
+                "PLATFORM", "Security review");
+
+        var payload = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(outbox).enqueue(anyString(), eq("PLATFORM"), eq("HUB_EMPLOYEE"),
+                eq("employee-1"), payload.capture(), eq(SqsQueues.AUDIT_EVENTS));
+        assertThat(payload.getValue())
+                .contains("DEACTIVATED", "SUPER_ADMIN", "sessionsRevoked")
+                .doesNotContain("password", "token");
+    }
 }

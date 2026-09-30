@@ -6,6 +6,7 @@ import com.chitfund.supportservice.dto.response.HubRoleResponse;
 import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
+import com.chitfund.supportservice.client.AuditClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,9 @@ public class HubRoleService {
     private final HubCustomRoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final HubRefreshSessionRepository refreshSessionRepository;
+    private final AuditClient auditClient;
+
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
 
     @Transactional(readOnly = true)
     public List<HubRoleResponse> listAll() {
@@ -31,7 +35,7 @@ public class HubRoleService {
     }
 
     @Transactional
-    public HubRoleResponse create(CreateRoleRequest req) {
+    public HubRoleResponse create(CreateRoleRequest req, String actorId) {
         HubPermissionService.validatePermissions(req.getPermissions());
         if (roleRepository.existsByNameIgnoreCase(req.getName().trim())) {
             throw new IllegalStateException("A role with this name already exists");
@@ -42,17 +46,25 @@ public class HubRoleService {
                 .description(req.getDescription() != null ? req.getDescription().trim() : null)
                 .permissions(req.getPermissions() != null ? req.getPermissions() : Set.of())
                 .build();
-        return toResponse(roleRepository.save(role));
+        HubCustomRole saved = roleRepository.save(role);
+        auditClient.logEntity("HUB_ROLE", saved.getId(), "CREATED", actorId,
+                "SUPER_ADMIN", null,
+                java.util.Map.of("name", saved.getName(),
+                        "permissions", Set.copyOf(saved.getPermissions())),
+                null, PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     @Transactional
-    public HubRoleResponse update(String id, CreateRoleRequest req) {
+    public HubRoleResponse update(String id, CreateRoleRequest req, String actorId) {
         HubPermissionService.validatePermissions(req.getPermissions());
         HubCustomRole role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.existsByNameIgnoreCaseAndIdNot(req.getName().trim(), id)) {
             throw new IllegalStateException("A role with this name already exists");
         }
+        String previousName = role.getName();
+        Set<String> previousPermissions = Set.copyOf(role.getPermissions());
         role.setName(req.getName().trim());
         role.setDescription(req.getDescription() != null ? req.getDescription().trim() : null);
         role.getPermissions().clear();
@@ -69,17 +81,29 @@ public class HubRoleService {
             refreshSessionRepository.revokeAllForEmployee(employee.getId(), now);
         }
         employeeRepository.saveAll(assigned);
+        auditClient.logEntity("HUB_ROLE", id, "UPDATED", actorId, "SUPER_ADMIN",
+                java.util.Map.of("name", previousName,
+                        "permissions", previousPermissions),
+                java.util.Map.of("name", role.getName(),
+                        "permissions", Set.copyOf(role.getPermissions())),
+                java.util.Map.of("affectedEmployees", assigned.size(),
+                        "sessionsRevoked", !assigned.isEmpty()),
+                PLATFORM_AUDIT_TENANT, null);
         return response;
     }
 
     @Transactional
-    public void delete(String id) {
+    public void delete(String id, String actorId) {
         HubCustomRole role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.countEmployeesWithRole(id) > 0) {
             throw new IllegalStateException("Cannot delete a role that is assigned to employees");
         }
         roleRepository.delete(role);
+        auditClient.logEntity("HUB_ROLE", id, "DELETED", actorId, "SUPER_ADMIN",
+                java.util.Map.of("name", role.getName(),
+                        "permissions", Set.copyOf(role.getPermissions())),
+                null, null, PLATFORM_AUDIT_TENANT, null);
     }
 
     private HubRoleResponse toResponse(HubCustomRole role) {

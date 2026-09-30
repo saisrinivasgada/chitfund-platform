@@ -13,6 +13,7 @@ import com.chitfund.supportservice.repository.HubCustomRoleRepository;
 import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
+import com.chitfund.supportservice.client.AuditClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -44,6 +45,7 @@ class EmployeeServiceTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock EmployeeInvitationMailer invitationMailer;
     @Mock HubRefreshSessionRepository refreshSessionRepository;
+    @Mock AuditClient auditClient;
 
     @Test
     void invitationStoresOnlyHashAndDeliversRawToken() throws Exception {
@@ -53,7 +55,7 @@ class EmployeeServiceTest {
         request.setRole("SUPPORT_AGENT");
         when(repository.save(any(Employee.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service().invite(request);
+        service().invite(request, "owner-1");
 
         ArgumentCaptor<Employee> employeeCaptor = ArgumentCaptor.forClass(Employee.class);
         verify(repository).save(employeeCaptor.capture());
@@ -258,6 +260,29 @@ class EmployeeServiceTest {
                 org.mockito.ArgumentMatchers.eq(employee.getId()), any(Instant.class));
     }
 
+    @Test
+    void changingEmployeeRoleRevokesExistingSessionsAndTokens() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPER_ADMIN");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(repository.save(employee)).thenReturn(employee);
+
+        service().updateRole(employee.getId(), "owner-1", request);
+
+        assertThat(employee.getAuthVersion()).isEqualTo(1);
+        verify(refreshSessionRepository).revokeAllForEmployee(
+                org.mockito.ArgumentMatchers.eq(employee.getId()), any(Instant.class));
+        verify(auditClient).logEntity(
+                org.mockito.ArgumentMatchers.eq("HUB_EMPLOYEE"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("ROLE_CHANGED"),
+                org.mockito.ArgumentMatchers.eq("owner-1"),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
+                any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
+    }
+
     private com.chitfund.supportservice.dto.response.EmployeeLoginResponse invokeLoginResponse(Employee employee) {
         EmployeeLoginRequest request = new EmployeeLoginRequest();
         request.setUsername(employee.getUsername());
@@ -286,7 +311,7 @@ class EmployeeServiceTest {
     private EmployeeService service() {
         EmployeeService service = new EmployeeService(repository, hubCustomRoleRepository,
                 tokenProvider, orgTokenProvider, passwordEncoder, invitationMailer,
-                refreshSessionRepository);
+                refreshSessionRepository, auditClient);
         ReflectionTestUtils.setField(service, "refreshTokenExpiryDays", 30L);
         return service;
     }

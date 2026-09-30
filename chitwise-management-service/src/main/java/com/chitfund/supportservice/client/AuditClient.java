@@ -25,6 +25,15 @@ public class AuditClient {
      */
     public void log(String entityId, String action, String actorId, String actorRole,
                     Object before, Object after, Object metadata, String tenantId, String reason) {
+        logEntity("TICKET", entityId, action, actorId, actorRole,
+                before, after, metadata, tenantId, reason);
+    }
+
+    /** Records a privacy-safe management-domain event in the caller's transaction. */
+    public void logEntity(String entityType, String entityId, String action,
+                          String actorId, String actorRole,
+                          Object before, Object after, Object metadata,
+                          String tenantId, String reason) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
                     "A management audit event must be recorded inside the business transaction");
@@ -32,13 +41,13 @@ public class AuditClient {
         try {
             String eventId = UUID.randomUUID().toString();
             AuditLogEvent event = new AuditLogEvent(
-                    "management-service", "TICKET", entityId, null, action,
+                    "management-service", entityType, entityId, null, action,
                     actorId, actorRole, null,
                     json(before), json(after), json(metadata),
                     Objects.requireNonNull(tenantId, "tenantId"),
                     null, null, "UNKNOWN", "SUCCESS", reason,
                     null, null, null, Instant.now(), null, null);
-            outbox.enqueue(eventId, tenantId, "TICKET", entityId,
+            outbox.enqueue(eventId, tenantId, entityType, entityId,
                     objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
         } catch (Exception exception) {
             throw new IllegalStateException(

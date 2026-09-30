@@ -60,10 +60,9 @@ public class EmployeeInvitationMailer {
                     new TransactionalEmailEvent(email, subject, html, text));
             eventOutbox.enqueue(UUID.randomUUID().toString(), SqsQueues.EVT_TRANSACTIONAL_EMAIL,
                     payloadJson, SqsQueues.NOTIFICATION_EVENTS);
-            log.info("Hub invite email persisted for delivery to {}", email);
+            log.info("Hub invite email persisted for delivery");
         } catch (Exception e) {
-            log.error("Failed to persist Hub invite email for {}: {}",
-                    email, e.getClass().getSimpleName());
+            log.error("Failed to persist Hub invite email: {}", e.getClass().getSimpleName());
             throw new IllegalStateException("Failed to persist invitation email", e);
         }
     }

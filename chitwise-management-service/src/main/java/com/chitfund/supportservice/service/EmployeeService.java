@@ -18,6 +18,7 @@ import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import com.chitfund.supportservice.domain.entity.HubRefreshSession;
 import com.chitfund.supportservice.security.HubJwtTokenProvider;
 import com.chitfund.supportservice.security.OrgJwtTokenProvider;
+import com.chitfund.supportservice.client.AuditClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -48,6 +49,9 @@ public class EmployeeService {
     private final PasswordEncoder passwordEncoder;
     private final EmployeeInvitationMailer invitationMailer;
     private final HubRefreshSessionRepository refreshSessionRepository;
+    private final AuditClient auditClient;
+
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
 
     @org.springframework.beans.factory.annotation.Value("${hub.jwt.refresh-token-expiry-days:30}")
     private long refreshTokenExpiryDays;
@@ -90,7 +94,7 @@ public class EmployeeService {
     }
 
     @Transactional
-    public EmployeeResponse invite(InviteEmployeeRequest req) {
+    public EmployeeResponse invite(InviteEmployeeRequest req, String actorId) {
         if (employeeRepository.existsByEmail(req.getEmail())) {
             throw new IllegalStateException("Email already registered");
         }
@@ -112,13 +116,19 @@ public class EmployeeService {
                 .build();
         employee = employeeRepository.save(employee);
 
-        log.info("Employee invite created for email=[{}]", req.getEmail());
+        auditClient.logEntity("HUB_EMPLOYEE", employee.getId(), "INVITED",
+                actorId, "SUPER_ADMIN", null,
+                java.util.Map.of("role", employee.getRole(), "active", employee.isActive(),
+                        "invitePending", true),
+                null, PLATFORM_AUDIT_TENANT, null);
+
+        log.info("Employee invite created for employeeId=[{}]", employee.getId());
         queueInvitation(employee, rawToken);
         return toResponse(employee);
     }
 
     @Transactional
-    public EmployeeResponse resendInvite(String employeeId) {
+    public EmployeeResponse resendInvite(String employeeId, String actorId) {
         Employee employee = getById(employeeId);
         if (employee.getInviteAcceptedAt() != null || employee.getPasswordHash() != null) {
             throw new IllegalStateException("Employee has already accepted the invitation");
@@ -128,6 +138,10 @@ public class EmployeeService {
         employee.setInviteToken(sha256Hex(rawToken));
         employee.setInviteExpiresAt(Instant.now().plusSeconds(7 * 24 * 3600));
         employeeRepository.save(employee);
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "INVITATION_RESENT",
+                actorId, "SUPER_ADMIN", null,
+                java.util.Map.of("invitePending", true), null,
+                PLATFORM_AUDIT_TENANT, null);
         queueInvitation(employee, rawToken);
         return toResponse(employee);
     }
@@ -181,6 +195,13 @@ public class EmployeeService {
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         employeeRepository.save(employee);
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "PASSWORD_RESET",
+                actorId, "SUPER_ADMIN",
+                java.util.Map.of("mustChangePassword", false,
+                        "authVersion", employee.getAuthVersion() - 1),
+                java.util.Map.of("mustChangePassword", true,
+                        "authVersion", employee.getAuthVersion()),
+                java.util.Map.of("sessionsRevoked", true), PLATFORM_AUDIT_TENANT, null);
         log.info("Hub employee password reset by actorId=[{}] for employeeId=[{}]", actorId, employeeId);
         return toResponse(employee);
     }
@@ -219,9 +240,18 @@ public class EmployeeService {
                 && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
             throw new IllegalStateException("At least one active Super Admin is required");
         }
+        String previousRole = employee.getRole();
         employee.setRole(req.getRole());
         employee.setAuthVersion(employee.getAuthVersion() + 1);
-        return toResponse(employeeRepository.save(employee));
+        Employee saved = employeeRepository.save(employee);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "ROLE_CHANGED",
+                actorId, "SUPER_ADMIN", java.util.Map.of("role", previousRole),
+                java.util.Map.of("role", saved.getRole()),
+                java.util.Map.of("authVersion", saved.getAuthVersion(),
+                        "sessionsRevoked", true),
+                PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -230,6 +260,7 @@ public class EmployeeService {
             throw new IllegalArgumentException("You cannot deactivate your own Hub account");
         }
         Employee employee = getById(employeeId);
+        boolean previousActive = employee.isActive();
         if (!active && "SUPER_ADMIN".equals(employee.getRole())
                 && employeeRepository.findActiveSuperAdminsForUpdate().size() <= 1) {
             throw new IllegalStateException("At least one active Super Admin is required");
@@ -239,7 +270,14 @@ public class EmployeeService {
         if (!active) {
             refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         }
-        return toResponse(employeeRepository.save(employee));
+        Employee saved = employeeRepository.save(employee);
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId,
+                active ? "REACTIVATED" : "DEACTIVATED", actorId, "SUPER_ADMIN",
+                java.util.Map.of("active", previousActive),
+                java.util.Map.of("active", saved.isActive()),
+                java.util.Map.of("authVersion", saved.getAuthVersion(),
+                        "sessionsRevoked", !active), PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -250,10 +288,19 @@ public class EmployeeService {
             throw new IllegalStateException("Only the protected platform owner can assign identity-case access");
         }
         Employee employee = getById(employeeId);
+        boolean previousAccess = employee.isCanManageIdentityCases();
         employee.setCanManageIdentityCases(request.isCanManageIdentityCases());
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
-        return toResponse(employeeRepository.save(employee));
+        Employee saved = employeeRepository.save(employee);
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "IDENTITY_ACCESS_CHANGED",
+                actorId, "SUPER_ADMIN",
+                java.util.Map.of("canManageIdentityCases", previousAccess),
+                java.util.Map.of("canManageIdentityCases", saved.isCanManageIdentityCases()),
+                java.util.Map.of("sessionsRevoked", true,
+                        "authVersion", saved.getAuthVersion()),
+                PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -382,6 +429,10 @@ public class EmployeeService {
     @Transactional
     public EmployeeResponse updateMe(String employeeId, UpdateMeRequest req) {
         Employee employee = getById(employeeId);
+        boolean nameChanged = req.getFullName() != null && !req.getFullName().isBlank()
+                && !req.getFullName().trim().equals(employee.getFullName());
+        boolean emailChanged = req.getEmail() != null && !req.getEmail().isBlank()
+                && !req.getEmail().trim().equalsIgnoreCase(employee.getEmail());
         if (req.getFullName() != null && !req.getFullName().isBlank()) {
             employee.setFullName(req.getFullName().trim());
         }
@@ -392,7 +443,13 @@ public class EmployeeService {
             }
             employee.setEmail(req.getEmail().trim());
         }
-        return toResponse(employeeRepository.save(employee));
+        Employee saved = employeeRepository.save(employee);
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "PROFILE_UPDATED",
+                employeeId, saved.getRole(), null,
+                java.util.Map.of("nameChanged", nameChanged, "emailChanged", emailChanged),
+                null,
+                PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     @Transactional
@@ -401,13 +458,24 @@ public class EmployeeService {
             throw new IllegalArgumentException("You cannot change your own custom role");
         }
         Employee employee = getById(employeeId);
+        String previousCustomRoleId = employee.getCustomRoleId();
         if (customRoleId != null && !roleRepository.existsById(customRoleId)) {
             throw new IllegalArgumentException("Custom role not found");
         }
         employee.setCustomRoleId(customRoleId);
         employee.setAuthVersion(employee.getAuthVersion() + 1);
         refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
-        return toResponse(employeeRepository.save(employee));
+        Employee saved = employeeRepository.save(employee);
+        auditClient.logEntity("HUB_EMPLOYEE", employeeId, "CUSTOM_ROLE_CHANGED",
+                actorId, "SUPER_ADMIN",
+                java.util.Map.of("customRoleId",
+                        previousCustomRoleId != null ? previousCustomRoleId : "NONE"),
+                java.util.Map.of("customRoleId",
+                        customRoleId != null ? customRoleId : "NONE"),
+                java.util.Map.of("sessionsRevoked", true,
+                        "authVersion", saved.getAuthVersion()),
+                PLATFORM_AUDIT_TENANT, null);
+        return toResponse(saved);
     }
 
     private EmployeeResponse toResponse(Employee e) {
