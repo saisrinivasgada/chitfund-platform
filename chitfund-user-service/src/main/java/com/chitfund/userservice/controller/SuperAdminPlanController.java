@@ -48,15 +48,18 @@ public class SuperAdminPlanController {
     public ResponseEntity<ApiResponse<PlanResponse>> updatePlan(
             @PathVariable String code,
             @Valid @RequestBody UpdatePlanRequest req,
+            @RequestHeader(value = "X-Change-Reason", required = false) String reason,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                planService.updatePlan(code, req, principal.getId().toString()), "Plan updated"));
+                planService.updatePlan(code, req, principal.getId().toString(), reason), "Plan updated"));
     }
 
     @DeleteMapping("/api/super-admin/plans/{code}")
     public ResponseEntity<ApiResponse<Void>> deletePlan(
-            @PathVariable String code, @AuthenticationPrincipal User principal) {
-        planService.deletePlan(code, principal.getId().toString());
+            @PathVariable String code,
+            @RequestHeader("X-Change-Reason") String reason,
+            @AuthenticationPrincipal User principal) {
+        planService.deletePlan(code, principal.getId().toString(), reason);
         return ResponseEntity.ok(ApiResponse.success(null, "Plan deactivated"));
     }
 
@@ -78,8 +81,10 @@ public class SuperAdminPlanController {
 
     @DeleteMapping("/api/super-admin/capabilities/{key}")
     public ResponseEntity<ApiResponse<Void>> deleteCapability(
-            @PathVariable String key, @AuthenticationPrincipal User principal) {
-        planService.deleteCapabilityDef(key, principal.getId().toString());
+            @PathVariable String key,
+            @RequestHeader("X-Change-Reason") String reason,
+            @AuthenticationPrincipal User principal) {
+        planService.deleteCapabilityDef(key, principal.getId().toString(), reason);
         return ResponseEntity.ok(ApiResponse.success(null, "Capability removed"));
     }
 

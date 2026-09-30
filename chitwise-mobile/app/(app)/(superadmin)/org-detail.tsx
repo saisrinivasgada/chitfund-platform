@@ -40,6 +40,7 @@ import {
 } from '../../../services/api';
 import { C, T, Badge, fmtDate, Input, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
+import ReasonModal from '../../../components/superadmin/ReasonModal';
 
 type AlertType = 'EXPIRED' | 'PENDING' | 'RENEWAL' | 'UPGRADE' | 'EXPIRING';
 const ALERT_META: Record<AlertType, { label: string; dot: string; bg: string; text: string }> = {
@@ -86,6 +87,7 @@ export default function OrgDetailPage() {
   const [showSetExpiry, setShowSetExpiry] = useState(false);
   const [showSetDiscount, setShowSetDiscount] = useState(false);
   const [showCredits, setShowCredits] = useState(false);
+  const [pendingEntitlement, setPendingEntitlement] = useState<{ kind: 'PLAN' | 'REMOVE_CUSTOM'; plan?: string } | null>(null);
   // Credentials surfaced after a password reset — shown once, never re-fetchable.
   const [resetCreds, setResetCreds] = useState<{ username: string; password: string } | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -159,8 +161,8 @@ export default function OrgDetailPage() {
     onError: (e: any) => Alert.alert('Slug Conflict', e.response?.data?.message ?? 'Failed to reactivate'),
   });
   const planMut = useMutation({
-    mutationFn: (plan: string) => superAdminUpdatePlan(tenantId!, plan),
-    onSuccess: (_d, plan) => { refetchOrg(); setShowPlanMenu(false); toast.saved(`Plan → ${plan}`); },
+    mutationFn: ({ plan, reason }: { plan: string; reason: string }) => superAdminUpdatePlan(tenantId!, plan, reason),
+    onSuccess: (_d, vars) => { refetchOrg(); setShowPlanMenu(false); setPendingEntitlement(null); toast.saved(`Plan → ${vars.plan}`); },
     onError: (e: any) => toast.cancelled(e.response?.data?.message ?? 'Failed'),
   });
   const clearRenewalMut = useMutation({
@@ -184,7 +186,7 @@ export default function OrgDetailPage() {
   });
 
   const setExpiryMut = useMutation({
-    mutationFn: (expiresAt: string) => superAdminSetPlanExpiry(tenantId!, expiresAt),
+    mutationFn: ({ expiresAt, reason }: { expiresAt: string; reason: string }) => superAdminSetPlanExpiry(tenantId!, expiresAt, reason),
     onSuccess: () => { refetchOrg(); setShowSetExpiry(false); toast.saved('Plan expiry updated'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to set expiry'),
   });
@@ -209,8 +211,8 @@ export default function OrgDetailPage() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove discount'),
   });
   const removeCustomLimitsMut = useMutation({
-    mutationFn: () => superAdminRemoveCustomLimits(tenantId!, 'BASIC'),
-    onSuccess: () => { refetchLimits(); refetchOrg(); setShowPlanMenu(false); toast.saved('Custom limits removed — reverted to BASIC'); },
+    mutationFn: (reason: string) => superAdminRemoveCustomLimits(tenantId!, 'BASIC', reason),
+    onSuccess: () => { refetchLimits(); refetchOrg(); setShowPlanMenu(false); setPendingEntitlement(null); toast.saved('Custom limits removed — reverted to BASIC'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to remove custom limits'),
   });
   const creditMut = useMutation({
@@ -816,32 +818,25 @@ export default function OrgDetailPage() {
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               Current plan: <Text style={{ fontWeight: '700', color: C.navy }}>{orgData?.plan ?? 'BASIC'}</Text>
             </Text>
-            {['BASIC', 'PRO', 'ENTERPRISE'].filter((p) => p !== orgData?.plan).map((p) => (
+            {(plans as any[]).filter((p) => p.isActive && p.plan !== 'CUSTOM' && p.plan !== orgData?.plan).map((p) => (
               <TouchableOpacity
-                key={p}
-                onPress={() => planMut.mutate(p)}
+                key={p.plan}
+                onPress={() => setPendingEntitlement({ kind: 'PLAN', plan: p.plan })}
                 disabled={planMut.isPending}
                 style={{
-                  backgroundColor: PLAN_COLORS[p]?.bg, borderRadius: 14, padding: 16, marginBottom: 10,
+                  backgroundColor: PLAN_COLORS[p.plan]?.bg ?? C.navy50, borderRadius: 14, padding: 16, marginBottom: 10,
                   flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                 }}
               >
-                <Text style={{ fontSize: 15, fontWeight: '700', color: PLAN_COLORS[p]?.text }}>
-                  Upgrade to {p}
+                <Text style={{ fontSize: 15, fontWeight: '700', color: PLAN_COLORS[p.plan]?.text ?? C.navy }}>
+                  Change to {p.displayName ?? p.plan}
                 </Text>
-                {planMut.isPending ? <ActivityIndicator size="small" color={PLAN_COLORS[p]?.text} /> : <Text style={{ color: PLAN_COLORS[p]?.text }}>→</Text>}
+                {planMut.isPending ? <ActivityIndicator size="small" color={PLAN_COLORS[p.plan]?.text ?? C.navy} /> : <Text style={{ color: PLAN_COLORS[p.plan]?.text ?? C.navy }}>→</Text>}
               </TouchableOpacity>
             ))}
             {(effectiveLimits as any)?.hasCustomLimits && (
               <TouchableOpacity
-                onPress={() => Alert.alert(
-                  'Remove Custom Limits',
-                  'Remove this org’s custom limits and revert it to the BASIC plan?',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Remove', style: 'destructive', onPress: () => removeCustomLimitsMut.mutate() },
-                  ],
-                )}
+                onPress={() => setPendingEntitlement({ kind: 'REMOVE_CUSTOM' })}
                 disabled={removeCustomLimitsMut.isPending}
                 style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 14, padding: 16, marginBottom: 10, alignItems: 'center' }}
               >
@@ -946,9 +941,22 @@ export default function OrgDetailPage() {
           currentExpiry={orgData?.planExpiresAt}
           saving={setExpiryMut.isPending}
           onClose={() => setShowSetExpiry(false)}
-          onSave={(iso) => setExpiryMut.mutate(iso)}
+          onSave={(iso, reason) => setExpiryMut.mutate({ expiresAt: iso, reason })}
         />
       )}
+
+      <ReasonModal
+        visible={!!pendingEntitlement}
+        title={pendingEntitlement?.kind === 'PLAN' ? `Change plan to ${pendingEntitlement.plan}` : 'Remove custom limits'}
+        message="This entitlement change affects feature access and will be stored in the audit trail."
+        confirmLabel={pendingEntitlement?.kind === 'PLAN' ? 'Change Plan' : 'Remove Limits'}
+        destructive={pendingEntitlement?.kind === 'REMOVE_CUSTOM'}
+        busy={planMut.isPending || removeCustomLimitsMut.isPending}
+        onCancel={() => setPendingEntitlement(null)}
+        onConfirm={(reason) => pendingEntitlement?.kind === 'PLAN'
+          ? planMut.mutate({ plan: pendingEntitlement.plan!, reason })
+          : removeCustomLimitsMut.mutate(reason)}
+      />
 
       {/* Set org discount */}
       {showSetDiscount && (
@@ -1004,12 +1012,13 @@ export default function OrgDetailPage() {
 
 // ── Set plan expiry ───────────────────────────────────────────────────────────
 function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
-  currentExpiry?: string; saving: boolean; onClose: () => void; onSave: (iso: string) => void;
+  currentExpiry?: string; saving: boolean; onClose: () => void; onSave: (iso: string, reason: string) => void;
 }) {
   function toInput(d?: string) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
   function plus30() { return new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10); }
 
   const [date, setDate] = useState(currentExpiry ? toInput(currentExpiry) : plus30());
+  const [reason, setReason] = useState('');
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
 
   return (
@@ -1052,10 +1061,16 @@ function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
               </TouchableOpacity>
             ))}
           </View>
+          <View>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason *</Text>
+            <TextInput value={reason} onChangeText={setReason} multiline numberOfLines={3}
+              placeholder="Why is the subscription expiry changing?" placeholderTextColor={C.gray400}
+              style={{ minHeight: 82, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 12, fontSize: 14, color: C.navy, textAlignVertical: 'top' }} />
+          </View>
           <TouchableOpacity
-            onPress={() => onSave(`${date}T00:00:00`)}
-            disabled={!valid || saving}
-            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || saving ? 0.5 : 1 }}
+            onPress={() => onSave(`${date}T00:00:00`, reason.trim())}
+            disabled={!valid || reason.trim().length < 5 || saving}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: !valid || reason.trim().length < 5 || saving ? 0.5 : 1 }}
           >
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>{saving ? 'Saving…' : 'Save Expiry'}</Text>
           </TouchableOpacity>
@@ -1448,6 +1463,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
   const [enabledCaps, setEnabledCaps]   = useState<string[]>(existing?.enabledCapabilities ?? []);
   const [priceStr,    setPriceStr]    = useState(existing?.priceMonthlyInr ? String(existing.priceMonthlyInr / 100) : '0');
   const [notes,       setNotes]       = useState(existing?.notes ?? '');
+  const [reason,      setReason]      = useState('');
 
   const mut = useMutation({
     mutationFn: () => superAdminSetCustomLimits(tenantId, {
@@ -1458,7 +1474,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
       enabledCapabilities: enabledCaps,
       priceMonthlyInr: Math.round(Number(priceStr) * 100),
       notes: notes || null,
-    }),
+    }, reason.trim()),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-org-limits', tenantId] }); onSaved(); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to save'),
   });
@@ -1536,13 +1552,19 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
             <TextInput value={notes} onChangeText={setNotes} multiline numberOfLines={2} placeholder="e.g. Negotiated pricing"
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 60 }} />
           </View>
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason for entitlement change *</Text>
+            <TextInput value={reason} onChangeText={setReason} multiline numberOfLines={3}
+              placeholder="Contract approval, plan correction, or customer request"
+              style={{ minHeight: 82, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, textAlignVertical: 'top' }} />
+          </View>
         </ScrollView>
         <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
           <Button
             label={mut.isPending ? 'Saving…' : 'Save Custom Limits'}
             onPress={() => mut.mutate()}
             loading={mut.isPending}
-            disabled={allowedTypes.length === 0}
+            disabled={allowedTypes.length === 0 || reason.trim().length < 5}
             fullWidth size="lg"
           />
         </View>

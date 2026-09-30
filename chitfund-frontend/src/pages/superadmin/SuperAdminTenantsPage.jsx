@@ -451,7 +451,14 @@ export default function SuperAdminTenantsPage() {
         return;
       }
       if (action === 'suspend')   await superAdminSuspendTenant(tenantId);
-      if (action === 'plan')      await superAdminUpdatePlan(tenantId, extra);
+      if (action === 'plan') {
+        const reason = window.prompt(`Why is this organization being moved to ${extra}? (minimum 5 characters)`);
+        if (!reason || reason.trim().length < 5) {
+          showToast('A reason of at least 5 characters is required');
+          return;
+        }
+        await superAdminUpdatePlan(tenantId, extra, reason.trim());
+      }
       if (action === 'cancel')    await superAdminCancelTenant(tenantId);
       if (action === 'resume')    await superAdminResumeTenant(tenantId);
       showToast(

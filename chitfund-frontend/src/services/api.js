@@ -312,8 +312,10 @@ export const superAdminProxyAs = async (tenantId, role, userId, reason) => {
   return res.data.data;
 };
 
-export const superAdminUpdatePlan = async (tenantId, plan) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } });
+export const superAdminUpdatePlan = async (tenantId, plan, reason) => {
+  const res = await api.post(`/super-admin/tenants/${tenantId}/plan`, null, {
+    params: { plan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
@@ -363,10 +365,12 @@ export const superAdminListOrgChits = async (tenantId, { status } = {}) => {
   return res.data.data?.content ?? res.data.data ?? [];
 };
 
-export const superAdminSetPlanExpiry = async (tenantId, expiresAt) => {
+export const superAdminSetPlanExpiry = async (tenantId, expiresAt, reason) => {
   // expiresAt: ISO string or null (clears expiry)
   const params = expiresAt ? { expiresAt } : {};
-  const res = await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, { params });
+  const res = await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, {
+    params, headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
@@ -395,13 +399,17 @@ export const getMyEffectiveLimits = async () => {
   return res.data.data ?? null;
 };
 
-export const superAdminSetCustomLimits = async (tenantId, data) => {
-  const res = await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data);
+export const superAdminSetCustomLimits = async (tenantId, data, reason) => {
+  const res = await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data, {
+    headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 
-export const superAdminRemoveCustomLimits = async (tenantId, fallbackPlan = 'BASIC') => {
-  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+export const superAdminRemoveCustomLimits = async (tenantId, fallbackPlan = 'BASIC', reason) => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, {
+    params: { fallbackPlan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data;
 };
 
@@ -422,13 +430,14 @@ export const superAdminCreatePlanDef = async (body) => {
   return res.data.data;
 };
 
-export const superAdminUpdatePlanDef = async (code, body) => {
-  const res = await api.put(`/super-admin/plans/${code}`, body);
+export const superAdminUpdatePlanDef = async (code, body, reason) => {
+  const config = reason ? { headers: { 'X-Change-Reason': reason } } : undefined;
+  const res = await api.put(`/super-admin/plans/${code}`, body, config);
   return res.data.data;
 };
 
-export const superAdminDeletePlanDef = async (code) => {
-  await api.delete(`/super-admin/plans/${code}`);
+export const superAdminDeletePlanDef = async (code, reason) => {
+  await api.delete(`/super-admin/plans/${code}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Capability definitions ────────────────────────────────────────────────
@@ -440,8 +449,8 @@ export const superAdminAddCapability = async (label) => {
   const res = await api.post('/super-admin/capabilities', { label });
   return res.data.data;
 };
-export const superAdminDeleteCapability = async (key) => {
-  await api.delete(`/super-admin/capabilities/${key}`);
+export const superAdminDeleteCapability = async (key, reason) => {
+  await api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
 };
 
 // ─── Per-org discount ──────────────────────────────────────────────────────

@@ -157,12 +157,10 @@ public class PlanService {
     }
 
     @Transactional
-    public PlanResponse updatePlan(String code, UpdatePlanRequest req) {
-        return updatePlan(code, req, null);
-    }
-
-    @Transactional
-    public PlanResponse updatePlan(String code, UpdatePlanRequest req, String actorId) {
+    public PlanResponse updatePlan(String code, UpdatePlanRequest req, String actorId, String reason) {
+        String auditReason = hasSensitivePlanChange(req)
+                ? requireChangeReason(reason, "A reason is required for plan entitlement changes")
+                : normalizeOptionalReason(reason);
         PlanLimits p = planRepo.findById(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
         PlanResponse before = toResponse(p);
@@ -181,28 +179,34 @@ public class PlanService {
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
         if (req.getEnabledCapabilities() != null)
             p.setCapabilities(serializeFeatures(validateCapabilityKeys(req.getEnabledCapabilities())));
-        PlanResponse after = toResponse(planRepo.save(p));
-        propagateStandardPlanDefaults(p, actorId);
+        PlanResponse after = toResponse(p);
+        if (before.equals(after)) {
+            return before;
+        }
+        planRepo.save(p);
+        if (hasEffectiveLimitChange(req)) {
+            propagateStandardPlanDefaults(p, actorId, auditReason);
+        }
         auditClient.log("PLAN", p.getPlan(), "UPDATED", actorId, "SUPER_ADMIN",
-                before, after, PLATFORM_AUDIT_TENANT);
+                before, after, PLATFORM_AUDIT_TENANT, auditReason);
         return after;
     }
 
     @Transactional
-    public void deletePlan(String code) {
-        deletePlan(code, null);
-    }
-
-    @Transactional
-    public void deletePlan(String code, String actorId) {
+    public void deletePlan(String code, String actorId, String reason) {
+        String auditReason = requireChangeReason(reason, "A reason is required to deactivate a plan");
         PlanLimits p = planRepo.findById(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
+        if (!p.isActive() && !p.isPublic()) {
+            return;
+        }
+        PlanResponse before = toResponse(p);
         p.setActive(false);
         p.setPublic(false);
         planRepo.save(p);
         auditClient.log("PLAN", p.getPlan(), "DEACTIVATED", actorId, "SUPER_ADMIN",
-                java.util.Map.of("active", true), java.util.Map.of("active", false),
-                PLATFORM_AUDIT_TENANT, "Plan deactivated by Super Admin");
+                before, toResponse(p),
+                PLATFORM_AUDIT_TENANT, auditReason);
     }
 
     @Transactional
@@ -305,12 +309,9 @@ public class PlanService {
     }
 
     @Transactional
-    public void deleteCapabilityDef(String key) {
-        deleteCapabilityDef(key, null);
-    }
-
-    @Transactional
-    public void deleteCapabilityDef(String key, String actorId) {
+    public void deleteCapabilityDef(String key, String actorId, String reason) {
+        String auditReason = requireChangeReason(reason,
+                "A reason is required to delete a capability definition");
         PlanCapabilityDef definition = capabilityRepo.findById(key)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.RESOURCE_NOT_FOUND, "Capability not found: " + key));
@@ -326,7 +327,40 @@ public class PlanService {
         capabilityRepo.delete(definition);
         auditClient.log("CAPABILITY", key, "DELETED", actorId, "SUPER_ADMIN",
                 before, null, PLATFORM_AUDIT_TENANT,
-                "Unassigned capability definition deleted by Super Admin");
+                auditReason);
+    }
+
+    private static boolean hasSensitivePlanChange(UpdatePlanRequest req) {
+        return req.getMaxActiveChits() != null
+                || req.getMaxMembers() != null
+                || req.getAllowedChitTypes() != null
+                || req.getPriceMonthlyInr() != null
+                || req.getGlobalDiscountPct() != null
+                || req.getIsPublic() != null
+                || req.getIsActive() != null
+                || req.getMaxStaff() != null
+                || req.getEnabledCapabilities() != null;
+    }
+
+    private static boolean hasEffectiveLimitChange(UpdatePlanRequest req) {
+        return req.getMaxActiveChits() != null
+                || req.getMaxMembers() != null
+                || req.getAllowedChitTypes() != null
+                || req.getPriceMonthlyInr() != null
+                || req.getMaxStaff() != null
+                || req.getEnabledCapabilities() != null;
+    }
+
+    private static String requireChangeReason(String reason, String message) {
+        String normalized = normalizeOptionalReason(reason);
+        if (normalized == null || normalized.length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, message + " (minimum 5 characters)");
+        }
+        return normalized;
+    }
+
+    private static String normalizeOptionalReason(String reason) {
+        return reason == null || reason.isBlank() ? null : reason.trim();
     }
 
     private CapabilityDefResponse toCapabilityResponse(PlanCapabilityDef d) {
@@ -404,7 +438,7 @@ public class PlanService {
         return normalized;
     }
 
-    private void propagateStandardPlanDefaults(PlanLimits plan, String actorId) {
+    private void propagateStandardPlanDefaults(PlanLimits plan, String actorId, String reason) {
         if ("CUSTOM".equals(plan.getPlan())) return;
         for (var limits : customLimitsRepo.findAllByPlanCode(plan.getPlan())) {
             var before = limitSnapshot(limits);
@@ -420,7 +454,7 @@ public class PlanService {
             auditClient.log("TENANT", limits.getTenantId(),
                     "PLAN_DEFAULTS_APPLIED", actorId, "SUPER_ADMIN",
                     before, after, limits.getTenantId(),
-                    "Standard plan " + plan.getPlan() + " was updated");
+                    "Standard plan " + plan.getPlan() + " was updated: " + reason);
         }
     }
 

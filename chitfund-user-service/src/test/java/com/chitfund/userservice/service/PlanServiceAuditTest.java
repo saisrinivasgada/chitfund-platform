@@ -93,7 +93,7 @@ class PlanServiceAuditTest {
         when(planRepo.findAll()).thenReturn(List.of(
                 PlanLimits.builder().plan("GROWTH").capabilities("[\"live_chat\"]").build()));
 
-        assertThatThrownBy(() -> service.deleteCapabilityDef(key, "owner-1"))
+        assertThatThrownBy(() -> service.deleteCapabilityDef(key, "owner-1", "Catalog cleanup"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("every standard and custom plan");
 
@@ -210,7 +210,7 @@ class PlanServiceAuditTest {
         when(planRepo.save(growth)).thenReturn(growth);
         when(customLimitsRepo.findAllByPlanCode("GROWTH")).thenReturn(List.of(tenantLimits));
 
-        service.updatePlan("growth", request, "owner-1");
+        service.updatePlan("growth", request, "owner-1", "Increase Growth plan capacity");
 
         assertThat(tenantLimits.getMaxMembers()).isEqualTo(250);
         assertThat(tenantLimits.getMaxStaff()).isEqualTo(8);
@@ -219,5 +219,63 @@ class PlanServiceAuditTest {
         verify(auditClient).log(eq("TENANT"), eq("tenant-1"),
                 eq("PLAN_DEFAULTS_APPLIED"), eq("owner-1"), eq("SUPER_ADMIN"),
                 any(), any(), eq("tenant-1"), any(String.class));
+    }
+
+    @Test
+    void entitlementEditRequiresReasonButDisplayReorderDoesNot() {
+        PlanLimits growth = PlanLimits.builder()
+                .plan("GROWTH").displayName("Growth").isActive(true)
+                .maxMembers(100).displayOrder(2).build();
+        when(planRepo.findById("GROWTH")).thenReturn(Optional.of(growth));
+        when(planRepo.save(growth)).thenReturn(growth);
+
+        UpdatePlanRequest entitlementChange = new UpdatePlanRequest();
+        entitlementChange.setMaxMembers(200);
+        assertThatThrownBy(() -> service.updatePlan(
+                "growth", entitlementChange, "owner-1", null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("reason is required");
+        verify(planRepo, never()).save(any());
+
+        UpdatePlanRequest reorder = new UpdatePlanRequest();
+        reorder.setDisplayOrder(3);
+        service.updatePlan("growth", reorder, "owner-1", null);
+
+        assertThat(growth.getDisplayOrder()).isEqualTo(3);
+        verify(planRepo).save(growth);
+        verify(auditClient).log(eq("PLAN"), eq("GROWTH"), eq("UPDATED"),
+                eq("owner-1"), eq("SUPER_ADMIN"), any(), any(), eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void unassignedCapabilityDeletionAuditsTheProvidedReason() {
+        String key = "advanced_collections";
+        PlanCapabilityDef definition = PlanCapabilityDef.builder()
+                .key(key).label("Advanced Collections").sortOrder(9).build();
+        when(capabilityRepo.findById(key)).thenReturn(Optional.of(definition));
+        when(planRepo.findAll()).thenReturn(List.of());
+        when(customLimitsRepo.findAll()).thenReturn(List.of());
+
+        service.deleteCapabilityDef(key, "owner-1", "Remove abandoned capability");
+
+        verify(capabilityRepo).delete(definition);
+        verify(auditClient).log(eq("CAPABILITY"), eq(key), eq("DELETED"),
+                eq("owner-1"), eq("SUPER_ADMIN"), any(),
+                org.mockito.ArgumentMatchers.isNull(), eq("PLATFORM"),
+                eq("Remove abandoned capability"));
+    }
+
+    @Test
+    void repeatedPlanDeactivationDoesNotCreateAnotherAuditEvent() {
+        PlanLimits inactive = PlanLimits.builder()
+                .plan("RETIRED").displayName("Retired")
+                .isActive(false).isPublic(false).build();
+        when(planRepo.findById("RETIRED")).thenReturn(Optional.of(inactive));
+
+        service.deletePlan("retired", "owner-1", "Retire obsolete plan");
+
+        verify(planRepo, never()).save(any());
+        verifyNoInteractions(auditClient);
     }
 }

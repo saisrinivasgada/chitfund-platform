@@ -383,7 +383,8 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public TenantResponse updatePlan(UUID tenantId, String plan, String actorId) {
+    public TenantResponse updatePlan(UUID tenantId, String plan, String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         String targetPlan = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
@@ -391,7 +392,8 @@ public class TenantService {
                 .filter(PlanLimits::isActive)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Active plan not found: " + targetPlan));
-        String prevPlan = t.getPlan();
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
+                customLimitsRepository.findById(tenantId.toString()).orElse(null));
         t.setPlan(targetPlan);
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
@@ -402,9 +404,8 @@ public class TenantService {
         seedLimitsFromPlan(tenantId.toString(), targetLimits);
         auditClient.log("TENANT", tenantId.toString(),
                 "PLAN_CHANGED", actorId, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
-                java.util.Map.of("plan", targetPlan),
-                tenantId.toString());
+                before, standardPlanSnapshot(targetLimits),
+                tenantId.toString(), auditReason);
         return toResponse(t);
     }
 
@@ -457,7 +458,9 @@ public class TenantService {
                         "/superadmin/tenants/" + tenantId));
     }
 
-    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt, String actorId) {
+    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt,
+                                        String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.time.LocalDateTime prev = t.getPlanExpiresAt();
@@ -468,7 +471,7 @@ public class TenantService {
                 "PLAN_EXPIRY_SET", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("planExpiresAt", prev != null ? prev.toString() : "none"),
                 java.util.Map.of("planExpiresAt", expiresAt != null ? expiresAt.toString() : "none"),
-                tenantId.toString());
+                tenantId.toString(), auditReason);
         return toResponse(t);
     }
 
@@ -677,12 +680,15 @@ public class TenantService {
 
     // ── Custom plan limits ───────────────────────────────────────────────────
 
-    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req, String actorId) {
+    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req,
+                                                    String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId.toString())
                 .orElse(TenantCustomLimits.builder().tenantId(tenantId.toString()).build());
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(), limits);
         limits.setMaxActiveChits(req.getMaxActiveChits());
         limits.setMaxMembers(req.getMaxMembers());
         limits.setMaxStaff(req.getMaxStaff());
@@ -699,7 +705,6 @@ public class TenantService {
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM
-        String prevPlan = t.getPlan();
         t.setPlan("CUSTOM");
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
@@ -707,37 +712,69 @@ public class TenantService {
 
         auditClient.log("TENANT", tenantId.toString(),
                 "CUSTOM_LIMITS_SET", actorId, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
-                java.util.Map.of("plan", "CUSTOM",
-                        "maxActiveChits", String.valueOf(req.getMaxActiveChits()),
-                        "maxMembers", String.valueOf(req.getMaxMembers()),
-                        "maxStaff", String.valueOf(req.getMaxStaff())),
-                tenantId.toString());
+                before, entitlementSnapshot("CUSTOM", limits),
+                tenantId.toString(), auditReason);
 
         return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
                 validatedCapabilities);
     }
 
-    public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId) {
+    public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId, String reason) {
+        String auditReason = requireEntitlementReason(reason);
         String planCode = fallbackPlan != null
                 ? fallbackPlan.trim().toUpperCase(java.util.Locale.ROOT) : "BASIC";
         PlanLimits plan = planLimitsRepository.findById(planCode)
                 .filter(PlanLimits::isActive)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Active fallback plan not found: " + planCode));
-        // Reset limits row to plan defaults (never delete — always keep a row)
-        seedLimitsFromPlan(tenantId.toString(), plan);
-
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        String prevPlan = t.getPlan();
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
+                customLimitsRepository.findById(tenantId.toString()).orElse(null));
+        // Reset limits row to plan defaults (never delete — always keep a row)
+        seedLimitsFromPlan(tenantId.toString(), plan);
         t.setPlan(planCode);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
                 "CUSTOM_LIMITS_REMOVED", actorId, "ROLE_SUPER_ADMIN",
-                java.util.Map.of("plan", prevPlan != null ? prevPlan : "CUSTOM"),
-                java.util.Map.of("plan", planCode),
-                tenantId.toString());
+                before, standardPlanSnapshot(plan),
+                tenantId.toString(), auditReason);
+    }
+
+    private static String requireEntitlementReason(String reason) {
+        String normalized = reason == null ? "" : reason.trim();
+        if (normalized.length() < 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason of at least 5 characters is required for entitlement changes");
+        }
+        return normalized;
+    }
+
+    private static java.util.Map<String, Object> entitlementSnapshot(
+            String planCode, TenantCustomLimits limits) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("plan", planCode != null ? planCode : "UNASSIGNED");
+        if (limits != null) {
+            snapshot.put("maxActiveChits", limits.getMaxActiveChits());
+            snapshot.put("maxMembers", limits.getMaxMembers());
+            snapshot.put("maxStaff", limits.getMaxStaff());
+            snapshot.put("allowedChitTypes", limits.getAllowedChitTypes());
+            snapshot.put("priceMonthlyInr", limits.getPriceMonthlyInr());
+            snapshot.put("capabilities", limits.getCapabilities());
+        }
+        return snapshot;
+    }
+
+    private static java.util.Map<String, Object> standardPlanSnapshot(PlanLimits plan) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("plan", plan.getPlan());
+        snapshot.put("maxActiveChits", plan.getMaxActiveChits());
+        snapshot.put("maxMembers", plan.getMaxMembers());
+        snapshot.put("maxStaff", plan.getMaxStaff());
+        snapshot.put("allowedChitTypes", plan.getAllowedChitTypes());
+        snapshot.put("priceMonthlyInr", plan.getPriceMonthlyInr());
+        snapshot.put("capabilities", plan.getCapabilities());
+        return snapshot;
     }
 
     private java.util.List<String> validateCapabilityKeys(java.util.List<String> requested) {

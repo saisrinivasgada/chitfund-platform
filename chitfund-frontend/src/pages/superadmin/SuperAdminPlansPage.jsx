@@ -170,7 +170,7 @@ function PlanPreviewModal({ plans, onClose }) {
 }
 
 // Capability keys that are also enforced by the backend (shown as "(enforced)" hint)
-const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support']);
+const ENFORCED_KEYS = new Set(['full_analytics', 'priority_support', 'live_chat', 'settlement']);
 
 function PlanModal({ plan, onSave, onClose }) {
   const isEdit = !!plan;
@@ -186,6 +186,7 @@ function PlanModal({ plan, onSave, onClose }) {
     maxMembers:             plan?.maxMembers != null ? String(plan.maxMembers) : '20',
     maxStaff:               plan?.maxStaff != null ? String(plan.maxStaff) : '0',
     displayOrder:           plan?.displayOrder != null ? String(plan.displayOrder) : '99',
+    changeReason:           '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -247,8 +248,10 @@ function PlanModal({ plan, onSave, onClose }) {
 
   async function handleDeleteCapability(key, label) {
     if (!window.confirm(`Remove capability "${label}" from the master list? It will disappear from all plan edit pages (existing features text is not changed).`)) return;
+    const reason = window.prompt('Why is this capability being removed? (minimum 5 characters)');
+    if (!reason || reason.trim().length < 5) { setError('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminDeleteCapability(key);
+      await superAdminDeleteCapability(key, reason.trim());
       queryClient.setQueryData(['super-capabilities'], (prev = []) => prev.filter(c => c.key !== key));
     } catch { setError('Failed to remove capability'); }
   }
@@ -256,6 +259,7 @@ function PlanModal({ plan, onSave, onClose }) {
   async function handleSave() {
     if (!isEdit && !form.plan.trim()) { setError('Plan code is required'); return; }
     if (!form.displayName.trim()) { setError('Display name is required'); return; }
+    if (isEdit && form.changeReason.trim().length < 5) { setError('Please enter a reason of at least 5 characters'); return; }
     if (isLive && !confirming) { setConfirming(true); return; }
     setSaving(true);
     setError('');
@@ -280,7 +284,7 @@ function PlanModal({ plan, onSave, onClose }) {
         body.isActive = true;
       }
       if (isEdit) {
-        await superAdminUpdatePlanDef(plan.plan, body);
+        await superAdminUpdatePlanDef(plan.plan, body, form.changeReason.trim());
       } else {
         await superAdminCreatePlanDef(body);
       }
@@ -411,6 +415,15 @@ function PlanModal({ plan, onSave, onClose }) {
             <input type="number" min="0" className={INPUT} value={form.displayOrder} onChange={e => set('displayOrder', e.target.value)} />
           </div>
 
+          {isEdit && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason for change <span className="text-red-400">*</span></label>
+              <textarea className={`${INPUT} resize-none`} rows={2} value={form.changeReason}
+                onChange={e => set('changeReason', e.target.value)}
+                placeholder="Explain why limits, pricing or capabilities are changing" />
+            </div>
+          )}
+
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
         {confirming && (
@@ -465,9 +478,11 @@ export default function SuperAdminPlansPage() {
   useEffect(() => { load(); }, [load]);
 
   async function handleMakeLive(plan) {
+    const reason = window.prompt(`Why should "${plan.displayName}" be made live? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     setTogglingPlan(plan.plan);
     try {
-      await superAdminUpdatePlanDef(plan.plan, { isPublic: true, isActive: true });
+      await superAdminUpdatePlanDef(plan.plan, { isPublic: true, isActive: true }, reason.trim());
       showToast(`${plan.displayName} is now live!`);
       load();
     } catch { showToast('Failed to publish'); }
@@ -475,9 +490,11 @@ export default function SuperAdminPlansPage() {
   }
 
   async function handleTakeOffline(plan) {
+    const reason = window.prompt(`Why should "${plan.displayName}" be taken offline? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     setTogglingPlan(plan.plan);
     try {
-      await superAdminUpdatePlanDef(plan.plan, { isPublic: false });
+      await superAdminUpdatePlanDef(plan.plan, { isPublic: false }, reason.trim());
       showToast(`${plan.displayName} taken offline`);
       load();
     } catch { showToast('Failed to update'); }
@@ -486,8 +503,10 @@ export default function SuperAdminPlansPage() {
 
   async function handleDeactivate(plan) {
     if (!window.confirm(`Deactivate "${plan.displayName}"? Existing tenants keep it, but it won't appear anywhere.`)) return;
+    const reason = window.prompt(`Why is "${plan.displayName}" being deactivated? (minimum 5 characters)`);
+    if (!reason || reason.trim().length < 5) { showToast('A reason of at least 5 characters is required'); return; }
     try {
-      await superAdminDeletePlanDef(plan.plan);
+      await superAdminDeletePlanDef(plan.plan, reason.trim());
       showToast('Plan deactivated');
       load();
     } catch { showToast('Failed to deactivate'); }

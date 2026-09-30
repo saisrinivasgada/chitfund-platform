@@ -60,7 +60,7 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(customLimitsRepository.save(any())).thenAnswer(call -> call.getArgument(0));
 
-        tenantService.updatePlan(tenantId, " growth ", "owner-1");
+        tenantService.updatePlan(tenantId, " growth ", "owner-1", "Approved Growth upgrade");
 
         assertThat(tenant.getPlan()).isEqualTo("GROWTH");
         ArgumentCaptor<TenantCustomLimits> limitsCaptor = ArgumentCaptor.forClass(TenantCustomLimits.class);
@@ -77,7 +77,21 @@ class TenantPlanAssignmentTest {
                 org.mockito.ArgumentMatchers.eq("PLAN_CHANGED"),
                 org.mockito.ArgumentMatchers.eq("owner-1"),
                 org.mockito.ArgumentMatchers.eq("ROLE_SUPER_ADMIN"),
-                any(), any(), org.mockito.ArgumentMatchers.eq(tenantId.toString()));
+                any(), any(), org.mockito.ArgumentMatchers.eq(tenantId.toString()),
+                org.mockito.ArgumentMatchers.eq("Approved Growth upgrade"));
+    }
+
+    @Test
+    void entitlementChangeRequiresMeaningfulReasonBeforeReadingOrWritingTenantData() {
+        UUID tenantId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> tenantService.updatePlan(tenantId, "GROWTH", "owner-1", " "))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("reason of at least 5 characters");
+
+        verify(tenantRepository, never()).findById(any());
+        verify(tenantRepository, never()).save(any());
+        verify(customLimitsRepository, never()).save(any());
     }
 
     @Test
@@ -88,7 +102,8 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(planLimitsRepository.findById("RETIRED")).thenReturn(Optional.of(inactive));
 
-        assertThatThrownBy(() -> tenantService.updatePlan(tenantId, "retired", "owner-1"))
+        assertThatThrownBy(() -> tenantService.updatePlan(
+                tenantId, "retired", "owner-1", "Requested plan assignment"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Active plan not found");
 
@@ -130,7 +145,7 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(existing));
 
-        tenantService.setCustomLimits(tenantId, request, "owner-1");
+        tenantService.setCustomLimits(tenantId, request, "owner-1", "Approved custom contract");
 
         assertThat(existing.getPlanCode()).isEqualTo("CUSTOM");
         assertThat(existing.getCapabilities()).isEqualTo("[]");
@@ -144,7 +159,7 @@ class TenantPlanAssignmentTest {
         when(planLimitsRepository.findById("RETIRED")).thenReturn(Optional.of(retired));
 
         assertThatThrownBy(() -> tenantService.removeCustomLimits(
-                tenantId, " retired ", "owner-1"))
+                tenantId, " retired ", "owner-1", "Return to standard plan"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Active fallback plan not found");
 

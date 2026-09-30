@@ -810,8 +810,10 @@ export const superAdminSetTenantStatus = async (tenantId: string, status: string
   unwrapObj(await api.patch(`/super-admin/tenants/${tenantId}/status`, null, { params: { status } }));
 export const superAdminReactivateTenant = async (tenantId: string, newSlug?: string) =>
   unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/reactivate`, null, newSlug ? { params: { newSlug } } : {}));
-export const superAdminUpdatePlan = async (tenantId: string, plan: string) =>
-  unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/plan`, null, { params: { plan } }));
+export const superAdminUpdatePlan = async (tenantId: string, plan: string, reason: string) =>
+  unwrapObj(await api.post(`/super-admin/tenants/${tenantId}/plan`, null, {
+    params: { plan }, headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminListOrgUsers = async (tenantId: string) =>
   unwrapList(await api.get(`/super-admin/tenants/${tenantId}/users`));
 export const superAdminAddOrgUser = async (tenantId: string, body: any) =>
@@ -826,14 +828,18 @@ export const superAdminListRenewalRequests = async () =>
   unwrapList(await api.get('/super-admin/tenants/renewal-requests'));
 export const superAdminClearRenewalRequest = async (tenantId: string) =>
   api.delete(`/super-admin/tenants/${tenantId}/renewal-request`);
-export const superAdminSetPlanExpiry = async (tenantId: string, expiresAt: string) =>
-  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, { params: { expiresAt } }));
+export const superAdminSetPlanExpiry = async (tenantId: string, expiresAt: string, reason: string) =>
+  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/plan-expiry`, null, {
+    params: { expiresAt }, headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminGetAllLimitsBulk = async () =>
   unwrapList(await api.get('/super-admin/tenants/limits-bulk'));
 export const superAdminGetEffectiveLimits = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/effective-limits`));
-export const superAdminSetCustomLimits = async (tenantId: string, data: any) =>
-  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data));
+export const superAdminSetCustomLimits = async (tenantId: string, data: any, reason: string) =>
+  unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data, {
+    headers: { 'X-Change-Reason': reason },
+  }));
 export const superAdminGetAdminCredentials = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/credentials`));
 // Promotions
@@ -852,14 +858,15 @@ export const superAdminListPlans = async () =>
   unwrapList(await api.get('/super-admin/plans'));
 export const superAdminCreatePlan = async (body: any) =>
   unwrapObj(await api.post('/super-admin/plans', body));
-export const superAdminUpdatePlan2 = async (code: string, body: any) =>
-  unwrapObj(await api.put(`/super-admin/plans/${code}`, body));
+export const superAdminUpdatePlan2 = async (code: string, body: any, reason?: string) =>
+  unwrapObj(await api.put(`/super-admin/plans/${code}`, body,
+    reason ? { headers: { 'X-Change-Reason': reason } } : undefined));
 export const superAdminListCapabilities = async () =>
   unwrapList(await api.get('/super-admin/capabilities'));
 export const superAdminAddCapability = async (label: string) =>
   unwrapObj(await api.post('/super-admin/capabilities', { label }));
-export const superAdminDeleteCapability = async (key: string) =>
-  api.delete(`/super-admin/capabilities/${key}`);
+export const superAdminDeleteCapability = async (key: string, reason: string) =>
+  api.delete(`/super-admin/capabilities/${key}`, { headers: { 'X-Change-Reason': reason } });
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));
@@ -1410,8 +1417,12 @@ export const superAdminRemoveDiscount = async (tenantId: string): Promise<void> 
   await api.delete(`/super-admin/tenants/${tenantId}/discount`);
 };
 
-export const superAdminRemoveCustomLimits = async (tenantId: string, fallbackPlan = 'BASIC'): Promise<any> => {
-  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, { params: { fallbackPlan } });
+export const superAdminRemoveCustomLimits = async (
+  tenantId: string, fallbackPlan: string, reason: string,
+): Promise<any> => {
+  const res = await api.delete(`/super-admin/tenants/${tenantId}/custom-limits`, {
+    params: { fallbackPlan }, headers: { 'X-Change-Reason': reason },
+  });
   return res.data;
 };
 
