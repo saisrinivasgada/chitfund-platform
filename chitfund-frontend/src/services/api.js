@@ -1990,8 +1990,8 @@ export const hubReactivateEmployee = async (id) => {
   return res.data.data ?? res.data;
 };
 
-export const hubAssignTicket = async (ticketId, assigneeId) => {
-  const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId });
+export const hubAssignTicket = async (ticketId, assigneeId, note) => {
+  const res = await hubApi.patch(`/hub/tickets/${ticketId}/assign`, { assigneeId, note });
   return res.data.data ?? res.data;
 };
 

@@ -224,7 +224,7 @@ export const hubListTickets = async ({ page = 0, size = 20, status, type, priori
 export const hubGetTicket = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}`));
 export const hubGetTicketMessages = async (id: string) => unwrapObj(await hubApi.get(`/hub/tickets/${id}/messages`));
 export const hubSendTicketMessage = async (id: string, content: string) => unwrapObj(await hubApi.post(`/hub/tickets/${id}/messages`, { content }));
-export const hubUpdateTicketStatus = async (id: string, status: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status }));
+export const hubUpdateTicketStatus = async (id: string, status: string, note: string) => unwrapObj(await hubApi.put(`/hub/tickets/${id}/status`, { status, note }));
 export const hubMarkTicketRead = async (id: string) => hubApi.put(`/hub/tickets/${id}/read`);
 export const hubGetIdentityCaseByTicket = async (ticketId: string) => unwrapObj(await hubApi.get(`/hub/identity-cases/ticket/${ticketId}`));
 export const hubPrepareIdentityCase = async (caseId: string, body: any) => unwrapObj(await hubApi.put(`/hub/identity-cases/${caseId}/prepare`, body));

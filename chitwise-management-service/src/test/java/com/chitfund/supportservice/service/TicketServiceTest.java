@@ -197,11 +197,40 @@ class TicketServiceTest {
     }
 
     @Test
+    void assignmentWithoutReasonIsRejectedBeforeMutation() {
+        EmployeeService employeeService = org.mockito.Mockito.mock(EmployeeService.class);
+        AssignTicketRequest request = new AssignTicketRequest();
+        request.setAssigneeId("agent-2");
+
+        assertThatThrownBy(() -> ticketService.assignTicket(
+                "ticket-1", "agent-1", "SUPPORT_AGENT", request, employeeService))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reason is required");
+
+        verify(ticketRepository, never()).findById(any());
+        verify(assignmentRepository, never()).save(any());
+    }
+
+    @Test
+    void statusChangeWithoutReasonIsRejectedBeforeMutation() {
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(TicketStatus.IN_PROGRESS);
+
+        assertThatThrownBy(() -> ticketService.updateStatus(
+                "ticket-1", request, "agent-1", "SUPPORT_AGENT"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reason is required");
+
+        verify(ticketRepository, never()).findById(any());
+    }
+
+    @Test
     void modifiedClientCannotMoveInProgressTicketBackToOpen() {
         SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
         ticket.setStatus(TicketStatus.IN_PROGRESS);
         UpdateStatusRequest request = new UpdateStatusRequest();
         request.setStatus(TicketStatus.OPEN);
+        request.setNote("Modified client attempted an invalid transition");
         when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> ticketService.updateStatus(
@@ -238,6 +267,7 @@ class TicketServiceTest {
         SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
         UpdateStatusRequest request = new UpdateStatusRequest();
         request.setStatus(TicketStatus.IN_PROGRESS);
+        request.setNote("Agent started investigation");
         when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
         when(ticketRepository.save(ticket)).thenReturn(ticket);
         TransactionSynchronizationManager.initSynchronization();
@@ -256,6 +286,7 @@ class TicketServiceTest {
         SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
         UpdateStatusRequest request = new UpdateStatusRequest();
         request.setStatus(TicketStatus.IN_PROGRESS);
+        request.setNote("Agent started investigation");
         when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
         when(ticketRepository.save(ticket)).thenReturn(ticket);
         TransactionSynchronizationManager.initSynchronization();

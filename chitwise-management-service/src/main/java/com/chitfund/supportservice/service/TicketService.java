@@ -392,6 +392,9 @@ public class TicketService {
     public TicketResponse assignTicket(String ticketId, String assignedById, String assignedByRole,
                                         AssignTicketRequest req,
                                         EmployeeService employeeService) {
+        if (blankToNull(req.getNote()) == null) {
+            throw new IllegalArgumentException("Assignment reason is required");
+        }
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 
@@ -430,6 +433,9 @@ public class TicketService {
     @Transactional
     public TicketResponse updateStatus(String ticketId, UpdateStatusRequest request,
                                        String actorId, String actorRole) {
+        if (blankToNull(request.getNote()) == null) {
+            throw new IllegalArgumentException("Status change reason is required");
+        }
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
 

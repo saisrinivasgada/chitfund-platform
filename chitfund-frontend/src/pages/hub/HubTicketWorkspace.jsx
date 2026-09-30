@@ -11,6 +11,7 @@ import {
 } from '../../services/api';
 import { Inbox, Send, Trash2, ChevronUp, AlertCircle, Search, Flag, Building2, Plus, X } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import TicketReasonDialog from '../../components/hub/TicketReasonDialog';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -229,7 +230,11 @@ function TicketDetail({ id, hubUser, now }) {
   const messages = (msgPages?.pages ?? []).flatMap(p => p.items ?? []).reverse();
   const [content, setContent] = useState('');
   const [hoveredMsg, setHoveredMsg] = useState(null);
+  const [ticketAction, setTicketAction] = useState(null);
+  const [actionReason, setActionReason] = useState('');
   const bottomRef = useRef(null);
+
+  const closeTicketAction = () => { setTicketAction(null); setActionReason(''); };
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
@@ -249,8 +254,9 @@ function TicketDetail({ id, hubUser, now }) {
   });
 
   const statusMut = useMutation({
-    mutationFn: (status) => hubUpdateTicketStatus(id, status),
+    mutationFn: ({ status, note }) => hubUpdateTicketStatus(id, status, note),
     onSuccess: () => {
+      closeTicketAction();
       qc.invalidateQueries({ queryKey: ['hub-ticket', id] });
       qc.invalidateQueries({ queryKey: ['hub-tickets'] });
     },
@@ -264,9 +270,16 @@ function TicketDetail({ id, hubUser, now }) {
   });
 
   const assignMut = useMutation({
-    mutationFn: (assigneeId) => hubAssignTicket(id, assigneeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-ticket', id] }),
+    mutationFn: ({ assigneeId, note }) => hubAssignTicket(id, assigneeId, note),
+    onSuccess: () => { closeTicketAction(); qc.invalidateQueries({ queryKey: ['hub-ticket', id] }); },
   });
+
+  const confirmTicketAction = () => {
+    const note = actionReason.trim();
+    if (!note || !ticketAction) return;
+    if (ticketAction.type === 'status') statusMut.mutate({ status: ticketAction.value, note });
+    if (ticketAction.type === 'assign') assignMut.mutate({ assigneeId: ticketAction.value, note });
+  };
 
   function canDelete(msg) {
     if (msg.deleted) return false;
@@ -306,7 +319,13 @@ function TicketDetail({ id, hubUser, now }) {
             <div className="flex items-center gap-2 mt-1.5">
               <span className="text-xs text-gray-400">Assigned:</span>
               {hubUser.role === 'SUPER_ADMIN' ? (
-                <select value={ticket.assignedTo ?? ''} onChange={e => e.target.value && assignMut.mutate(e.target.value)} disabled={assignMut.isPending}
+                <select value={ticket.assignedTo ?? ''} onChange={e => {
+                  const assigneeId = e.target.value;
+                  if (!assigneeId || assigneeId === ticket.assignedTo) return;
+                  const assignee = employees.find(employee => employee.id === assigneeId);
+                  setTicketAction({ type: 'assign', value: assigneeId, title: 'Assign ticket',
+                    description: `Assign this ticket to ${assignee?.fullName ?? assignee?.username ?? 'the selected employee'}.` });
+                }} disabled={assignMut.isPending}
                   className="text-xs px-2 py-0.5 rounded-lg border border-gray-200 bg-white focus:outline-none cursor-pointer disabled:opacity-50">
                   <option value="">Unassigned</option>
                   {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.username}</option>)}
@@ -321,7 +340,12 @@ function TicketDetail({ id, hubUser, now }) {
 
           {/* Status update */}
           {nextStatuses.length > 0 && (
-            <select disabled={statusMut.isPending} onChange={e => { if (e.target.value) statusMut.mutate(e.target.value); e.target.value = ''; }} defaultValue=""
+            <select disabled={statusMut.isPending} onChange={e => {
+              const status = e.target.value;
+              if (status) setTicketAction({ type: 'status', value: status, title: 'Change ticket status',
+                description: `Move this ticket from ${currentStatus.replace('_', ' ')} to ${status.replace('_', ' ')}.` });
+              e.target.value = '';
+            }} defaultValue=""
               className="flex-shrink-0 px-3 py-1.5 text-xs rounded-xl border border-gray-200 bg-white focus:outline-none cursor-pointer disabled:opacity-50">
               <option value="" disabled>Update status…</option>
               {nextStatuses.map(s => <option key={s} value={s}>{s.replace('_',' ')}</option>)}
@@ -396,6 +420,10 @@ function TicketDetail({ id, hubUser, now }) {
           This ticket is closed. No further replies allowed.
         </div>
       )}
+      <TicketReasonDialog action={ticketAction} reason={actionReason} setReason={setActionReason}
+        onClose={closeTicketAction} onConfirm={confirmTicketAction}
+        loading={statusMut.isPending || assignMut.isPending}
+        error={(statusMut.error || assignMut.error)?.response?.data?.message} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { hubGetTicket, hubGetTicketMessages, hubListTickets, hubMarkTicketRead, hubSendTicketMessage, hubUpdateTicketStatus, hubGetIdentityCaseByTicket, hubPrepareIdentityCase, hubApproveIdentityCase, hubRejectIdentityCase, hubExecuteIdentityCase } from '../../services/api';
@@ -34,11 +34,21 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [newEmail, setNewEmail] = useState('');
   const [approvedLinks, setApprovedLinks] = useState('');
   const [decisionReason, setDecisionReason] = useState('');
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [statusReason, setStatusReason] = useState('');
   const ticketQuery = useQuery({ queryKey: ['hub-ticket', id], queryFn: () => hubGetTicket(id) });
   const messagesQuery = useQuery({ queryKey: ['hub-ticket-messages', id], queryFn: () => hubGetTicketMessages(id), refetchInterval: 30000 });
   useEffect(() => { hubMarkTicketRead(id).catch(() => {}); }, [id]);
   const send = useMutation({ mutationFn: () => hubSendTicketMessage(id, draft.trim()), onSuccess: () => { setDraft(''); qc.invalidateQueries({ queryKey: ['hub-ticket-messages', id] }); } });
-  const status = useMutation({ mutationFn: (next: string) => hubUpdateTicketStatus(id, next), onSuccess: () => { qc.invalidateQueries({ queryKey: ['hub-ticket', id] }); qc.invalidateQueries({ queryKey: ['hub-tickets-mobile'] }); } });
+  const status = useMutation({
+    mutationFn: ({ next, note }: { next: string; note: string }) => hubUpdateTicketStatus(id, next, note),
+    onSuccess: () => {
+      setPendingStatus(null); setStatusReason('');
+      qc.invalidateQueries({ queryKey: ['hub-ticket', id] });
+      qc.invalidateQueries({ queryKey: ['hub-tickets-mobile'] });
+    },
+    onError: (error: any) => Alert.alert('Status change', error.response?.data?.message ?? 'Could not change ticket status'),
+  });
   const ticket: any = ticketQuery.data;
   const messages: any[] = (messagesQuery.data as any)?.items ?? [];
   const canReadCase = !!hubUser?.canManageIdentityCases || !!hubUser?.platformOwner;
@@ -89,7 +99,7 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </View>}
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CHANGE STATUS</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
-          {(VALID_TRANSITIONS[ticket?.status] ?? []).map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => status.mutate(s)} />)}
+          {(VALID_TRANSITIONS[ticket?.status] ?? []).map(s => <Chip key={s} text={label(s)} selected={false} onPress={() => setPendingStatus(s)} />)}
         </ScrollView>
         <Text style={{ fontSize: 10, fontWeight: '800', color: C.gray400, marginBottom: 7 }}>CONVERSATION</Text>
         {messagesQuery.isLoading ? <ActivityIndicator color={C.navy} /> : messages.length === 0 ? <Text style={{ textAlign: 'center', color: C.gray400, padding: 20 }}>No replies yet</Text> : messages.slice().reverse().map((message: any) => {
@@ -105,6 +115,30 @@ function TicketDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <TouchableOpacity disabled={!draft.trim() || send.isPending} onPress={() => send.mutate()} style={{ width: 43, height: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: draft.trim() ? C.navy : C.gray200 }}><Text style={{ color: C.white, fontSize: 18 }}>↑</Text></TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
+    <Modal transparent animationType="fade" visible={!!pendingStatus} onRequestClose={() => { setPendingStatus(null); setStatusReason(''); }}>
+      <View style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: 'rgba(15,23,42,0.48)' }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 18, padding: 18 }}>
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.gray900 }}>Change ticket status</Text>
+          <Text style={{ marginTop: 5, fontSize: 12, lineHeight: 18, color: C.gray500 }}>
+            Move this ticket from {label(ticket?.status)} to {label(pendingStatus ?? undefined)}. Your reason becomes part of the audit history.
+          </Text>
+          <TextInput value={statusReason} onChangeText={setStatusReason} multiline maxLength={1000}
+            placeholder="Reason for this status change" textAlignVertical="top"
+            style={{ minHeight: 92, marginTop: 14, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 12, color: C.gray900 }} />
+          <View style={{ flexDirection: 'row', gap: 9, marginTop: 14 }}>
+            <TouchableOpacity disabled={status.isPending} onPress={() => { setPendingStatus(null); setStatusReason(''); }}
+              style={{ flex: 1, padding: 12, borderRadius: 11, borderWidth: 1, borderColor: C.gray200, alignItems: 'center' }}>
+              <Text style={{ fontWeight: '700', color: C.gray600 }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={!statusReason.trim() || status.isPending}
+              onPress={() => pendingStatus && status.mutate({ next: pendingStatus, note: statusReason.trim() })}
+              style={{ flex: 1, padding: 12, borderRadius: 11, backgroundColor: C.navy, alignItems: 'center', opacity: !statusReason.trim() || status.isPending ? 0.45 : 1 }}>
+              <Text style={{ fontWeight: '700', color: C.white }}>{status.isPending ? 'Saving…' : 'Confirm'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   </SafeAreaView>;
 }
 
