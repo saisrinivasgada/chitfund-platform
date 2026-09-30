@@ -46,6 +46,7 @@ class EmployeeServiceTest {
     @Mock EmployeeInvitationMailer invitationMailer;
     @Mock HubRefreshSessionRepository refreshSessionRepository;
     @Mock AuditClient auditClient;
+    @Mock HubSecurityAuditService securityAuditService;
 
     @Test
     void invitationStoresOnlyHashAndDeliversRawToken() throws Exception {
@@ -117,6 +118,38 @@ class EmployeeServiceTest {
         assertThat(response.getToken()).isEqualTo("hub-token");
         assertThat(response.getSaasToken()).isEqualTo("saas-token");
         assertThat(response.isMustChangePassword()).isFalse();
+        verify(auditClient).logEntity(
+                org.mockito.ArgumentMatchers.eq("HUB_AUTH"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("LOGIN_SUCCEEDED"),
+                org.mockito.ArgumentMatchers.eq(employee.getId()),
+                org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
+                any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void hubLoginDoesNotRevealWhetherAccountExistsOrIsInactive() {
+        EmployeeLoginRequest request = new EmployeeLoginRequest();
+        request.setUsername("hub-user");
+        request.setPassword("WrongPassword@1");
+        when(repository.findByUsername("hub-user")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().login(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid credentials");
+        verify(securityAuditService).recordDeniedLogin("hub-user", "UNKNOWN_ACCOUNT");
+
+        Employee inactive = activeEmployee("SUPPORT_AGENT");
+        inactive.setUsername("inactive-user");
+        inactive.setActive(false);
+        request.setUsername("inactive-user");
+        when(repository.findByUsername("inactive-user")).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> service().login(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid credentials");
+        verify(securityAuditService).recordDeniedLogin("inactive-user", "INACTIVE_ACCOUNT");
     }
 
     @Test
@@ -311,7 +344,7 @@ class EmployeeServiceTest {
     private EmployeeService service() {
         EmployeeService service = new EmployeeService(repository, hubCustomRoleRepository,
                 tokenProvider, orgTokenProvider, passwordEncoder, invitationMailer,
-                refreshSessionRepository, auditClient);
+                refreshSessionRepository, auditClient, securityAuditService);
         ReflectionTestUtils.setField(service, "refreshTokenExpiryDays", 30L);
         return service;
     }

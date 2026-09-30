@@ -50,6 +50,7 @@ public class EmployeeService {
     private final EmployeeInvitationMailer invitationMailer;
     private final HubRefreshSessionRepository refreshSessionRepository;
     private final AuditClient auditClient;
+    private final HubSecurityAuditService securityAuditService;
 
     private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
 
@@ -60,24 +61,25 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeLoginResponse login(EmployeeLoginRequest request) {
-        Employee employee = employeeRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid credentials"));
-
-        if (!employee.isActive()) {
-            throw new IllegalArgumentException("Account is deactivated");
-        }
-
-        if (employee.getPasswordHash() == null) {
-            throw new IllegalArgumentException("Account not activated — check your invite email");
-        }
-
-        if (!passwordEncoder.matches(request.getPassword(), employee.getPasswordHash())) {
+        Employee employee = employeeRepository.findByUsername(request.getUsername()).orElse(null);
+        String denialReason = employee == null ? "UNKNOWN_ACCOUNT"
+                : !employee.isActive() ? "INACTIVE_ACCOUNT"
+                : employee.getPasswordHash() == null ? "INVITE_PENDING"
+                : !passwordEncoder.matches(request.getPassword(), employee.getPasswordHash())
+                        ? "BAD_SECRET" : null;
+        if (denialReason != null) {
+            securityAuditService.recordDeniedLogin(request.getUsername(), denialReason);
             throw new IllegalArgumentException("Invalid credentials");
         }
 
         employee.setLastLoginAt(Instant.now());
         employeeRepository.save(employee);
         refreshSessionRepository.revokeAllForEmployee(employee.getId(), Instant.now());
+        auditClient.logEntity("HUB_AUTH", employee.getId(), "LOGIN_SUCCEEDED",
+                employee.getId(), employee.getRole(), null,
+                java.util.Map.of("status", "SUCCESS"),
+                java.util.Map.of("previousSessionsRevoked", true),
+                PLATFORM_AUDIT_TENANT, null);
         return toLoginResponse(employee);
     }
 
