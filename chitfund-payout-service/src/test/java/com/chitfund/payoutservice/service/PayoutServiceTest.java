@@ -3,6 +3,7 @@ package com.chitfund.payoutservice.service;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.event.PayoutDisbursedEvent;
 import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.payoutservice.client.AuditClient;
 import com.chitfund.payoutservice.client.ChitServiceClient;
 import com.chitfund.payoutservice.domain.Payout;
@@ -65,6 +66,7 @@ class PayoutServiceTest {
     @Mock PayoutFinancialCommandStore financialCommandStore;
     @Mock PayoutFinancialCommandRepository financialCommandRepository;
     @Mock PayoutCreationIdempotencyStore creationIdempotencyStore;
+    @Mock PlanExpiryChecker planExpiryChecker;
     @InjectMocks PayoutService payoutService;
 
     UUID adminId;
@@ -149,6 +151,20 @@ class PayoutServiceTest {
     @Nested
     @DisplayName("createPayout")
     class CreatePayoutTests {
+
+        @Test
+        @DisplayName("expired plan blocks payout creation before financial state is read")
+        void expiredPlanBlocksCreation() {
+            doThrow(new BusinessException(ErrorCode.PLAN_EXPIRED, "subscription expired"))
+                    .when(planExpiryChecker).assertNotExpired();
+
+            assertThatThrownBy(() -> payoutService.createPayout(
+                    createRequest(bd(50_000), bd(5_000)), adminId, "ADMIN", "create-key"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("subscription expired");
+
+            verifyNoInteractions(payoutRepository, creationIdempotencyStore, chitServiceClient);
+        }
 
         @Test
         @DisplayName("happy path: net = winning - discount, status starts PENDING")
@@ -355,6 +371,20 @@ class PayoutServiceTest {
     @Nested
     @DisplayName("disburse")
     class DisburseTests {
+
+        @Test
+        @DisplayName("expired plan blocks a new disbursement before payout state is locked")
+        void expiredPlanBlocksDisbursement() {
+            doThrow(new BusinessException(ErrorCode.PLAN_EXPIRED, "subscription expired"))
+                    .when(planExpiryChecker).assertNotExpired();
+
+            assertThatThrownBy(() -> payoutService.disburse(
+                    payoutId, disburseRequest(bd(1_000)), adminId, "disburse-key"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("subscription expired");
+
+            verifyNoInteractions(payoutRepository, disbursementRepository, financialCommandStore);
+        }
 
         @Test
         @DisplayName("full disbursement: disbursedAmount = net, status → DISBURSED")
@@ -622,6 +652,7 @@ class PayoutServiceTest {
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.CANCELLED);
             assertThat(payout.getCancellationReason()).isEqualTo("Test cancellation reason");
+            verifyNoInteractions(planExpiryChecker);
         }
 
         @Test
@@ -681,6 +712,8 @@ class PayoutServiceTest {
 
             assertThat(payout.getStatus()).isEqualTo(PayoutStatus.VOIDED);
             assertThat(payout.getVoidReason()).isEqualTo("Test cancellation reason");
+            // Expiry must block new money movement, not audited correction/reversal.
+            verifyNoInteractions(planExpiryChecker);
         }
 
         @Test

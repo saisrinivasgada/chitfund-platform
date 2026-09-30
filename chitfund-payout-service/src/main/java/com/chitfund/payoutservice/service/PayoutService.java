@@ -51,6 +51,7 @@ public class PayoutService {
     private final PayoutFinancialCommandStore financialCommandStore;
     private final PayoutFinancialCommandRepository financialCommandRepository;
     private final PayoutCreationIdempotencyStore creationIdempotencyStore;
+    private final PlanExpiryChecker planExpiryChecker;
 
     /**
      * Admin registers a payout obligation after the winner is announced in chit-service.
@@ -64,6 +65,7 @@ public class PayoutService {
     @Transactional
     public PayoutResponse createPayout(CreatePayoutRequest request, UUID adminId, String actorRole,
                                        String rawIdempotencyKey) {
+        planExpiryChecker.assertNotExpired();
         String currentTenant = tenantId();
         String idempotencyKey = normalizeRequiredIdempotencyKey(
                 rawIdempotencyKey, "payout creation");
@@ -208,6 +210,7 @@ public class PayoutService {
     @Transactional
     public PayoutResponse disburse(UUID payoutId, DisburseRequest request, UUID adminId,
                                    String rawIdempotencyKey) {
+        planExpiryChecker.assertNotExpired();
         Payout payout = findOrThrowForWrite(payoutId);
 
         String idempotencyKey = normalizeRequiredIdempotencyKey(

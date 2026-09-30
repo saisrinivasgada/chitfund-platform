@@ -165,6 +165,7 @@ services:
       <<: [*common-env, *db-env]
       DB_NAME: chitfund_payout
       PAYMENT_SERVICE_URL: http://payment-service:8084
+      USER_SERVICE_URL: http://user-service:8081
       AUDIT_SERVICE_URL: http://audit-service:8088
       CHITWISE_EVENTS_MODE: ${CHITWISE_EVENTS_MODE:-LEGACY}
     healthcheck:

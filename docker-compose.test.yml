@@ -162,6 +162,7 @@ services:
       DB_NAME: chitfund_payout
       PAYMENT_SERVICE_URL: http://payment-service:8084
       CHIT_SERVICE_URL: http://chit-service:8082
+      USER_SERVICE_URL: http://user-service:8081
       NOTIFICATION_SERVICE_URL: http://localhost:9999
       AUDIT_SERVICE_URL: http://localhost:9999
       CHITWISE_EVENTS_MODE: OUTBOX
