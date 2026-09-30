@@ -932,12 +932,11 @@ public class TenantService {
     // ── Super-admin: manually add credit to a tenant ─────────────────────────
 
     @Transactional
-    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr, String actorId) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr,
+                                    String reason, String actorId) {
+        validateCreditAdjustment(amountInr, reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Credit amount must be positive");
-        }
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
         java.math.BigDecimal newBalance = current.add(amountInr);
         t.setCreditBalanceInr(newBalance);
@@ -946,27 +945,42 @@ public class TenantService {
                 "CREDIT_ADDED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "addedInr", amountInr.toPlainString()),
-                tenantId.toString());
+                tenantId.toString(), reason.trim());
         return result;
     }
 
     @Transactional
-    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr, String actorId) {
-        Tenant t = tenantRepository.findById(tenantId)
+    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr,
+                                       String reason, String actorId) {
+        validateCreditAdjustment(amountInr, reason);
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Deduction amount must be positive");
-        }
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
-        java.math.BigDecimal newBalance = current.subtract(amountInr).max(java.math.BigDecimal.ZERO);
+        if (amountInr.compareTo(current) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Deduction cannot exceed the available credit balance");
+        }
+        java.math.BigDecimal newBalance = current.subtract(amountInr);
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
         auditClient.log("TENANT", tenantId.toString(),
                 "CREDIT_DEDUCTED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "deductedInr", amountInr.toPlainString()),
-                tenantId.toString());
+                tenantId.toString(), reason.trim());
         return result;
+    }
+
+    private static void validateCreditAdjustment(java.math.BigDecimal amountInr, String reason) {
+        if (amountInr == null || amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0
+                || amountInr.scale() > 2) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Credit amount must be positive with at most two decimal places");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A reason is required for every credit adjustment");
+        }
     }
 
     public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId, String actorRole) {

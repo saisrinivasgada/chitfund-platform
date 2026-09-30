@@ -3,6 +3,7 @@ package com.chitfund.userservice.controller;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.userservice.domain.entity.User;
 import com.chitfund.userservice.dto.request.AddOrgUserRequest;
+import com.chitfund.userservice.dto.request.AdjustTenantCreditRequest;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.request.UpdateTenantRequest;
 import com.chitfund.userservice.dto.response.ActivationResponse;
@@ -22,7 +23,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -219,20 +219,20 @@ public class SuperAdminController {
     @PostMapping("/{tenantId}/credits")
     public ResponseEntity<ApiResponse<TenantResponse>> addCredit(
             @PathVariable UUID tenantId,
-            @RequestBody Map<String, Object> body,
+            @Valid @RequestBody AdjustTenantCreditRequest request,
             @AuthenticationPrincipal User principal) {
-        BigDecimal amount = new BigDecimal(body.get("amountInr").toString());
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.addCredit(tenantId, amount, principal.getId().toString()), "Credit added"));
+                tenantService.addCredit(tenantId, request.getAmountInr(),
+                        request.getNotes(), principal.getId().toString()), "Credit added"));
     }
 
     @PostMapping("/{tenantId}/credits/deduct")
     public ResponseEntity<ApiResponse<TenantResponse>> deductCredit(
             @PathVariable UUID tenantId,
-            @RequestBody Map<String, Object> body,
+            @Valid @RequestBody AdjustTenantCreditRequest request,
             @AuthenticationPrincipal User principal) {
-        BigDecimal amount = new BigDecimal(body.get("amountInr").toString());
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.deductCredit(tenantId, amount, principal.getId().toString()), "Credit deducted"));
+                tenantService.deductCredit(tenantId, request.getAmountInr(),
+                        request.getNotes(), principal.getId().toString()), "Credit deducted"));
     }
 }

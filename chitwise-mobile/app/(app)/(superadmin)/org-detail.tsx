@@ -1077,7 +1077,7 @@ function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
   const [notes, setNotes] = useState('');
 
   const amountNum = Number(amount);
-  const valid = !!amount && !Number.isNaN(amountNum) && amountNum > 0;
+  const valid = !!amount && !Number.isNaN(amountNum) && amountNum > 0 && notes.trim().length > 0;
 
   function submit() {
     if (!valid) return;
@@ -1139,7 +1139,7 @@ function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
           </View>
 
           <View>
-            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Notes (optional)</Text>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}

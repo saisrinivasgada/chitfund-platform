@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -58,15 +59,16 @@ class TenantSuperAdminAuditTest {
         UUID tenantId = UUID.randomUUID();
         Tenant tenant = Tenant.builder().id(tenantId).name("Acme")
                 .creditBalanceInr(new BigDecimal("100.00")).build();
-        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
         when(tenantRepository.save(tenant)).thenReturn(tenant);
 
-        tenantService.addCredit(tenantId, new BigDecimal("25.00"), "owner-2");
+        tenantService.addCredit(tenantId, new BigDecimal("25.00"),
+                "Service recovery credit", "owner-2");
 
         assertThat(tenant.getCreditBalanceInr()).isEqualByComparingTo("125.00");
         verify(auditClient).log(eq("TENANT"), eq(tenantId.toString()),
                 eq("CREDIT_ADDED"), eq("owner-2"), eq("ROLE_SUPER_ADMIN"),
-                any(), any(), eq(tenantId.toString()));
+                any(), any(), eq(tenantId.toString()), eq("Service recovery credit"));
     }
 
     @Test
@@ -84,5 +86,21 @@ class TenantSuperAdminAuditTest {
         verify(auditClient).log(eq("TENANT"), eq(tenantId.toString()),
                 eq("CANCELLATION_REVOKED"), eq("owner-1"), eq("ROLE_SUPER_ADMIN"),
                 any(), any(), eq(tenantId.toString()));
+    }
+
+    @Test
+    void deductionLocksTenantAndRejectsAmountAboveBalance() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Acme")
+                .creditBalanceInr(new BigDecimal("50.00")).build();
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+
+        assertThatThrownBy(() -> tenantService.deductCredit(
+                tenantId, new BigDecimal("75.00"), "Correction", "owner-1"))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("cannot exceed");
+
+        assertThat(tenant.getCreditBalanceInr()).isEqualByComparingTo("50.00");
+        verify(tenantRepository).findByIdForUpdate(tenantId);
     }
 }
