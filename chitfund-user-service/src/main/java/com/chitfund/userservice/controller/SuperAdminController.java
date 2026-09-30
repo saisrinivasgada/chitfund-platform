@@ -97,33 +97,37 @@ public class SuperAdminController {
     @PostMapping("/{tenantId}/plan")
     public ResponseEntity<ApiResponse<TenantResponse>> updatePlan(
             @PathVariable UUID tenantId,
-            @RequestParam String plan) {
+            @RequestParam String plan,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.updatePlan(tenantId, plan), "Plan updated"));
+                tenantService.updatePlan(tenantId, plan, principal.getId().toString()), "Plan updated"));
     }
 
     @PutMapping("/{tenantId}/plan-expiry")
     public ResponseEntity<ApiResponse<TenantResponse>> setPlanExpiry(
             @PathVariable UUID tenantId,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime expiresAt) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime expiresAt,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.setPlanExpiry(tenantId, expiresAt), "Plan expiry updated"));
+                tenantService.setPlanExpiry(tenantId, expiresAt, principal.getId().toString()), "Plan expiry updated"));
     }
 
     @PutMapping("/{tenantId}/custom-limits")
     public ResponseEntity<ApiResponse<EffectiveLimitsResponse>> setCustomLimits(
             @PathVariable UUID tenantId,
-            @Valid @RequestBody SetCustomLimitsRequest request) {
+            @Valid @RequestBody SetCustomLimitsRequest request,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.setCustomLimits(tenantId, request), "Custom limits saved"));
+                tenantService.setCustomLimits(tenantId, request, principal.getId().toString()), "Custom limits saved"));
     }
 
     @DeleteMapping("/{tenantId}/custom-limits")
     public ResponseEntity<ApiResponse<Void>> removeCustomLimits(
             @PathVariable UUID tenantId,
-            @RequestParam(defaultValue = "BASIC") String fallbackPlan) {
-        tenantService.removeCustomLimits(tenantId, fallbackPlan);
+            @RequestParam(defaultValue = "BASIC") String fallbackPlan,
+            @AuthenticationPrincipal User principal) {
+        tenantService.removeCustomLimits(tenantId, fallbackPlan, principal.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "Custom limits removed"));
     }
 

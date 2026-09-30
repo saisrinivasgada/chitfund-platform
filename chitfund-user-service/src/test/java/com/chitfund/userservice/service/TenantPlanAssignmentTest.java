@@ -58,7 +58,7 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         when(customLimitsRepository.save(any())).thenAnswer(call -> call.getArgument(0));
 
-        tenantService.updatePlan(tenantId, " growth ");
+        tenantService.updatePlan(tenantId, " growth ", "owner-1");
 
         assertThat(tenant.getPlan()).isEqualTo("GROWTH");
         ArgumentCaptor<TenantCustomLimits> limitsCaptor = ArgumentCaptor.forClass(TenantCustomLimits.class);
@@ -70,6 +70,12 @@ class TenantPlanAssignmentTest {
         assertThat(saved.getMaxStaff()).isEqualTo(10);
         assertThat(saved.getCapabilities()).isEqualTo("[\"live_chat\"]");
         assertThat(saved.getAllowedChitTypes()).isEqualTo("RESERVATION,AUCTION");
+        verify(auditClient).log(org.mockito.ArgumentMatchers.eq("TENANT"),
+                org.mockito.ArgumentMatchers.eq(tenantId.toString()),
+                org.mockito.ArgumentMatchers.eq("PLAN_CHANGED"),
+                org.mockito.ArgumentMatchers.eq("owner-1"),
+                org.mockito.ArgumentMatchers.eq("ROLE_SUPER_ADMIN"),
+                any(), any(), org.mockito.ArgumentMatchers.eq(tenantId.toString()));
     }
 
     @Test
@@ -80,7 +86,7 @@ class TenantPlanAssignmentTest {
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
         when(planLimitsRepository.findById("RETIRED")).thenReturn(Optional.of(inactive));
 
-        assertThatThrownBy(() -> tenantService.updatePlan(tenantId, "retired"))
+        assertThatThrownBy(() -> tenantService.updatePlan(tenantId, "retired", "owner-1"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("Active plan not found");
 

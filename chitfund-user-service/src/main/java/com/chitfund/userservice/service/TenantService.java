@@ -366,7 +366,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public TenantResponse updatePlan(UUID tenantId, String plan) {
+    public TenantResponse updatePlan(UUID tenantId, String plan, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         String targetPlan = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
@@ -384,7 +384,7 @@ public class TenantService {
         // upgrade or downgrade cannot expose stale limits.
         seedLimitsFromPlan(tenantId.toString(), targetLimits);
         auditClient.log("TENANT", tenantId.toString(),
-                "PLAN_CHANGED", null, "ROLE_SUPER_ADMIN",
+                "PLAN_CHANGED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
                 java.util.Map.of("plan", targetPlan),
                 tenantId.toString());
@@ -440,7 +440,7 @@ public class TenantService {
                         "/superadmin/tenants/" + tenantId));
     }
 
-    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt) {
+    public TenantResponse setPlanExpiry(UUID tenantId, java.time.LocalDateTime expiresAt, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.time.LocalDateTime prev = t.getPlanExpiresAt();
@@ -448,7 +448,7 @@ public class TenantService {
         t.setRenewalRequestedAt(null); // clear renewal request when expiry is updated
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "PLAN_EXPIRY_SET", null, "ROLE_SUPER_ADMIN",
+                "PLAN_EXPIRY_SET", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("planExpiresAt", prev != null ? prev.toString() : "none"),
                 java.util.Map.of("planExpiresAt", expiresAt != null ? expiresAt.toString() : "none"),
                 tenantId.toString());
@@ -651,7 +651,7 @@ public class TenantService {
 
     // ── Custom plan limits ───────────────────────────────────────────────────
 
-    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req) {
+    public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
@@ -679,7 +679,7 @@ public class TenantService {
         tenantRepository.save(t);
 
         auditClient.log("TENANT", tenantId.toString(),
-                "CUSTOM_LIMITS_SET", null, "ROLE_SUPER_ADMIN",
+                "CUSTOM_LIMITS_SET", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
                 java.util.Map.of("plan", "CUSTOM",
                         "maxActiveChits", String.valueOf(req.getMaxActiveChits()),
@@ -690,7 +690,7 @@ public class TenantService {
         return toEffectiveLimits(limits, t.getPlanExpiresAt(), CapabilityJson.parse(limits.getCapabilities(), objectMapper));
     }
 
-    public void removeCustomLimits(UUID tenantId, String fallbackPlan) {
+    public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId) {
         String planCode = fallbackPlan != null ? fallbackPlan.toUpperCase() : "BASIC";
         PlanLimits plan = planLimitsRepository.findById(planCode)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Plan not found: " + planCode));
@@ -703,7 +703,7 @@ public class TenantService {
         t.setPlan(planCode);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "CUSTOM_LIMITS_REMOVED", null, "ROLE_SUPER_ADMIN",
+                "CUSTOM_LIMITS_REMOVED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("plan", prevPlan != null ? prevPlan : "CUSTOM"),
                 java.util.Map.of("plan", planCode),
                 tenantId.toString());
