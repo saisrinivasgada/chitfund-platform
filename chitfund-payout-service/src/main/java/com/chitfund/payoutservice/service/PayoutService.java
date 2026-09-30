@@ -114,8 +114,10 @@ public class PayoutService {
         validateDeductionBreakdown(request);
 
         BigDecimal netAmount = request.getWinningAmount().subtract(request.getDiscountAmount());
-
         BigDecimal zero = BigDecimal.ZERO;
+        BigDecimal installmentSettlement = request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero;
+        BigDecimal crossChitSettlement = request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero;
+        BigDecimal manualAdjustment = request.getManualAdjustment() != null ? request.getManualAdjustment() : zero;
         Payout payout = Payout.builder()
                 .tenantId(currentTenant)
                 .chitId(request.getChitId())
@@ -124,7 +126,7 @@ public class PayoutService {
                 .winningAmount(request.getWinningAmount())
                 .discountAmount(request.getDiscountAmount())
                 .netPayoutAmount(netAmount)
-                .installmentSettlement(request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero)
+                .installmentSettlement(installmentSettlement)
                 .installmentSettlementMonths(
                         request.getInstallmentMonthBreakdown() != null && !request.getInstallmentMonthBreakdown().isEmpty()
                         ? request.getInstallmentMonthBreakdown().stream()
@@ -132,8 +134,8 @@ public class PayoutService {
                                 .map(b -> b.getMonth() + ":" + b.getAmount().stripTrailingZeros().toPlainString())
                                 .collect(java.util.stream.Collectors.joining(","))
                         : null)
-                .crossChitSettlement(request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero)
-                .manualAdjustment(request.getManualAdjustment() != null ? request.getManualAdjustment() : zero)
+                .crossChitSettlement(crossChitSettlement)
+                .manualAdjustment(manualAdjustment)
                 .notes(request.getNotes())
                 .createdBy(adminId)
                 .build();

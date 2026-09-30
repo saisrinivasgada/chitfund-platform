@@ -99,6 +99,35 @@ class PaymentTenantMigrationMySqlTest {
     }
 
     @Test
+    void auctionDividendCreditsHaveAnIndexedDrawReferenceOnRealMySql() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            try (var column = connection.prepareStatement(
+                    "SELECT DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS " +
+                            "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='member_credit_transactions' " +
+                            "AND COLUMN_NAME='source_draw_id'")) {
+                try (var result = column.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getString("DATA_TYPE")).isEqualTo("varchar");
+                    assertThat(result.getString("IS_NULLABLE")).isEqualTo("YES");
+                }
+            }
+            try (var index = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.STATISTICS " +
+                            "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='member_credit_transactions' " +
+                            "AND INDEX_NAME='idx_credit_draw'")) {
+                try (var result = index.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(2);
+                }
+            }
+        }
+    }
+
+    @Test
     void notificationStorageCanIsolateTheSameRoleAcrossTenants() throws Exception {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
                 .locations("classpath:db/migration").load().migrate();

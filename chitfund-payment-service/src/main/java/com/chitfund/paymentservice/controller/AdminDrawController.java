@@ -173,7 +173,7 @@ public class AdminDrawController {
         drawService.applyAuctionDividend(
                 request.getChitId(), request.getMonthNumber(),
                 request.getGrossInstallmentAmount(), request.getDividendPerSpot(),
-                memberSpots, tenantId, request.getDistributableDiscount());
+                memberSpots, tenantId, request.getDistributableDiscount(), request.getActorId());
         return ResponseEntity.ok().build();
     }
 
@@ -192,7 +192,8 @@ public class AdminDrawController {
         }
         UUID chitId = UUID.fromString((String) body.get("chitId"));
         Integer monthNumber = (Integer) body.get("monthNumber");
-        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId);
+        UUID actorId = body.get("actorId") == null ? null : UUID.fromString((String) body.get("actorId"));
+        drawService.reverseAuctionDividend(chitId, monthNumber, tenantId, actorId);
         return ResponseEntity.ok().build();
     }
 

@@ -1,15 +1,16 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.domain.MemberCreditBalance;
 import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
 import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
 import com.chitfund.common.context.TenantContext;
-import com.chitfund.common.exception.BusinessException;
-import com.chitfund.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,7 +73,15 @@ public class MemberCreditService {
      */
     @Transactional
     public void addCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
-        recordMovement(memberId, amount, "IN", batchId, null, null, chitId, actorId, description);
+        recordMovement(memberId, amount, "IN", batchId, null, null, null, chitId, actorId, description);
+    }
+
+    /** Adds excess auction dividend credit with a stable draw link for exact reversal. */
+    @Transactional
+    public void addCreditForAuctionDraw(UUID memberId, BigDecimal amount, UUID drawId, UUID chitId,
+                                        UUID actorId, String description) {
+        recordMovement(memberId, amount, "IN", null, null, drawId, null,
+                chitId, actorId, description);
     }
 
     /**
@@ -81,14 +90,14 @@ public class MemberCreditService {
      */
     @Transactional
     public void consumeCredit(UUID memberId, BigDecimal amount, UUID batchId, UUID chitId, UUID actorId, String description) {
-        recordMovement(memberId, amount, "OUT", batchId, null, null, chitId, actorId, description);
+        recordMovement(memberId, amount, "OUT", batchId, null, null, null, chitId, actorId, description);
     }
 
     /** Records credit consumed by settlement confirmation with an explicit audit link. */
     @Transactional
     public void consumeCreditForSettlement(UUID memberId, BigDecimal amount, UUID settlementId,
                                            UUID actorId, String description) {
-        recordMovement(memberId, amount, "OUT", null, settlementId, null, null, actorId, description);
+        recordMovement(memberId, amount, "OUT", null, settlementId, null, null, null, actorId, description);
     }
 
     /** Restores exactly the credit movements created by one reversible settlement. */
@@ -106,14 +115,14 @@ public class MemberCreditService {
             if (creditTxnRepository.existsByTenantIdAndReversalOfId(tenantId, original.getId())) continue;
             String reverseType = "IN".equals(original.getType()) ? "OUT" : "IN";
             recordMovement(memberId, original.getAmount(), reverseType, null, settlementId,
-                    original.getId(), original.getChitId(), actorId,
+                    original.getSourceDrawId(), original.getId(), original.getChitId(), actorId,
                     "Settlement reversal for credit transaction " + original.getId());
         }
         return reversed;
     }
 
     private void recordMovement(UUID memberId, BigDecimal amount, String type,
-                                UUID batchId, UUID settlementId, UUID reversalOfId,
+                                UUID batchId, UUID settlementId, UUID drawId, UUID reversalOfId,
                                 UUID chitId, UUID actorId, String description) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) return;
 
@@ -129,12 +138,17 @@ public class MemberCreditService {
                 ? credit.getBalance().add(amount)
                 : credit.getBalance().subtract(amount);
         if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-            // Settlement movements must be exact and auditable. Preserve the
-            // pre-existing clamp only for legacy payment-batch consumption.
-            if (settlementId != null) {
-                throw new IllegalStateException("Settlement credit movement would make the member balance negative");
-            }
-            newBalance = BigDecimal.ZERO;
+            // Every credit movement must be exact and auditable — never silently clamp
+            // a shortfall to zero, since that destroys real money with no ledger trace.
+            // Callers are expected to size their consumption against a locked read
+            // (getBalanceForUpdate) beforehand; if we still land here, the balance
+            // moved out from under the caller (e.g. spent elsewhere since a batch was
+            // recorded) and needs a human to reconcile rather than an automatic write-off.
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Credit movement would make member " + memberId + " balance negative (current ₹"
+                            + credit.getBalance() + ", requested " + type + " ₹" + amount + ") — "
+                            + "the balance changed since it was last read; needs manual reconciliation",
+                    HttpStatus.CONFLICT);
         }
         credit.setBalance(newBalance);
         creditBalanceRepository.save(credit);
@@ -146,6 +160,7 @@ public class MemberCreditService {
                 .type(type)
                 .sourceBatchId(batchId)
                 .sourceSettlementId(settlementId)
+                .sourceDrawId(drawId)
                 .reversalOfId(reversalOfId)
                 .chitId(chitId)
                 .description(description)
@@ -171,19 +186,45 @@ public class MemberCreditService {
                 creditTxnRepository.findByTenantIdAndSourceBatchId(tenantId(), batchId);
         if (txns.isEmpty()) return;
 
+        int reversedCount = 0;
         for (MemberCreditTransaction txn : txns) {
-            if ("IN".equals(txn.getType())) {
-                // Credit was added from this batch's overpayment → now remove it
-                consumeCredit(memberId, txn.getAmount(), batchId, txn.getChitId(), actorId,
-                        "Void reversal — removing credit created by voided batch " + batchId);
-            } else {
-                // Credit was consumed by this batch → restore it
-                addCredit(memberId, txn.getAmount(), batchId, txn.getChitId(), actorId,
-                        "Void reversal — restoring credit consumed by voided batch " + batchId);
+            if (txn.getReversalOfId() != null) {
+                continue; // this row is itself a reversal, not an original movement — never re-reverse it
             }
+            if (creditTxnRepository.existsByTenantIdAndReversalOfId(tenantId(), txn.getId())) {
+                continue; // already reversed — replay-safe
+            }
+            String reverseType = "IN".equals(txn.getType()) ? "OUT" : "IN";
+            recordMovement(memberId, txn.getAmount(), reverseType, batchId, null,
+                    txn.getSourceDrawId(), txn.getId(),
+                    txn.getChitId(), actorId,
+                    "Void reversal for credit transaction " + txn.getId() + " (batch " + batchId + ")");
+            reversedCount++;
         }
         log.info("Reversed {} credit transaction(s) for voided batch {} (member {})",
-                txns.size(), batchId, memberId);
+                reversedCount, batchId, memberId);
+    }
+
+    /** Reverses every excess-dividend credit created by one auction draw, exactly once. */
+    @Transactional
+    public void reverseCreditForAuctionDraw(UUID drawId, UUID actorId) {
+        String tenantId = tenantId();
+        List<MemberCreditTransaction> txns =
+                creditTxnRepository.findByTenantIdAndSourceDrawId(tenantId, drawId);
+        int reversedCount = 0;
+        for (MemberCreditTransaction txn : txns) {
+            if (txn.getReversalOfId() != null
+                    || creditTxnRepository.existsByTenantIdAndReversalOfId(tenantId, txn.getId())) {
+                continue;
+            }
+            String reverseType = "IN".equals(txn.getType()) ? "OUT" : "IN";
+            recordMovement(txn.getMemberId(), txn.getAmount(), reverseType, null, null,
+                    drawId, txn.getId(), txn.getChitId(), actorId,
+                    "Auction reopen reversal for credit transaction " + txn.getId()
+                            + " (draw " + drawId + ")");
+            reversedCount++;
+        }
+        log.info("Reversed {} credit transaction(s) for auction draw {}", reversedCount, drawId);
     }
 
     private String tenantId() {

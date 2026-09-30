@@ -327,7 +327,7 @@ public class AuctionService {
         paymentServiceClient.applyAuctionDividend(
                 chitId, session.getMonthNumber(),
                 grossInstallment, dividendPerSpot,
-                memberSpots, tenantId, distributableDiscount);
+                memberSpots, tenantId, distributableDiscount, closedBy);
 
         log.info("Auction closed: id={} chit={} month={} mode={} winner={} scheduledPayout={} wonAmount={} discount={} commission={} distributable={} totalSpots={} dividendPerSpot={} closedBy={}",
                 auctionId, chitId, session.getMonthNumber(), session.getAuctionMode(),
@@ -441,7 +441,8 @@ public class AuctionService {
         // Reverse winner record
         winnerService.deleteWinnerForDraw(chitId, session.getMonthNumber());
         // Reverse payment records in payment service
-        paymentServiceClient.reverseAuctionDividend(chitId, session.getMonthNumber(), TenantContext.get());
+        paymentServiceClient.reverseAuctionDividend(
+                chitId, session.getMonthNumber(), TenantContext.get(), adminId);
         // Clear close-related fields and reopen
         session.setStatus(AuctionStatus.OPEN);
         session.setWinnerId(null);

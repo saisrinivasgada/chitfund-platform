@@ -36,7 +36,7 @@ public class PaymentServiceClient {
                                      List<MemberSpot> memberSpots,
                                      String tenantId) {
         applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
-                dividendPerSpot, memberSpots, tenantId, null);
+                dividendPerSpot, memberSpots, tenantId, null, null);
     }
 
     /**
@@ -50,6 +50,17 @@ public class PaymentServiceClient {
                                      List<MemberSpot> memberSpots,
                                      String tenantId,
                                      BigDecimal distributableDiscount) {
+        applyAuctionDividend(chitId, monthNumber, grossInstallmentAmount,
+                dividendPerSpot, memberSpots, tenantId, distributableDiscount, null);
+    }
+
+    public void applyAuctionDividend(UUID chitId, Integer monthNumber,
+                                     BigDecimal grossInstallmentAmount,
+                                     BigDecimal dividendPerSpot,
+                                     List<MemberSpot> memberSpots,
+                                     String tenantId,
+                                     BigDecimal distributableDiscount,
+                                     UUID actorId) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -65,6 +76,9 @@ public class PaymentServiceClient {
             body.put("memberSpots", memberSpots);
             if (distributableDiscount != null) {
                 body.put("distributableDiscount", distributableDiscount);
+            }
+            if (actorId != null) {
+                body.put("actorId", actorId.toString());
             }
 
             restTemplate.exchange(
@@ -86,16 +100,22 @@ public class PaymentServiceClient {
      * Fails if any member has already paid (admin must void those batches first).
      */
     public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId) {
+        reverseAuctionDividend(chitId, monthNumber, tenantId, null);
+    }
+
+    public void reverseAuctionDividend(UUID chitId, Integer monthNumber, String tenantId, UUID actorId) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("X-Internal-Key", internalKey);
             headers.set("X-Tenant-ID", tenantId);
 
-            Map<String, Object> body = Map.of(
-                    "chitId", chitId.toString(),
-                    "monthNumber", monthNumber
-            );
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("chitId", chitId.toString());
+            body.put("monthNumber", monthNumber);
+            if (actorId != null) {
+                body.put("actorId", actorId.toString());
+            }
 
             restTemplate.exchange(
                     paymentServiceUrl + "/admin/draws/internal/reverse-auction-dividend",

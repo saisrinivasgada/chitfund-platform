@@ -23,4 +23,10 @@ public class CollectCashRequest {
 
     // Admin recording on behalf of a worker/manager — if set, overrides auth.getPrincipal() as collectedBy
     private UUID overrideCollectedBy;
+
+    // Set true to proceed anyway when the server flags this as a possible duplicate
+    // of another very recent payment for the same member/chit/amount (e.g. the same
+    // cash was already recorded through another device/channel). Defaults to false —
+    // the caller must explicitly confirm this isn't a duplicate.
+    private boolean confirmDuplicate;
 }

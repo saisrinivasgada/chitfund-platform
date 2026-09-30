@@ -25,6 +25,9 @@ public class ApplyAuctionDividendRequest {
      */
     @DecimalMin("0.00") private BigDecimal distributableDiscount;
 
+    /** Actor who closed the auction. Nullable only for rolling-deploy compatibility. */
+    private UUID actorId;
+
     @NotNull private List<MemberSpot> memberSpots;
 
     @Data

@@ -38,6 +38,9 @@ public class MemberCreditTransaction {
 
     private UUID sourceSettlementId;
 
+    // Which auction draw generated this credit (used for exact reopen/void reversal)
+    private UUID sourceDrawId;
+
     private UUID reversalOfId;
 
     // Which chit this payment was for (informational)

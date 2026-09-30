@@ -87,7 +87,7 @@ class FifoAllocationTest {
         chitB = UUID.randomUUID();
 
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
-        when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
+        when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
         when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
                 anyString(), any(), anyList()))
                 .thenReturn(BigDecimal.ZERO);
@@ -289,7 +289,7 @@ class FifoAllocationTest {
     void creditConsumedBeforeCash() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
         withCurrentChitRecords(List.of(m1));
-        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("400"));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("400"));
         when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
                 eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new BigDecimal("1000"));
@@ -310,7 +310,7 @@ class FifoAllocationTest {
     void creditConsumptionCappedAtOwed() {
         PaymentRecord m1 = outstanding(chitA, 1, "1000");
         withCurrentChitRecords(List.of(m1));
-        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("5000"));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("5000"));
         when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
                 eq(TENANT), eq(memberId), anyList()))
                 .thenReturn(new BigDecimal("1000"));
@@ -333,7 +333,7 @@ class FifoAllocationTest {
     void creditOffsetIsCrossChit() {
         PaymentRecord a1 = outstanding(chitA, 1, "1000");
         withCurrentChitRecords(List.of(a1));
-        when(memberCreditService.getBalance(memberId)).thenReturn(new BigDecimal("3000"));
+        when(memberCreditService.getBalanceForUpdate(memberId)).thenReturn(new BigDecimal("3000"));
         // 1,000 in this chit + 2,000 elsewhere.
         when(paymentRecordRepository.findTotalOutstandingByTenantIdAndMemberId(
                 eq(TENANT), eq(memberId), anyList()))

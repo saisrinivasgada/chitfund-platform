@@ -7,6 +7,7 @@ import com.chitfund.common.plan.PlanEntitlementVerifier;
 import com.chitfund.paymentservice.client.UserServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

@@ -10,5 +10,6 @@ public interface MemberCreditTransactionRepository extends JpaRepository<MemberC
     List<MemberCreditTransaction> findByTenantIdAndMemberIdOrderByCreatedAtDesc(String tenantId, UUID memberId);
     List<MemberCreditTransaction> findByTenantIdAndSourceBatchId(String tenantId, UUID sourceBatchId);
     List<MemberCreditTransaction> findByTenantIdAndSourceSettlementId(String tenantId, UUID sourceSettlementId);
+    List<MemberCreditTransaction> findByTenantIdAndSourceDrawId(String tenantId, UUID sourceDrawId);
     boolean existsByTenantIdAndReversalOfId(String tenantId, UUID reversalOfId);
 }

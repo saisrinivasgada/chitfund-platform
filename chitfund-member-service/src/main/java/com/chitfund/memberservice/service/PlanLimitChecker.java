@@ -7,6 +7,7 @@ import com.chitfund.common.plan.PlanEntitlementVerifier;
 import com.chitfund.memberservice.client.UserServiceClient;
 import com.chitfund.memberservice.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

@@ -102,4 +102,68 @@ class MemberCreditSettlementReversalTest {
         verify(creditBalanceRepository, never()).findByTenantIdAndMemberIdForUpdate(any(), any());
         verify(creditTxnRepository, never()).save(any());
     }
+
+    @Test
+    void auctionReopenRemovesOnlyTheCreditLinkedToThatDraw() {
+        UUID drawId = UUID.randomUUID();
+        UUID memberId = UUID.randomUUID();
+        UUID chitId = UUID.randomUUID();
+        UUID originalId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        MemberCreditBalance balance = MemberCreditBalance.builder()
+                .tenantId(TENANT)
+                .memberId(memberId)
+                .balance(new BigDecimal("250.00"))
+                .build();
+        MemberCreditTransaction original = MemberCreditTransaction.builder()
+                .id(originalId)
+                .tenantId(TENANT)
+                .memberId(memberId)
+                .amount(new BigDecimal("200.00"))
+                .type("IN")
+                .sourceDrawId(drawId)
+                .chitId(chitId)
+                .build();
+        when(creditTxnRepository.findByTenantIdAndSourceDrawId(TENANT, drawId))
+                .thenReturn(List.of(original));
+        when(creditTxnRepository.existsByTenantIdAndReversalOfId(TENANT, originalId))
+                .thenReturn(false);
+        when(creditBalanceRepository.findByTenantIdAndMemberIdForUpdate(TENANT, memberId))
+                .thenReturn(Optional.of(balance));
+
+        service.reverseCreditForAuctionDraw(drawId, actorId);
+
+        assertThat(balance.getBalance()).isEqualByComparingTo("50.00");
+        ArgumentCaptor<MemberCreditTransaction> saved =
+                ArgumentCaptor.forClass(MemberCreditTransaction.class);
+        verify(creditTxnRepository).save(saved.capture());
+        assertThat(saved.getValue().getType()).isEqualTo("OUT");
+        assertThat(saved.getValue().getSourceDrawId()).isEqualTo(drawId);
+        assertThat(saved.getValue().getReversalOfId()).isEqualTo(originalId);
+        assertThat(saved.getValue().getCreatedBy()).isEqualTo(actorId);
+        assertThat(saved.getValue().getChitId()).isEqualTo(chitId);
+    }
+
+    @Test
+    void auctionCreditReversalRetryDoesNotPostAgain() {
+        UUID drawId = UUID.randomUUID();
+        UUID originalId = UUID.randomUUID();
+        MemberCreditTransaction original = MemberCreditTransaction.builder()
+                .id(originalId)
+                .tenantId(TENANT)
+                .memberId(UUID.randomUUID())
+                .amount(new BigDecimal("200.00"))
+                .type("IN")
+                .sourceDrawId(drawId)
+                .build();
+        when(creditTxnRepository.findByTenantIdAndSourceDrawId(TENANT, drawId))
+                .thenReturn(List.of(original));
+        when(creditTxnRepository.existsByTenantIdAndReversalOfId(TENANT, originalId))
+                .thenReturn(true);
+
+        service.reverseCreditForAuctionDraw(drawId, UUID.randomUUID());
+
+        verify(creditBalanceRepository, never()).findByTenantIdAndMemberIdForUpdate(any(), any());
+        verify(creditTxnRepository, never()).save(any());
+    }
 }
