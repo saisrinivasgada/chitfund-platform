@@ -29,7 +29,8 @@ class PlanExpiryCheckerTest {
     void activePlanAllowsPayoutMutation() {
         TenantContext.set("tenant-a");
         when(userServiceClient.getEffectiveLimits("tenant-a"))
-                .thenReturn(Map.of("planExpiresAt", LocalDateTime.now().plusDays(1).toString()));
+                .thenReturn(Map.of("tenantStatus", "ACTIVE",
+                        "planExpiresAt", LocalDateTime.now().plusDays(1).toString()));
 
         assertThatCode(checker::assertNotExpired).doesNotThrowAnyException();
     }
@@ -38,7 +39,8 @@ class PlanExpiryCheckerTest {
     void expiredPlanIsRejectedUsingFreshServerState() {
         TenantContext.set("tenant-a");
         when(userServiceClient.getEffectiveLimits("tenant-a"))
-                .thenReturn(Map.of("planExpiresAt", LocalDateTime.now().minusMinutes(1).toString()));
+                .thenReturn(Map.of("tenantStatus", "ACTIVE",
+                        "planExpiresAt", LocalDateTime.now().minusMinutes(1).toString()));
 
         assertThatThrownBy(checker::assertNotExpired)
                 .isInstanceOf(BusinessException.class)
@@ -58,7 +60,18 @@ class PlanExpiryCheckerTest {
         assertThatThrownBy(checker::assertNotExpired).isInstanceOf(BusinessException.class);
 
         when(userServiceClient.getEffectiveLimits("tenant-a"))
-                .thenReturn(Map.of("planExpiresAt", "not-a-date"));
+                .thenReturn(Map.of("tenantStatus", "ACTIVE", "planExpiresAt", "not-a-date"));
         assertThatThrownBy(checker::assertNotExpired).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void currentSuspensionBlocksPayoutDespiteAStaleActiveToken() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a"))
+                .thenReturn(Map.of("tenantStatus", "SUSPENDED"));
+
+        assertThatThrownBy(checker::assertNotExpired)
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("suspended");
     }
 }

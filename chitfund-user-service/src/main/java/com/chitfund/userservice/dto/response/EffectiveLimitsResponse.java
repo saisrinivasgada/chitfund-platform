@@ -9,6 +9,7 @@ import java.util.List;
 @Builder
 public class EffectiveLimitsResponse {
     private String plan;
+    private String tenantStatus;
     private boolean isCustom;
     private int maxActiveChits;
     private int maxMembers;

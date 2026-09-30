@@ -713,7 +713,8 @@ public class TenantService {
                         "maxStaff", String.valueOf(req.getMaxStaff())),
                 tenantId.toString());
 
-        return toEffectiveLimits(limits, t.getPlanExpiresAt(), CapabilityJson.parse(limits.getCapabilities(), objectMapper));
+        return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
+                CapabilityJson.parse(limits.getCapabilities(), objectMapper));
     }
 
     public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId) {
@@ -758,10 +759,10 @@ public class TenantService {
     public EffectiveLimitsResponse getEffectiveLimits(String tenantId) {
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
-        java.time.LocalDateTime expiresAt = tenant != null ? tenant.getPlanExpiresAt() : null;
+        Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.util.List<String> caps = resolveCaps(limits);
-        return toEffectiveLimits(limits, expiresAt, caps);
+        return toEffectiveLimits(limits, tenant.getStatus(), tenant.getPlanExpiresAt(), caps);
     }
 
     @Transactional(readOnly = true)
@@ -776,10 +777,12 @@ public class TenantService {
                 .toList();
     }
 
-    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, java.time.LocalDateTime planExpiresAt,
+    private EffectiveLimitsResponse toEffectiveLimits(TenantCustomLimits c, String tenantStatus,
+                                                      java.time.LocalDateTime planExpiresAt,
                                                       java.util.List<String> caps) {
         return EffectiveLimitsResponse.builder()
                 .plan(c.getPlanCode())
+                .tenantStatus(tenantStatus)
                 .isCustom("CUSTOM".equals(c.getPlanCode()))
                 .maxActiveChits(c.getMaxActiveChits())
                 .maxMembers(c.getMaxMembers())

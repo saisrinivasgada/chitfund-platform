@@ -93,4 +93,22 @@ class TenantPlanAssignmentTest {
         verify(tenantRepository, never()).save(any());
         verify(customLimitsRepository, never()).save(any());
     }
+
+    @Test
+    void effectiveLimitsCarryTheCurrentTenantStatus() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).plan("GROWTH").status("SUSPENDED").build();
+        TenantCustomLimits limits = TenantCustomLimits.builder()
+                .tenantId(tenantId.toString()).planCode("GROWTH")
+                .maxActiveChits(5).maxMembers(100).maxStaff(3)
+                .allowedChitTypes("RESERVATION").build();
+        when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(limits));
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(planLimitsRepository.findById("GROWTH")).thenReturn(Optional.empty());
+
+        var response = tenantService.getEffectiveLimits(tenantId.toString());
+
+        assertThat(response.getTenantStatus()).isEqualTo("SUSPENDED");
+        assertThat(response.getMaxMembers()).isEqualTo(100);
+    }
 }

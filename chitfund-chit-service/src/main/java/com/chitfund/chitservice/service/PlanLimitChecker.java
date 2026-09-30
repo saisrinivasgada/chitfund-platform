@@ -7,14 +7,13 @@ import com.chitfund.chitservice.repository.ChitRepository;
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.common.plan.PlanEntitlementVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -29,23 +28,18 @@ public class PlanLimitChecker {
         String tenantId = requireTenant();
 
         Map<String, Object> limits = fetchLimits(tenantId);
-        requireLimits(limits);
-
-        checkNotExpiredInternal(limits);
+        PlanEntitlementVerifier.requireActiveSubscription(limits);
 
         String planName = (String) limits.getOrDefault("plan", "current");
 
         // Only check allowed chit types at creation time — active count is enforced at activation
-        String allowedTypesStr = (String) limits.get("allowedChitTypes");
-        if (allowedTypesStr != null && !allowedTypesStr.isBlank()) {
-            Set<String> allowed = Arrays.stream(allowedTypesStr.split(","))
-                    .map(String::trim)
-                    .collect(Collectors.toSet());
-            if (!allowed.contains(chitType.name())) {
-                throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
-                        "Chit type " + chitType + " is not available on the " + planName + " plan. "
-                        + "Contact ChitWise support to upgrade.");
-            }
+        Set<String> allowed = PlanEntitlementVerifier.requireCsvValues(
+                limits, "allowedChitTypes",
+                Arrays.stream(ChitType.values()).map(Enum::name).collect(java.util.stream.Collectors.toSet()));
+        if (!allowed.contains(chitType.name())) {
+            throw new BusinessException(ErrorCode.PLAN_LIMIT_EXCEEDED,
+                    "Chit type " + chitType + " is not available on the " + planName + " plan. "
+                    + "Contact ChitWise support to upgrade.");
         }
     }
 
@@ -53,13 +47,10 @@ public class PlanLimitChecker {
         String tenantId = requireTenant();
 
         Map<String, Object> limits = fetchLimits(tenantId);
-        requireLimits(limits);
-
-        checkNotExpiredInternal(limits);
+        PlanEntitlementVerifier.requireActiveSubscription(limits);
 
         String planName = (String) limits.getOrDefault("plan", "current");
-        Object maxChitsRaw = limits.get("maxActiveChits");
-        int maxChits = maxChitsRaw instanceof Number ? ((Number) maxChitsRaw).intValue() : 1;
+        int maxChits = PlanEntitlementVerifier.requireLimit(limits, "maxActiveChits");
         if (maxChits == -1) return;
 
         tenantOperationLock.acquire(tenantId);
@@ -75,8 +66,7 @@ public class PlanLimitChecker {
     public void checkNotExpired() {
         String tenantId = requireTenant();
         Map<String, Object> limits = fetchLimits(tenantId);
-        requireLimits(limits);
-        checkNotExpiredInternal(limits);
+        PlanEntitlementVerifier.requireActiveSubscription(limits);
     }
 
     private String requireTenant() {
@@ -97,25 +87,4 @@ public class PlanLimitChecker {
         }
     }
 
-    private void requireLimits(Map<String, Object> limits) {
-        if (limits == null) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Subscription could not be verified. Please try again.", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-    }
-
-    private void checkNotExpiredInternal(Map<String, Object> limits) {
-        Object expiresAtRaw = limits.get("planExpiresAt");
-        if (expiresAtRaw == null) return;
-        try {
-            LocalDateTime expiresAt = LocalDateTime.parse(expiresAtRaw.toString());
-            if (expiresAt.isBefore(LocalDateTime.now())) {
-                throw new BusinessException(ErrorCode.PLAN_EXPIRED,
-                        "Your subscription has expired. Please renew your plan to continue.");
-            }
-        } catch (java.time.format.DateTimeParseException invalidPlanData) {
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
-                    "Subscription data is invalid. Please contact support.", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-    }
 }

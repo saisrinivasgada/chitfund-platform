@@ -43,4 +43,13 @@ class PlanExpiryCheckerTenantTest {
 
         assertThrows(BusinessException.class, checker::assertNotExpired);
     }
+
+    @Test
+    void currentSuspensionCannotBeBypassedByAStaleActiveToken() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a"))
+                .thenReturn(java.util.Map.of("tenantStatus", "SUSPENDED"));
+
+        assertThrows(BusinessException.class, checker::assertNotExpired);
+    }
 }

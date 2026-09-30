@@ -36,7 +36,7 @@ class PlanLimitCheckerTenantTest {
     void memberCreationSerializesTheTenantBeforeCountingMembers() {
         TenantContext.set("tenant-a");
         when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
-                java.util.Map.of("plan", "Growth", "maxMembers", 100));
+                java.util.Map.of("plan", "Growth", "tenantStatus", "ACTIVE", "maxMembers", 100));
         when(memberRepository.countByTenantIdAndDeletedAtIsNull("tenant-a")).thenReturn(99L);
 
         checker.checkCanAddMember();
@@ -44,5 +44,25 @@ class PlanLimitCheckerTenantTest {
         var order = inOrder(tenantOperationLock, memberRepository);
         order.verify(tenantOperationLock).acquire("tenant-a");
         order.verify(memberRepository).countByTenantIdAndDeletedAtIsNull("tenant-a");
+    }
+
+    @Test
+    void missingMemberLimitDoesNotFallBackToTwenty() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
+                java.util.Map.of("plan", "Growth", "tenantStatus", "ACTIVE"));
+
+        assertThrows(BusinessException.class, checker::checkCanAddMember);
+        verifyNoInteractions(memberRepository, tenantOperationLock);
+    }
+
+    @Test
+    void suspendedTenantCannotAddMemberWithAStaleActiveToken() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
+                java.util.Map.of("plan", "Growth", "tenantStatus", "SUSPENDED", "maxMembers", 100));
+
+        assertThrows(BusinessException.class, checker::checkCanAddMember);
+        verifyNoInteractions(memberRepository, tenantOperationLock);
     }
 }

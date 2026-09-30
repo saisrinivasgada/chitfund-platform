@@ -63,7 +63,7 @@ class PlanLimitCheckerTenantTest {
     void activationSerializesTheTenantBeforeCountingActiveChits() {
         TenantContext.set("tenant-a");
         when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
-                java.util.Map.of("plan", "Growth", "maxActiveChits", 5));
+                java.util.Map.of("plan", "Growth", "tenantStatus", "ACTIVE", "maxActiveChits", 5));
         when(chitRepository.countByTenantIdAndStatusAndDeletedAtIsNull(
                 "tenant-a", com.chitfund.chitservice.domain.enums.ChitStatus.ACTIVE)).thenReturn(4L);
 
@@ -73,5 +73,26 @@ class PlanLimitCheckerTenantTest {
         order.verify(tenantOperationLock).acquire("tenant-a");
         order.verify(chitRepository).countByTenantIdAndStatusAndDeletedAtIsNull(
                 "tenant-a", com.chitfund.chitservice.domain.enums.ChitStatus.ACTIVE);
+    }
+
+    @Test
+    void missingAllowedChitTypesCannotGrantEveryChitType() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
+                java.util.Map.of("plan", "Growth", "tenantStatus", "ACTIVE"));
+
+        assertThrows(BusinessException.class,
+                () -> checker.checkCanCreateChit(ChitType.AUCTION));
+        verifyNoInteractions(chitRepository, tenantOperationLock);
+    }
+
+    @Test
+    void suspendedTenantCannotActivateChitWithAStaleActiveToken() {
+        TenantContext.set("tenant-a");
+        when(userServiceClient.getEffectiveLimits("tenant-a")).thenReturn(
+                java.util.Map.of("plan", "Growth", "tenantStatus", "SUSPENDED", "maxActiveChits", 5));
+
+        assertThrows(BusinessException.class, checker::checkCanActivateChit);
+        verifyNoInteractions(chitRepository, tenantOperationLock);
     }
 }
