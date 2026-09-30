@@ -57,6 +57,12 @@ public class HubPermissionService {
         }
     }
 
+    public void requireAnyTicketAccess(String employeeId) {
+        if (visibleTicketTypes(employeeId).isEmpty()) {
+            throw new SecurityException("No Hub ticket categories are assigned");
+        }
+    }
+
     public void requireTicket(String employeeId, String ticketId) {
         var ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));

@@ -46,6 +46,9 @@ class HubPermissionServiceTest {
         assertThat(service.visibleTicketTypes("agent-1")).isEmpty();
         assertThatThrownBy(() -> service.requireTicketType("agent-1", TicketType.ACCOUNT))
                 .isInstanceOf(SecurityException.class);
+        assertThatThrownBy(() -> service.requireAnyTicketAccess("agent-1"))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("No Hub ticket categories");
     }
 
     @Test
