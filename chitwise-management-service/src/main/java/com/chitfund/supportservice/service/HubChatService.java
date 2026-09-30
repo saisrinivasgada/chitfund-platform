@@ -82,10 +82,11 @@ public class HubChatService {
     public PagedResponse<HubMessageResponse> getDmMessages(String convId, String employeeId,
                                                             String cursor, int limit) {
         HubConversation conv = findDmSecure(convId, employeeId);
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
+        Instant before = parseCursor(cursor);
 
-        List<HubConversationMessage> msgs = cursor != null
-                ? dmMsgRepo.findBeforeCursor(convId, Instant.parse(cursor), PageRequest.of(0, limit))
+        List<HubConversationMessage> msgs = before != null
+                ? dmMsgRepo.findBeforeCursor(convId, before, PageRequest.of(0, limit))
                 : dmMsgRepo.findByConversationIdOrderByCreatedAtDesc(convId, PageRequest.of(0, limit));
 
         String nextCursor = msgs.size() == limit
@@ -134,7 +135,8 @@ public class HubChatService {
         dmRepo.updatePreview(convId, msg.getCreatedAt(), preview);
 
         HubMessageResponse response = toDmMessageResponse(msg);
-        wsController.sendDmMessage(convId, response);
+        PostCommitAction.run("Hub DM WebSocket publication",
+                () -> wsController.sendDmMessage(convId, response));
         return response;
     }
 
@@ -157,7 +159,8 @@ public class HubChatService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         dmMsgRepo.save(msg);
-        wsController.sendDmMessageDeleted(convId, msgId);
+        PostCommitAction.run("Hub DM delete WebSocket publication",
+                () -> wsController.sendDmMessageDeleted(convId, msgId));
     }
 
     @Transactional
@@ -257,10 +260,11 @@ public class HubChatService {
     public PagedResponse<HubMessageResponse> getHubGroupMessages(String groupId, String employeeId,
                                                                    String cursor, int limit) {
         requireHubGroupMember(groupId, employeeId);
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
+        Instant before = parseCursor(cursor);
 
-        List<HubGroupMessage> msgs = cursor != null
-                ? groupMsgRepo.findBeforeCursor(groupId, Instant.parse(cursor), PageRequest.of(0, limit))
+        List<HubGroupMessage> msgs = before != null
+                ? groupMsgRepo.findBeforeCursor(groupId, before, PageRequest.of(0, limit))
                 : groupMsgRepo.findByGroupIdOrderByCreatedAtDesc(groupId, PageRequest.of(0, limit));
 
         String nextCursor = msgs.size() == limit
@@ -304,7 +308,8 @@ public class HubChatService {
         groupRepo.save(group);
 
         HubMessageResponse response = toGroupMessageResponse(msg);
-        wsController.sendGroupMessage(groupId, response);
+        PostCommitAction.run("Hub group message WebSocket publication",
+                () -> wsController.sendGroupMessage(groupId, response));
         return response;
     }
 
@@ -327,7 +332,8 @@ public class HubChatService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         groupMsgRepo.save(msg);
-        wsController.sendGroupMessageDeleted(groupId, msgId);
+        PostCommitAction.run("Hub group delete WebSocket publication",
+                () -> wsController.sendGroupMessageDeleted(groupId, msgId));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -339,6 +345,15 @@ public class HubChatService {
             throw new SecurityException("Access denied to this conversation");
         }
         return conv;
+    }
+
+    private Instant parseCursor(String cursor) {
+        if (cursor == null || cursor.isBlank()) return null;
+        try {
+            return Instant.parse(cursor);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Invalid message cursor");
+        }
     }
 
     private void requireHubGroupMember(String groupId, String employeeId) {
