@@ -68,7 +68,7 @@ public class GroupChatController {
         OrgRequestContext ctx = orgCtx(req);
         if (chatCapabilityDenied(ctx.getTenantId())) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(groupChatService.addMember(id, ctx.getTenantId(), ctx.getRole(), body));
+                .body(groupChatService.addMember(id, ctx.getTenantId(), ctx.getUserId(), ctx.getRole(), body));
     }
 
     @DeleteMapping("/{id}/members/{userId}")

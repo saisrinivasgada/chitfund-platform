@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.service;
 
+import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.ChatGroup;
 import com.chitfund.supportservice.domain.entity.ChatGroupMember;
 import com.chitfund.supportservice.domain.entity.ChatGroupMessage;
@@ -34,6 +35,7 @@ public class GroupChatService {
     private final ChatGroupMemberRepository memberRepo;
     private final ChatGroupMessageRepository messageRepo;
     private final GroupChatWebSocketController wsController;
+    private final AuditClient auditClient;
 
     @Value("${app.message-delete-window-seconds:300}")
     private long deleteWindowSeconds;
@@ -74,6 +76,11 @@ public class GroupChatService {
         group.setMemberCount((int) count);
         group = groupRepo.save(group);
 
+        auditClient.logEntity("CHAT_GROUP", group.getId(), "CREATED",
+                creatorId, creatorRole, null,
+                java.util.Map.of("name", group.getName(), "memberCount", group.getMemberCount()),
+                null, tenantId, null);
+
         return toGroupResponse(group, true);
     }
 
@@ -100,7 +107,7 @@ public class GroupChatService {
     }
 
     @Transactional
-    public ChatGroupMemberResponse addMember(String groupId, String tenantId,
+    public ChatGroupMemberResponse addMember(String groupId, String tenantId, String callerId,
                                               String callerRole, AddGroupMemberRequest req) {
         requireAdminOrManager(callerRole);
         findGroupSecure(groupId, tenantId);
@@ -109,6 +116,10 @@ public class GroupChatService {
         }
         ChatGroupMember member = addMemberInternal(groupId, req.getUserId(), req.getUserName(), req.getRole());
         groupRepo.incrementMemberCount(groupId);
+        auditClient.logEntity("CHAT_GROUP", groupId, "MEMBER_ADDED",
+                callerId, callerRole, null,
+                java.util.Map.of("memberId", req.getUserId(), "memberRole", req.getRole()),
+                null, tenantId, null);
         return toMemberResponse(member);
     }
 
@@ -123,6 +134,10 @@ public class GroupChatService {
                 .orElseThrow(() -> new IllegalArgumentException("User is not a member of this group"));
         memberRepo.delete(member);
         groupRepo.decrementMemberCount(groupId);
+        auditClient.logEntity("CHAT_GROUP", groupId, "MEMBER_REMOVED",
+                callerId, callerRole,
+                java.util.Map.of("memberId", userId), null, null,
+                tenantId, "Administrator removed a member from the chat group");
     }
 
     @Transactional(readOnly = true)
@@ -198,6 +213,9 @@ public class GroupChatService {
         groupRepo.save(group);
 
         ChatGroupMessageResponse response = toMessageResponse(msg);
+        auditClient.logEntity("CHAT_GROUP", groupId, "MESSAGE_SENT",
+                senderId, senderRole, null,
+                java.util.Map.of("messageId", msg.getId()), null, tenantId, null);
         PostCommitAction.run("Group message WebSocket publication",
                 () -> wsController.sendGroupMessage(groupId, response));
         return response;
@@ -227,6 +245,11 @@ public class GroupChatService {
         msg.setDeletedAt(Instant.now());
         msg.setContent("[deleted]");
         messageRepo.save(msg);
+        auditClient.logEntity("CHAT_GROUP", groupId, "MESSAGE_DELETED",
+                userId, "GROUP_MEMBER",
+                java.util.Map.of("messageId", messageId, "deleted", false),
+                java.util.Map.of("messageId", messageId, "deleted", true),
+                null, tenantId, "Sender deleted the message within the allowed window");
         PostCommitAction.run("Group delete WebSocket publication",
                 () -> wsController.sendGroupMessageDeleted(groupId, messageId));
     }

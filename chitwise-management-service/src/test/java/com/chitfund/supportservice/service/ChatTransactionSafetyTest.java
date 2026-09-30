@@ -1,5 +1,6 @@
 package com.chitfund.supportservice.service;
 
+import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.ChatGroup;
 import com.chitfund.supportservice.domain.entity.ChatGroupMessage;
 import com.chitfund.supportservice.domain.entity.Conversation;
@@ -48,6 +49,7 @@ class ChatTransactionSafetyTest {
     @Mock ConversationRepository conversationRepository;
     @Mock ConversationMessageRepository conversationMessageRepository;
     @Mock ConversationWebSocketController conversationWebSocketController;
+    @Mock AuditClient auditClient;
     @InjectMocks ConversationService conversationService;
 
     @Mock ChatGroupRepository chatGroupRepository;
@@ -85,6 +87,9 @@ class ChatTransactionSafetyTest {
         commitCallbacks();
         verify(conversationWebSocketController).sendChatMessage(eq("conversation-1"), any());
         verify(conversationWebSocketController).sendUnreadUpdate("conversation-1", 0, 0);
+        verify(auditClient).logEntity(eq("CONVERSATION"), eq("conversation-1"),
+                eq("MESSAGE_SENT"), eq("admin-1"), eq("ADMIN"), any(), any(), any(),
+                eq("tenant-1"), any());
     }
 
     @Test
@@ -110,6 +115,9 @@ class ChatTransactionSafetyTest {
         verify(groupChatWebSocketController, never()).sendGroupMessage(any(), any());
         commitCallbacks();
         verify(groupChatWebSocketController).sendGroupMessage(eq("group-1"), any());
+        verify(auditClient).logEntity(eq("CHAT_GROUP"), eq("group-1"),
+                eq("MESSAGE_SENT"), eq("admin-1"), eq("ADMIN"), any(), any(), any(),
+                eq("tenant-1"), any());
     }
 
     @Test
@@ -134,6 +142,9 @@ class ChatTransactionSafetyTest {
         verify(hubChatWebSocketController, never()).sendDmMessage(any(), any());
         commitCallbacks();
         verify(hubChatWebSocketController).sendDmMessage(eq("hub-conversation-1"), any());
+        verify(auditClient).logEntity(eq("HUB_CONVERSATION"), eq("hub-conversation-1"),
+                eq("MESSAGE_SENT"), eq("employee-1"), eq("HUB_EMPLOYEE"), any(), any(), any(),
+                eq("PLATFORM"), any());
     }
 
     @Test
