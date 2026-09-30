@@ -223,7 +223,8 @@ public class SuperAdminController {
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
                 tenantService.addCredit(tenantId, request.getAmountInr(),
-                        request.getNotes(), principal.getId().toString()), "Credit added"));
+                        request.getNotes(), request.getIdempotencyKey(),
+                        principal.getId().toString()), "Credit added"));
     }
 
     @PostMapping("/{tenantId}/credits/deduct")
@@ -233,6 +234,7 @@ public class SuperAdminController {
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
                 tenantService.deductCredit(tenantId, request.getAmountInr(),
-                        request.getNotes(), principal.getId().toString()), "Credit deducted"));
+                        request.getNotes(), request.getIdempotencyKey(),
+                        principal.getId().toString()), "Credit deducted"));
     }
 }

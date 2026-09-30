@@ -19,4 +19,8 @@ public class AdjustTenantCreditRequest {
     @NotBlank
     @Size(max = 500)
     private String notes;
+
+    @NotBlank
+    @Size(max = 255)
+    private String idempotencyKey;
 }

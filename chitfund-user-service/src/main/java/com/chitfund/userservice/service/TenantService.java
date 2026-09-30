@@ -18,6 +18,7 @@ import com.chitfund.userservice.dto.response.TenantInfo;
 import com.chitfund.userservice.dto.response.TenantResponse;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.TenantCustomLimits;
+import com.chitfund.userservice.domain.entity.TenantCreditAdjustment;
 import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.dto.response.EffectiveLimitsResponse;
 import com.chitfund.userservice.dto.response.BillingInfoResponse;
@@ -28,6 +29,7 @@ import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.repository.MemberUserLinkRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
+import com.chitfund.userservice.repository.TenantCreditAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,6 +42,9 @@ import com.chitfund.userservice.util.PlanInputValidator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +64,7 @@ public class TenantService {
     private final NotificationEventPublisher notificationEventPublisher;
     private final AuditClient auditClient;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final TenantCreditAdjustmentRepository creditAdjustmentRepository;
 
     // ── Public org self-registration ─────────────────────────────────────────
 
@@ -933,28 +939,37 @@ public class TenantService {
 
     @Transactional
     public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr,
-                                    String reason, String actorId) {
+                                    String reason, String idempotencyKey, String actorId) {
         validateCreditAdjustment(amountInr, reason);
         Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String fingerprint = creditAdjustmentFingerprint("ADD", tenantId, amountInr, reason);
+        TenantResponse replay = replayCreditAdjustment(t, "ADD", idempotencyKey, fingerprint);
+        if (replay != null) return replay;
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
         java.math.BigDecimal newBalance = current.add(amountInr);
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
-        auditClient.log("TENANT", tenantId.toString(),
+        TenantCreditAdjustment adjustment = saveCreditAdjustment(t, "ADD", amountInr, reason,
+                idempotencyKey, fingerprint, current, newBalance, actorId);
+        auditClient.log("TENANT_CREDIT_ADJUSTMENT", adjustment.getId(),
                 "CREDIT_ADDED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "addedInr", amountInr.toPlainString()),
-                tenantId.toString(), reason.trim());
+                tenantId.toString(), "HUB", "SUCCESS", reason.trim(),
+                adjustment.getId(), idempotencyKey.trim());
         return result;
     }
 
     @Transactional
     public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr,
-                                       String reason, String actorId) {
+                                       String reason, String idempotencyKey, String actorId) {
         validateCreditAdjustment(amountInr, reason);
         Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String fingerprint = creditAdjustmentFingerprint("DEDUCT", tenantId, amountInr, reason);
+        TenantResponse replay = replayCreditAdjustment(t, "DEDUCT", idempotencyKey, fingerprint);
+        if (replay != null) return replay;
         java.math.BigDecimal current = t.getCreditBalanceInr() != null ? t.getCreditBalanceInr() : java.math.BigDecimal.ZERO;
         if (amountInr.compareTo(current) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -963,12 +978,63 @@ public class TenantService {
         java.math.BigDecimal newBalance = current.subtract(amountInr);
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
-        auditClient.log("TENANT", tenantId.toString(),
+        TenantCreditAdjustment adjustment = saveCreditAdjustment(t, "DEDUCT", amountInr, reason,
+                idempotencyKey, fingerprint, current, newBalance, actorId);
+        auditClient.log("TENANT_CREDIT_ADJUSTMENT", adjustment.getId(),
                 "CREDIT_DEDUCTED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "deductedInr", amountInr.toPlainString()),
-                tenantId.toString(), reason.trim());
+                tenantId.toString(), "HUB", "SUCCESS", reason.trim(),
+                adjustment.getId(), idempotencyKey.trim());
         return result;
+    }
+
+    private TenantResponse replayCreditAdjustment(Tenant tenant, String operation,
+                                                  String idempotencyKey, String fingerprint) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "An idempotency key is required for credit adjustments");
+        }
+        return creditAdjustmentRepository.findByIdempotencyKey(idempotencyKey.trim())
+                .map(existing -> {
+                    if (!tenant.getId().toString().equals(existing.getTenantId())
+                            || !operation.equals(existing.getOperation())
+                            || !fingerprint.equals(existing.getRequestFingerprint())) {
+                        throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                                "Idempotency key was already used for a different credit adjustment",
+                                HttpStatus.CONFLICT);
+                    }
+                    TenantResponse response = toResponse(tenant);
+                    response.setCreditBalanceInr(existing.getBalanceAfterInr());
+                    return response;
+                }).orElse(null);
+    }
+
+    private TenantCreditAdjustment saveCreditAdjustment(Tenant tenant, String operation,
+                                                         java.math.BigDecimal amountInr,
+                                                         String reason, String idempotencyKey,
+                                                         String fingerprint,
+                                                         java.math.BigDecimal before,
+                                                         java.math.BigDecimal after,
+                                                         String actorId) {
+        return creditAdjustmentRepository.save(TenantCreditAdjustment.builder()
+                .id(UUID.randomUUID().toString()).tenantId(tenant.getId().toString())
+                .operation(operation).amountInr(amountInr).reason(reason.trim())
+                .idempotencyKey(idempotencyKey.trim()).requestFingerprint(fingerprint)
+                .balanceBeforeInr(before).balanceAfterInr(after).actorId(actorId).build());
+    }
+
+    private static String creditAdjustmentFingerprint(String operation, UUID tenantId,
+                                                       java.math.BigDecimal amountInr,
+                                                       String reason) {
+        String canonical = String.join("\u001f", operation, tenantId.toString(),
+                amountInr.stripTrailingZeros().toPlainString(), reason.trim());
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not fingerprint credit adjustment", exception);
+        }
     }
 
     private static void validateCreditAdjustment(java.math.BigDecimal amountInr, String reason) {

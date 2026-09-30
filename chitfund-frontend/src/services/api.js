@@ -1469,15 +1469,13 @@ export const superAdminListReferralCredits = async (status) => {
   return res.data.data ?? [];
 };
 
-export const superAdminAddTenantCredit = async (tenantId, amountInr, notes) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminAddTenantCredit = (tenantId, amountInr, notes) =>
+  postBillingIdempotently(`credit:add:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
 
-export const superAdminDeductTenantCredit = async (tenantId, amountInr, notes) => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminDeductTenantCredit = (tenantId, amountInr, notes) =>
+  postBillingIdempotently(`credit:deduct:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
 
 export const getMyBillingInfo = async () => {
   const res = await api.get('/users/me/billing-info');

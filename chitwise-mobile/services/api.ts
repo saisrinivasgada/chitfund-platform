@@ -1477,15 +1477,13 @@ export const getMyReferral = async (): Promise<any> => {
 };
 
 // ── Super-admin: tenant credits ───────────────────────────────────────────────
-export const superAdminAddTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminAddTenantCredit = (tenantId: string, amountInr: number, notes?: string): Promise<any> =>
+  postBillingIdempotently(`credit:add:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits`, { amountInr, notes });
 
-export const superAdminDeductTenantCredit = async (tenantId: string, amountInr: number, notes?: string): Promise<any> => {
-  const res = await api.post(`/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
-  return res.data.data;
-};
+export const superAdminDeductTenantCredit = (tenantId: string, amountInr: number, notes?: string): Promise<any> =>
+  postBillingIdempotently(`credit:deduct:${tenantId}`,
+    `/super-admin/tenants/${tenantId}/credits/deduct`, { amountInr, notes });
 
 // Soft delete — the chit is hidden from lists but still readable via /chits/deleted.
 export const deleteChit = async (id: string): Promise<any> => {
