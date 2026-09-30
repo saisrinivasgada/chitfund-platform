@@ -8,12 +8,17 @@ import com.chitfund.paymentservice.service.SettlementTransactionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 class SettlementControllerCapabilityTest {
@@ -52,6 +57,20 @@ class SettlementControllerCapabilityTest {
 
         assertEquals(HttpStatus.FORBIDDEN, controller.preview(request()).getStatusCode());
         verifyNoInteractions(settlementService, transactionService);
+    }
+
+    @Test
+    void downgradeStillAllowsExistingSettlementHistoryToRemainVisible() {
+        TenantContext.set("tenant-a");
+        UUID memberId = UUID.randomUUID();
+        when(settlementService.getSettlementsForMember(eq(memberId), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        assertEquals(HttpStatus.OK,
+                controller.getMemberSettlements(memberId, 0, 10).getStatusCode());
+
+        verify(settlementService).getSettlementsForMember(eq(memberId), any(Pageable.class));
+        verifyNoInteractions(userServiceClient, transactionService);
     }
 
     private SettlementPreviewRequest request() {

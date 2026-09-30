@@ -836,6 +836,8 @@ export const superAdminGetAllLimitsBulk = async () =>
   unwrapList(await api.get('/super-admin/tenants/limits-bulk'));
 export const superAdminGetEffectiveLimits = async (tenantId: string) =>
   unwrapObj(await api.get(`/super-admin/tenants/${tenantId}/effective-limits`));
+export const getMyEffectiveLimits = async () =>
+  unwrapObj(await api.get('/users/me/effective-limits'));
 export const superAdminSetCustomLimits = async (tenantId: string, data: any, reason: string) =>
   unwrapObj(await api.put(`/super-admin/tenants/${tenantId}/custom-limits`, data, {
     headers: { 'X-Change-Reason': reason },

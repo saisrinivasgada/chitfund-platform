@@ -3,6 +3,7 @@ import { C } from '../../../components/ui';
 import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useReminderSync } from '../../../hooks/useReminderSync';
 import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -18,6 +19,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 export default function MemberLayout() {
   useReminderSync();
   useMemberStartupPrefetch();
+  useEntitlementRefresh();
   return (
     <Tabs
       screenOptions={({ route }) => ({

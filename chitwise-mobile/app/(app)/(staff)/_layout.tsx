@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import { C } from '../../../components/ui';
 import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useStaffStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { index: '◈', history: '≡' };
@@ -10,6 +11,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
 export default function StaffLayout() {
   useStaffStartupPrefetch();
+  useEntitlementRefresh();
   return (
     <Tabs
       screenOptions={({ route }) => ({

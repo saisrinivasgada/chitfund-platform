@@ -4,6 +4,7 @@ import { C } from '../../../components/ui';
 import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', reports: '≡' };
@@ -13,6 +14,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 export default function ManagerLayout() {
   const { planExpiredVisible, hidePlanExpired } = useUIStore();
   useManagerStartupPrefetch();
+  useEntitlementRefresh();
 
   return (
     <>

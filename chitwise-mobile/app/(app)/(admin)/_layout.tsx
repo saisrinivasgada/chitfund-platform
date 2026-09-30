@@ -7,6 +7,7 @@ import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neum
 import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
 import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -25,6 +26,7 @@ export default function AdminLayout() {
   const router = useRouter();
 
   useAdminStartupPrefetch();
+  useEntitlementRefresh();
 
   useEffect(() => {
     loadActivityLastSeen();
