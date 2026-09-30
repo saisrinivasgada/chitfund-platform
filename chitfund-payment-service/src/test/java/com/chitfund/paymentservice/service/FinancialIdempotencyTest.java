@@ -158,7 +158,7 @@ class FinancialIdempotencyTest {
         when(batchRepository.findByTenantIdAndPaymentModeAndPaymentReference(any(), any(), any()))
                 .thenReturn(Optional.empty());
         when(memberServiceClient.isMemberActive(any())).thenReturn(true);
-        when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
         when(paymentRecordRepository.findTotalOutstandingByMemberId(any(), any())).thenReturn(BigDecimal.ZERO);
         when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
                 any(), any(), any())).thenReturn(java.util.List.of());
