@@ -37,6 +37,7 @@ public class HubRoleService {
 
     @Transactional
     public HubRoleResponse create(CreateRoleRequest req, String actorId) {
+        String reason = requireReason(req.getReason());
         HubPermissionService.validatePermissions(req.getPermissions());
         if (roleRepository.existsByNameIgnoreCase(req.getName().trim())) {
             throw new IllegalStateException("A role with this name already exists");
@@ -52,12 +53,13 @@ public class HubRoleService {
                 "SUPER_ADMIN", null,
                 java.util.Map.of("name", saved.getName(),
                         "permissions", Set.copyOf(saved.getPermissions())),
-                null, PLATFORM_AUDIT_TENANT, null);
+                null, PLATFORM_AUDIT_TENANT, reason);
         return toResponse(saved);
     }
 
     @Transactional
     public HubRoleResponse update(String id, CreateRoleRequest req, String actorId) {
+        String reason = requireReason(req.getReason());
         HubPermissionService.validatePermissions(req.getPermissions());
         HubCustomRole role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
@@ -96,12 +98,13 @@ public class HubRoleService {
                         "permissions", Set.copyOf(role.getPermissions())),
                 java.util.Map.of("affectedEmployees", assigned.size(),
                         "sessionsRevoked", !assigned.isEmpty()),
-                PLATFORM_AUDIT_TENANT, null);
+                PLATFORM_AUDIT_TENANT, reason);
         return response;
     }
 
     @Transactional
-    public void delete(String id, String actorId) {
+    public void delete(String id, String actorId, String reason) {
+        String normalizedReason = requireReason(reason);
         HubCustomRole role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.countEmployeesWithRole(id) > 0) {
@@ -111,7 +114,18 @@ public class HubRoleService {
         auditClient.logEntity("HUB_ROLE", id, "DELETED", actorId, "SUPER_ADMIN",
                 java.util.Map.of("name", role.getName(),
                         "permissions", Set.copyOf(role.getPermissions())),
-                null, null, PLATFORM_AUDIT_TENANT, null);
+                null, null, PLATFORM_AUDIT_TENANT, normalizedReason);
+    }
+
+    private String requireReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Reason is required");
+        }
+        String normalized = reason.trim();
+        if (normalized.length() > 500) {
+            throw new IllegalArgumentException("Reason must be at most 500 characters");
+        }
+        return normalized;
     }
 
     private HubRoleResponse toResponse(HubCustomRole role) {

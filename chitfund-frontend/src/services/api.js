@@ -1970,23 +1970,23 @@ export const hubResendEmployeeInvite = async (id) => {
   return res.data.data;
 };
 
-export const hubResetEmployeePassword = async (id, temporaryPassword) => {
-  const res = await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword });
+export const hubResetEmployeePassword = async (id, temporaryPassword, reason) => {
+  const res = await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword, reason });
   return res.data.data;
 };
 
-export const hubChangeRole = async (id, role) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/role`, { role });
+export const hubChangeRole = async (id, role, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/role`, { role, reason });
   return res.data.data ?? res.data;
 };
 
-export const hubDeactivateEmployee = async (id) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/deactivate`);
+export const hubDeactivateEmployee = async (id, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/deactivate`, { reason });
   return res.data.data ?? res.data;
 };
 
-export const hubReactivateEmployee = async (id) => {
-  const res = await hubApi.patch(`/hub/employees/${id}/reactivate`);
+export const hubReactivateEmployee = async (id, reason) => {
+  const res = await hubApi.patch(`/hub/employees/${id}/reactivate`, { reason });
   return res.data.data ?? res.data;
 };
 
@@ -2007,8 +2007,8 @@ export const hubRejectIdentityCase = async (caseId, reason) =>
   (await hubApi.put(`/hub/identity-cases/${caseId}/reject`, { reason })).data.data;
 export const hubExecuteIdentityCase = async (caseId) =>
   (await hubApi.post(`/hub/identity-cases/${caseId}/execute`)).data.data;
-export const hubUpdateIdentityPermissions = async (employeeId, canManageIdentityCases) =>
-  (await hubApi.patch(`/hub/employees/${employeeId}/identity-permissions`, { canManageIdentityCases })).data.data;
+export const hubUpdateIdentityPermissions = async (employeeId, canManageIdentityCases, reason) =>
+  (await hubApi.patch(`/hub/employees/${employeeId}/identity-permissions`, { canManageIdentityCases, reason })).data.data;
 
 // ─── Hub internal DMs ──────────────────────────────────────────────────────
 export const hubStartDm = async (otherEmployeeId) => {
@@ -2121,9 +2121,9 @@ export const hubUpdateMe = (data) => hubApi.patch('/hub/auth/me', data).then(r =
 export const hubListRoles = () => hubApi.get('/hub/roles').then(r => r.data?.data ?? r.data);
 export const hubCreateRole = (data) => hubApi.post('/hub/roles', data).then(r => r.data?.data ?? r.data);
 export const hubUpdateRole = (id, data) => hubApi.put(`/hub/roles/${id}`, data).then(r => r.data?.data ?? r.data);
-export const hubDeleteRole = (id) => hubApi.delete(`/hub/roles/${id}`).then(r => r.data);
-export const hubAssignCustomRole = (employeeId, customRoleId) =>
-  hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId }).then(r => r.data?.data ?? r.data);
+export const hubDeleteRole = (id, reason) => hubApi.delete(`/hub/roles/${id}`, { data: { reason } }).then(r => r.data);
+export const hubAssignCustomRole = (employeeId, customRoleId, reason) =>
+  hubApi.patch(`/hub/employees/${employeeId}/custom-role`, { customRoleId, reason }).then(r => r.data?.data ?? r.data);
 
 export const hubCreateTicket = (data) => hubApi.post('/hub/tickets', data).then(r => r.data?.data ?? r.data);
 export const hubListTenants = (q) => hubApi.get('/hub/tenants', { params: q ? { q } : {} }).then(r => r.data?.data ?? r.data);

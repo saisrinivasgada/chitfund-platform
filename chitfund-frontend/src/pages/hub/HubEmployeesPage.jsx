@@ -6,6 +6,7 @@ import {
   hubResetEmployeePassword, hubUpdateIdentityPermissions,
   hubListRoles, hubCreateRole, hubUpdateRole, hubDeleteRole, hubAssignCustomRole,
 } from '../../services/api';
+import TicketReasonDialog from '../../components/hub/TicketReasonDialog';
 import {
   Users, Plus, X, AlertCircle, UserCheck, UserX, KeyRound,
   Eye, EyeOff, Shield, Pencil, Trash2, Search, MoreVertical,
@@ -228,11 +229,12 @@ function InviteModal({ onClose, onSuccess }) {
 function ResetPasswordModal({ employee, onClose, onSuccess }) {
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [reason, setReason] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   const resetMut = useMutation({
-    mutationFn: () => hubResetEmployeePassword(employee.id, temporaryPassword),
+    mutationFn: () => hubResetEmployeePassword(employee.id, temporaryPassword, reason.trim()),
     onSuccess: () => { onSuccess(employee); onClose(); },
     onError: (err) => setError(err?.response?.data?.message ?? 'Unable to reset password'),
   });
@@ -289,6 +291,12 @@ function ResetPasswordModal({ employee, onClose, onSuccess }) {
               autoComplete="new-password"
               className="w-full px-3.5 py-2 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20" />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Reason <span className="text-red-500">*</span></label>
+            <textarea value={reason} onChange={e => { setReason(e.target.value); setError(''); }}
+              rows={3} maxLength={500} placeholder="Explain why this password reset is required."
+              className="w-full resize-none px-3.5 py-2 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20" />
+          </div>
         </div>
         {error && <p className="text-xs text-red-500 flex items-center gap-1.5"><AlertCircle size={13} />{error}</p>}
         <div className="flex gap-3 justify-end pt-2">
@@ -296,7 +304,7 @@ function ResetPasswordModal({ employee, onClose, onSuccess }) {
             className="px-4 py-2 text-sm rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
             Cancel
           </button>
-          <button onClick={submit} disabled={!temporaryPassword || !confirmPassword || resetMut.isPending}
+          <button onClick={submit} disabled={!temporaryPassword || !confirmPassword || !reason.trim() || resetMut.isPending}
             className="px-4 py-2 text-sm rounded-xl text-white font-medium disabled:opacity-40 cursor-pointer"
             style={{ backgroundColor: '#1E3A5F' }}>
             {resetMut.isPending ? 'Saving…' : 'Set password'}
@@ -317,10 +325,12 @@ function RoleModal({ role, onClose, onSuccess }) {
     permissions: new Set(role?.permissions ?? []),
   });
   const [error, setError] = useState('');
+  const [reason, setReason] = useState('');
 
   const saveMut = useMutation({
     mutationFn: () => {
-      const payload = { name: form.name, description: form.description || null, permissions: [...form.permissions] };
+      const payload = { name: form.name, description: form.description || null,
+        permissions: [...form.permissions], reason: reason.trim() };
       return isEdit ? hubUpdateRole(role.id, payload) : hubCreateRole(payload);
     },
     onSuccess: () => { onSuccess(); onClose(); },
@@ -362,6 +372,13 @@ function RoleModal({ role, onClose, onSuccess }) {
           </div>
         </div>
 
+        <div className="mb-5">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Reason <span className="text-red-500">*</span></label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500}
+            placeholder={isEdit ? 'Explain why these permissions are changing.' : 'Explain why this role is needed.'}
+            className="w-full resize-none px-3.5 py-2 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20" />
+        </div>
+
         <div className="space-y-4 mb-5">
           {PERMISSION_GROUPS.map(({ group, items }) => (
             <div key={group}>
@@ -391,7 +408,7 @@ function RoleModal({ role, onClose, onSuccess }) {
             Cancel
           </button>
           <button onClick={() => saveMut.mutate()}
-            disabled={!form.name.trim() || saveMut.isPending}
+            disabled={!form.name.trim() || !reason.trim() || saveMut.isPending}
             className="px-4 py-2 text-sm rounded-xl text-white font-medium disabled:opacity-40 cursor-pointer"
             style={{ backgroundColor: '#1E3A5F' }}>
             {saveMut.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Role'}
@@ -413,6 +430,9 @@ export default function HubEmployeesPage() {
   const [editRole, setEditRole] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [notice, setNotice] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
+  const [actionReason, setActionReason] = useState('');
+  const [actionError, setActionError] = useState('');
 
   const hubUser = (() => {
     try { return JSON.parse(localStorage.getItem('hub_user') || '{}'); } catch { return {}; }
@@ -432,44 +452,37 @@ export default function HubEmployeesPage() {
     enabled: isSuperAdmin,
   });
 
-  const roleMut = useMutation({
-    mutationFn: ({ id, role }) => hubChangeRole(id, role),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
-  });
-
-  const deactivateMut = useMutation({
-    mutationFn: (id) => hubDeactivateEmployee(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
-  });
-
-  const reactivateMut = useMutation({
-    mutationFn: (id) => hubReactivateEmployee(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
-  });
-
   const resendMut = useMutation({
     mutationFn: (id) => hubResendEmployeeInvite(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
   });
 
-  const identityAccessMut = useMutation({
-    mutationFn: ({ id, enabled }) => hubUpdateIdentityPermissions(id, enabled),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
-  });
-
-  const customRoleMut = useMutation({
-    mutationFn: ({ id, customRoleId }) => hubAssignCustomRole(id, customRoleId || null),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hub-employees'] }),
-  });
-
-  const deleteRoleMut = useMutation({
-    mutationFn: (id) => hubDeleteRole(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['hub-roles'] });
-      qc.invalidateQueries({ queryKey: ['hub-employees'] });
+  const sensitiveActionMut = useMutation({
+    mutationFn: ({ kind, id, value, reason }) => {
+      if (kind === 'role') return hubChangeRole(id, value, reason);
+      if (kind === 'deactivate') return hubDeactivateEmployee(id, reason);
+      if (kind === 'reactivate') return hubReactivateEmployee(id, reason);
+      if (kind === 'identity') return hubUpdateIdentityPermissions(id, value, reason);
+      if (kind === 'customRole') return hubAssignCustomRole(id, value || null, reason);
+      if (kind === 'deleteRole') return hubDeleteRole(id, reason);
+      throw new Error('Unsupported Hub action');
     },
-    onError: (e) => setNotice(e?.response?.data?.message ?? 'Cannot delete role'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hub-employees'] });
+      qc.invalidateQueries({ queryKey: ['hub-roles'] });
+      setNotice(pendingAction?.successMessage ?? 'Change saved.');
+      setPendingAction(null);
+      setActionReason('');
+      setActionError('');
+    },
+    onError: (e) => setActionError(e?.response?.data?.message ?? 'Unable to save this change'),
   });
+
+  function requestSensitiveAction(action) {
+    setPendingAction(action);
+    setActionReason('');
+    setActionError('');
+  }
 
   const roleOptions = roles.map(r => ({ value: r.id, label: r.name }));
 
@@ -622,8 +635,11 @@ export default function HubEmployeesPage() {
                           <td className="px-5 py-3.5">
                             {isSuperAdmin && !isMe ? (
                               <select value={emp.role}
-                                onChange={e => roleMut.mutate({ id: emp.id, role: e.target.value })}
-                                disabled={roleMut.isPending}
+                                onChange={e => requestSensitiveAction({ kind: 'role', id: emp.id, value: e.target.value,
+                                  title: 'Change employee role',
+                                  description: `Change ${emp.fullName || emp.username} from ${emp.role?.replace('_', ' ')} to ${e.target.value.replace('_', ' ')}. Existing sessions will be revoked.`,
+                                  successMessage: 'Employee role updated.' })}
+                                disabled={sensitiveActionMut.isPending}
                                 className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]/30 ${ROLE_STYLES[emp.role] ?? 'bg-gray-100 text-gray-600'}`}>
                                 <option value="SUPER_ADMIN">Super Admin</option>
                                 <option value="SUPPORT_AGENT">Support Agent</option>
@@ -642,8 +658,11 @@ export default function HubEmployeesPage() {
                             ) : isSuperAdmin && !isMe ? (
                               <select
                                 value={emp.customRoleId ?? ''}
-                                onChange={e => customRoleMut.mutate({ id: emp.id, customRoleId: e.target.value || null })}
-                                disabled={customRoleMut.isPending || roles.length === 0}
+                                onChange={e => requestSensitiveAction({ kind: 'customRole', id: emp.id, value: e.target.value || null,
+                                  title: 'Change custom permissions',
+                                  description: `Update the custom role for ${emp.fullName || emp.username}. Existing sessions will be revoked.`,
+                                  successMessage: 'Custom role updated.' })}
+                                disabled={sensitiveActionMut.isPending || roles.length === 0}
                                 className="px-2.5 py-0.5 rounded-lg text-xs border border-gray-200 bg-white cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#1E3A5F]/30 text-gray-700"
                               >
                                 <option value="">No custom role</option>
@@ -676,8 +695,11 @@ export default function HubEmployeesPage() {
                               : hubUser.platformOwner ? (
                                 <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
                                   <input type="checkbox" checked={emp.canManageIdentityCases === true}
-                                    disabled={identityAccessMut.isPending || isMe}
-                                    onChange={e => identityAccessMut.mutate({ id: emp.id, enabled: e.target.checked })} />
+                                    disabled={sensitiveActionMut.isPending || isMe}
+                                    onChange={e => requestSensitiveAction({ kind: 'identity', id: emp.id, value: e.target.checked,
+                                      title: e.target.checked ? 'Grant identity-case access' : 'Remove identity-case access',
+                                      description: `${e.target.checked ? 'Grant' : 'Remove'} protected identity investigation access for ${emp.fullName || emp.username}. Existing sessions will be revoked.`,
+                                      successMessage: 'Identity-case access updated.' })} />
                                   Investigator
                                 </label>
                               ) : (
@@ -697,10 +719,16 @@ export default function HubEmployeesPage() {
                                 <RowActionMenu
                                   emp={emp}
                                   onReset={() => setResetTarget(emp)}
-                                  onDeactivate={() => deactivateMut.mutate(emp.id)}
-                                  onReactivate={() => reactivateMut.mutate(emp.id)}
+                                  onDeactivate={() => requestSensitiveAction({ kind: 'deactivate', id: emp.id,
+                                    title: 'Deactivate employee',
+                                    description: `Deactivate ${emp.fullName || emp.username}. Their sessions will be revoked and further access denied.`,
+                                    successMessage: 'Employee deactivated.' })}
+                                  onReactivate={() => requestSensitiveAction({ kind: 'reactivate', id: emp.id,
+                                    title: 'Reactivate employee',
+                                    description: `Restore Hub access for ${emp.fullName || emp.username}.`,
+                                    successMessage: 'Employee reactivated.' })}
                                   onResend={() => resendMut.mutate(emp.id)}
-                                  disabled={deactivateMut.isPending || reactivateMut.isPending || resendMut.isPending}
+                                  disabled={sensitiveActionMut.isPending || resendMut.isPending}
                                 />
                               )}
                             </td>
@@ -779,10 +807,13 @@ export default function HubEmployeesPage() {
                           if ((role.employeeCount ?? 0) > 0) {
                             setNotice(`Cannot delete "${role.name}" — it's assigned to ${role.employeeCount} employee(s). Unassign first.`);
                           } else {
-                            deleteRoleMut.mutate(role.id);
+                            requestSensitiveAction({ kind: 'deleteRole', id: role.id,
+                              title: 'Delete custom role',
+                              description: `Permanently remove the unassigned role “${role.name}”. Existing audit history remains available.`,
+                              successMessage: 'Custom role deleted.' });
                           }
                         }}
-                        disabled={deleteRoleMut.isPending}
+                        disabled={sensitiveActionMut.isPending}
                         className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg border border-red-100 text-red-500 hover:bg-red-50 transition-colors cursor-pointer disabled:opacity-40">
                         <Trash2 size={12} /> Delete
                       </button>
@@ -822,6 +853,25 @@ export default function HubEmployeesPage() {
           }}
         />
       )}
+      <TicketReasonDialog
+        action={pendingAction}
+        reason={actionReason}
+        setReason={setActionReason}
+        onClose={() => {
+          if (sensitiveActionMut.isPending) return;
+          setPendingAction(null);
+          setActionReason('');
+          setActionError('');
+        }}
+        onConfirm={() => sensitiveActionMut.mutate({
+          ...pendingAction,
+          reason: actionReason.trim(),
+        })}
+        loading={sensitiveActionMut.isPending}
+        error={actionError}
+        trailLabel="Saved in the protected platform audit trail"
+        maxLength={500}
+      />
     </div>
   );
 }

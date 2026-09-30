@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +43,7 @@ class HubRoleServiceTest {
         CreateRoleRequest request = new CreateRoleRequest();
         request.setName("Account support");
         request.setPermissions(Set.of("TICKET_VIEW_ACCOUNT"));
+        request.setReason("Move this team to the account support queue");
 
         when(roleRepository.findById("role-1")).thenReturn(Optional.of(role));
         when(roleRepository.save(role)).thenReturn(role);
@@ -60,7 +62,7 @@ class HubRoleServiceTest {
                 org.mockito.ArgumentMatchers.eq("owner-1"),
                 org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
                 any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
-                org.mockito.ArgumentMatchers.isNull());
+                org.mockito.ArgumentMatchers.eq("Move this team to the account support queue"));
     }
 
     @Test
@@ -70,6 +72,7 @@ class HubRoleServiceTest {
         CreateRoleRequest request = new CreateRoleRequest();
         request.setName("Payments");
         request.setPermissions(Set.of("TICKET_VIEW_PAYMENT"));
+        request.setReason("Retry the already applied role configuration");
         when(roleRepository.findById("role-1")).thenReturn(Optional.of(role));
 
         service.update("role-1", request, "owner-1");
@@ -79,5 +82,19 @@ class HubRoleServiceTest {
         verify(refreshSessionRepository, never()).revokeAllForEmployee(any(), any());
         verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void roleChangeWithoutReasonIsRejectedBeforeLookupOrMutation() {
+        CreateRoleRequest request = new CreateRoleRequest();
+        request.setName("Payments");
+        request.setPermissions(Set.of("TICKET_VIEW_PAYMENT"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.update("role-1", request, "owner-1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Reason is required");
+
+        verifyNoInteractions(roleRepository, employeeRepository, refreshSessionRepository, auditClient);
     }
 }

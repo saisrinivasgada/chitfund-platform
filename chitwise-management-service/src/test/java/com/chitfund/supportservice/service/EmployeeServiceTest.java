@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -129,6 +130,19 @@ class EmployeeServiceTest {
     }
 
     @Test
+    void sensitiveEmployeeChangeWithoutReasonIsRejectedBeforeLookupOrMutation() {
+        UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
+        request.setRole("SUPER_ADMIN");
+
+        assertThatThrownBy(() -> service().updateRole("employee-1", "owner-1", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Reason is required");
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(auditClient);
+    }
+
+    @Test
     void hubLoginDoesNotRevealWhetherAccountExistsOrIsInactive() {
         EmployeeLoginRequest request = new EmployeeLoginRequest();
         request.setUsername("hub-user");
@@ -157,6 +171,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPPORT_AGENT");
         ResetEmployeePasswordRequest request = new ResetEmployeePasswordRequest();
         request.setTemporaryPassword("TempPass@9");
+        request.setReason("Employee reported losing access");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(passwordEncoder.encode("TempPass@9")).thenReturn("new-bcrypt-hash");
         when(repository.save(employee)).thenReturn(employee);
@@ -257,6 +272,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPER_ADMIN");
         UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
         request.setRole("SUPPORT_AGENT");
+        request.setReason("Remove elevated access after team transfer");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(repository.findActiveSuperAdminsForUpdate()).thenReturn(java.util.List.of(employee));
 
@@ -271,7 +287,8 @@ class EmployeeServiceTest {
     void cannotDeactivateOwnHubAccount() {
         Employee employee = activeEmployee("SUPER_ADMIN");
 
-        assertThatThrownBy(() -> service().setActive(employee.getId(), employee.getId(), false))
+        assertThatThrownBy(() -> service().setActive(employee.getId(), employee.getId(), false,
+                "Deactivate compromised account"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("own Hub account");
 
@@ -285,7 +302,8 @@ class EmployeeServiceTest {
         when(hubCustomRoleRepository.existsById("role-1")).thenReturn(true);
         when(repository.save(employee)).thenReturn(employee);
 
-        service().assignCustomRole(employee.getId(), "super-admin", "role-1");
+        service().assignCustomRole(employee.getId(), "super-admin", "role-1",
+                "Assign payment support queue");
 
         assertThat(employee.getCustomRoleId()).isEqualTo("role-1");
         assertThat(employee.getAuthVersion()).isEqualTo(1);
@@ -298,6 +316,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPPORT_AGENT");
         UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
         request.setRole("SUPER_ADMIN");
+        request.setReason("Promoted to cover platform administration");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(repository.save(employee)).thenReturn(employee);
 
@@ -313,7 +332,7 @@ class EmployeeServiceTest {
                 org.mockito.ArgumentMatchers.eq("owner-1"),
                 org.mockito.ArgumentMatchers.eq("SUPER_ADMIN"),
                 any(), any(), any(), org.mockito.ArgumentMatchers.eq("PLATFORM"),
-                org.mockito.ArgumentMatchers.isNull());
+                org.mockito.ArgumentMatchers.eq("Promoted to cover platform administration"));
     }
 
     @Test
@@ -321,6 +340,7 @@ class EmployeeServiceTest {
         Employee employee = activeEmployee("SUPPORT_AGENT");
         UpdateEmployeeRoleRequest request = new UpdateEmployeeRoleRequest();
         request.setRole("SUPPORT_AGENT");
+        request.setReason("Retry the already applied role change");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
 
         var response = service().updateRole(employee.getId(), "owner-1", request);
@@ -339,6 +359,7 @@ class EmployeeServiceTest {
         employee.setMustChangePassword(true);
         ResetEmployeePasswordRequest request = new ResetEmployeePasswordRequest();
         request.setTemporaryPassword("TempPass@9");
+        request.setReason("Retry the already applied recovery action");
         when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
         when(passwordEncoder.matches("TempPass@9", "old-hash")).thenReturn(true);
 

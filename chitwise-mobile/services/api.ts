@@ -238,12 +238,12 @@ export const hubListEmployees = async () => {
   return response.data?.data ?? [];
 };
 export const hubInviteEmployee = async (body: { fullName: string; email: string; role: string }) => unwrapObj(await hubApi.post('/hub/employees/invite', body));
-export const hubChangeEmployeeRole = async (id: string, role: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/role`, { role }));
-export const hubDeactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/deactivate`));
-export const hubReactivateEmployee = async (id: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`));
+export const hubChangeEmployeeRole = async (id: string, role: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/role`, { role, reason }));
+export const hubDeactivateEmployee = async (id: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/deactivate`, { reason }));
+export const hubReactivateEmployee = async (id: string, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/reactivate`, { reason }));
 export const hubResendEmployeeInvite = async (id: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/resend-invite`));
-export const hubResetEmployeePassword = async (id: string, temporaryPassword: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword }));
-export const hubUpdateIdentityPermissions = async (id: string, canManageIdentityCases: boolean) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/identity-permissions`, { canManageIdentityCases }));
+export const hubResetEmployeePassword = async (id: string, temporaryPassword: string, reason: string) => unwrapObj(await hubApi.post(`/hub/employees/${id}/reset-password`, { temporaryPassword, reason }));
+export const hubUpdateIdentityPermissions = async (id: string, canManageIdentityCases: boolean, reason: string) => unwrapObj(await hubApi.patch(`/hub/employees/${id}/identity-permissions`, { canManageIdentityCases, reason }));
 export const hubEmployeeDirectory = async (): Promise<any[]> => {
   const response = await hubApi.get('/hub/employees/directory');
   return response.data?.data ?? [];

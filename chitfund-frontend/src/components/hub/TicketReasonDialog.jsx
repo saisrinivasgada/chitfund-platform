@@ -1,6 +1,7 @@
 import { AlertCircle, X } from 'lucide-react';
 
-export default function TicketReasonDialog({ action, reason, setReason, onClose, onConfirm, loading, error }) {
+export default function TicketReasonDialog({ action, reason, setReason, onClose, onConfirm, loading, error,
+  trailLabel = 'Visible in the ticket audit trail', maxLength = 1000 }) {
   if (!action) return null;
 
   return (
@@ -21,12 +22,12 @@ export default function TicketReasonDialog({ action, reason, setReason, onClose,
         <label className="mt-5 block text-sm font-medium text-gray-700" htmlFor="ticket-action-reason">
           Reason <span className="text-red-500">*</span>
         </label>
-        <textarea id="ticket-action-reason" autoFocus rows={4} maxLength={1000}
+        <textarea id="ticket-action-reason" autoFocus rows={4} maxLength={maxLength}
           value={reason} onChange={event => setReason(event.target.value)}
           placeholder="Explain why this change is needed. This becomes part of the audit history."
           className="mt-1.5 w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:border-[#1E3A5F] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20" />
         <div className="mt-1 flex justify-between text-[11px] text-gray-400">
-          <span>Visible in the ticket audit trail</span><span>{reason.length}/1000</span>
+          <span>{trailLabel}</span><span>{reason.length}/{maxLength}</span>
         </div>
         {error && <p className="mt-3 flex items-center gap-1.5 text-xs text-red-600"><AlertCircle size={13} />{error}</p>}
 

@@ -189,6 +189,7 @@ public class EmployeeService {
     @Transactional
     public EmployeeResponse resetPassword(String employeeId, String actorId,
                                           ResetEmployeePasswordRequest req) {
+        String reason = requireReason(req.getReason());
         if (employeeId.equals(actorId)) {
             throw new IllegalArgumentException("Use your account password-change screen to update your own password");
         }
@@ -216,7 +217,8 @@ public class EmployeeService {
                         "authVersion", previousAuthVersion),
                 java.util.Map.of("mustChangePassword", true,
                         "authVersion", employee.getAuthVersion()),
-                java.util.Map.of("sessionsRevoked", true), PLATFORM_AUDIT_TENANT, null);
+                java.util.Map.of("sessionsRevoked", true), PLATFORM_AUDIT_TENANT,
+                reason);
         log.info("Hub employee password reset by actorId=[{}] for employeeId=[{}]", actorId, employeeId);
         return toResponse(employee);
     }
@@ -255,6 +257,7 @@ public class EmployeeService {
 
     @Transactional
     public EmployeeResponse updateRole(String employeeId, String actorId, UpdateEmployeeRoleRequest req) {
+        String reason = requireReason(req.getReason());
         if (employeeId.equals(actorId)) {
             throw new IllegalArgumentException("You cannot change your own Hub role");
         }
@@ -276,12 +279,13 @@ public class EmployeeService {
                 java.util.Map.of("role", saved.getRole()),
                 java.util.Map.of("authVersion", saved.getAuthVersion(),
                         "sessionsRevoked", true),
-                PLATFORM_AUDIT_TENANT, null);
+                PLATFORM_AUDIT_TENANT, reason);
         return toResponse(saved);
     }
 
     @Transactional
-    public EmployeeResponse setActive(String employeeId, String actorId, boolean active) {
+    public EmployeeResponse setActive(String employeeId, String actorId, boolean active, String reason) {
+        String normalizedReason = requireReason(reason);
         if (!active && employeeId.equals(actorId)) {
             throw new IllegalArgumentException("You cannot deactivate your own Hub account");
         }
@@ -305,13 +309,14 @@ public class EmployeeService {
                 java.util.Map.of("active", previousActive),
                 java.util.Map.of("active", saved.isActive()),
                 java.util.Map.of("authVersion", saved.getAuthVersion(),
-                        "sessionsRevoked", !active), PLATFORM_AUDIT_TENANT, null);
+                        "sessionsRevoked", !active), PLATFORM_AUDIT_TENANT, normalizedReason);
         return toResponse(saved);
     }
 
     @Transactional
     public EmployeeResponse updateIdentityPermissions(String employeeId, String actorId,
                                                        UpdateIdentityPermissionsRequest request) {
+        String reason = requireReason(request.getReason());
         Employee actor = getById(actorId);
         if (!actor.isPlatformOwner()) {
             throw new IllegalStateException("Only the protected platform owner can assign identity-case access");
@@ -331,7 +336,7 @@ public class EmployeeService {
                 java.util.Map.of("canManageIdentityCases", saved.isCanManageIdentityCases()),
                 java.util.Map.of("sessionsRevoked", true,
                         "authVersion", saved.getAuthVersion()),
-                PLATFORM_AUDIT_TENANT, null);
+                PLATFORM_AUDIT_TENANT, reason);
         return toResponse(saved);
     }
 
@@ -500,7 +505,9 @@ public class EmployeeService {
     }
 
     @Transactional
-    public EmployeeResponse assignCustomRole(String employeeId, String actorId, String customRoleId) {
+    public EmployeeResponse assignCustomRole(String employeeId, String actorId,
+                                              String customRoleId, String reason) {
+        String normalizedReason = requireReason(reason);
         if (employeeId.equals(actorId)) {
             throw new IllegalArgumentException("You cannot change your own custom role");
         }
@@ -524,8 +531,19 @@ public class EmployeeService {
                         customRoleId != null ? customRoleId : "NONE"),
                 java.util.Map.of("sessionsRevoked", true,
                         "authVersion", saved.getAuthVersion()),
-                PLATFORM_AUDIT_TENANT, null);
+                PLATFORM_AUDIT_TENANT, normalizedReason);
         return toResponse(saved);
+    }
+
+    private String requireReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Reason is required");
+        }
+        String normalized = reason.trim();
+        if (normalized.length() > 500) {
+            throw new IllegalArgumentException("Reason must be at most 500 characters");
+        }
+        return normalized;
     }
 
     private EmployeeResponse toResponse(Employee e) {

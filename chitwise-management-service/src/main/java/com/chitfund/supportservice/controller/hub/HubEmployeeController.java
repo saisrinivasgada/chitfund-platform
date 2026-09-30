@@ -5,6 +5,7 @@ import com.chitfund.supportservice.dto.request.InviteEmployeeRequest;
 import com.chitfund.supportservice.dto.request.ResetEmployeePasswordRequest;
 import com.chitfund.supportservice.dto.request.UpdateEmployeeRoleRequest;
 import com.chitfund.supportservice.dto.request.UpdateIdentityPermissionsRequest;
+import com.chitfund.supportservice.dto.request.ReasonRequest;
 import com.chitfund.supportservice.dto.response.EmployeeResponse;
 import com.chitfund.supportservice.service.EmployeeService;
 import jakarta.validation.Valid;
@@ -70,8 +71,10 @@ public class HubEmployeeController {
 
     @PatchMapping("/{id}/deactivate")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> deactivate(@PathVariable String id, Authentication auth) {
-        EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), false);
+    public ResponseEntity<?> deactivate(@PathVariable String id, Authentication auth,
+                                        @Valid @RequestBody ReasonRequest body) {
+        EmployeeResponse employee = employeeService.setActive(
+                id, (String) auth.getPrincipal(), false, body.getReason());
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 
@@ -93,8 +96,10 @@ public class HubEmployeeController {
 
     @PatchMapping("/{id}/reactivate")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> reactivate(@PathVariable String id, Authentication auth) {
-        EmployeeResponse employee = employeeService.setActive(id, (String) auth.getPrincipal(), true);
+    public ResponseEntity<?> reactivate(@PathVariable String id, Authentication auth,
+                                        @Valid @RequestBody ReasonRequest body) {
+        EmployeeResponse employee = employeeService.setActive(
+                id, (String) auth.getPrincipal(), true, body.getReason());
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 
@@ -102,9 +107,9 @@ public class HubEmployeeController {
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     public ResponseEntity<?> assignCustomRole(@PathVariable String id,
                                               Authentication auth,
-                                              @RequestBody AssignCustomRoleRequest body) {
+                                              @Valid @RequestBody AssignCustomRoleRequest body) {
         EmployeeResponse employee = employeeService.assignCustomRole(
-                id, (String) auth.getPrincipal(), body.getCustomRoleId());
+                id, (String) auth.getPrincipal(), body.getCustomRoleId(), body.getReason());
         return ResponseEntity.ok(Map.of("success", true, "data", employee));
     }
 

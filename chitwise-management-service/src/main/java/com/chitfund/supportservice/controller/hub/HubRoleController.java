@@ -1,6 +1,7 @@
 package com.chitfund.supportservice.controller.hub;
 
 import com.chitfund.supportservice.dto.request.CreateRoleRequest;
+import com.chitfund.supportservice.dto.request.ReasonRequest;
 import com.chitfund.supportservice.dto.response.HubRoleResponse;
 import com.chitfund.supportservice.service.HubRoleService;
 import jakarta.validation.Valid;
@@ -48,8 +49,9 @@ public class HubRoleController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('SUPER_ADMIN')")
-    public ResponseEntity<?> delete(@PathVariable String id, Authentication auth) {
-        roleService.delete(id, (String) auth.getPrincipal());
+    public ResponseEntity<?> delete(@PathVariable String id, Authentication auth,
+                                    @Valid @RequestBody ReasonRequest body) {
+        roleService.delete(id, (String) auth.getPrincipal(), body.getReason());
         return ResponseEntity.ok(Map.of("success", true));
     }
 }
