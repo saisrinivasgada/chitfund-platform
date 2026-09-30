@@ -1520,10 +1520,9 @@ export const billingRecordPayment = (payload) =>
 export const billingRecordUpgrade = (payload) =>
   postBillingIdempotently('upgrade', '/super-admin/billing/payments/upgrade', payload);
 
-export const billingRecordRefund = async (paymentId, payload) => {
-  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
-  return res.data.data;
-};
+export const billingRecordRefund = (paymentId, payload) =>
+  postBillingIdempotently(`refund:${paymentId}`,
+    `/super-admin/billing/payments/${paymentId}/refund`, payload);
 
 export const billingListPayments = async ({ tenantId, page = 0, size = 20 } = {}) => {
   const params = { page, size, ...(tenantId ? { tenantId } : {}) };

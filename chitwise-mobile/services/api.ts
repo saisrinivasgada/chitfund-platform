@@ -1345,8 +1345,8 @@ export const billingGetPayment = async (paymentId: string): Promise<any> => {
 };
 
 export const billingRecordRefund = async (paymentId: string, payload: any): Promise<any> => {
-  const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);
-  return res.data.data;
+  return postBillingIdempotently(`refund:${paymentId}`,
+    `/super-admin/billing/payments/${paymentId}/refund`, payload);
 };
 
 export const updateOrgDetails = async (payload: { orgName?: string; businessRegNumber?: string; address?: string }): Promise<any> => {

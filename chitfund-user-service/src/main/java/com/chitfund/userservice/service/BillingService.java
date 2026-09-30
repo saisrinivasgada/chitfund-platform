@@ -332,10 +332,24 @@ public class BillingService {
 
     @Transactional
     public PaymentResponse recordRefund(String paymentId, RecordRefundRequest req, String actorUserId) {
-        PlanPayment payment = paymentRepo.findById(paymentId)
+        PlanPayment payment = paymentRepo.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BILLING_PAYMENT_NOT_FOUND, "Payment not found"));
 
+        String refundKey = req.getIdempotencyKey().trim();
+        String refundMethod = req.getRefundMethod().trim().toUpperCase(Locale.ROOT);
+        String refundFingerprint = fingerprint("REFUND", paymentId, req.getRefundAmountPaise(),
+                req.getRefundReason(), refundMethod, req.getRefundReference(), req.getRefundDate());
+
         if ("REFUNDED".equals(payment.getStatus())) {
+            if (refundKey.equals(payment.getRefundIdempotencyKey())) {
+                if (!refundFingerprint.equals(payment.getRefundRequestFingerprint())) {
+                    throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                            "Idempotency key was already used for a different refund request",
+                            HttpStatus.CONFLICT);
+                }
+                Tenant tenant = findTenant(payment.getTenantId());
+                return toResponse(payment, tenant, receiptRepo.findByPaymentId(paymentId));
+            }
             throw new BusinessException(ErrorCode.BILLING_ALREADY_REFUNDED, "This payment has already been refunded");
         }
         if (req.getRefundAmountPaise() > payment.getAmountPaise()) {
@@ -345,11 +359,13 @@ public class BillingService {
 
         payment.setStatus("REFUNDED");
         payment.setRefundAmountPaise(req.getRefundAmountPaise());
-        payment.setRefundReason(req.getRefundReason());
-        payment.setRefundMethod(req.getRefundMethod().toUpperCase());
+        payment.setRefundReason(req.getRefundReason().trim());
+        payment.setRefundMethod(refundMethod);
         payment.setRefundReference(req.getRefundReference());
         payment.setRefundedAt(LocalDateTime.now());
         payment.setRefundedBy(actorUserId);
+        payment.setRefundIdempotencyKey(refundKey);
+        payment.setRefundRequestFingerprint(refundFingerprint);
         paymentRepo.save(payment);
 
         Tenant tenant = findTenant(payment.getTenantId());
