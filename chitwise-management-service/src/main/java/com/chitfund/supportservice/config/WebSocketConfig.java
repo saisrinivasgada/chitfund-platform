@@ -151,7 +151,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             }
         } else if (destination.startsWith("/topic/group.")) {
                 String groupId = destination.substring("/topic/group.".length());
-                if (!wsAuthz.canSubscribeToGroup(groupId, tenantId, userId, isHub)) {
+                if (!wsAuthz.canSubscribeToGroup(groupId, tenantId, userId, role, isHub)) {
                     log.warn("WS SUBSCRIBE denied: userId={} tenantId={} topic={}", userId, tenantId, destination);
                     throw new MessagingException("Access denied to group " + groupId);
                 }
@@ -174,8 +174,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 throw new MessagingException("Access denied to hub group " + groupId);
             }
         } else if ("/topic/chitwise-pool".equals(destination)) {
-            if (!wsAuthz.canSubscribeToPool(isHub)) {
-                throw new MessagingException("Only hub employees can subscribe to the pool");
+            if (!wsAuthz.canSubscribeToPool(isHub, role)) {
+                throw new MessagingException("Only Super Admin can subscribe to the unfiltered ticket pool");
             }
         } else {
             // The simple broker otherwise accepts arbitrary destinations.  Keep

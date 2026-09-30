@@ -50,7 +50,10 @@ public class WsAuthorizationService {
      */
     public boolean canSubscribeToConversation(String convId, String tenantId,
                                                String userId, String role, boolean isHub) {
-        if (isHub) return true;
+        // Organization conversations are not Hub support-agent channels. Only a
+        // Super Admin may deliberately inspect them; support employees use the
+        // separate hub.dm / hub.group topics.
+        if (isHub) return "SUPER_ADMIN".equals(role);
         if (tenantId == null) return false;
 
         return conversationRepo.findById(convId)
@@ -87,8 +90,11 @@ public class WsAuthorizationService {
     /**
      * Hub employees can subscribe to the global pool topic.
      */
-    public boolean canSubscribeToPool(boolean isHub) {
-        return isHub;
+    public boolean canSubscribeToPool(boolean isHub, String role) {
+        // This topic carries unfiltered ticket subjects and tenant identifiers.
+        // Category-restricted support agents use their filtered ticket list and
+        // per-ticket topic instead of receiving the global stream.
+        return isHub && "SUPER_ADMIN".equals(role);
     }
 
     /**
@@ -97,8 +103,8 @@ public class WsAuthorizationService {
      * - Group must belong to the user's tenant.
      */
     public boolean canSubscribeToGroup(String groupId, String tenantId,
-                                       String userId, boolean isHub) {
-        if (isHub) return true;
+                                       String userId, String role, boolean isHub) {
+        if (isHub) return "SUPER_ADMIN".equals(role);
         if (tenantId == null) return false;
 
         return groupRepo.findByIdAndTenantId(groupId, tenantId)
