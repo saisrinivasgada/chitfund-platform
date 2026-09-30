@@ -4,6 +4,8 @@ import com.chitfund.supportservice.domain.entity.HubCustomRole;
 import com.chitfund.supportservice.dto.request.CreateRoleRequest;
 import com.chitfund.supportservice.dto.response.HubRoleResponse;
 import com.chitfund.supportservice.repository.HubCustomRoleRepository;
+import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubRefreshSessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,12 +13,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
 public class HubRoleService {
 
     private final HubCustomRoleRepository roleRepository;
+    private final EmployeeRepository employeeRepository;
+    private final HubRefreshSessionRepository refreshSessionRepository;
 
     @Transactional(readOnly = true)
     public List<HubRoleResponse> listAll() {
@@ -27,6 +32,7 @@ public class HubRoleService {
 
     @Transactional
     public HubRoleResponse create(CreateRoleRequest req) {
+        HubPermissionService.validatePermissions(req.getPermissions());
         if (roleRepository.existsByNameIgnoreCase(req.getName().trim())) {
             throw new IllegalStateException("A role with this name already exists");
         }
@@ -41,6 +47,7 @@ public class HubRoleService {
 
     @Transactional
     public HubRoleResponse update(String id, CreateRoleRequest req) {
+        HubPermissionService.validatePermissions(req.getPermissions());
         HubCustomRole role = roleRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found"));
         if (roleRepository.existsByNameIgnoreCaseAndIdNot(req.getName().trim(), id)) {
@@ -52,7 +59,17 @@ public class HubRoleService {
         if (req.getPermissions() != null) {
             role.getPermissions().addAll(req.getPermissions());
         }
-        return toResponse(roleRepository.save(role));
+        HubRoleResponse response = toResponse(roleRepository.save(role));
+        // A role edit may remove platform-console or ticket access. Invalidate
+        // every assigned employee's existing access and refresh credentials.
+        var assigned = employeeRepository.findByCustomRoleId(id);
+        Instant now = Instant.now();
+        for (var employee : assigned) {
+            employee.setAuthVersion(employee.getAuthVersion() + 1);
+            refreshSessionRepository.revokeAllForEmployee(employee.getId(), now);
+        }
+        employeeRepository.saveAll(assigned);
+        return response;
     }
 
     @Transactional

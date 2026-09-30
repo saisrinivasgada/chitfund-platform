@@ -8,6 +8,7 @@ import com.chitfund.supportservice.repository.HubGroupMemberRepository;
 import com.chitfund.supportservice.repository.SupportTicketRepository;
 import com.chitfund.supportservice.repository.EmployeeRepository;
 import com.chitfund.supportservice.domain.entity.Employee;
+import com.chitfund.supportservice.service.HubPermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +29,7 @@ public class WsAuthorizationService {
     private final HubConversationRepository hubConvRepo;
     private final HubGroupMemberRepository hubGroupMemberRepo;
     private final EmployeeRepository employeeRepo;
+    private final HubPermissionService hubPermissionService;
 
     /**
      * Hub access tokens are not sufficient by themselves: deactivation, password
@@ -67,7 +69,12 @@ public class WsAuthorizationService {
      */
     public boolean canSubscribeToTicket(String ticketId, String tenantId,
                                         String userId, String role, boolean isHub) {
-        if (isHub) return true;
+        if (isHub) {
+            return ticketRepo.findById(ticketId)
+                    .map(ticket -> hubPermissionService.visibleTicketTypes(userId)
+                            .contains(ticket.getType()))
+                    .orElse(false);
+        }
         if (tenantId == null) return false;
 
         return ticketRepo.findById(ticketId)

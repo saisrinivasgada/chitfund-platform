@@ -243,6 +243,21 @@ class EmployeeServiceTest {
         verify(repository, never()).save(any());
     }
 
+    @Test
+    void assigningCustomRoleRevokesExistingSessionsAndTokens() {
+        Employee employee = activeEmployee("SUPPORT_AGENT");
+        when(repository.findById(employee.getId())).thenReturn(Optional.of(employee));
+        when(hubCustomRoleRepository.existsById("role-1")).thenReturn(true);
+        when(repository.save(employee)).thenReturn(employee);
+
+        service().assignCustomRole(employee.getId(), "super-admin", "role-1");
+
+        assertThat(employee.getCustomRoleId()).isEqualTo("role-1");
+        assertThat(employee.getAuthVersion()).isEqualTo(1);
+        verify(refreshSessionRepository).revokeAllForEmployee(
+                org.mockito.ArgumentMatchers.eq(employee.getId()), any(Instant.class));
+    }
+
     private com.chitfund.supportservice.dto.response.EmployeeLoginResponse invokeLoginResponse(Employee employee) {
         EmployeeLoginRequest request = new EmployeeLoginRequest();
         request.setUsername(employee.getUsername());

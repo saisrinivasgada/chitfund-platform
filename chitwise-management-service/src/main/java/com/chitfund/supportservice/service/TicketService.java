@@ -202,10 +202,20 @@ public class TicketService {
     @Transactional(readOnly = true)
     public PagedResponse<TicketResponse> listAll(int page, int size, TicketStatus status,
                                                  TicketType type, TicketPriority priority,
-                                                 Instant from, Instant toExclusive, String query) {
+                                                 Instant from, Instant toExclusive, String query,
+                                                 java.util.Set<TicketType> allowedTypes) {
         page = Math.max(0, page);
+        java.util.Set<TicketType> effectiveTypes = allowedTypes == null
+                ? java.util.EnumSet.allOf(TicketType.class) : allowedTypes;
+        if (effectiveTypes.isEmpty()) {
+            return PagedResponse.<TicketResponse>builder()
+                    .items(List.of()).page(page).size(Math.min(Math.max(size, 1), 100))
+                    .totalElements(0).totalPages(0).hasNext(false).build();
+        }
+        boolean allTypes = effectiveTypes.size() == TicketType.values().length;
         Page<SupportTicket> tickets = ticketRepository.searchForHub(
-                status, type, priority, from, toExclusive, escapeLikeParam(blankToNull(query)),
+                status, type, allTypes, effectiveTypes, priority, from, toExclusive,
+                escapeLikeParam(blankToNull(query)),
                 PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
 
         return PagedResponse.<TicketResponse>builder()

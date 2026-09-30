@@ -1,0 +1,78 @@
+package com.chitfund.supportservice.service;
+
+import com.chitfund.supportservice.domain.entity.Employee;
+import com.chitfund.supportservice.domain.entity.HubCustomRole;
+import com.chitfund.supportservice.domain.entity.SupportTicket;
+import com.chitfund.supportservice.domain.enums.TicketType;
+import com.chitfund.supportservice.domain.enums.TicketStatus;
+import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.repository.HubCustomRoleRepository;
+import com.chitfund.supportservice.repository.SupportTicketRepository;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class HubPermissionServiceTest {
+    @Mock EmployeeRepository employeeRepository;
+    @Mock HubCustomRoleRepository roleRepository;
+    @Mock SupportTicketRepository ticketRepository;
+    @InjectMocks HubPermissionService service;
+
+    @Test
+    void customRoleOnlySeesExplicitTicketCategories() {
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent("role-1")));
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(HubCustomRole.builder()
+                .id("role-1").permissions(Set.of("TICKET_VIEW_PAYMENT")).build()));
+
+        assertThat(service.visibleTicketTypes("agent-1")).containsExactly(TicketType.PAYMENT);
+        assertThatThrownBy(() -> service.requireTicketType("agent-1", TicketType.ACCOUNT))
+                .isInstanceOf(SecurityException.class);
+    }
+
+    @Test
+    void directTicketLookupUsesTheSameCategoryPolicy() {
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent("role-1")));
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(HubCustomRole.builder()
+                .id("role-1").permissions(Set.of("TICKET_VIEW_PAYMENT")).build()));
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(SupportTicket.builder()
+                .id("ticket-1").type(TicketType.ACCOUNT).build()));
+
+        assertThatThrownBy(() -> service.requireTicket("agent-1", "ticket-1"))
+                .isInstanceOf(SecurityException.class);
+    }
+
+    @Test
+    void rejectsUnknownPermissionNames() {
+        assertThatThrownBy(() -> HubPermissionService.validatePermissions(Set.of("SUPER_ADMIN")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SUPER_ADMIN");
+    }
+
+    @Test
+    void reopeningResolvedTicketRequiresExplicitPermission() {
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent("role-1")));
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(HubCustomRole.builder()
+                .id("role-1").permissions(Set.of("TICKET_VIEW_PAYMENT")).build()));
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(SupportTicket.builder()
+                .id("ticket-1").type(TicketType.PAYMENT).status(TicketStatus.RESOLVED).build()));
+
+        assertThatThrownBy(() -> service.requireStatusChange(
+                "agent-1", "ticket-1", TicketStatus.IN_PROGRESS))
+                .isInstanceOf(SecurityException.class);
+    }
+
+    private Employee agent(String customRoleId) {
+        return Employee.builder().id("agent-1").role("SUPPORT_AGENT")
+                .customRoleId(customRoleId).active(true).build();
+    }
+}

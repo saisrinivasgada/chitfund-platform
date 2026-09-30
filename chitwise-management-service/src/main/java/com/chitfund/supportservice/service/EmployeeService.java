@@ -405,6 +405,8 @@ public class EmployeeService {
             throw new IllegalArgumentException("Custom role not found");
         }
         employee.setCustomRoleId(customRoleId);
+        employee.setAuthVersion(employee.getAuthVersion() + 1);
+        refreshSessionRepository.revokeAllForEmployee(employeeId, Instant.now());
         return toResponse(employeeRepository.save(employee));
     }
 

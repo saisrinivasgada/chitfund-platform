@@ -9,6 +9,8 @@ import com.chitfund.supportservice.repository.HubConversationRepository;
 import com.chitfund.supportservice.repository.HubGroupMemberRepository;
 import com.chitfund.supportservice.repository.SupportTicketRepository;
 import com.chitfund.supportservice.repository.EmployeeRepository;
+import com.chitfund.supportservice.service.HubPermissionService;
+import com.chitfund.supportservice.domain.enums.TicketType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -29,6 +31,7 @@ class WsAuthorizationServiceTest {
     @Mock HubConversationRepository hubConvRepo;
     @Mock HubGroupMemberRepository hubGroupMemberRepo;
     @Mock EmployeeRepository employeeRepo;
+    @Mock HubPermissionService hubPermissionService;
     @InjectMocks WsAuthorizationService service;
 
     @Test
@@ -71,6 +74,18 @@ class WsAuthorizationServiceTest {
         Employee current = Employee.builder().id("employee-1").active(true).authVersion(5).build();
         when(employeeRepo.findById("employee-1")).thenReturn(Optional.of(current));
         assertThat(service.authenticateHubEmployee("employee-1", 4)).isEmpty();
+    }
+
+    @Test
+    void hubTicketSubscriptionHonorsCustomCategoryPermissions() {
+        SupportTicket ticket = ticket("member-1");
+        ticket.setType(TicketType.ACCOUNT);
+        when(ticketRepo.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(hubPermissionService.visibleTicketTypes("agent-1"))
+                .thenReturn(java.util.Set.of(TicketType.PAYMENT));
+
+        assertThat(service.canSubscribeToTicket(
+                "ticket-1", null, "agent-1", "SUPPORT_AGENT", true)).isFalse();
     }
 
     private SupportTicket ticket(String createdBy) {
