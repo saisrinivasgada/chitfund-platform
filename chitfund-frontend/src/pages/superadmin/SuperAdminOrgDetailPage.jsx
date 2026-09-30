@@ -1978,6 +1978,12 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
     if (!form.discountValue || parseFloat(form.discountValue) <= 0) {
       setError('Enter a valid discount value'); return;
     }
+    if (form.discountType === 'PERCENTAGE' && parseFloat(form.discountValue) > 100) {
+      setError('Percentage discount cannot exceed 100%'); return;
+    }
+    if (!form.reason.trim()) {
+      setError('Enter a reason for this discount'); return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -1987,7 +1993,7 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
       const body = {
         discountType: form.discountType,
         discountValue: value,
-        reason: form.reason || null,
+        reason: form.reason.trim(),
         expiresAt: form.expiresAt ? form.expiresAt + 'T00:00:00' : null,
       };
       const result = await superAdminSetDiscount(tenantId, body);
@@ -2042,7 +2048,7 @@ function SetDiscountModal({ tenantId, existing, onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason <span className="font-normal text-gray-400">(optional)</span></label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reason *</label>
             <input className={INPUT_CLS} value={form.reason} onChange={e => set('reason', e.target.value)} placeholder="Loyalty discount" />
           </div>
           <div>

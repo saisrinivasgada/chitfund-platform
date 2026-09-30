@@ -208,18 +208,41 @@ public class PlanService {
     @Transactional
     public TenantDiscountResponse setTenantDiscount(String tenantId, SetTenantDiscountRequest req,
                                                      String actorId) {
+        try {
+            tenantRepository.findById(UUID.fromString(tenantId))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                            "Organization not found"));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Organization ID is invalid");
+        }
+        TenantDiscount.DiscountType discountType;
+        try {
+            discountType = TenantDiscount.DiscountType.valueOf(
+                    req.getDiscountType().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Discount type must be PERCENTAGE or FIXED_PAISE");
+        }
+        if (discountType == TenantDiscount.DiscountType.PERCENTAGE
+                && req.getDiscountValue().compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Percentage discount cannot exceed 100");
+        }
+        if (req.getExpiresAt() != null && !req.getExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Discount expiry must be in the future");
+        }
         TenantDiscountResponse before = discountRepo.findByTenantId(tenantId)
                 .map(this::toDiscountResponse).orElse(null);
         TenantDiscount d = discountRepo.findByTenantId(tenantId)
                 .orElse(TenantDiscount.builder().tenantId(tenantId).build());
-        d.setDiscountType(TenantDiscount.DiscountType.valueOf(req.getDiscountType()));
+        d.setDiscountType(discountType);
         d.setDiscountValue(req.getDiscountValue());
-        d.setReason(req.getReason());
-        d.setExpiresAt(req.getExpiresAt() != null && !req.getExpiresAt().isBlank()
-                ? LocalDateTime.parse(req.getExpiresAt()) : null);
+        d.setReason(req.getReason().trim());
+        d.setExpiresAt(req.getExpiresAt());
         TenantDiscountResponse after = toDiscountResponse(discountRepo.save(d));
         auditClient.log("TENANT", tenantId, "DISCOUNT_SET", actorId, "SUPER_ADMIN",
-                before, after, tenantId, req.getReason());
+                before, after, tenantId, req.getReason().trim());
         return after;
     }
 

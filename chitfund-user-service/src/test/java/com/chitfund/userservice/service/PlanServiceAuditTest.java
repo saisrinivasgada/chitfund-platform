@@ -8,6 +8,8 @@ import com.chitfund.userservice.domain.entity.TenantCustomLimits;
 import com.chitfund.userservice.dto.request.CreateCapabilityDefRequest;
 import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
+import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
+import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
 import com.chitfund.userservice.repository.PlanLimitsRepository;
 import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
@@ -23,6 +25,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
+import java.math.BigDecimal;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -131,6 +135,46 @@ class PlanServiceAuditTest {
 
         verify(planRepo, never()).save(any());
         verifyNoInteractions(auditClient);
+    }
+
+    @Test
+    void tenantDiscountRejectsPercentageAboveOneHundred() {
+        UUID tenantId = UUID.randomUUID();
+        SetTenantDiscountRequest request = new SetTenantDiscountRequest();
+        request.setDiscountType("percentage");
+        request.setDiscountValue(new BigDecimal("100.01"));
+        request.setReason("Retention offer");
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(
+                Tenant.builder().id(tenantId).name("Acme").build()));
+
+        assertThatThrownBy(() -> service.setTenantDiscount(
+                tenantId.toString(), request, "owner-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot exceed 100");
+        verifyNoInteractions(discountRepo);
+        verifyNoInteractions(auditClient);
+    }
+
+    @Test
+    void tenantDiscountNormalizesTypeAndAuditsMandatoryReason() {
+        UUID tenantId = UUID.randomUUID();
+        SetTenantDiscountRequest request = new SetTenantDiscountRequest();
+        request.setDiscountType("percentage");
+        request.setDiscountValue(new BigDecimal("15.00"));
+        request.setReason(" Retention offer ");
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(
+                Tenant.builder().id(tenantId).name("Acme").build()));
+        when(discountRepo.findByTenantId(tenantId.toString())).thenReturn(Optional.empty());
+        when(discountRepo.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        var result = service.setTenantDiscount(tenantId.toString(), request, "owner-1");
+
+        assertThat(result.getDiscountType()).isEqualTo("PERCENTAGE");
+        assertThat(result.getReason()).isEqualTo("Retention offer");
+        verify(auditClient).log(eq("TENANT"), eq(tenantId.toString()),
+                eq("DISCOUNT_SET"), eq("owner-1"), eq("SUPER_ADMIN"),
+                org.mockito.ArgumentMatchers.isNull(), any(), eq(tenantId.toString()),
+                eq("Retention offer"));
     }
 
     @Test

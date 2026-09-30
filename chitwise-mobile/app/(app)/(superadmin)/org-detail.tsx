@@ -1183,14 +1183,16 @@ function SetDiscountModal({ existing, saving, onClose, onSave }: {
   );
   const [reason, setReason] = useState(existing?.reason ?? '');
   const [expiresAt, setExpiresAt] = useState(existing?.expiresAt ? String(existing.expiresAt).slice(0, 10) : '');
-  const valid = Number(value) > 0;
+  const valid = Number(value) > 0
+    && (dType !== 'PERCENTAGE' || Number(value) <= 100)
+    && reason.trim().length > 0;
 
   function save() {
     // Fixed discounts are stored in paise; percentages are stored as-is.
     onSave({
       discountType: dType,
       discountValue: dType === 'FIXED_PAISE' ? Number(value) * 100 : Number(value),
-      reason: reason.trim() || null,
+      reason: reason.trim(),
       expiresAt: expiresAt ? `${expiresAt}T00:00:00` : null,
     });
   }
@@ -1236,7 +1238,7 @@ function SetDiscountModal({ existing, saving, onClose, onSave }: {
             />
           </View>
           <View>
-            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 6 }}>Reason *</Text>
             <TextInput
               value={reason}
               onChangeText={setReason}
