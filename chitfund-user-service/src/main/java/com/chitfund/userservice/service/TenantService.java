@@ -690,11 +690,12 @@ public class TenantService {
         limits.setPriceMonthlyInr(req.getPriceMonthlyInr());
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());
-        if (req.getEnabledCapabilities() != null) {
-            java.util.List<String> validated = validateCapabilityKeys(req.getEnabledCapabilities());
-            try { limits.setCapabilities(objectMapper.writeValueAsString(validated)); }
-            catch (Exception ignored) {}
-        }
+        // A custom plan is an explicit allow-list. Omitting the field must not
+        // inherit capabilities copied from the tenant's previous standard plan.
+        java.util.List<String> validatedCapabilities = req.getEnabledCapabilities() != null
+                ? validateCapabilityKeys(req.getEnabledCapabilities())
+                : java.util.List.of();
+        limits.setCapabilities(serializeCapabilityKeys(validatedCapabilities));
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM
@@ -714,13 +715,16 @@ public class TenantService {
                 tenantId.toString());
 
         return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
-                CapabilityJson.parse(limits.getCapabilities(), objectMapper));
+                validatedCapabilities);
     }
 
     public void removeCustomLimits(UUID tenantId, String fallbackPlan, String actorId) {
-        String planCode = fallbackPlan != null ? fallbackPlan.toUpperCase() : "BASIC";
+        String planCode = fallbackPlan != null
+                ? fallbackPlan.trim().toUpperCase(java.util.Locale.ROOT) : "BASIC";
         PlanLimits plan = planLimitsRepository.findById(planCode)
-                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Plan not found: " + planCode));
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Active fallback plan not found: " + planCode));
         // Reset limits row to plan defaults (never delete — always keep a row)
         seedLimitsFromPlan(tenantId.toString(), plan);
 
@@ -755,13 +759,34 @@ public class TenantService {
         return normalized;
     }
 
+    private String serializeCapabilityKeys(java.util.List<String> capabilities) {
+        if (capabilities == null || capabilities.isEmpty()) return "[]";
+        try {
+            return objectMapper.writeValueAsString(capabilities);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Capabilities could not be saved safely");
+        }
+    }
+
     @Transactional(readOnly = true)
     public EffectiveLimitsResponse getEffectiveLimits(String tenantId) {
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Tenant tenant = tenantRepository.findById(java.util.UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        java.util.List<String> caps = resolveCaps(limits);
+        String assignedPlan = tenant.getPlan() == null
+                ? "" : tenant.getPlan().trim().toUpperCase(java.util.Locale.ROOT);
+        String limitsPlan = limits.getPlanCode() == null
+                ? "" : limits.getPlanCode().trim().toUpperCase(java.util.Locale.ROOT);
+        if (assignedPlan.isBlank() || !assignedPlan.equals(limitsPlan)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Organization subscription configuration is inconsistent");
+        }
+        boolean activeSubscription = "ACTIVE".equalsIgnoreCase(tenant.getStatus())
+                && (tenant.getPlanExpiresAt() == null
+                    || !tenant.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now()));
+        java.util.List<String> caps = activeSubscription ? resolveCaps(limits) : java.util.List.of();
         return toEffectiveLimits(limits, tenant.getStatus(), tenant.getPlanExpiresAt(), caps);
     }
 

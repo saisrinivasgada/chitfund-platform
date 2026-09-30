@@ -5,6 +5,7 @@ import com.chitfund.userservice.client.AuditClient;
 import com.chitfund.userservice.domain.entity.PlanLimits;
 import com.chitfund.userservice.domain.entity.Tenant;
 import com.chitfund.userservice.domain.entity.TenantCustomLimits;
+import com.chitfund.userservice.dto.request.SetCustomLimitsRequest;
 import com.chitfund.userservice.event.NotificationEventPublisher;
 import com.chitfund.userservice.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,12 +106,67 @@ class TenantPlanAssignmentTest {
                 .allowedChitTypes("RESERVATION").build();
         when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(limits));
         when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
-        when(planLimitsRepository.findById("GROWTH")).thenReturn(Optional.empty());
-
         var response = tenantService.getEffectiveLimits(tenantId.toString());
 
         assertThat(response.getTenantStatus()).isEqualTo("SUSPENDED");
         assertThat(response.getMaxMembers()).isEqualTo(100);
+        assertThat(response.getEnabledCapabilities()).isEmpty();
+    }
+
+    @Test
+    void omittedCustomCapabilitiesDefaultToNoAccessInsteadOfInheritingTheOldPlan() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).plan("GROWTH").status("ACTIVE").build();
+        TenantCustomLimits existing = TenantCustomLimits.builder()
+                .tenantId(tenantId.toString()).planCode("GROWTH")
+                .capabilities("[\"live_chat\",\"settlement\"]").build();
+        SetCustomLimitsRequest request = new SetCustomLimitsRequest();
+        request.setMaxActiveChits(5);
+        request.setMaxMembers(100);
+        request.setMaxStaff(3);
+        request.setAllowedChitTypes("RESERVATION");
+        request.setPriceMonthlyInr(10_000);
+        request.setEnabledCapabilities(null);
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+        when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(existing));
+
+        tenantService.setCustomLimits(tenantId, request, "owner-1");
+
+        assertThat(existing.getPlanCode()).isEqualTo("CUSTOM");
+        assertThat(existing.getCapabilities()).isEqualTo("[]");
+        assertThat(tenant.getPlan()).isEqualTo("CUSTOM");
+    }
+
+    @Test
+    void inactivePlanCannotBeUsedAsCustomPlanFallback() {
+        UUID tenantId = UUID.randomUUID();
+        PlanLimits retired = PlanLimits.builder().plan("RETIRED").isActive(false).build();
+        when(planLimitsRepository.findById("RETIRED")).thenReturn(Optional.of(retired));
+
+        assertThatThrownBy(() -> tenantService.removeCustomLimits(
+                tenantId, " retired ", "owner-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Active fallback plan not found");
+
+        verify(customLimitsRepository, never()).save(any());
+        verify(tenantRepository, never()).save(any());
+    }
+
+    @Test
+    void inconsistentTenantAndLimitsPlansFailClosed() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).plan("GROWTH").status("ACTIVE").build();
+        TenantCustomLimits limits = TenantCustomLimits.builder()
+                .tenantId(tenantId.toString()).planCode("BASIC")
+                .capabilities("[\"live_chat\"]").build();
+        when(customLimitsRepository.findById(tenantId.toString())).thenReturn(Optional.of(limits));
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+
+        assertThatThrownBy(() -> tenantService.getEffectiveLimits(tenantId.toString()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("configuration is inconsistent");
+
+        verify(planLimitsRepository, never()).findById(any());
     }
 
     @Test
