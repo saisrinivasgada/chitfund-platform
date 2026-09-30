@@ -10,15 +10,18 @@ import com.chitfund.supportservice.dto.request.AssignTicketRequest;
 import com.chitfund.supportservice.dto.request.CreatePublicInquiryRequest;
 import com.chitfund.supportservice.dto.request.CreateTicketRequest;
 import com.chitfund.supportservice.dto.request.SendMessageRequest;
+import com.chitfund.supportservice.dto.request.UpdateStatusRequest;
 import com.chitfund.supportservice.repository.*;
 import com.chitfund.supportservice.websocket.TicketWebSocketController;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Year;
 import java.util.Optional;
@@ -46,6 +49,14 @@ class TicketServiceTest {
     @BeforeEach
     void wireSelf() {
         ReflectionTestUtils.setField(ticketService, "self", ticketService);
+    }
+
+    @AfterEach
+    void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 
     @Test
@@ -89,6 +100,10 @@ class TicketServiceTest {
         assertThat(result.getPriority()).isEqualTo(TicketPriority.NORMAL);
         assertThat(result.getTenantId()).isNull();
         assertThat(result.getRequesterEmail()).isEqualTo("prospect@example.com");
+        verify(auditClient).log(eq(result.getId()), eq("CREATED"),
+                org.mockito.ArgumentMatchers.isNull(), eq("PUBLIC"),
+                org.mockito.ArgumentMatchers.isNull(), any(), any(), eq("PLATFORM"),
+                org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test
@@ -179,6 +194,77 @@ class TicketServiceTest {
         verify(auditClient).log(eq("ticket-1"), eq("ASSIGNED"), eq("agent-1"),
                 eq("SUPPORT_AGENT"), any(), any(), any(), eq("tenant-1"),
                 eq("Payment specialist"));
+    }
+
+    @Test
+    void modifiedClientCannotMoveInProgressTicketBackToOpen() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        ticket.setStatus(TicketStatus.IN_PROGRESS);
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(TicketStatus.OPEN);
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> ticketService.updateStatus(
+                "ticket-1", request, "agent-1", "SUPPORT_AGENT"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("IN_PROGRESS to OPEN");
+
+        verify(ticketRepository, never()).save(ticket);
+        verify(auditClient, never()).log(eq("ticket-1"), eq("STATUS_CHANGED"),
+                any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void authorizedReopenPathCanMoveResolvedTicketToInProgress() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        ticket.setStatus(TicketStatus.RESOLVED);
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(TicketStatus.IN_PROGRESS);
+        request.setNote("Customer supplied new evidence");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(ticketRepository.save(ticket)).thenReturn(ticket);
+
+        var response = ticketService.updateStatus(
+                "ticket-1", request, "agent-1", "SUPPORT_AGENT");
+
+        assertThat(response.getStatus()).isEqualTo(TicketStatus.IN_PROGRESS);
+        verify(auditClient).log(eq("ticket-1"), eq("STATUS_CHANGED"), eq("agent-1"),
+                eq("SUPPORT_AGENT"), any(), any(), any(), eq("tenant-1"),
+                eq("Customer supplied new evidence"));
+    }
+
+    @Test
+    void committedStatusChangePublishesWebSocketExactlyOnceAfterCommit() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(TicketStatus.IN_PROGRESS);
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(ticketRepository.save(ticket)).thenReturn(ticket);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        ticketService.updateStatus("ticket-1", request, "agent-1", "SUPPORT_AGENT");
+
+        verify(wsController, never()).notifyStatusChange(any(), any());
+        TransactionSynchronizationManager.getSynchronizations()
+                .forEach(synchronization -> synchronization.afterCommit());
+        verify(wsController).notifyStatusChange("ticket-1", "IN_PROGRESS");
+    }
+
+    @Test
+    void rolledBackStatusChangePublishesNoWebSocketEvent() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        UpdateStatusRequest request = new UpdateStatusRequest();
+        request.setStatus(TicketStatus.IN_PROGRESS);
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(ticketRepository.save(ticket)).thenReturn(ticket);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        ticketService.updateStatus("ticket-1", request, "agent-1", "SUPPORT_AGENT");
+
+        // A rollback never invokes the registered afterCommit callback.
+        verify(wsController, never()).notifyStatusChange(any(), any());
     }
 
     private SupportTicket ticket(String id, String tenantId, String createdBy) {

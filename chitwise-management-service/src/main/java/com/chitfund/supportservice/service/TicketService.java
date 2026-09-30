@@ -35,16 +35,33 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.time.Year;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class TicketService {
+
+    private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
+    private static final Map<TicketStatus, Set<TicketStatus>> ALLOWED_STATUS_TRANSITIONS = Map.of(
+            TicketStatus.OPEN, EnumSet.of(TicketStatus.IN_PROGRESS, TicketStatus.ON_HOLD,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.IN_PROGRESS, EnumSet.of(TicketStatus.ON_HOLD,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.ON_HOLD, EnumSet.of(TicketStatus.IN_PROGRESS,
+                    TicketStatus.RESOLVED, TicketStatus.CLOSED),
+            TicketStatus.RESOLVED, EnumSet.of(TicketStatus.IN_PROGRESS, TicketStatus.CLOSED),
+            TicketStatus.CLOSED, EnumSet.of(TicketStatus.IN_PROGRESS));
 
     private final SupportTicketRepository ticketRepository;
     private final TicketMessageRepository messageRepository;
@@ -117,7 +134,7 @@ public class TicketService {
                         "source", ticket.getSource().name()),
                 java.util.Map.of("ticketNumber", ticket.getTicketNumber()), tenantId, null);
 
-        wsController.notifyNewTicket(ticket);
+        notifyNewTicketAfterCommit(ticket);
 
         return toResponse(ticket, 0);
     }
@@ -160,7 +177,7 @@ public class TicketService {
                         "source", ticket.getSource().name()),
                 java.util.Map.of("ticketNumber", ticket.getTicketNumber()),
                 ticket.getTenantId(), null);
-        wsController.notifyNewTicket(ticket);
+        notifyNewTicketAfterCommit(ticket);
         return toResponse(ticket, 0);
     }
 
@@ -181,7 +198,15 @@ public class TicketService {
                 .priority(TicketPriority.NORMAL)
                 .build();
         ticket = ticketRepository.save(ticket);
-        wsController.notifyNewTicket(ticket);
+        auditClient.log(ticket.getId(), "CREATED", null, "PUBLIC",
+                null, java.util.Map.of(
+                        "status", ticket.getStatus().name(),
+                        "type", ticket.getType().name(),
+                        "priority", ticket.getPriority().name(),
+                        "source", ticket.getSource().name()),
+                java.util.Map.of("ticketNumber", ticket.getTicketNumber()),
+                PLATFORM_AUDIT_TENANT, null);
+        notifyNewTicketAfterCommit(ticket);
         return toResponse(ticket, 0);
     }
 
@@ -245,11 +270,16 @@ public class TicketService {
                                                              String cursor, int limit) {
         findTicketSecure(ticketId, tenantId, isHub, requesterId, restrictToCreator);
 
-        limit = Math.min(limit, 50);
+        limit = Math.min(Math.max(limit, 1), 50);
         List<TicketMessage> messages;
 
         if (cursor != null) {
-            Instant before = Instant.parse(cursor);
+            Instant before;
+            try {
+                before = Instant.parse(cursor);
+            } catch (DateTimeParseException exception) {
+                throw new IllegalArgumentException("Invalid message cursor");
+            }
             messages = messageRepository.findByTicketIdAndCreatedAtBeforeOrderByCreatedAtDesc(
                     ticketId, before, PageRequest.of(0, limit));
         } else {
@@ -303,7 +333,7 @@ public class TicketService {
                 null, java.util.Map.of("messageId", message.getId()),
                 java.util.Map.of("senderType", senderType.name()), ticket.getTenantId(), null);
         TicketMessageResponse response = toMessageResponse(message);
-        wsController.sendTicketMessage(ticketId, response);
+        afterCommit(() -> wsController.sendTicketMessage(ticketId, response));
 
         return response;
     }
@@ -344,7 +374,7 @@ public class TicketService {
                 java.util.Map.of("messageId", messageId, "deleted", true),
                 null, ticket.getTenantId(), "Sender removed the message within the allowed window");
 
-        wsController.sendMessageDeleted(ticketId, messageId);
+        afterCommit(() -> wsController.sendMessageDeleted(ticketId, messageId));
     }
 
     @Transactional
@@ -388,7 +418,7 @@ public class TicketService {
                         ? java.util.Map.of("assignmentNotePresent", true) : null,
                 ticket.getTenantId(), req.getNote());
 
-        wsController.notifyStatusChange(ticketId, ticket.getStatus().name());
+        notifyStatusAfterCommit(ticketId, ticket.getStatus());
         return toResponse(ticket, 0);
     }
 
@@ -417,7 +447,7 @@ public class TicketService {
                 java.util.Map.of("status", request.getStatus().name()),
                 null, ticket.getTenantId(), blankToNull(request.getNote()));
 
-        wsController.notifyStatusChange(ticketId, request.getStatus().name());
+        notifyStatusAfterCommit(ticketId, request.getStatus());
         return toResponse(ticket, 0);
     }
 
@@ -446,12 +476,42 @@ public class TicketService {
     }
 
     private void validateStatusTransition(TicketStatus current, TicketStatus next) {
-        if (current == TicketStatus.CLOSED) {
-            throw new IllegalStateException("Cannot change status of a closed ticket");
-        }
         if (current == next) {
             throw new IllegalStateException("Ticket is already " + current.name());
         }
+        if (!ALLOWED_STATUS_TRANSITIONS.getOrDefault(current, Set.of()).contains(next)) {
+            throw new IllegalStateException(
+                    "Cannot change ticket status from " + current.name() + " to " + next.name());
+        }
+    }
+
+    private void notifyNewTicketAfterCommit(SupportTicket ticket) {
+        afterCommit(() -> wsController.notifyNewTicket(ticket));
+    }
+
+    private void notifyStatusAfterCommit(String ticketId, TicketStatus status) {
+        afterCommit(() -> wsController.notifyStatusChange(ticketId, status.name()));
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    action.run();
+                } catch (RuntimeException exception) {
+                    // WebSocket delivery is a live-view optimization. Database state and
+                    // polling remain authoritative, so a post-commit socket failure must
+                    // not make the already-committed API operation appear to have failed.
+                    log.warn("Ticket WebSocket publication failed after commit: {}",
+                            exception.getMessage());
+                }
+            }
+        });
     }
 
     @Transactional
