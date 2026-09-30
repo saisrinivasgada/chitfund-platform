@@ -74,9 +74,53 @@ public class PayoutService {
                     HttpStatus.BAD_REQUEST);
         }
 
-        BigDecimal netAmount = request.getWinningAmount().subtract(request.getDiscountAmount());
-
         BigDecimal zero = BigDecimal.ZERO;
+
+        // netAmount (cash to member) = winningAmount - discountAmount. discountAmount can
+        // legitimately be larger than the breakdown below — e.g. a pure auction discount
+        // that becomes dividend to OTHER members, tracked entirely outside payout-service,
+        // with none of it earmarked as this member's own debt forgiveness. So breakdownTotal
+        // <= discountAmount is fine. What's never fine is breakdownTotal > discountAmount:
+        // the breakdown fields independently trigger REAL debt write-offs (markPayoutDeducted /
+        // markCrossChitDisbursementSettled below), so if they exceed what was actually
+        // withheld from the member's cash, the member ends up paid full cash AND forgiven
+        // extra dues — total value handed out exceeds winningAmount, and admin silently
+        // loses the difference. Nothing previously checked this.
+        BigDecimal installmentSettlement = request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero;
+        BigDecimal crossChitSettlement = request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero;
+        BigDecimal manualAdjustment = request.getManualAdjustment() != null ? request.getManualAdjustment() : zero;
+        BigDecimal breakdownTotal = installmentSettlement.add(crossChitSettlement).add(manualAdjustment);
+        if (breakdownTotal.compareTo(request.getDiscountAmount()) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "installmentSettlement + crossChitSettlement + manualAdjustment (₹" + breakdownTotal
+                            + ") cannot exceed discountAmount (₹" + request.getDiscountAmount() + ") — "
+                            + "that would forgive more debt than was actually withheld from the payout",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (request.getCrossChitDeductions() != null && !request.getCrossChitDeductions().isEmpty()) {
+            BigDecimal crossChitDeductionsTotal = request.getCrossChitDeductions().stream()
+                    .map(com.chitfund.payoutservice.dto.request.CrossChitDeductionDto::getAmount)
+                    .reduce(zero, BigDecimal::add);
+            if (crossChitDeductionsTotal.compareTo(crossChitSettlement) != 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "crossChitDeductions total (₹" + crossChitDeductionsTotal
+                                + ") must equal crossChitSettlement (₹" + crossChitSettlement + ")",
+                        HttpStatus.BAD_REQUEST);
+            }
+        }
+        if (request.getInstallmentMonthBreakdown() != null && !request.getInstallmentMonthBreakdown().isEmpty()) {
+            BigDecimal installmentBreakdownTotal = request.getInstallmentMonthBreakdown().stream()
+                    .map(InstallmentMonthBreakdownDto::getAmount)
+                    .reduce(zero, BigDecimal::add);
+            if (installmentBreakdownTotal.compareTo(installmentSettlement) != 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "installmentMonthBreakdown total (₹" + installmentBreakdownTotal
+                                + ") must equal installmentSettlement (₹" + installmentSettlement + ")",
+                        HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        BigDecimal netAmount = request.getWinningAmount().subtract(request.getDiscountAmount());
         Payout payout = Payout.builder()
                 .tenantId(TenantContext.get())
                 .chitId(request.getChitId())
@@ -85,7 +129,7 @@ public class PayoutService {
                 .winningAmount(request.getWinningAmount())
                 .discountAmount(request.getDiscountAmount())
                 .netPayoutAmount(netAmount)
-                .installmentSettlement(request.getInstallmentSettlement() != null ? request.getInstallmentSettlement() : zero)
+                .installmentSettlement(installmentSettlement)
                 .installmentSettlementMonths(
                         request.getInstallmentMonthBreakdown() != null && !request.getInstallmentMonthBreakdown().isEmpty()
                         ? request.getInstallmentMonthBreakdown().stream()
@@ -93,8 +137,8 @@ public class PayoutService {
                                 .map(b -> b.getMonth() + ":" + b.getAmount().stripTrailingZeros().toPlainString())
                                 .collect(java.util.stream.Collectors.joining(","))
                         : null)
-                .crossChitSettlement(request.getCrossChitSettlement() != null ? request.getCrossChitSettlement() : zero)
-                .manualAdjustment(request.getManualAdjustment() != null ? request.getManualAdjustment() : zero)
+                .crossChitSettlement(crossChitSettlement)
+                .manualAdjustment(manualAdjustment)
                 .notes(request.getNotes())
                 .createdBy(adminId)
                 .build();

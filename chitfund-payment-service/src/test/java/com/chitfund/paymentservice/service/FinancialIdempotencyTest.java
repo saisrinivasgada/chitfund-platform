@@ -118,6 +118,74 @@ class FinancialIdempotencyTest {
     }
 
     @Test
+    void recordPaymentRejectsRecentDuplicateForSameMemberChitAndAmount() {
+        TenantContext.set("tenant-a");
+        RecordPaymentRequest request = paymentRequest(new BigDecimal("100.00"));
+        when(batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                any(), any(), any())).thenReturn(Optional.empty());
+        when(batchRepository.findByTenantIdAndPaymentModeAndPaymentReference(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(memberServiceClient.isMemberActive(any())).thenReturn(true);
+        PaymentBatch recentDuplicate = PaymentBatch.builder()
+                .id(UUID.randomUUID())
+                .tenantId("tenant-a")
+                .totalAmount(new BigDecimal("100.00"))
+                .status(BatchStatus.COMPLETED)
+                .build();
+        when(batchRepository.findRecentPossibleDuplicates(any(), any(), any(), any(), any()))
+                .thenReturn(java.util.List.of(recentDuplicate));
+
+        PaymentService service = new PaymentService(
+                batchRepository, paymentRecordRepository, allocationRepository,
+                planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
+                adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
+                auditClient);
+
+        assertThatThrownBy(() -> service.recordPayment(request, UUID.randomUUID(), "fresh-key-1"))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(batchRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void recordPaymentProceedsWhenDuplicateIsExplicitlyConfirmed() {
+        TenantContext.set("tenant-a");
+        RecordPaymentRequest request = paymentRequest(new BigDecimal("100.00"));
+        request.setConfirmDuplicate(true);
+        when(batchRepository.findByTenantIdAndIdempotencyOperationAndIdempotencyKey(
+                any(), any(), any())).thenReturn(Optional.empty());
+        when(batchRepository.findByTenantIdAndPaymentModeAndPaymentReference(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(memberServiceClient.isMemberActive(any())).thenReturn(true);
+        when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
+        when(paymentRecordRepository.findTotalOutstandingByMemberId(any(), any())).thenReturn(BigDecimal.ZERO);
+        when(paymentRecordRepository.findByMemberIdAndChitIdAndStatusInForUpdateOrderByMonthNumberAsc(
+                any(), any(), any())).thenReturn(java.util.List.of());
+        when(paymentRecordRepository.findOutstandingAcrossOtherChitsForUpdate(any(), any(), any()))
+                .thenReturn(java.util.List.of());
+        when(batchRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            PaymentBatch b = inv.getArgument(0);
+            b.setId(UUID.randomUUID());
+            return b;
+        });
+        when(paymentRecordRepository.findByMemberIdAndChitIdOrderByMonthNumberAsc(any(), any()))
+                .thenReturn(java.util.List.of());
+
+        PaymentService service = new PaymentService(
+                batchRepository, paymentRecordRepository, allocationRepository,
+                planExpiryChecker, eventPublisher, memberServiceClient, chitServiceClient,
+                adminWalletService, notificationService, memberCreditService, chitMonthDrawService,
+                auditClient);
+
+        service.recordPayment(request, UUID.randomUUID(), "fresh-key-2");
+
+        // Confirmed duplicates skip the recency lookup entirely and proceed to save.
+        verify(batchRepository, never()).findRecentPossibleDuplicates(any(), any(), any(), any(), any());
+        verify(batchRepository).saveAndFlush(any());
+    }
+
+    @Test
     void settlementTransactionStoresTrustedTenantAndRequestFingerprint() {
         TenantContext.set("tenant-a");
         UUID settlementId = UUID.randomUUID();

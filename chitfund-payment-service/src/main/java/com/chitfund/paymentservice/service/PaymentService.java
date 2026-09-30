@@ -126,6 +126,13 @@ public class PaymentService {
                     "Member " + request.getMemberId() + " is not active");
         }
 
+        // skipMemberCheck also marks this as an internal, already-tracked collection
+        // (e.g. confirming a specific pre-existing CashPaymentRequest) rather than a
+        // fresh free-form entry, so it's exempt from the duplicate-recency check below.
+        if (!skipMemberCheck && !request.isConfirmDuplicate()) {
+            assertNoRecentDuplicate(tenantId, request.getMemberId(), request.getChitId(), request.getAmount());
+        }
+
         boolean adminSelfCollect = callerIsAdmin && request.getOverrideCollectedBy() == null;
 
         PaymentBatch batch = PaymentBatch.builder()
@@ -230,6 +237,13 @@ public class PaymentService {
                     "Member " + request.getMemberId() + " is not active");
         }
 
+        // Zero-amount CREDIT-mode entries are a deliberate "no new cash" marker (see
+        // creditWallet's own CREDIT skip) and can legitimately repeat — nothing to
+        // duplicate-check there.
+        if (request.getAmount().compareTo(BigDecimal.ZERO) > 0 && !request.isConfirmDuplicate()) {
+            assertNoRecentDuplicate(tenantId, request.getMemberId(), request.getChitId(), request.getAmount());
+        }
+
         // CASH via this endpoint = admin collected directly (COMPLETED immediately, no remittance step)
         // Worker-collected CASH still goes through POST /payments/collect → AWAITING_REMITTANCE
         PaymentBatch batch = PaymentBatch.builder()
@@ -271,6 +285,28 @@ public class PaymentService {
         eventPublisher.publish(recordedEvent);
 
         return toBatchResponse(batch, allocations);
+    }
+
+    // Catches the same real-world cash being recorded twice through two different
+    // channels/devices with two different idempotency keys — e.g. queued offline on a
+    // phone and separately entered on the web while the phone had no signal. A 10-minute
+    // window keeps this from ever flagging two genuinely separate payments for different
+    // months that happen to share an amount days apart. Non-blocking: the caller can
+    // proceed with confirmDuplicate=true once they've verified it's not a duplicate.
+    private static final int DUPLICATE_CHECK_WINDOW_MINUTES = 10;
+
+    private void assertNoRecentDuplicate(String tenantId, UUID memberId, UUID chitId, BigDecimal amount) {
+        List<PaymentBatch> recent = batchRepository.findRecentPossibleDuplicates(
+                tenantId, memberId, chitId, amount,
+                LocalDateTime.now().minusMinutes(DUPLICATE_CHECK_WINDOW_MINUTES));
+        if (!recent.isEmpty()) {
+            throw new BusinessException(ErrorCode.DUPLICATE_PAYMENT,
+                    "A payment of ₹" + amount.toPlainString() + " for this member and chit was already recorded "
+                            + recent.size() + " time(s) in the last " + DUPLICATE_CHECK_WINDOW_MINUTES
+                            + " minutes (batch " + recent.get(0).getId() + "). If this is a separate, genuine "
+                            + "payment, resubmit with confirmDuplicate=true.",
+                    HttpStatus.CONFLICT);
+        }
     }
 
     private void assertMatchingIdempotencyRequest(String storedHash, String requestHash) {
@@ -425,9 +461,13 @@ public class PaymentService {
         // This runs regardless of batch status — credit can be affected even before remittance.
         memberCreditService.reverseCreditForVoidedBatch(batchId, batch.getMemberId(), adminId);
 
-        // Reverse treasury credit only if the batch was already COMPLETED
-        // (AWAITING_REMITTANCE batches were never credited, so nothing to reverse)
-        if (wasCompleted) {
+        // Reverse treasury credit only if the batch was already COMPLETED AND actually
+        // moved real cash into the treasury in the first place. CREDIT-mode batches (and
+        // any zero-amount batch) never call creditWallet()'s IN entry on record — mirror
+        // that same skip here, or voiding one writes a phantom OUT entry for money that
+        // was never really received, corrupting the account balance.
+        if (wasCompleted && batch.getPaymentMode() != PaymentMode.CREDIT
+                && batch.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
             AccountType accountType = batch.getPaymentMode() == PaymentMode.CASH
                     ? AccountType.CASH : AccountType.BANK;
 
@@ -720,10 +760,14 @@ public class PaymentService {
         List<PaymentRecordStatus> pendingStatuses =
                 List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
 
-        // Step 1: Auto-consume credit up to what member owes across ALL chits
+        // Step 1: Auto-consume credit up to what member owes across ALL chits.
+        // Locked read: two concurrent batches for the same member must not both
+        // decide to use the same credit before either actually consumes it — an
+        // unlocked read here let two concurrent payments both be granted the same
+        // credit, destroying a real balance or fabricating credit from a stale value.
         BigDecimal totalOwedAllChits = paymentRecordRepository
                 .findTotalOutstandingByMemberId(batch.getMemberId(), pendingStatuses);
-        BigDecimal creditAvailable = memberCreditService.getBalance(batch.getMemberId());
+        BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
         BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
 
         if (creditToUse.compareTo(BigDecimal.ZERO) > 0) {

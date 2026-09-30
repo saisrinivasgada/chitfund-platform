@@ -201,9 +201,12 @@ public class CashRequestController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER')")
     public ResponseEntity<ApiResponse<PaymentBatchResponse>> collectForRequest(
             @PathVariable UUID requestId,
+            @RequestParam(required = false, defaultValue = "false") boolean overrideMemberRejection,
+            @RequestParam(required = false) String overrideReason,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        PaymentBatchResponse response = cashRequestService.collectForRequest(requestId, adminId);
+        PaymentBatchResponse response = cashRequestService.collectForRequest(
+                requestId, adminId, overrideMemberRejection, overrideReason);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 

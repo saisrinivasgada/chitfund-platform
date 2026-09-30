@@ -690,16 +690,26 @@ public class SettlementService {
                     .map(PaymentRecord::getAmountPaid)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+            // ADMIN_WIN's "member owes" figure must still include unpaidDues — dues that
+            // are genuinely unpaid regardless of the payout timeline (e.g. a missed
+            // pre-payout installment). Without this, confirm() marks those OUTSTANDING
+            // records SETTLEMENT_CLEARED with nothing ever charged for them — real money
+            // the org was owed silently written off purely because ADMIN_WIN was picked
+            // over FAIR. unpaidDues (OUTSTANDING/PARTIALLY_PAID) and
+            // installmentsPaidSincePayout (SETTLED/PAYOUT_DEDUCTED) are mutually exclusive
+            // by status, so adding both never double-counts.
             if (effectiveMode == SettlementMode.FAIR) {
                 netAmount = unpaidDues.add(futureInstallments).subtract(stillOwedByFund);
                 BigDecimal adminWinAmount = disbursedAmt.subtract(installmentsPaidSincePayout)
-                        .max(BigDecimal.ZERO);
+                        .max(BigDecimal.ZERO)
+                        .add(unpaidDues);
                 alternativeModeAmount = adminWinAmount;
                 alternativeModeName = "ADMIN_WIN";
             } else {
                 // ADMIN_WIN
                 netAmount = disbursedAmt.subtract(installmentsPaidSincePayout)
-                        .max(BigDecimal.ZERO);
+                        .max(BigDecimal.ZERO)
+                        .add(unpaidDues);
                 BigDecimal fairAmount = unpaidDues.add(futureInstallments).subtract(stillOwedByFund);
                 alternativeModeAmount = fairAmount;
                 alternativeModeName = "FAIR";
@@ -925,6 +935,7 @@ public class SettlementService {
                     sb.append("  Disbursed to member: ").append(fmt(disbursedAmt)).append("\n");
                     sb.append("− Installments paid back since payout: ").append(fmt(installmentsPaidSincePayout)).append("\n");
                     sb.append("= max(0, ").append(fmt(disbursedAmt)).append(" − ").append(fmt(installmentsPaidSincePayout)).append(")\n");
+                    sb.append("+ Unpaid dues (unrelated to payout timeline): ").append(fmt(unpaidDues)).append("\n");
                     sb.append("= Member owes: ").append(fmt(netAmount)).append("\n");
                     sb.append("  (Undisbursed ").append(fmt(stillOwedByFund)).append(" is forgiven on exit)\n");
                     if (alternativeModeAmount != null) {

@@ -227,12 +227,29 @@ public class ChitMonthDrawService {
         List<PaymentRecord> records = new java.util.ArrayList<>();
         for (MemberSpotEntry ms : ordered) {
             BigDecimal dividend = dividendPerSpot.multiply(BigDecimal.valueOf(ms.spots()));
+            // A member holding N spots can be short up to N spare paise (one per spot),
+            // not just one — a single "extra paisa per member" cap systematically shorted
+            // multi-spot members relative to their share. Hand out up to one paisa per
+            // spot this member holds before moving to the next member.
             if (spareePaise > 0) {
-                dividend = dividend.add(new BigDecimal("0.01"));
-                spareePaise--;
+                long give = Math.min(spareePaise, ms.spots());
+                dividend = dividend.add(BigDecimal.valueOf(give, 2));
+                spareePaise -= give;
             }
             BigDecimal gross = grossInstallmentAmount.multiply(BigDecimal.valueOf(ms.spots()));
-            BigDecimal netDue = gross.subtract(dividend).max(BigDecimal.ZERO);
+            BigDecimal netDue = gross.subtract(dividend);
+            if (netDue.signum() < 0) {
+                // A steep-discount auction can hand a member a dividend larger than their
+                // own installment for this month. The excess is real money they're owed —
+                // flooring it to zero silently destroyed it instead of carrying it forward
+                // as credit against next month's installment.
+                BigDecimal excess = netDue.negate();
+                memberCreditService.addCredit(ms.memberId(), excess, null, chitId,
+                        UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                        "Dividend exceeded installment — draw #" + monthNumber + " chit " + chitId
+                                + " (dividend ₹" + dividend + " vs installment ₹" + gross + ")");
+                netDue = BigDecimal.ZERO;
+            }
             records.add(PaymentRecord.builder()
                     .tenantId(tenantId)
                     .chitId(chitId)
@@ -288,9 +305,13 @@ public class ChitMonthDrawService {
         if (shortfall.signum() <= 0) return 0;
 
         long paise = shortfall.movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
-        // At most one spare paisa per member; anything more means the inputs
-        // disagree and we should not be inventing a discount.
-        return Math.min(paise, memberSpots.size());
+        // At most one spare paisa per SPOT (not per distinct member) — a member
+        // holding multiple spots can legitimately be owed more than one spare paisa.
+        // Capping by member count instead of spot count silently dropped up to
+        // (totalSpots - distinctMembers) paise of real, owed dividend every draw.
+        // Anything beyond one-per-spot means the inputs disagree and we should not
+        // be inventing a discount.
+        return Math.min(paise, totalSpots);
     }
 
     /**
@@ -556,9 +577,19 @@ public class ChitMonthDrawService {
         List<PaymentRecord> records = paymentRecordRepository
                 .findByChitIdAndMonthNumber(cycle.getChitId(), cycle.getMonthNumber());
 
+        // "Settled" = fully resolved, no further collection needed. "Partial" = some
+        // balance still owed (whether via cash or credit). PARTIAL_CREDIT was previously
+        // left out of every bucket, so a member owing a real remainder after credit was
+        // applied became invisible to admin and never got chased for collection — the
+        // same class of bug as the Treasury "Outflows always ₹0" issue (a status left out
+        // of a sum). CREDIT_COVERED and SETTLEMENT_CLEARED are also genuinely settled and
+        // now counted as such instead of falling through uncounted.
         long settled     = count(records, PaymentRecordStatus.SETTLED)
-                         + count(records, PaymentRecordStatus.PAYOUT_DEDUCTED);
-        long partial     = count(records, PaymentRecordStatus.PARTIALLY_PAID);
+                         + count(records, PaymentRecordStatus.PAYOUT_DEDUCTED)
+                         + count(records, PaymentRecordStatus.CREDIT_COVERED)
+                         + count(records, PaymentRecordStatus.SETTLEMENT_CLEARED);
+        long partial     = count(records, PaymentRecordStatus.PARTIALLY_PAID)
+                         + count(records, PaymentRecordStatus.PARTIAL_CREDIT);
         long outstanding = count(records, PaymentRecordStatus.OUTSTANDING);
         long waived      = count(records, PaymentRecordStatus.WAIVED);
 
@@ -568,7 +599,8 @@ public class ChitMonthDrawService {
 
         BigDecimal totalOutstanding = records.stream()
                 .filter(r -> r.getStatus() == PaymentRecordStatus.OUTSTANDING
-                          || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID)
+                          || r.getStatus() == PaymentRecordStatus.PARTIALLY_PAID
+                          || r.getStatus() == PaymentRecordStatus.PARTIAL_CREDIT)
                 .map(r -> r.getAmountDue().subtract(r.getAmountPaid()))
                 .filter(b -> b.compareTo(BigDecimal.ZERO) > 0)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);

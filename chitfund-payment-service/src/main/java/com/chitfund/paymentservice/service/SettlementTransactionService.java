@@ -59,6 +59,20 @@ public class SettlementTransactionService {
     private final AdminWalletService adminWalletService;
 
     /**
+     * Statuses that mean "no further money should move against this settlement."
+     * Shared by the recordTransaction() status gate and getPendingSettlements()'s
+     * exclusion filter so the two can never silently diverge again — VOIDED was
+     * previously missing from the gate here (though present in the pending-list
+     * filter), letting a stale request slip a real transaction onto an already-voided
+     * settlement after its underlying dues had been reverted to outstanding.
+     */
+    private static final List<SettlementPaymentStatus> TERMINAL_STATUSES = List.of(
+            SettlementPaymentStatus.FULLY_COLLECTED,
+            SettlementPaymentStatus.FULLY_DISBURSED,
+            SettlementPaymentStatus.BALANCED,
+            SettlementPaymentStatus.VOIDED);
+
+    /**
      * Records one payment transaction for a confirmed settlement and updates the
      * settlement's running totals + payment status.
      *
@@ -107,12 +121,11 @@ public class SettlementTransactionService {
                     "Cannot record money against a superseded settlement", HttpStatus.CONFLICT);
         }
 
-        // ── 3. Status gate — reject if already fully settled ─────────────────
+        // ── 3. Status gate — reject if already fully settled or voided ────────
         SettlementPaymentStatus currentStatus = settlement.getPaymentStatus();
-        if (currentStatus == SettlementPaymentStatus.FULLY_COLLECTED
-                || currentStatus == SettlementPaymentStatus.FULLY_DISBURSED
-                || currentStatus == SettlementPaymentStatus.BALANCED) {
-            throw new IllegalStateException("Settlement payment is already complete (status=" + currentStatus + ")");
+        if (TERMINAL_STATUSES.contains(currentStatus)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Settlement payment is no longer open (status=" + currentStatus + ")", HttpStatus.CONFLICT);
         }
 
         // ── 4. Determine direction from settlement net amount ─────────────────
@@ -243,12 +256,7 @@ public class SettlementTransactionService {
      */
     @Transactional(readOnly = true)
     public Page<SettlementResponse> getPendingSettlements(Pageable pageable) {
-        List<SettlementPaymentStatus> terminal = List.of(
-                SettlementPaymentStatus.FULLY_COLLECTED,
-                SettlementPaymentStatus.FULLY_DISBURSED,
-                SettlementPaymentStatus.BALANCED,
-                SettlementPaymentStatus.VOIDED);
-        return settlementRepository.findPendingByTenant(TenantContext.get(), terminal, pageable)
+        return settlementRepository.findPendingByTenant(TenantContext.get(), TERMINAL_STATUSES, pageable)
                 .map(this::toPendingResponse);
     }
 
