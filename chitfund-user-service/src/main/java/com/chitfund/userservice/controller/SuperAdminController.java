@@ -53,9 +53,10 @@ public class SuperAdminController {
     }
 
     @PostMapping("/{tenantId}/activate")
-    public ResponseEntity<ApiResponse<ActivationResponse>> activate(@PathVariable UUID tenantId) {
+    public ResponseEntity<ApiResponse<ActivationResponse>> activate(
+            @PathVariable UUID tenantId, @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.activateTenant(tenantId), "Tenant activated"));
+                tenantService.activateTenant(tenantId, principal.getId().toString()), "Tenant activated"));
     }
 
     @PostMapping("/{tenantId}/proxy")
@@ -73,25 +74,28 @@ public class SuperAdminController {
     }
 
     @PostMapping("/{tenantId}/suspend")
-    public ResponseEntity<ApiResponse<TenantResponse>> suspend(@PathVariable UUID tenantId) {
+    public ResponseEntity<ApiResponse<TenantResponse>> suspend(
+            @PathVariable UUID tenantId, @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.suspendTenant(tenantId), "Tenant suspended"));
+                tenantService.suspendTenant(tenantId, principal.getId().toString()), "Tenant suspended"));
     }
 
     @PatchMapping("/{tenantId}/status")
     public ResponseEntity<ApiResponse<TenantResponse>> setStatus(
             @PathVariable UUID tenantId,
-            @RequestParam String status) {
+            @RequestParam String status,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.setTenantStatus(tenantId, status), "Status updated"));
+                tenantService.setTenantStatus(tenantId, status, principal.getId().toString()), "Status updated"));
     }
 
     @PostMapping("/{tenantId}/reactivate")
     public ResponseEntity<ApiResponse<TenantResponse>> reactivate(
             @PathVariable UUID tenantId,
-            @RequestParam(required = false) String newSlug) {
+            @RequestParam(required = false) String newSlug,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.reactivateTenant(tenantId, newSlug), "Tenant reactivated"));
+                tenantService.reactivateTenant(tenantId, newSlug, principal.getId().toString()), "Tenant reactivated"));
     }
 
     @PostMapping("/{tenantId}/plan")
@@ -160,17 +164,20 @@ public class SuperAdminController {
     @PutMapping("/{tenantId}")
     public ResponseEntity<ApiResponse<TenantResponse>> updateTenant(
             @PathVariable UUID tenantId,
-            @Valid @RequestBody UpdateTenantRequest request) {
+            @Valid @RequestBody UpdateTenantRequest request,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.updateTenant(tenantId, request), "Org updated"));
+                tenantService.updateTenant(tenantId, request, principal.getId().toString()), "Org updated"));
     }
 
     @PostMapping("/{tenantId}/users")
     public ResponseEntity<ApiResponse<OrgUserResponse>> addOrgUser(
             @PathVariable UUID tenantId,
-            @Valid @RequestBody AddOrgUserRequest request) {
+            @Valid @RequestBody AddOrgUserRequest request,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(tenantService.addOrgUser(tenantId, request), "User added"));
+                .body(ApiResponse.success(
+                        tenantService.addOrgUser(tenantId, request, principal.getId().toString()), "User added"));
     }
 
     @GetMapping("/upgrade-requests")
@@ -184,8 +191,9 @@ public class SuperAdminController {
     }
 
     @DeleteMapping("/{tenantId}/renewal-request")
-    public ResponseEntity<ApiResponse<Void>> clearRenewalRequest(@PathVariable UUID tenantId) {
-        tenantService.clearRenewalRequest(tenantId);
+    public ResponseEntity<ApiResponse<Void>> clearRenewalRequest(
+            @PathVariable UUID tenantId, @AuthenticationPrincipal User principal) {
+        tenantService.clearRenewalRequest(tenantId, principal.getId().toString());
         return ResponseEntity.ok(ApiResponse.success(null, "Renewal request cleared"));
     }
 
@@ -194,32 +202,37 @@ public class SuperAdminController {
             @PathVariable UUID tenantId,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.cancelMembership(tenantId, principal.getId().toString()),
+                tenantService.cancelMembership(
+                        tenantId, principal.getId().toString(), "ROLE_SUPER_ADMIN"),
                 "Cancellation scheduled"));
     }
 
     @PostMapping("/{tenantId}/resume")
-    public ResponseEntity<ApiResponse<TenantResponse>> resumeTenant(@PathVariable UUID tenantId) {
+    public ResponseEntity<ApiResponse<TenantResponse>> resumeTenant(
+            @PathVariable UUID tenantId, @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.resumeMembership(tenantId),
+                tenantService.resumeMembership(
+                        tenantId, principal.getId().toString(), "ROLE_SUPER_ADMIN"),
                 "Subscription resumed"));
     }
 
     @PostMapping("/{tenantId}/credits")
     public ResponseEntity<ApiResponse<TenantResponse>> addCredit(
             @PathVariable UUID tenantId,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal User principal) {
         BigDecimal amount = new BigDecimal(body.get("amountInr").toString());
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.addCredit(tenantId, amount), "Credit added"));
+                tenantService.addCredit(tenantId, amount, principal.getId().toString()), "Credit added"));
     }
 
     @PostMapping("/{tenantId}/credits/deduct")
     public ResponseEntity<ApiResponse<TenantResponse>> deductCredit(
             @PathVariable UUID tenantId,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal User principal) {
         BigDecimal amount = new BigDecimal(body.get("amountInr").toString());
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.deductCredit(tenantId, amount), "Credit deducted"));
+                tenantService.deductCredit(tenantId, amount, principal.getId().toString()), "Credit deducted"));
     }
 }

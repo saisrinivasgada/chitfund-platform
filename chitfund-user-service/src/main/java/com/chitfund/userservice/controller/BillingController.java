@@ -124,17 +124,20 @@ public class BillingController {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.cancelMembership(java.util.UUID.fromString(tenantId), principal.getId().toString()),
+                tenantService.cancelMembership(
+                        java.util.UUID.fromString(tenantId), principal.getId().toString(), "ROLE_ADMIN"),
                 "Subscription cancellation scheduled"));
     }
 
     @PostMapping("/api/billing/resume")
     @PreAuthorize("hasAuthority('ADMIN')")
-    public ResponseEntity<ApiResponse<TenantResponse>> resumeMySubscription() {
+    public ResponseEntity<ApiResponse<TenantResponse>> resumeMySubscription(
+            @AuthenticationPrincipal User principal) {
         String tenantId = TenantContext.get();
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         return ResponseEntity.ok(ApiResponse.success(
-                tenantService.resumeMembership(java.util.UUID.fromString(tenantId)),
+                tenantService.resumeMembership(
+                        java.util.UUID.fromString(tenantId), principal.getId().toString(), "ROLE_ADMIN"),
                 "Subscription resumed"));
     }
 

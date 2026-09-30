@@ -200,7 +200,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public ActivationResponse activateTenant(UUID tenantId) {
+    public ActivationResponse activateTenant(UUID tenantId, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         String prevStatus = t.getStatus();
@@ -215,7 +215,7 @@ public class TenantService {
 
         promotionService.onTenantActivated(tenantId);
         auditClient.log("TENANT", tenantId.toString(),
-                "TENANT_ACTIVATED", null, "ROLE_SUPER_ADMIN",
+                "TENANT_ACTIVATED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "PENDING"),
                 java.util.Map.of("status", "ACTIVE", "plan", t.getPlan() != null ? t.getPlan() : "BASIC"),
                 tenantId.toString());
@@ -300,11 +300,16 @@ public class TenantService {
                 .build();
     }
 
-    public TenantResponse suspendTenant(UUID tenantId) {
+    public TenantResponse suspendTenant(UUID tenantId, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String previous = t.getStatus();
         t.setStatus("SUSPENDED");
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_SUSPENDED", actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("status", previous != null ? previous : "UNKNOWN"),
+                java.util.Map.of("status", "SUSPENDED"), tenantId.toString());
         sendStatusEmail(t, "SUSPENDED");
         return toResponse(t);
     }
@@ -320,7 +325,7 @@ public class TenantService {
         return tenantRepository.existsBySlugAndStatusNot(slug, "REJECTED");
     }
 
-    public TenantResponse setTenantStatus(UUID tenantId, String newStatus) {
+    public TenantResponse setTenantStatus(UUID tenantId, String newStatus, String actorId) {
         String upper = newStatus.toUpperCase();
         if (!java.util.Set.of("PENDING", "ACTIVE", "SUSPENDED", "REJECTED").contains(upper)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Invalid status: " + newStatus);
@@ -331,7 +336,7 @@ public class TenantService {
         t.setStatus(upper);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
-                "STATUS_CHANGED", null, "ROLE_SUPER_ADMIN",
+                "STATUS_CHANGED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "UNKNOWN"),
                 java.util.Map.of("status", upper),
                 tenantId.toString());
@@ -341,7 +346,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public TenantResponse reactivateTenant(UUID tenantId, String newSlug) {
+    public TenantResponse reactivateTenant(UUID tenantId, String newSlug, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         if (!"REJECTED".equals(t.getStatus())) {
@@ -360,9 +365,15 @@ public class TenantService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Subdomain '" + targetSlug + "' is already taken — please choose another", HttpStatus.CONFLICT);
         }
+        String previousSlug = t.getSlug();
+        String previousStatus = t.getStatus();
         t.setSlug(targetSlug);
         t.setStatus("PENDING");
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_REACTIVATED", actorId, "ROLE_SUPER_ADMIN",
+                java.util.Map.of("status", previousStatus, "slug", previousSlug),
+                java.util.Map.of("status", "PENDING", "slug", targetSlug), tenantId.toString());
         return toResponse(t);
     }
 
@@ -410,13 +421,13 @@ public class TenantService {
                 .stream().map(this::toResponse).toList();
     }
 
-    public void clearRenewalRequest(UUID tenantId) {
+    public void clearRenewalRequest(UUID tenantId, String actorId) {
         tenantRepository.findById(tenantId).ifPresent(t -> {
             t.setRenewalRequestedAt(null);
             tenantRepository.save(t);
         });
         auditClient.log("TENANT", tenantId.toString(),
-                "RENEWAL_APPROVED", null, "ROLE_SUPER_ADMIN",
+                "RENEWAL_APPROVED", actorId, "ROLE_SUPER_ADMIN",
                 null, null, tenantId.toString());
     }
 
@@ -511,9 +522,10 @@ public class TenantService {
         return java.util.stream.Stream.concat(staffUsers.stream(), memberUsers.stream()).toList();
     }
 
-    public TenantResponse updateTenant(UUID tenantId, UpdateTenantRequest req) {
+    public TenantResponse updateTenant(UUID tenantId, UpdateTenantRequest req, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        java.util.Map<String, Object> before = tenantAuditSnapshot(t);
         t.setName(req.getName().trim());
         if (req.getSlug() != null && !req.getSlug().isBlank()) {
             String newSlug = req.getSlug().toLowerCase().trim();
@@ -534,6 +546,9 @@ public class TenantService {
             t.setSupportPhoneNumber(req.getSupportPhoneNumber().isBlank() ? null : req.getSupportPhoneNumber().trim());
         }
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId.toString(),
+                "TENANT_DETAILS_UPDATED", actorId, "ROLE_SUPER_ADMIN",
+                before, tenantAuditSnapshot(t), tenantId.toString());
         return toResponse(t);
     }
 
@@ -548,7 +563,7 @@ public class TenantService {
         return toResponse(t);
     }
 
-    public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req) {
+    public OrgUserResponse addOrgUser(UUID tenantId, AddOrgUserRequest req, String actorId) {
         tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         Role role = Role.valueOf(req.getRole().toUpperCase());
@@ -584,6 +599,11 @@ public class TenantService {
                 .tenantId(tenantId.toString())
                 .build();
         userRepository.save(user);
+
+        auditClient.log("USER", user.getId().toString(),
+                "ORG_USER_CREATED", actorId, "ROLE_SUPER_ADMIN", null,
+                java.util.Map.of("tenantId", tenantId.toString(), "role", role.name()),
+                tenantId.toString());
 
         return OrgUserResponse.builder()
                 .userId(user.getId().toString())
@@ -912,7 +932,7 @@ public class TenantService {
     // ── Super-admin: manually add credit to a tenant ─────────────────────────
 
     @Transactional
-    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr) {
+    public TenantResponse addCredit(UUID tenantId, java.math.BigDecimal amountInr, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
@@ -923,7 +943,7 @@ public class TenantService {
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
         auditClient.log("TENANT", tenantId.toString(),
-                "CREDIT_ADDED", null, "ROLE_SUPER_ADMIN",
+                "CREDIT_ADDED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "addedInr", amountInr.toPlainString()),
                 tenantId.toString());
@@ -931,7 +951,7 @@ public class TenantService {
     }
 
     @Transactional
-    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr) {
+    public TenantResponse deductCredit(UUID tenantId, java.math.BigDecimal amountInr, String actorId) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         if (amountInr.compareTo(java.math.BigDecimal.ZERO) <= 0) {
@@ -942,27 +962,36 @@ public class TenantService {
         t.setCreditBalanceInr(newBalance);
         TenantResponse result = toResponse(tenantRepository.save(t));
         auditClient.log("TENANT", tenantId.toString(),
-                "CREDIT_DEDUCTED", null, "ROLE_SUPER_ADMIN",
+                "CREDIT_DEDUCTED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("creditBalanceInr", current.toPlainString()),
                 java.util.Map.of("creditBalanceInr", newBalance.toPlainString(), "deductedInr", amountInr.toPlainString()),
                 tenantId.toString());
         return result;
     }
 
-    public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId) {
+    public TenantResponse cancelMembership(UUID tenantId, String requestedByUserId, String actorRole) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         t.setCancellationRequestedAt(java.time.LocalDateTime.now());
         t.setCancellationRequestedBy(requestedByUserId);
-        return toResponse(tenantRepository.save(t));
+        TenantResponse response = toResponse(tenantRepository.save(t));
+        auditClient.log("TENANT", tenantId.toString(),
+                "CANCELLATION_REQUESTED", requestedByUserId, actorRole,
+                null, java.util.Map.of("cancellationRequested", true), tenantId.toString());
+        return response;
     }
 
-    public TenantResponse resumeMembership(UUID tenantId) {
+    public TenantResponse resumeMembership(UUID tenantId, String actorId, String actorRole) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         t.setCancellationRequestedAt(null);
         t.setCancellationRequestedBy(null);
-        return toResponse(tenantRepository.save(t));
+        TenantResponse response = toResponse(tenantRepository.save(t));
+        auditClient.log("TENANT", tenantId.toString(),
+                "CANCELLATION_REVOKED", actorId, actorRole,
+                java.util.Map.of("cancellationRequested", true),
+                java.util.Map.of("cancellationRequested", false), tenantId.toString());
+        return response;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -996,9 +1025,18 @@ public class TenantService {
     private String generateTempPassword() {
         String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
         StringBuilder sb = new StringBuilder(10);
-        java.util.Random rng = new java.util.Random();
+        java.security.SecureRandom rng = new java.security.SecureRandom();
         for (int i = 0; i < 10; i++) sb.append(chars.charAt(rng.nextInt(chars.length())));
         return sb.toString();
+    }
+
+    private static java.util.Map<String, Object> tenantAuditSnapshot(Tenant tenant) {
+        java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+        snapshot.put("name", tenant.getName());
+        snapshot.put("slug", tenant.getSlug());
+        snapshot.put("businessRegNumber", tenant.getBusinessRegNumber());
+        snapshot.put("supportPhoneNumber", tenant.getSupportPhoneNumber());
+        return snapshot;
     }
 
     // ── Org settings (admin self-service) ────────────────────────────────────
