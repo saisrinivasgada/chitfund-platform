@@ -760,10 +760,14 @@ public class PaymentService {
         List<PaymentRecordStatus> pendingStatuses =
                 List.of(PaymentRecordStatus.OUTSTANDING, PaymentRecordStatus.PARTIALLY_PAID);
 
-        // Step 1: Auto-consume credit up to what member owes across ALL chits
+        // Step 1: Auto-consume credit up to what member owes across ALL chits.
+        // Locked read: two concurrent batches for the same member must not both
+        // decide to use the same credit before either actually consumes it — an
+        // unlocked read here let two concurrent payments both be granted the same
+        // credit, destroying a real balance or fabricating credit from a stale value.
         BigDecimal totalOwedAllChits = paymentRecordRepository
                 .findTotalOutstandingByMemberId(batch.getMemberId(), pendingStatuses);
-        BigDecimal creditAvailable = memberCreditService.getBalance(batch.getMemberId());
+        BigDecimal creditAvailable = memberCreditService.getBalanceForUpdate(batch.getMemberId());
         BigDecimal creditToUse = creditAvailable.min(totalOwedAllChits);
 
         if (creditToUse.compareTo(BigDecimal.ZERO) > 0) {
