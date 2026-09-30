@@ -19,7 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +36,27 @@ class BillingEffectiveLimitsTest {
     @Mock TenantCustomLimitsRepository customLimitsRepo;
     @Mock AuditClient auditClient;
     @InjectMocks BillingService billingService;
+
+    @Test
+    void renewalCannotBeUsedToBypassThePlanChangeFlow() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).name("Acme").plan("BASIC").build();
+        PlanLimits growth = PlanLimits.builder()
+                .plan("GROWTH").displayName("Growth").isActive(true)
+                .maxActiveChits(20).maxMembers(500).maxStaff(10)
+                .allowedChitTypes("RESERVATION").priceMonthlyInr(49_900L).build();
+        RecordPaymentRequest request = paymentRequest(tenantId, "renewal-key", 49_900L);
+        request.setType("RENEWAL");
+        request.setToPlan("GROWTH");
+        when(tenantRepo.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+        when(planRepo.findById("GROWTH")).thenReturn(Optional.of(growth));
+
+        assertThatThrownBy(() -> billingService.recordPayment(request, UUID.randomUUID().toString()))
+                .isInstanceOf(com.chitfund.common.exception.BusinessException.class)
+                .hasMessageContaining("renewal must keep");
+        verify(paymentRepo, never()).save(any());
+        verifyNoInteractions(auditClient);
+    }
 
     @Test
     void purchaseRefreshesAnExistingEffectiveLimitsRow() {

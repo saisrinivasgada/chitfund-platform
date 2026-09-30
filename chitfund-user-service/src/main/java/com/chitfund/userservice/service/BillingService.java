@@ -119,6 +119,10 @@ public class BillingService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Use the upgrade endpoint for UPGRADE payments");
         }
+        if (type.equals("RENEWAL") && !plan.getPlan().equalsIgnoreCase(tenant.getPlan())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "A renewal must keep the organization's current plan; use the plan-change flow instead");
+        }
 
         // For renewal: new period starts from current expiry (or today if expired)
         LocalDate periodStart = determinePeriodStart(tenant, type);
