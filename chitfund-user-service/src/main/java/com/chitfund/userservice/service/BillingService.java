@@ -22,7 +22,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -32,6 +39,7 @@ public class BillingService {
 
     private static final int PLAN_DURATION_DAYS = 30;
     private static final DateTimeFormatter RECEIPT_MONTH_FMT = DateTimeFormatter.ofPattern("yyyyMM");
+    private static final Set<String> PAYMENT_METHODS = Set.of("UPI", "CASH", "BANK_TRANSFER");
 
     private final PlanPaymentRepository paymentRepo;
     private final PlanReceiptRepository receiptRepo;
@@ -46,7 +54,7 @@ public class BillingService {
     public UpgradePreviewResponse previewUpgrade(String tenantId, String newPlanCode) {
         Tenant tenant = findTenant(tenantId);
         PlanLimits currentPlan = findPlan(tenant.getPlan());
-        PlanLimits newPlan     = findPlan(newPlanCode);
+        PlanLimits newPlan     = findActivePlan(newPlanCode);
 
         // Use org-specific price if set (custom pricing), otherwise fall back to plan's base price
         TenantCustomLimits customLimits = customLimitsRepo.findById(tenantId).orElse(null);
@@ -98,10 +106,10 @@ public class BillingService {
 
     @Transactional
     public PaymentResponse recordPayment(RecordPaymentRequest req, String actorUserId) {
-        Tenant tenant = findTenant(req.getTenantId());
-        PlanLimits plan = findPlan(req.getToPlan());
+        Tenant tenant = findTenantForUpdate(req.getTenantId());
+        PlanLimits plan = findActivePlan(req.getToPlan());
 
-        String type = req.getType().toUpperCase();
+        String type = req.getType().trim().toUpperCase(Locale.ROOT);
         if (!type.equals("PURCHASE") && !type.equals("RENEWAL")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Use the upgrade endpoint for UPGRADE payments");
@@ -115,6 +123,14 @@ public class BillingService {
         long grossPaise = req.getGrossAmountPaise() != null && req.getGrossAmountPaise() > 0
                 ? req.getGrossAmountPaise() : req.getAmountPaise();
         long creditApplied = req.getCreditAppliedPaise() != null ? req.getCreditAppliedPaise() : 0L;
+        validatePaymentMethod(req.getPaymentMethod());
+        validateCreditAndNet(tenant, grossPaise, creditApplied, req.getAmountPaise());
+        String fingerprint = fingerprint("PAYMENT", req.getTenantId(), type, plan.getPlan(),
+                req.getAmountPaise(), grossPaise, creditApplied,
+                req.getPaymentMethod().trim().toUpperCase(Locale.ROOT), req.getPaymentReference(),
+                req.getPaymentDate(), req.getNotes());
+        PaymentResponse replay = replayIfPresent(req.getIdempotencyKey(), fingerprint, tenant);
+        if (replay != null) return replay;
 
         PlanPayment payment = PlanPayment.builder()
                 .id(UUID.randomUUID().toString())
@@ -128,11 +144,12 @@ public class BillingService {
                 .toPlanName(plan.getDisplayName())
                 .planPeriodStart(periodStart)
                 .planPeriodEnd(periodEnd)
-                .paymentMethod(req.getPaymentMethod().toUpperCase())
+                .paymentMethod(req.getPaymentMethod().trim().toUpperCase(Locale.ROOT))
                 .paymentReference(req.getPaymentReference())
                 .paymentDate(req.getPaymentDate())
                 .notes(req.getNotes())
-                .idempotencyKey(req.getIdempotencyKey())
+                .idempotencyKey(req.getIdempotencyKey().trim())
+                .requestFingerprint(fingerprint)
                 .createdBy(actorUserId)
                 .build();
 
@@ -171,8 +188,8 @@ public class BillingService {
 
     @Transactional
     public PaymentResponse recordUpgrade(RecordUpgradeRequest req, String actorUserId) {
-        Tenant tenant = findTenant(req.getTenantId());
-        PlanLimits newPlan = findPlan(req.getNewPlan());
+        Tenant tenant = findTenantForUpdate(req.getTenantId());
+        PlanLimits newPlan = findActivePlan(req.getNewPlan());
 
         UpgradePreviewResponse preview = previewUpgrade(req.getTenantId(), req.getNewPlan());
 
@@ -180,6 +197,13 @@ public class BillingService {
 
         long creditApplied = req.getCreditAppliedPaise() != null ? req.getCreditAppliedPaise() : 0L;
         long netCharge = Math.max(0L, preview.getChargePaise() - creditApplied);
+        validatePaymentMethod(req.getPaymentMethod());
+        validateCreditAndNet(tenant, preview.getChargePaise(), creditApplied, netCharge);
+        String fingerprint = fingerprint("UPGRADE", req.getTenantId(), newPlan.getPlan(),
+                req.getPaymentMethod().trim().toUpperCase(Locale.ROOT), req.getPaymentReference(),
+                req.getPaymentDate(), req.getNotes(), creditApplied);
+        PaymentResponse replay = replayIfPresent(req.getIdempotencyKey(), fingerprint, tenant);
+        if (replay != null) return replay;
 
         PlanPayment payment = PlanPayment.builder()
                 .id(UUID.randomUUID().toString())
@@ -199,11 +223,12 @@ public class BillingService {
                 .daysInPeriod(preview.getDaysInPeriod())
                 .planPeriodStart(preview.getNewPeriodStart())
                 .planPeriodEnd(preview.getNewPeriodEnd())
-                .paymentMethod(req.getPaymentMethod().toUpperCase())
+                .paymentMethod(req.getPaymentMethod().trim().toUpperCase(Locale.ROOT))
                 .paymentReference(req.getPaymentReference())
                 .paymentDate(req.getPaymentDate())
                 .notes(req.getNotes())
-                .idempotencyKey(req.getIdempotencyKey())
+                .idempotencyKey(req.getIdempotencyKey().trim())
+                .requestFingerprint(fingerprint)
                 .createdBy(actorUserId)
                 .build();
 
@@ -406,6 +431,16 @@ public class BillingService {
                         "Tenant not found", HttpStatus.NOT_FOUND));
     }
 
+    private Tenant findTenantForUpdate(String tenantId) {
+        try {
+            return tenantRepo.findByIdForUpdate(UUID.fromString(tenantId))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                            "Tenant not found", HttpStatus.NOT_FOUND));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Tenant ID is invalid");
+        }
+    }
+
     private Tenant findTenantSafe(String tenantId) {
         try { return tenantRepo.findById(UUID.fromString(tenantId)).orElse(null); }
         catch (Exception e) { return null; }
@@ -415,6 +450,84 @@ public class BillingService {
         return planRepo.findById(code != null ? code.toUpperCase() : "BASIC")
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Plan not found: " + code));
+    }
+
+    private PlanLimits findActivePlan(String code) {
+        PlanLimits plan = findPlan(code);
+        if (!plan.isActive()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Plan is not available: " + code);
+        }
+        return plan;
+    }
+
+    private PaymentResponse replayIfPresent(String idempotencyKey, String fingerprint, Tenant tenant) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "An idempotency key is required for billing operations");
+        }
+        return paymentRepo.findByIdempotencyKey(idempotencyKey.trim())
+                .map(existing -> {
+                    if (!fingerprint.equals(existing.getRequestFingerprint())) {
+                        throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                                "Idempotency key was already used for a different billing request",
+                                HttpStatus.CONFLICT);
+                    }
+                    return toResponse(existing, tenant, receiptRepo.findByPaymentId(existing.getId()));
+                })
+                .orElse(null);
+    }
+
+    private static void validatePaymentMethod(String rawMethod) {
+        String method = rawMethod == null ? "" : rawMethod.trim().toUpperCase(Locale.ROOT);
+        if (!PAYMENT_METHODS.contains(method)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Payment method must be UPI, CASH, or BANK_TRANSFER");
+        }
+    }
+
+    private static void validateCreditAndNet(Tenant tenant, long grossPaise,
+                                             long creditAppliedPaise, long netPaise) {
+        if (grossPaise < 0 || creditAppliedPaise < 0 || netPaise < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Billing amounts cannot be negative");
+        }
+        long expectedNet;
+        try {
+            expectedNet = Math.subtractExact(grossPaise, creditAppliedPaise);
+        } catch (ArithmeticException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Billing amount is outside the supported range");
+        }
+        if (creditAppliedPaise > grossPaise || netPaise != expectedNet) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Net amount must equal gross amount minus applied account credit");
+        }
+        BigDecimal balanceInr = tenant.getCreditBalanceInr() != null
+                ? tenant.getCreditBalanceInr() : BigDecimal.ZERO;
+        long availablePaise;
+        try {
+            availablePaise = balanceInr.movePointRight(2)
+                    .setScale(0, RoundingMode.UNNECESSARY).longValueExact();
+        } catch (ArithmeticException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Account credit balance is invalid");
+        }
+        if (creditAppliedPaise > availablePaise) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Applied account credit exceeds the available balance");
+        }
+    }
+
+    private static String fingerprint(Object... values) {
+        String canonical = java.util.Arrays.stream(values)
+                .map(value -> value == null ? "<null>" : value.toString().trim())
+                .collect(java.util.stream.Collectors.joining("\u001f"));
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not fingerprint billing request", exception);
+        }
     }
 
     private void syncLimitsFromPlan(String tenantId, PlanLimits plan) {

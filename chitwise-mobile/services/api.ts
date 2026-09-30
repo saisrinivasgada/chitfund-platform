@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import { accountStorageId, useAuthStore } from '../store/authStore';
 import { useUIStore } from '../store/uiStore';
 
@@ -858,8 +859,28 @@ export const superAdminDeleteCapability = async (key: string) =>
 // SA Billing
 export const billingListPayments = async (params: any = {}) =>
   unwrapList(await api.get('/super-admin/billing/payments', { params }));
-export const billingRecordPayment = async (payload: any) =>
-  unwrapObj(await api.post('/super-admin/billing/payments', payload));
+const pendingBillingKeys = new Map<string, string>();
+
+function stableBillingSignature(kind: string, payload: any): string {
+  const ordered = Object.keys(payload ?? {}).sort().reduce((result: any, key) => {
+    result[key] = payload[key];
+    return result;
+  }, {});
+  return `${kind}:${JSON.stringify(ordered)}`;
+}
+
+async function postBillingIdempotently(kind: string, url: string, payload: any): Promise<any> {
+  const { idempotencyKey: suppliedKey, ...body } = payload ?? {};
+  const signature = stableBillingSignature(kind, body);
+  const key = suppliedKey ?? pendingBillingKeys.get(signature) ?? Crypto.randomUUID();
+  if (!suppliedKey) pendingBillingKeys.set(signature, key);
+  const result = unwrapObj(await api.post(url, { ...body, idempotencyKey: key }));
+  if (!suppliedKey) pendingBillingKeys.delete(signature);
+  return result;
+}
+
+export const billingRecordPayment = (payload: any) =>
+  postBillingIdempotently('payment', '/super-admin/billing/payments', payload);
 export const billingUpgradePreview = async (tenantId: string, newPlan: string) =>
   unwrapObj(await api.get('/super-admin/billing/upgrade-preview', { params: { tenantId, newPlan } }));
 
@@ -1267,10 +1288,8 @@ export const superAdminResumeTenant = async (tenantId: string): Promise<any> => 
   return res.data.data;
 };
 
-export const billingRecordUpgrade = async (payload: any): Promise<any> => {
-  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
-  return res.data.data;
-};
+export const billingRecordUpgrade = (payload: any): Promise<any> =>
+  postBillingIdempotently('upgrade', '/super-admin/billing/payments/upgrade', payload);
 
 export const superAdminSetPromotionVisibility = async (id: string, isPublic: boolean): Promise<any> => {
   const res = await api.patch(`/superadmin/promotions/${id}/visibility`, { isPublic });

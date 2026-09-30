@@ -1490,15 +1490,35 @@ export const billingUpgradePreview = async (tenantId, newPlan) => {
   return res.data.data;
 };
 
-export const billingRecordPayment = async (payload) => {
-  const res = await api.post('/super-admin/billing/payments', payload);
-  return res.data.data;
-};
+const pendingBillingKeys = new Map();
 
-export const billingRecordUpgrade = async (payload) => {
-  const res = await api.post('/super-admin/billing/payments/upgrade', payload);
+function billingRequestKey(kind, payload) {
+  const signature = `${kind}:${JSON.stringify(payload, Object.keys(payload).sort())}`;
+  let key = pendingBillingKeys.get(signature);
+  if (!key) {
+    key = globalThis.crypto?.randomUUID?.()
+      ?? `billing-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    pendingBillingKeys.set(signature, key);
+  }
+  return { signature, key };
+}
+
+async function postBillingIdempotently(kind, url, payload) {
+  const cleanPayload = { ...payload };
+  delete cleanPayload.idempotencyKey;
+  const { signature, key } = payload.idempotencyKey
+    ? { signature: null, key: payload.idempotencyKey }
+    : billingRequestKey(kind, cleanPayload);
+  const res = await api.post(url, { ...cleanPayload, idempotencyKey: key });
+  if (signature) pendingBillingKeys.delete(signature);
   return res.data.data;
-};
+}
+
+export const billingRecordPayment = (payload) =>
+  postBillingIdempotently('payment', '/super-admin/billing/payments', payload);
+
+export const billingRecordUpgrade = (payload) =>
+  postBillingIdempotently('upgrade', '/super-admin/billing/payments/upgrade', payload);
 
 export const billingRecordRefund = async (paymentId, payload) => {
   const res = await api.post(`/super-admin/billing/payments/${paymentId}/refund`, payload);

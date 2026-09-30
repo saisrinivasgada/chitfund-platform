@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface PlanPaymentRepository extends JpaRepository<PlanPayment, String> {
 
@@ -14,4 +15,6 @@ public interface PlanPaymentRepository extends JpaRepository<PlanPayment, String
     Page<PlanPayment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     List<PlanPayment> findByTenantIdOrderByCreatedAtDesc(String tenantId);
+
+    Optional<PlanPayment> findByIdempotencyKey(String idempotencyKey);
 }

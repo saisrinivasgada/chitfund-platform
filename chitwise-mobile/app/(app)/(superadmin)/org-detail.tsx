@@ -170,7 +170,15 @@ export default function OrgDetailPage() {
   });
   const recordPaymentMut = useMutation({
     mutationFn: ({ amount, method, pType }: { amount: string; method: string; pType: string }) =>
-      billingRecordPayment({ tenantId: tenantId!, amountPaise: Math.round(Number(amount) * 100), paymentMethod: method, type: pType }),
+      billingRecordPayment({
+        tenantId: tenantId!,
+        amountPaise: Math.round(Number(amount) * 100),
+        grossAmountPaise: Math.round(Number(amount) * 100),
+        paymentMethod: method,
+        type: pType,
+        toPlan: org?.plan,
+        paymentDate: new Date().toISOString().slice(0, 10),
+      }),
     onSuccess: () => { setShowRecordPayment(false); refetchOrg(); toast.saved('Payment recorded'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
@@ -1276,7 +1284,7 @@ function RecordPaymentModal({ visible, orgName, orgPlan, onClose, onRecord, load
   const [pType, setPType] = useState('RENEWAL');
 
   const METHODS = ['UPI', 'CASH', 'BANK_TRANSFER'];
-  const TYPES   = ['PURCHASE', 'RENEWAL', 'UPGRADE', 'REFUND'];
+  const TYPES   = ['PURCHASE', 'RENEWAL'];
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
