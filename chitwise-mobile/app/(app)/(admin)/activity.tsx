@@ -398,7 +398,7 @@ export default function ActivityScreen() {
               <Text style={{ fontSize: 11, fontWeight: '700', color: outcomeFilter === value ? C.white : C.gray700 }}>{value === 'ALL' ? 'All outcomes' : value}</Text>
             </TouchableOpacity>
           ))}
-          {['ALL', 'WEB', 'MOBILE', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'].map((value) => (
+          {['ALL', 'WEB', 'MOBILE', 'HUB', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'].map((value) => (
             <TouchableOpacity key={value} onPress={() => setSourceFilter(value)}
               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: sourceFilter === value ? C.navy : C.white, borderWidth: 1.5, borderColor: sourceFilter === value ? C.navy : C.gray300 }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: sourceFilter === value ? C.white : C.gray700 }}>{value === 'ALL' ? 'All sources' : value.replace('_', ' ')}</Text>

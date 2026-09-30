@@ -9,7 +9,7 @@ const TYPES = [
   ['CHIT_DRAW', 'Draws'], ['PAYOUT', 'Payouts'], ['CHIT', 'Chits'], ['MEMBER', 'Members'],
   ['SETTLEMENT', 'Settlements'], ['AUCTION_SESSION', 'Auctions'], ['TICKET', 'Tickets'],
 ];
-const SOURCES = ['ALL', 'WEB', 'MOBILE', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'];
+const SOURCES = ['ALL', 'WEB', 'MOBILE', 'HUB', 'OFFLINE_SYNC', 'INTERNAL_API', 'WORKER', 'SYSTEM', 'UNKNOWN'];
 const OUTCOMES = ['ALL', 'SUCCESS', 'FAILURE', 'DENIED'];
 
 function label(value) {

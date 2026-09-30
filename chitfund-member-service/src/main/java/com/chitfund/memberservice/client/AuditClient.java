@@ -2,6 +2,7 @@ package com.chitfund.memberservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
 import com.chitfund.common.outbox.DurableAuditOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,14 +31,16 @@ public class AuditClient {
                     Object before, Object after, String tenantId, String reason) {
         requireBusinessTransaction();
         try {
+            AuditRequestContext context = AuditRequestContext.current();
             String eventId = UUID.randomUUID().toString();
             AuditLogEvent event = new AuditLogEvent(
                     "member-service", entityType, entityId, null,
-                    action, actorId, actorRole, null,
+                    action, actorId, actorRole, context.actorIp(),
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId, null, null, "UNKNOWN", "SUCCESS", reason,
-                    null, null, null, Instant.now(), null, null);
+                    null, tenantId, context.correlationId(), context.idempotencyKey(),
+                    context.source(), "SUCCESS", reason, null, null,
+                    context.deviceSessionHash(), Instant.now(), null, null);
             outbox.enqueue(eventId, Objects.requireNonNull(tenantId, "tenantId"),
                     entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
         } catch (Exception exception) {

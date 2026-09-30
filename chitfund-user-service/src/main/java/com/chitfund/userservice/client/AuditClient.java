@@ -2,6 +2,7 @@ package com.chitfund.userservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
 import com.chitfund.common.outbox.DurableAuditOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,7 @@ public class AuditClient {
                     String action, String actorId, String actorRole,
                     Object before, Object after, String tenantId, String reason) {
         log(entityType, entityId, action, actorId, actorRole, before, after,
-                tenantId, "UNKNOWN", "SUCCESS", reason);
+                tenantId, null, "SUCCESS", reason);
     }
 
     public void log(String entityType, String entityId,
@@ -50,15 +51,18 @@ public class AuditClient {
                     String correlationId, String idempotencyKey) {
         requireBusinessTransaction();
         try {
+            AuditRequestContext context = AuditRequestContext.current();
             String eventId = UUID.randomUUID().toString();
             String resolvedActorId = resolveActorId(actorId);
             AuditLogEvent event = new AuditLogEvent(
                     "user-service", entityType, entityId, null,
-                    action, resolvedActorId, actorRole, null,
+                    action, resolvedActorId, actorRole, context.actorIp(),
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId, correlationId, idempotencyKey, source, outcome, reason,
-                    null, null, null, Instant.now(), null, null);
+                    null, tenantId, context.correlationIdOr(correlationId),
+                    context.idempotencyKeyOr(idempotencyKey), context.sourceOr(source),
+                    outcome, reason, null, null, context.deviceSessionHash(),
+                    Instant.now(), null, null);
             outbox.enqueue(eventId, Objects.requireNonNull(tenantId, "tenantId"),
                     entityType, entityId, objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
         } catch (Exception exception) {

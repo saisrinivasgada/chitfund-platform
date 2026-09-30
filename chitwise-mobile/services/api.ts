@@ -10,12 +10,14 @@ const api = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 const hubApi = axios.create({ baseURL: API_BASE_URL, timeout: 20_000 });
 
 api.interceptors.request.use(async (config) => {
+  config.headers['X-Client-Source'] = 'MOBILE';
   const token = await SecureStore.getItemAsync('chitwise_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
 hubApi.interceptors.request.use(async (config) => {
+  config.headers['X-Client-Source'] = 'MOBILE';
   const token = await SecureStore.getItemAsync('chitwise_hub_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;

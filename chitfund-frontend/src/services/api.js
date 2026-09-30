@@ -14,6 +14,7 @@ export const clearHubSaasToken = () => { _hubSaasToken = null; };
 // Attach auth token on every request except auth endpoints (login, etc.)
 // Proxy sessions (super-admin impersonating) use sessionStorage; real sessions use memory.
 api.interceptors.request.use((config) => {
+  config.headers['X-Client-Source'] = 'WEB';
   const isAuthEndpoint = config.url?.includes('/auth/');
   if (!isAuthEndpoint) {
     const token = sessionStorage.getItem('token') ?? _authToken ?? _hubSaasToken;
@@ -1819,6 +1820,7 @@ export const clearHubToken = () => { _hubToken = null; };
 export const getHubToken = () => _hubToken;
 
 hubApi.interceptors.request.use((config) => {
+  config.headers['X-Client-Source'] = 'WEB';
   if (_hubToken) config.headers.Authorization = `Bearer ${_hubToken}`;
   return config;
 });

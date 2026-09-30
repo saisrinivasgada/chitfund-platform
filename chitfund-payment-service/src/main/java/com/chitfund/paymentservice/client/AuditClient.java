@@ -2,6 +2,7 @@ package com.chitfund.paymentservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
 import com.chitfund.paymentservice.kafka.PaymentOutboxStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,7 @@ public class AuditClient {
                     "A payment audit event must be recorded inside the business transaction");
         }
         try {
+            AuditRequestContext context = AuditRequestContext.current();
             String eventId = UUID.randomUUID().toString();
             AuditLogEvent event = new AuditLogEvent(
                     "payment-service",
@@ -56,19 +58,19 @@ public class AuditClient {
                     details.action(),
                     details.actorId(),
                     details.actorRole(),
-                    null,
+                    context.actorIp(),
                     toJson(details.before()),
                     toJson(details.after()),
                     toJson(details.metadata()),
                     details.tenantId(),
-                    details.correlationId(),
-                    details.idempotencyKey(),
-                    details.source(),
+                    context.correlationIdOr(details.correlationId()),
+                    context.idempotencyKeyOr(details.idempotencyKey()),
+                    context.sourceOr(details.source()),
                     details.outcome() != null ? details.outcome() : "SUCCESS",
                     details.reason(),
                     details.effectiveActorId(),
                     details.effectiveActorRole(),
-                    details.deviceSessionHash(),
+                    context.deviceSessionHashOr(details.deviceSessionHash()),
                     details.occurredAt() != null ? details.occurredAt() : Instant.now(),
                     details.originalOfflineAt(),
                     details.synchronizedAt());

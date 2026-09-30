@@ -23,7 +23,7 @@ import java.util.UUID;
 public class AuditService {
 
     private static final Set<String> VALID_SOURCES = Set.of(
-            "WEB", "MOBILE", "OFFLINE_SYNC", "INTERNAL_API", "WORKER", "SYSTEM", "UNKNOWN");
+            "WEB", "MOBILE", "HUB", "OFFLINE_SYNC", "INTERNAL_API", "WORKER", "SYSTEM", "UNKNOWN");
     private static final Set<String> VALID_OUTCOMES = Set.of("SUCCESS", "FAILURE", "DENIED");
 
     private final AuditLogRepository auditLogRepository;

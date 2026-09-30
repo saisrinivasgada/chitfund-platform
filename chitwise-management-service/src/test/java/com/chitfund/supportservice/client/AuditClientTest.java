@@ -5,6 +5,7 @@ import com.chitfund.common.outbox.DurableAuditOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Map;
@@ -25,6 +26,7 @@ class AuditClientTest {
     @AfterEach
     void clearTransactionFlag() {
         TransactionSynchronizationManager.setActualTransactionActive(false);
+        MDC.clear();
     }
 
     @Test
@@ -57,6 +59,11 @@ class AuditClientTest {
     @Test
     void queuesPlatformEntityAuditWithItsRealEntityType() {
         TransactionSynchronizationManager.setActualTransactionActive(true);
+        MDC.put("requestId", "request-42");
+        MDC.put("source", "WEB");
+        MDC.put("ip", "203.0.113.9");
+        MDC.put("idempotencyKey", "employee-change-1");
+        MDC.put("deviceSessionHash", "safe-device-hash");
 
         client.logEntity("HUB_EMPLOYEE", "employee-1", "DEACTIVATED",
                 "owner-1", "SUPER_ADMIN", Map.of("active", true),
@@ -67,7 +74,12 @@ class AuditClientTest {
         verify(outbox).enqueue(anyString(), eq("PLATFORM"), eq("HUB_EMPLOYEE"),
                 eq("employee-1"), payload.capture(), eq(SqsQueues.AUDIT_EVENTS));
         assertThat(payload.getValue())
-                .contains("DEACTIVATED", "SUPER_ADMIN", "sessionsRevoked")
+                .contains("DEACTIVATED", "SUPER_ADMIN", "sessionsRevoked",
+                        "\"correlationId\":\"request-42\"",
+                        "\"source\":\"WEB\"",
+                        "\"actorIp\":\"203.0.113.9\"",
+                        "\"idempotencyKey\":\"employee-change-1\"",
+                        "\"deviceSessionHash\":\"safe-device-hash\"")
                 .doesNotContain("password", "token");
     }
 }

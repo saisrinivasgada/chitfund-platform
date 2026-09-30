@@ -2,6 +2,7 @@ package com.chitfund.payoutservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
 import com.chitfund.payoutservice.kafka.PayoutOutboxStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -35,12 +36,14 @@ public class AuditClient {
                     "A payout audit event must be recorded inside the business transaction");
         }
         try {
+            AuditRequestContext context = AuditRequestContext.current();
             AuditLogEvent event = new AuditLogEvent("payout-service", entityType, entityId, chitId,
-                    action, actorId, actorRole, null,
+                    action, actorId, actorRole, context.actorIp(),
                     before != null ? objectMapper.writeValueAsString(before) : null,
                     after != null ? objectMapper.writeValueAsString(after) : null,
-                    null, tenantId, null, idempotencyKey, null, "SUCCESS", null,
-                    null, null, null, Instant.now(), null, null);
+                    null, tenantId, context.correlationId(),
+                    context.idempotencyKeyOr(idempotencyKey), context.source(), "SUCCESS", null,
+                    null, null, context.deviceSessionHash(), Instant.now(), null, null);
             outboxStore.enqueue(UUID.randomUUID().toString(), tenantId, entityType, entityId,
                     SqsQueues.EVT_AUDIT_LOG, objectMapper.writeValueAsString(event),
                     List.of(SqsQueues.AUDIT_EVENTS));

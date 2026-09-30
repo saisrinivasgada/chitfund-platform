@@ -63,6 +63,24 @@ class AuditServiceTenantTest {
     }
 
     @Test
+    void recordAcceptsHubAsAFirstClassAuditSource() {
+        AuditLogRepository repository = mock(AuditLogRepository.class);
+        AuditService service = new AuditService(repository);
+        AuditLogRequest request = new AuditLogRequest(
+                "user-service", "TENANT", "tenant-1", null,
+                "PLAN_CHANGED", "owner-1", "SUPER_ADMIN", null,
+                null, null, null, "tenant-1", null,
+                "request-1", "plan-change-1", "HUB", "SUCCESS", "Approved upgrade",
+                null, null, null, null, null, null);
+
+        service.record(request);
+
+        ArgumentCaptor<AuditLog> saved = ArgumentCaptor.forClass(AuditLog.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getSource()).isEqualTo("HUB");
+    }
+
+    @Test
     void recordRejectsMissingTenantInsteadOfUsingAPlatformDefault() {
         AuditLogRepository repository = mock(AuditLogRepository.class);
         AuditService service = new AuditService(repository);

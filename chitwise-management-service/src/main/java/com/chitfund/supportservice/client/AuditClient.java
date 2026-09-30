@@ -2,6 +2,7 @@ package com.chitfund.supportservice.client;
 
 import com.chitfund.common.event.AuditLogEvent;
 import com.chitfund.common.event.SqsQueues;
+import com.chitfund.common.logging.AuditRequestContext;
 import com.chitfund.common.outbox.DurableAuditOutbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -39,14 +40,16 @@ public class AuditClient {
                     "A management audit event must be recorded inside the business transaction");
         }
         try {
+            AuditRequestContext context = AuditRequestContext.current();
             String eventId = UUID.randomUUID().toString();
             AuditLogEvent event = new AuditLogEvent(
                     "management-service", entityType, entityId, null, action,
-                    actorId, actorRole, null,
+                    actorId, actorRole, context.actorIp(),
                     json(before), json(after), json(metadata),
                     Objects.requireNonNull(tenantId, "tenantId"),
-                    null, null, "UNKNOWN", "SUCCESS", reason,
-                    null, null, null, Instant.now(), null, null);
+                    context.correlationId(), context.idempotencyKey(), context.source(),
+                    "SUCCESS", reason, null, null, context.deviceSessionHash(),
+                    Instant.now(), null, null);
             outbox.enqueue(eventId, tenantId, entityType, entityId,
                     objectMapper.writeValueAsString(event), SqsQueues.AUDIT_EVENTS);
         } catch (Exception exception) {
