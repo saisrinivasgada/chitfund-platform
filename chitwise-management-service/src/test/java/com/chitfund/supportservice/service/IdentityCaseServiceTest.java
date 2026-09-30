@@ -1,6 +1,7 @@
 package com.chitfund.supportservice.service;
 
 import com.chitfund.supportservice.client.IdentityExecutionClient;
+import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.domain.entity.IdentityCase;
 import com.chitfund.supportservice.domain.enums.AccountCaseSubtype;
@@ -33,12 +34,13 @@ class IdentityCaseServiceTest {
     @Mock EmployeeRepository employeeRepository;
     @Mock IdentityExecutionClient executionClient;
     @Mock PlatformTransactionManager transactionManager;
+    @Mock AuditClient auditClient;
     IdentityCaseService service;
 
     @BeforeEach
     void setUp() {
         service = new IdentityCaseService(repository, auditRepository, employeeRepository,
-                new ObjectMapper(), executionClient, transactionManager);
+                new ObjectMapper(), executionClient, transactionManager, auditClient);
         lenient().when(auditRepository.save(any())).thenAnswer(call -> call.getArgument(0));
         lenient().when(repository.save(any())).thenAnswer(call -> call.getArgument(0));
     }
@@ -86,6 +88,10 @@ class IdentityCaseServiceTest {
         var approved = service.approve("owner", "case", decision());
         assertThat(approved.getStatus()).isEqualTo(IdentityCaseStatus.APPROVED);
         assertThat(identityCase.getExecutionKey()).isEqualTo("identity-case:case");
+        verify(auditClient).logEntity(eq("IDENTITY_CASE"), eq("case"),
+                eq("APPROVED"), eq("owner"), eq("SUPER_ADMIN"),
+                any(), any(), any(), eq("tenant-1"),
+                eq("Independent owner review completed"));
     }
 
     @Test
@@ -104,6 +110,8 @@ class IdentityCaseServiceTest {
         assertThat(repeated.getStatus()).isEqualTo(IdentityCaseStatus.APPROVED);
         verify(repository, never()).save(any());
         verify(auditRepository, never()).save(any());
+        verify(auditClient, never()).logEntity(any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any());
     }
 
     private static Employee employee(String id, boolean investigator, boolean owner) {
@@ -114,6 +122,7 @@ class IdentityCaseServiceTest {
 
     private static IdentityCase openCase() {
         return IdentityCase.builder().id("case").ticketId("ticket")
+                .tenantId("tenant-1")
                 .subtype(AccountCaseSubtype.PHONE_REASSIGNMENT).status(IdentityCaseStatus.OPEN).build();
     }
 
