@@ -813,7 +813,12 @@ public class TenantService {
     public java.util.List<String> resolveCapabilitiesForTenant(String tenantId) {
         Tenant t = tenantRepository.findById(java.util.UUID.fromString(tenantId)).orElse(null);
         if (t == null) return java.util.List.of();
-        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
+        if (!"ACTIVE".equalsIgnoreCase(t.getStatus())) return java.util.List.of();
+        if (t.getPlanExpiresAt() != null && t.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now())) {
+            return java.util.List.of();
+        }
+        if (t.getPlan() == null || t.getPlan().isBlank()) return java.util.List.of();
+        String planCode = t.getPlan().trim().toUpperCase(java.util.Locale.ROOT);
         if ("CUSTOM".equals(planCode)) {
             return customLimitsRepository.findById(tenantId)
                     .map(c -> CapabilityJson.parse(c.getCapabilities(), objectMapper))

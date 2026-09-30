@@ -18,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -110,5 +111,30 @@ class TenantPlanAssignmentTest {
 
         assertThat(response.getTenantStatus()).isEqualTo("SUSPENDED");
         assertThat(response.getMaxMembers()).isEqualTo(100);
+    }
+
+    @Test
+    void missingPlanNeverInheritsBasicCapabilities() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).status("ACTIVE").plan(" ").build();
+        when(tenantRepository.findById(tenantId)).thenReturn(Optional.of(tenant));
+
+        assertThat(tenantService.resolveCapabilitiesForTenant(tenantId.toString())).isEmpty();
+        verify(planLimitsRepository, never()).findById("BASIC");
+    }
+
+    @Test
+    void suspendedOrExpiredTenantHasNoEffectiveCapabilities() {
+        UUID suspendedId = UUID.randomUUID();
+        UUID expiredId = UUID.randomUUID();
+        Tenant suspended = Tenant.builder().id(suspendedId).status("SUSPENDED").plan("GROWTH").build();
+        Tenant expired = Tenant.builder().id(expiredId).status("ACTIVE").plan("GROWTH")
+                .planExpiresAt(LocalDateTime.now().minusMinutes(1)).build();
+        when(tenantRepository.findById(suspendedId)).thenReturn(Optional.of(suspended));
+        when(tenantRepository.findById(expiredId)).thenReturn(Optional.of(expired));
+
+        assertThat(tenantService.resolveCapabilitiesForTenant(suspendedId.toString())).isEmpty();
+        assertThat(tenantService.resolveCapabilitiesForTenant(expiredId.toString())).isEmpty();
+        verify(planLimitsRepository, never()).findById("GROWTH");
     }
 }

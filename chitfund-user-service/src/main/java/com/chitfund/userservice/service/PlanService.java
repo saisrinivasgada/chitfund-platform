@@ -66,6 +66,11 @@ public class PlanService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         "Organization not found"));
 
+        if (!"ACTIVE".equalsIgnoreCase(tenant.getStatus())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "Organization is not active. Contact ChitWise support to restore access");
+        }
+
         if (tenant.getPlanExpiresAt() != null && tenant.getPlanExpiresAt().isBefore(java.time.LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.PLAN_EXPIRED,
                     "Your subscription has expired. Please renew your plan to add team members.");

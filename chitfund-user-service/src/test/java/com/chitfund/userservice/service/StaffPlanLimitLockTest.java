@@ -94,4 +94,17 @@ class StaffPlanLimitLockTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("maximum of 2 staff accounts");
     }
+
+    @Test
+    void suspendedTenantCannotAddStaffWithAStaleActiveToken() {
+        UUID tenantId = UUID.randomUUID();
+        Tenant tenant = Tenant.builder().id(tenantId).status("SUSPENDED").plan("GROWTH").build();
+        when(tenantRepository.findByIdForUpdate(tenantId)).thenReturn(Optional.of(tenant));
+
+        assertThatThrownBy(() -> planService.checkStaffLimit(tenantId.toString()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not active");
+
+        verifyNoInteractions(planRepo, customLimitsRepo, userRepository);
+    }
 }
