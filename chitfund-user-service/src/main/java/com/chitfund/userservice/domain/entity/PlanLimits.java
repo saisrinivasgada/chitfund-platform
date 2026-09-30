@@ -46,15 +46,18 @@ public class PlanLimits {
     private BigDecimal globalDiscountPct;
 
     @Column(name = "is_active", nullable = false)
+    @Builder.Default
     private boolean isActive = true;
 
     @Column(name = "is_public", nullable = false)
+    @Builder.Default
     private boolean isPublic = true;
 
     @Column(name = "display_order", nullable = false)
     private int displayOrder;
 
     @Column(name = "max_staff", nullable = false)
+    @Builder.Default
     private int maxStaff = 0;
 
     @Column(name = "updated_at", nullable = false)

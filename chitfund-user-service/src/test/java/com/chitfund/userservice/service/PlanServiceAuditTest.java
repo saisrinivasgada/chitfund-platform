@@ -73,6 +73,19 @@ class PlanServiceAuditTest {
     }
 
     @Test
+    void planBuilderUsesSafeDocumentedDefaults() {
+        PlanLimits plan = PlanLimits.builder()
+                .plan("DEFAULTS").displayName("Defaults")
+                .maxActiveChits(1).maxMembers(10)
+                .allowedChitTypes("RESERVATION").priceMonthlyInr(1_000L)
+                .build();
+
+        assertThat(plan.isActive()).isTrue();
+        assertThat(plan.isPublic()).isTrue();
+        assertThat(plan.getMaxStaff()).isZero();
+    }
+
+    @Test
     void assignedCapabilityCannotBeDeletedAndLeftInvisibleButEnabled() {
         String key = "live_chat";
         when(capabilityRepo.findById(key)).thenReturn(Optional.of(
