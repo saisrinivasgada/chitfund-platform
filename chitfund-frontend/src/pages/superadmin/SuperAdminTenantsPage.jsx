@@ -415,9 +415,19 @@ export default function SuperAdminTenantsPage() {
       return;
     }
     if (action === 'proxy') {
+      const reason = window.prompt(
+        `Why do you need to proxy as ${extra} for this organization?\nThis action is audited.`
+      );
+      if (!reason?.trim()) return;
+      if (reason.trim().length < 5) {
+        showToast('Please enter a clear reason of at least 5 characters');
+        return;
+      }
       try {
         const t = tenants.find(x => x.id === tenantId);
-        const { token, tenantSlug } = await superAdminProxyAs(tenantId, extra);
+        const { token, tenantSlug } = await superAdminProxyAs(
+          tenantId, extra, undefined, reason.trim()
+        );
         // Open proxy session in a new tab — pass tenant metadata from loaded state
         let url = `${window.location.origin}/proxy?token=${encodeURIComponent(token)}&role=${extra}&slug=${tenantSlug}`;
         if (t?.name) url += `&tenantName=${encodeURIComponent(t.name)}`;

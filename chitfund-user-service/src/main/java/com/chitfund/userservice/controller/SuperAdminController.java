@@ -63,9 +63,13 @@ public class SuperAdminController {
     public ResponseEntity<ApiResponse<ProxyTokenResponse>> proxy(
             @PathVariable UUID tenantId,
             @RequestParam String role,
-            @RequestParam(required = false) UUID userId) {
+            @RequestParam(required = false) UUID userId,
+            @RequestHeader("X-Change-Reason") String reason,
+            @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
-                proxyService.generateProxyToken(tenantId, role, userId), "Proxy token ready"));
+                proxyService.generateProxyToken(
+                        tenantId, role, userId, principal.getId().toString(), reason),
+                "Proxy token ready"));
     }
 
     @GetMapping("/{tenantId}/credentials")

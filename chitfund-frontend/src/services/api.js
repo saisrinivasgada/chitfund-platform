@@ -304,9 +304,11 @@ export const superAdminGetAdminCredentials = async (tenantId) => {
   return res.data.data;
 };
 
-export const superAdminProxyAs = async (tenantId, role, userId) => {
+export const superAdminProxyAs = async (tenantId, role, userId, reason) => {
   const params = userId ? `?role=${role}&userId=${userId}` : `?role=${role}`;
-  const res = await api.post(`/super-admin/tenants/${tenantId}/proxy${params}`);
+  const res = await api.post(`/super-admin/tenants/${tenantId}/proxy${params}`, null, {
+    headers: { 'X-Change-Reason': reason },
+  });
   return res.data.data;
 };
 

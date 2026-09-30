@@ -907,12 +907,20 @@ export default function SuperAdminOrgDetailPage() {
   }
 
   async function handleProxy(user) {
+    const reason = window.prompt(
+      `Why do you need to proxy as ${user.fullName || user.username || user.role}?\nThis action is audited.`
+    );
+    if (!reason?.trim()) return;
+    if (reason.trim().length < 5) {
+      showToast('Please enter a clear reason of at least 5 characters');
+      return;
+    }
     setProxyingUserId(user.userId);
     // Open a blank window synchronously (direct user gesture) so popup blocker doesn't fire.
     // After the async API call we navigate it to the proxy URL.
     const proxyWin = window.open('', '_blank');
     try {
-      const result = await superAdminProxyAs(tenantId, user.role, user.userId);
+      const result = await superAdminProxyAs(tenantId, user.role, user.userId, reason.trim());
       const params = new URLSearchParams({
         token: result.token,
         tenantId: result.tenantId,
