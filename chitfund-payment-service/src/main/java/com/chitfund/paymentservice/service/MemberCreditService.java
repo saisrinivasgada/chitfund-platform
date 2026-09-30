@@ -1,5 +1,7 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.domain.MemberCreditBalance;
 import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
@@ -7,6 +9,7 @@ import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -127,9 +130,11 @@ public class MemberCreditService {
             // (getBalanceForUpdate) beforehand; if we still land here, the balance
             // moved out from under the caller (e.g. spent elsewhere since a batch was
             // recorded) and needs a human to reconcile rather than an automatic write-off.
-            throw new IllegalStateException(
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "Credit movement would make member " + memberId + " balance negative (current ₹"
-                            + credit.getBalance() + ", requested " + type + " ₹" + amount + ")");
+                            + credit.getBalance() + ", requested " + type + " ₹" + amount + ") — "
+                            + "the balance changed since it was last read; needs manual reconciliation",
+                    HttpStatus.CONFLICT);
         }
         credit.setBalance(newBalance);
         creditBalanceRepository.save(credit);

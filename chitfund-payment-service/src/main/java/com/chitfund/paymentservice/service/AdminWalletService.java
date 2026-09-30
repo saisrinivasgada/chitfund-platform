@@ -1,5 +1,7 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.domain.AdminWalletEntry;
 import com.chitfund.paymentservice.domain.enums.AccountType;
 import com.chitfund.paymentservice.domain.enums.WalletEntryType;
@@ -11,6 +13,7 @@ import com.chitfund.paymentservice.dto.response.AdminWalletEntryResponse;
 import com.chitfund.paymentservice.repository.AdminWalletRepository;
 import com.chitfund.paymentservice.util.MoneyPaise;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -138,8 +141,9 @@ public class AdminWalletService {
         // here until this transaction commits, then re-reads the true post-deduction balance.
         java.math.BigDecimal available = memberCreditService.getBalanceForUpdate(req.getMemberId());
         if (available.compareTo(req.getAmount()) < 0) {
-            throw new IllegalArgumentException(
-                "Insufficient credit balance. Available: ₹" + available + ", requested: ₹" + req.getAmount());
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                "Insufficient credit balance. Available: ₹" + available + ", requested: ₹" + req.getAmount(),
+                HttpStatus.BAD_REQUEST);
         }
         memberCreditService.consumeCredit(
             req.getMemberId(), req.getAmount(), null, null, adminId,
