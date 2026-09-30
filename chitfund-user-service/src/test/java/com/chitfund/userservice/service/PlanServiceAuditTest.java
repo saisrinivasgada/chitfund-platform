@@ -115,4 +115,19 @@ class PlanServiceAuditTest {
         verify(planRepo, never()).save(any());
         verifyNoInteractions(auditClient);
     }
+
+    @Test
+    void unsupportedLegacyChitTypeCannotBeWrittenToANewPlan() {
+        CreatePlanRequest request = new CreatePlanRequest();
+        request.setPlan("BROKEN_TYPES");
+        request.setDisplayName("Broken Types");
+        request.setAllowedChitTypes("RESERVATION,FLEXI");
+
+        assertThatThrownBy(() -> service.createPlan(request, "owner-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Unsupported chit types: FLEXI");
+
+        verify(planRepo, never()).save(any());
+        verifyNoInteractions(auditClient);
+    }
 }

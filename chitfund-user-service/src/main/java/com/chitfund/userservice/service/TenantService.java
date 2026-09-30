@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.util.PlanInputValidator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -368,15 +369,24 @@ public class TenantService {
     public TenantResponse updatePlan(UUID tenantId, String plan) {
         Tenant t = tenantRepository.findById(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String targetPlan = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
+        PlanLimits targetLimits = planLimitsRepository.findById(targetPlan)
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Active plan not found: " + targetPlan));
         String prevPlan = t.getPlan();
-        t.setPlan(plan.toUpperCase());
+        t.setPlan(targetPlan);
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
         tenantRepository.save(t);
+        // This row is the effective source used by member/chit services. Keep
+        // it in the same transaction as the tenant plan assignment so an
+        // upgrade or downgrade cannot expose stale limits.
+        seedLimitsFromPlan(tenantId.toString(), targetLimits);
         auditClient.log("TENANT", tenantId.toString(),
                 "PLAN_CHANGED", null, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("plan", prevPlan != null ? prevPlan : "BASIC"),
-                java.util.Map.of("plan", plan.toUpperCase()),
+                java.util.Map.of("plan", targetPlan),
                 tenantId.toString());
         return toResponse(t);
     }
@@ -650,7 +660,7 @@ public class TenantService {
         limits.setMaxActiveChits(req.getMaxActiveChits());
         limits.setMaxMembers(req.getMaxMembers());
         limits.setMaxStaff(req.getMaxStaff());
-        limits.setAllowedChitTypes(req.getAllowedChitTypes().toUpperCase());
+        limits.setAllowedChitTypes(PlanInputValidator.normalizeAllowedChitTypes(req.getAllowedChitTypes()));
         limits.setPriceMonthlyInr(req.getPriceMonthlyInr());
         limits.setPlanCode("CUSTOM");
         limits.setNotes(req.getNotes());

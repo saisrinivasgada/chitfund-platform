@@ -47,7 +47,7 @@ public class SuperAdminPlanController {
     @PutMapping("/api/super-admin/plans/{code}")
     public ResponseEntity<ApiResponse<PlanResponse>> updatePlan(
             @PathVariable String code,
-            @RequestBody UpdatePlanRequest req,
+            @Valid @RequestBody UpdatePlanRequest req,
             @AuthenticationPrincipal User principal) {
         return ResponseEntity.ok(ApiResponse.success(
                 planService.updatePlan(code, req, principal.getId().toString()), "Plan updated"));

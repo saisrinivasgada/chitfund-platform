@@ -2,6 +2,7 @@ package com.chitfund.userservice.dto.request;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 import java.util.List;
@@ -20,8 +21,9 @@ public class SetCustomLimitsRequest {
     private List<String> enabledCapabilities;
 
     @NotBlank
-    private String allowedChitTypes; // comma-separated: STANDARD,POST_PAYOUT,RESERVATION,FLEXI
+    private String allowedChitTypes; // comma-separated: RESERVATION,LOTTERY,AUCTION
 
+    @PositiveOrZero
     private long priceMonthlyInr; // in paise
 
     private String notes;

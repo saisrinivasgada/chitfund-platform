@@ -21,6 +21,7 @@ import com.chitfund.userservice.repository.TenantCustomLimitsRepository;
 import com.chitfund.userservice.repository.TenantRepository;
 import com.chitfund.userservice.repository.UserRepository;
 import com.chitfund.userservice.util.CapabilityJson;
+import com.chitfund.userservice.util.PlanInputValidator;
 import com.chitfund.userservice.client.AuditClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -135,7 +136,8 @@ public class PlanService {
                 .capabilities(serializeFeatures(caps))
                 .maxActiveChits(req.getMaxActiveChits())
                 .maxMembers(req.getMaxMembers())
-                .allowedChitTypes(req.getAllowedChitTypes() != null ? req.getAllowedChitTypes() : "RESERVATION")
+                .allowedChitTypes(PlanInputValidator.normalizeAllowedChitTypes(
+                        req.getAllowedChitTypes() != null ? req.getAllowedChitTypes() : "RESERVATION"))
                 .priceMonthlyInr(req.getPriceMonthlyInr())
                 .globalDiscountPct(req.getGlobalDiscountPct())
                 .isPublic(req.isPublic())
@@ -164,7 +166,8 @@ public class PlanService {
         if (req.getFeatures() != null) p.setFeatures(serializeFeatures(req.getFeatures()));
         if (req.getMaxActiveChits() != null) p.setMaxActiveChits(req.getMaxActiveChits());
         if (req.getMaxMembers() != null) p.setMaxMembers(req.getMaxMembers());
-        if (req.getAllowedChitTypes() != null) p.setAllowedChitTypes(req.getAllowedChitTypes());
+        if (req.getAllowedChitTypes() != null)
+            p.setAllowedChitTypes(PlanInputValidator.normalizeAllowedChitTypes(req.getAllowedChitTypes()));
         if (req.getPriceMonthlyInr() != null) p.setPriceMonthlyInr(req.getPriceMonthlyInr());
         if (req.getGlobalDiscountPct() != null) p.setGlobalDiscountPct(req.getGlobalDiscountPct());
         if (req.getIsPublic() != null) p.setPublic(req.getIsPublic());
