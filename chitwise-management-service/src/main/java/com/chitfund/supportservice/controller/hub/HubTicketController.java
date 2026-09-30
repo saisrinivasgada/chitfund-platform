@@ -150,7 +150,11 @@ public class HubTicketController {
         String assignedById = (String) auth.getPrincipal();
         permissionService.requireTicket(assignedById, ticketId);
         permissionService.requirePermission(assignedById, "TICKET_ASSIGN_ANY");
-        var ticket = ticketService.assignTicket(ticketId, assignedById, request, employeeService);
+        var ticketToAssign = ticketService.getTicket(ticketId, null, true, null, false);
+        permissionService.requireTicketType(request.getAssigneeId(), ticketToAssign.getType());
+        var assignedBy = employeeService.getById(assignedById);
+        var ticket = ticketService.assignTicket(
+                ticketId, assignedById, assignedBy.getRole(), request, employeeService);
         return ResponseEntity.ok(Map.of("success", true, "data", ticket));
     }
 }

@@ -32,8 +32,16 @@ public class HubPermissionService {
     public Set<TicketType> visibleTicketTypes(String employeeId) {
         var employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new SecurityException("Hub employee not found"));
-        if ("SUPER_ADMIN".equals(employee.getRole()) || employee.getCustomRoleId() == null) {
+        if (!employee.isActive()) {
+            throw new SecurityException("Hub employee is inactive");
+        }
+        if ("SUPER_ADMIN".equals(employee.getRole())) {
             return EnumSet.allOf(TicketType.class);
+        }
+        // Missing role data must never expand access. Support agents receive only
+        // the ticket categories explicitly granted by an active custom role.
+        if (employee.getCustomRoleId() == null) {
+            return Collections.emptySet();
         }
         Set<String> permissions = permissions(employee.getCustomRoleId());
         EnumSet<TicketType> allowed = EnumSet.noneOf(TicketType.class);
@@ -68,6 +76,9 @@ public class HubPermissionService {
     public void requirePermission(String employeeId, String permission) {
         var employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new SecurityException("Hub employee not found"));
+        if (!employee.isActive()) {
+            throw new SecurityException("Hub employee is inactive");
+        }
         if ("SUPER_ADMIN".equals(employee.getRole())) return;
         if (employee.getCustomRoleId() == null
                 || !permissions(employee.getCustomRoleId()).contains(permission)) {

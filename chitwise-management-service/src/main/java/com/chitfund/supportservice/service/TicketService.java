@@ -359,7 +359,8 @@ public class TicketService {
     }
 
     @Transactional
-    public TicketResponse assignTicket(String ticketId, String assignedById, AssignTicketRequest req,
+    public TicketResponse assignTicket(String ticketId, String assignedById, String assignedByRole,
+                                        AssignTicketRequest req,
                                         EmployeeService employeeService) {
         SupportTicket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new IllegalArgumentException("Ticket not found"));
@@ -380,7 +381,7 @@ public class TicketService {
                 .note(req.getNote())
                 .build());
 
-        auditClient.log(ticketId, "ASSIGNED", assignedById, "SUPER_ADMIN",
+        auditClient.log(ticketId, "ASSIGNED", assignedById, assignedByRole,
                 java.util.Map.of("assignedTo", previousAssignee != null ? previousAssignee : "UNASSIGNED"),
                 java.util.Map.of("assignedTo", assignee.getId()),
                 req.getNote() != null && !req.getNote().isBlank()

@@ -40,6 +40,39 @@ class HubPermissionServiceTest {
     }
 
     @Test
+    void supportAgentWithoutCustomRoleIsDeniedByDefault() {
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent(null)));
+
+        assertThat(service.visibleTicketTypes("agent-1")).isEmpty();
+        assertThatThrownBy(() -> service.requireTicketType("agent-1", TicketType.ACCOUNT))
+                .isInstanceOf(SecurityException.class);
+    }
+
+    @Test
+    void inactiveEmployeeCannotUseRolePermissions() {
+        Employee employee = agent("role-1");
+        employee.setActive(false);
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(employee));
+
+        assertThatThrownBy(() -> service.visibleTicketTypes("agent-1"))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("inactive");
+        assertThatThrownBy(() -> service.requirePermission("agent-1", "TICKET_ASSIGN_ANY"))
+                .isInstanceOf(SecurityException.class)
+                .hasMessageContaining("inactive");
+    }
+
+    @Test
+    void superAdminRetainsAllTicketCategoriesWithoutCustomRole() {
+        Employee owner = Employee.builder().id("owner-1").role("SUPER_ADMIN")
+                .active(true).build();
+        when(employeeRepository.findById("owner-1")).thenReturn(Optional.of(owner));
+
+        assertThat(service.visibleTicketTypes("owner-1"))
+                .containsExactlyInAnyOrder(TicketType.values());
+    }
+
+    @Test
     void directTicketLookupUsesTheSameCategoryPolicy() {
         when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent("role-1")));
         when(roleRepository.findById("role-1")).thenReturn(Optional.of(HubCustomRole.builder()

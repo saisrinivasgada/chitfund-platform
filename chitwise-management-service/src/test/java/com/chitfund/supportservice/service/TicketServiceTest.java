@@ -4,7 +4,9 @@ import com.chitfund.supportservice.client.TenantSupportClient;
 import com.chitfund.supportservice.client.AuditClient;
 import com.chitfund.supportservice.domain.entity.SupportTicket;
 import com.chitfund.supportservice.domain.entity.TicketNumberSeq;
+import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.domain.enums.*;
+import com.chitfund.supportservice.dto.request.AssignTicketRequest;
 import com.chitfund.supportservice.dto.request.CreatePublicInquiryRequest;
 import com.chitfund.supportservice.dto.request.CreateTicketRequest;
 import com.chitfund.supportservice.dto.request.SendMessageRequest;
@@ -154,6 +156,29 @@ class TicketServiceTest {
                 "ticket-1", "tenant-1", false, "admin-1", false);
 
         assertThat(result.getId()).isEqualTo("ticket-1");
+    }
+
+    @Test
+    void assignmentAuditRecordsTheRealSupportAgentRole() {
+        SupportTicket ticket = ticket("ticket-1", "tenant-1", "member-2");
+        EmployeeService employeeService = org.mockito.Mockito.mock(EmployeeService.class);
+        Employee assignee = Employee.builder().id("agent-2").fullName("Agent Two")
+                .email("agent2@example.com").username("agent-two")
+                .role("SUPPORT_AGENT").active(true).build();
+        AssignTicketRequest request = new AssignTicketRequest();
+        request.setAssigneeId("agent-2");
+        request.setNote("Payment specialist");
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(ticket));
+        when(employeeService.getById("agent-2")).thenReturn(assignee);
+        when(ticketRepository.save(ticket)).thenReturn(ticket);
+        when(assignmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ticketService.assignTicket(
+                "ticket-1", "agent-1", "SUPPORT_AGENT", request, employeeService);
+
+        verify(auditClient).log(eq("ticket-1"), eq("ASSIGNED"), eq("agent-1"),
+                eq("SUPPORT_AGENT"), any(), any(), any(), eq("tenant-1"),
+                eq("Payment specialist"));
     }
 
     private SupportTicket ticket(String id, String tenantId, String createdBy) {
