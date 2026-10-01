@@ -53,7 +53,10 @@ public class InAppNotificationService {
                     .build();
             repo.save(n);
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize notification metadata: {}", e.getMessage());
+            // Do not acknowledge the queue event without its durable in-app
+            // notification. Throwing rolls back the consumer inbox claim so SQS
+            // can retry instead of silently losing the notification.
+            throw new IllegalStateException("Could not serialize notification metadata", e);
         }
     }
 

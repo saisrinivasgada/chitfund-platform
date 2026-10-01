@@ -4,6 +4,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.notificationservice.domain.InAppNotification;
 import com.chitfund.notificationservice.repository.InAppNotificationRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -82,6 +84,21 @@ class InAppNotificationServiceTenantTest {
                 "Title", "Message", "PAYMENT_RECEIVED", Map.of(), "/payments"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tenantId");
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void serializationFailureIsNotAcknowledgedAsAStoredNotification() throws Exception {
+        ObjectMapper failingMapper = mock(ObjectMapper.class);
+        when(failingMapper.writeValueAsString(any())).thenThrow(
+                new JsonProcessingException("synthetic failure") { });
+        InAppNotificationService failingService =
+                new InAppNotificationService(repository, failingMapper);
+
+        assertThatThrownBy(() -> failingService.create("tenant-a", UUID.randomUUID(),
+                "Title", "Message", "GENERAL", Map.of("key", "value"), "/home"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("serialize");
         verify(repository, never()).save(any());
     }
 }
