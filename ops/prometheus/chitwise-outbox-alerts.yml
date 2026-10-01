@@ -27,6 +27,32 @@ groups:
           summary: "{{ $labels.service }} finalized an expired or reclaimed outbox lease"
           runbook: "ops/runbooks/outbox.md"
 
+      - alert: ChitwiseAuditOutboxDeliveryFailed
+        expr: chitwise_audit_outbox_failed_current > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} has permanently failed audit deliveries"
+          runbook: "ops/runbooks/outbox.md#audit-evidence-alerts"
+
+      - alert: ChitwiseAuditOutboxBacklogStale
+        expr: chitwise_audit_outbox_oldest_unpublished_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} audit evidence has been blocked for over five minutes"
+          runbook: "ops/runbooks/outbox.md#audit-evidence-alerts"
+
+      - alert: ChitwiseAuditOutboxLeaseContention
+        expr: increase(chitwise_audit_outbox_stale_finalize_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} finalized an expired or reclaimed audit-outbox lease"
+          runbook: "ops/runbooks/outbox.md#audit-evidence-alerts"
+
       - alert: ChitwiseMoneyShadowMismatch
         expr: chitwise_money_shadow_mismatch > 0
         for: 2m

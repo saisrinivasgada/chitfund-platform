@@ -1,8 +1,10 @@
-# Financial event outbox runbook
+# Event and audit outbox runbook
 
-This runbook applies to payment-service and payout-service. Their Prometheus
-endpoints are authenticated; expose them only to the monitoring network and do
-not make `/actuator/prometheus` public through the gateway.
+The financial/domain-event procedure applies to payment-service and
+payout-service. The audit-evidence procedure also applies to member-service,
+chit-service, user-service and management-service. Prometheus endpoints are
+authenticated; expose them only to the monitoring network and do not make
+`/actuator/prometheus` public through the gateway.
 
 ## When an alert fires
 
@@ -24,6 +26,37 @@ not make `/actuator/prometheus` public through the gateway.
 6. Verify the row reaches `PUBLISHED`, the failed gauge returns to zero, and the
    consumer inbox contains the stable `event_id`. Re-delivery is expected; the
    consumer inbox makes the database side effect idempotent.
+
+## Audit-evidence alerts
+
+The `chitwise_audit_outbox_*` metrics cover the dedicated audit outboxes used
+by member-service, chit-service, user-service and management-service. A stale or
+failed audit delivery means the business transaction committed, but the
+organization Activity Center may be incomplete. Treat it as an evidence gap,
+not as a cosmetic notification failure.
+
+1. Identify the service from the alert's `service` label and record the alert
+   start time and correlation ID without copying the event payload.
+2. Confirm the audit queue and audit-service consumer are healthy. Check the
+   audit consumer's inbox and failed-message metrics before changing producer
+   state.
+3. Inspect only `status`, `attempts`, `destination`, `last_error_code`, the
+   sanitized `last_error`, and timestamps in `audit_event_outbox`. Do not paste
+   payloads, actor IDs, entity IDs, or tenant IDs into incident chat.
+4. `PENDING` and expired `IN_FLIGHT` rows are reclaimed automatically. Do not
+   edit their lease fields or start a second ad-hoc publisher.
+5. A `FAILED` row is terminal after the configured retry limit. Do not delete,
+   mark it published, or manually send its payload. Escalate it as an unresolved
+   audit-evidence incident until the service's protected replay operation has
+   re-queued the same stable event ID.
+6. After recovery, verify the original event ID exists once in the audit
+   consumer inbox and Activity Center, and that the failed gauge returns to
+   zero. A second delivery is safe only because the consumer inbox deduplicates
+   that stable event ID.
+
+The dedicated audit outboxes do not yet expose their protected replay operation.
+The alerts deliberately remain critical until that release-blocking operational
+gap is implemented; direct database edits are not an acceptable workaround.
 
 ## Retention
 
