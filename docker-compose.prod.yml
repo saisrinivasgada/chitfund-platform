@@ -80,6 +80,10 @@ services:
       AUDIT_SERVICE_URL: http://audit-service:8088
       MAIL_FROM: ${MAIL_FROM:-noreply@thechitwise.com}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-true}
+      SMS_ENABLED: ${SMS_ENABLED:-false}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-NOT_CONFIGURED}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-NOT_CONFIGURED}
+      WHATSAPP_OTP_TEMPLATE_NAME: ${WHATSAPP_OTP_TEMPLATE_NAME:-otp_verification}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
       interval: 30s
