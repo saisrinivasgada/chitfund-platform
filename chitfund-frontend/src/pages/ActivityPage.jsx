@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import { Activity, ArrowLeft, ExternalLink, RefreshCw, Search, ShieldAlert } from 'lucide-react';
 import { searchAuditLogs } from '../services/api';
 
 const TYPES = [
@@ -29,6 +29,21 @@ function dateBoundaryIso(value, endOfDay = false) {
   return Number.isNaN(local.getTime()) ? undefined : local.toISOString();
 }
 
+function eventDestination(event) {
+  switch (event.entityType) {
+    case 'MEMBER': return `/members/${event.entityId}`;
+    case 'CHIT': return `/chits/${event.entityId}`;
+    case 'CHIT_DRAW':
+    case 'DRAW': return event.chitId ? `/chits/${event.chitId}?tab=Draws` : '/draws';
+    case 'AUCTION_SESSION': return event.chitId ? `/chits/${event.chitId}?tab=Audit` : null;
+    case 'PAYMENT_BATCH': return `/transactions/${event.entityId}`;
+    case 'PAYOUT': return `/payouts/${event.entityId}`;
+    case 'CASH_REQUEST': return '/payments/cash-requests';
+    case 'SETTLEMENT': return '/settlement';
+    default: return event.chitId ? `/chits/${event.chitId}?tab=Audit` : null;
+  }
+}
+
 export default function ActivityPage() {
   const navigate = useNavigate();
   const [type, setType] = useState('ALL');
@@ -40,6 +55,7 @@ export default function ActivityPage() {
   const [expanded, setExpanded] = useState(null);
   const [page, setPage] = useState(0);
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [recordedBefore, setRecordedBefore] = useState(() => new Date().toISOString());
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -49,15 +65,17 @@ export default function ActivityPage() {
   useEffect(() => {
     setPage(0);
     setExpanded(null);
+    setRecordedBefore(new Date().toISOString());
   }, [type, outcome, source, from, to, debouncedSearch]);
 
-  const { data: auditPage, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ['organization-activity', type, outcome, source, from, to, debouncedSearch, page],
+  const { data: auditPage, isLoading, isError, isFetching } = useQuery({
+    queryKey: ['organization-activity', type, outcome, source, from, to, debouncedSearch, recordedBefore, page],
     queryFn: () => searchAuditLogs({
       entityType: type, outcome, source,
       from: dateBoundaryIso(from) ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
       to: dateBoundaryIso(to, true),
       q: debouncedSearch,
+      recordedBefore,
       page,
       size: 50,
     }),
@@ -71,7 +89,8 @@ export default function ActivityPage() {
     if (!q) return events;
     return events.filter((event) => [event.action, event.entityType, event.entityId,
       event.chitId, event.actorId, event.actorRole, event.reason, event.source,
-      event.outcome, event.metadata].some((value) => String(value ?? '').toLowerCase().includes(q)));
+      event.outcome, event.metadata, event.beforeState, event.afterState]
+      .some((value) => String(value ?? '').toLowerCase().includes(q)));
   }, [auditPage, debouncedSearch]);
 
   return (
@@ -89,7 +108,7 @@ export default function ActivityPage() {
             <p className="text-sm text-gray-500">A complete, read-only history across every chit and team member</p>
           </div>
         </div>
-        <button type="button" onClick={() => refetch()} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+        <button type="button" onClick={() => { setPage(0); setRecordedBefore(new Date().toISOString()); }} className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
@@ -124,8 +143,17 @@ export default function ActivityPage() {
             const failed = event.outcome === 'FAILURE' || event.outcome === 'DENIED';
             const when = event.occurredAt ?? event.createdAt;
             const isOpen = expanded === event.id;
+            const destination = eventDestination(event);
             return (
-              <button key={event.id} type="button" onClick={() => setExpanded(isOpen ? null : event.id)} className="w-full text-left px-5 py-4 hover:bg-gray-50 cursor-pointer">
+              <div key={event.id} role="button" tabIndex={0}
+                onClick={() => setExpanded(isOpen ? null : event.id)}
+                onKeyDown={(keyEvent) => {
+                  if (keyEvent.key === 'Enter' || keyEvent.key === ' ') {
+                    keyEvent.preventDefault();
+                    setExpanded(isOpen ? null : event.id);
+                  }
+                }}
+                className="w-full text-left px-5 py-4 hover:bg-gray-50 cursor-pointer">
                 <div className="flex items-start gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${failed ? 'bg-red-50' : 'bg-[#EEF2F8]'}`}>
                     {failed ? <ShieldAlert size={15} className="text-red-600" /> : <Activity size={15} className="text-[#1E3A5F]" />}
@@ -143,12 +171,22 @@ export default function ActivityPage() {
                         {event.chitId && <div><span className="text-gray-400">Chit</span><p className="font-mono text-gray-700 break-all">{event.chitId}</p></div>}
                         <div><span className="text-gray-400">Source / correlation</span><p className="text-gray-700">{label(event.source)}{event.correlationId ? ` · ${event.correlationId}` : ''}</p></div>
                         {(event.beforeState || event.afterState) && <div><span className="text-gray-400">State change</span><p className="text-gray-700 break-all">{event.beforeState ?? '—'} → {event.afterState ?? '—'}</p></div>}
+                        <div><span className="text-gray-400">Occurred / recorded</span><p className="text-gray-700">{formatTime(when)} · {formatTime(event.createdAt)}</p></div>
+                        {(event.originalOfflineAt || event.synchronizedAt) && <div><span className="text-gray-400">Offline / synchronized</span><p className="text-gray-700">{formatTime(event.originalOfflineAt)} · {formatTime(event.synchronizedAt)}</p></div>}
+                        {destination && (
+                          <div className="sm:col-span-2">
+                            <button type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); navigate(destination); }}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3A5F] hover:underline cursor-pointer">
+                              Open affected record <ExternalLink size={12} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                   <span className="text-xs text-gray-400 flex-shrink-0">{formatTime(when)}</span>
                 </div>
-              </button>
+              </div>
             );
           })}
           <div className="flex items-center justify-between gap-3 px-5 py-4 bg-gray-50">

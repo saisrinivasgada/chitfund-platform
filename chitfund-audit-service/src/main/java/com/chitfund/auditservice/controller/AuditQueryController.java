@@ -40,12 +40,13 @@ public class AuditQueryController {
             @RequestParam(required = false) String outcome,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant recordedBefore,
             @PageableDefault(size = 50, sort = "createdAt") Pageable pageable) {
 
         String tenantId = requireTenant();
         return ResponseEntity.ok(ApiResponse.success(
                 auditService.search(tenantId, entityType, entityId, chitId, actorId, action,
-                        source, outcome, query, from, to, pageable)));
+                        source, outcome, query, from, to, recordedBefore, pageable)));
     }
 
     @GetMapping("/logs/{entityType}/{entityId}")

@@ -41,10 +41,11 @@ public class SuperAdminAuditController {
             @RequestParam(required = false) String outcome,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant recordedBefore,
             @PageableDefault(size = 50, sort = "createdAt") Pageable pageable) {
 
         return ResponseEntity.ok(ApiResponse.success(
                 auditService.search(orgId, entityType, entityId, null, null, action,
-                        source, outcome, from, to, pageable)));
+                        source, outcome, null, from, to, recordedBefore, pageable)));
     }
 }

@@ -91,9 +91,10 @@ export default function AdminDashboard() {
   const { data: wallet, refetch: refetchWallet, isError: walletError } = useQuery({ queryKey: ['m-wallet'], queryFn: getWalletBalance });
   const { data: unread = 0 } = useQuery({ queryKey: ['m-unread'], queryFn: getUnreadCount, refetchInterval: 30_000 });
   const todayIso = (() => { const d = new Date(); d.setHours(0,0,0,0); return d.toISOString(); })();
-  const { data: recentActivity = [], refetch: refetchActivity } = useQuery({
+  const { data: recentActivity = [], refetch: refetchActivity,
+    isError: recentActivityError } = useQuery({
     queryKey: ['m-recent-activity'],
-    queryFn: () => getAuditLogs({ size: 50, sort: 'createdAt,desc', from: todayIso }),
+    queryFn: () => getAuditLogs({ size: 50, sort: 'occurredAt,desc', from: todayIso }),
     staleTime: 30_000,
   });
   const { data: todayBatchesRaw = [], refetch: refetchBatches  } = useQuery({ queryKey: ['m-today-batches'], queryFn: getTodaysPaymentBatches, staleTime: 60_000 });
@@ -620,7 +621,9 @@ export default function AdminDashboard() {
         {/* Today's Activity */}
         {(() => {
           // Prefer audit logs (filtered to today); fall back to real /today endpoints
-          const auditItems = (recentActivity as any[]).filter((e) => new Date(e.createdAt).getTime() >= todayStart.getTime());
+          const auditItems = (recentActivity as any[])
+            .filter((e) => new Date(e.occurredAt ?? e.createdAt).getTime() >= todayStart.getTime())
+            .map((e) => ({ ...e, createdAt: e.occurredAt ?? e.createdAt }));
           const batchItems = todayBatches.map((b: any) => ({
             id: 'b-' + b.id,
             action: b.status === 'REMITTED' ? 'REMITTED' : b.status === 'VOIDED' ? 'VOIDED' : 'COLLECTED',
@@ -653,6 +656,17 @@ export default function AdminDashboard() {
               <SectionHeader title="Today's Activity"
                 action={<TouchableOpacity onPress={() => router.push('/(app)/(admin)/activity')}><Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>See all →</Text></TouchableOpacity>}
               />
+              {recentActivityError && (
+                <View style={{ backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Audited activity is unavailable</Text>
+                  <Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 3, lineHeight: 16 }}>
+                    The items below are a limited operational summary. Do not interpret them as the complete audit history.
+                  </Text>
+                  <TouchableOpacity onPress={() => refetchActivity()} style={{ marginTop: 7, alignSelf: 'flex-start' }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Try again</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {sorted.length === 0 ? (
                 <Text style={{ color: C.gray400, textAlign: 'center', paddingVertical: 16, fontSize: 13 }}>No activity today yet</Text>
               ) : sorted.slice(0, activityShowCount).map((entry: any, i: number) => {

@@ -25,7 +25,7 @@ class AuditHistoryMigrationMySqlTest {
                 .locations("classpath:db/migration")
                 .load()
                 .migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(6);
+        assertThat(result.migrationsExecuted).isEqualTo(7);
 
         try (var connection = DriverManager.getConnection(
                 MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
@@ -69,11 +69,26 @@ class AuditHistoryMigrationMySqlTest {
                       AND index_name IN ('idx_audit_tenant_occurred',
                                          'idx_audit_tenant_outcome',
                                          'idx_audit_correlation',
-                                         'idx_audit_idempotency')
+                                         'idx_audit_idempotency',
+                                         'idx_audit_tenant_created')
                     """)) {
                 assertThat(indexes.next()).isTrue();
-                assertThat(indexes.getInt(1)).isGreaterThanOrEqualTo(4);
+                assertThat(indexes.getInt(1)).isGreaterThanOrEqualTo(5);
             }
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                    connection.createStatement().executeUpdate("""
+                            UPDATE audit_logs SET action = 'HISTORY_REWRITTEN'
+                            WHERE id = '11111111-1111-1111-1111-111111111111'
+                            """))
+                    .hasMessageContaining("audit_logs is append-only");
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                    connection.createStatement().executeUpdate("""
+                            DELETE FROM audit_logs
+                            WHERE id = '11111111-1111-1111-1111-111111111111'
+                            """))
+                    .hasMessageContaining("audit_logs is append-only");
         }
     }
 }

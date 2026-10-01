@@ -71,9 +71,12 @@ public interface AuditLogRepository extends Repository<AuditLog, String> {
                    LOWER(a.actorId) LIKE :query OR
                    LOWER(a.actorRole) LIKE :query OR
                    LOWER(a.reason) LIKE :query OR
+                   LOWER(a.beforeState) LIKE :query OR
+                   LOWER(a.afterState) LIKE :query OR
                    LOWER(a.metadata) LIKE :query)
             AND   (:from       IS NULL OR a.occurredAt >= :from)
             AND   (:to         IS NULL OR a.occurredAt <= :to)
+            AND   (:recordedBefore IS NULL OR a.createdAt <= :recordedBefore)
             ORDER BY a.occurredAt DESC, a.id DESC
             """)
     Page<AuditLog> search(
@@ -88,5 +91,6 @@ public interface AuditLogRepository extends Repository<AuditLog, String> {
             @Param("query")      String query,
             @Param("from")       Instant from,
             @Param("to")         Instant to,
+            @Param("recordedBefore") Instant recordedBefore,
             Pageable pageable);
 }

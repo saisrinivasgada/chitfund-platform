@@ -677,7 +677,7 @@ export const redeemMemberCredit = async (body: any) => unwrapObj(await api.post(
 
 // ── Audit ──────────────────────────────────────────────────────────────────────
 export const getAuditLogs = async (params: any = {}) => {
-  try { return unwrapList(await api.get('/audit/logs', { params })); } catch { return []; }
+  return unwrapList(await api.get('/audit/logs', { params }));
 };
 export const getAuditLogPage = async (params: any = {}) => {
   const response = await api.get('/audit/logs', { params });
@@ -723,10 +723,10 @@ export const getAllCashRequests = async (params: any = {}) => {
   });
 };
 export const getEntityAuditHistory = async (entityType: string, entityId: string) => {
-  try { return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`)); } catch { return []; }
+  return unwrapList(await api.get(`/audit/logs/${entityType}/${entityId}`));
 };
 export const getChitAuditHistory = async (chitId: string) => {
-  try { return unwrapList(await api.get(`/audit/logs/chit/${chitId}`)); } catch { return []; }
+  return unwrapList(await api.get(`/audit/logs/chit/${chitId}`));
 };
 
 // ── Settlement ────────────────────────────────────────────────────────────────

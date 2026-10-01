@@ -121,11 +121,32 @@ public class AuditService {
                                          String chitId, String actorId, String action,
                                          String source, String outcome, String query,
                                          Instant from, Instant to, Pageable pageable) {
+        return search(tenantId, entityType, entityId, chitId, actorId, action,
+                source, outcome, query, from, to, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AuditLogResponse> search(String tenantId, String entityType, String entityId,
+                                         String chitId, String actorId, String action,
+                                         String source, String outcome, String query,
+                                         Instant from, Instant to, Instant recordedBefore,
+                                         Pageable pageable) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("audit from timestamp must not be after to timestamp");
+        }
         String normalizedQuery = normalizeSearchQuery(query);
+        String normalizedSource = normalizeOptionalAllowed(source, VALID_SOURCES, "source");
+        String normalizedOutcome = normalizeOptionalAllowed(outcome, VALID_OUTCOMES, "outcome");
         return auditLogRepository
                 .search(tenantId, entityType, entityId, chitId, actorId, action,
-                        source, outcome, normalizedQuery, from, to, pageable)
+                        normalizedSource, normalizedOutcome, normalizedQuery, from, to,
+                        recordedBefore, pageable)
                 .map(AuditLogResponse::from);
+    }
+
+    private String normalizeOptionalAllowed(String value, Set<String> allowed, String fieldName) {
+        if (value == null || value.isBlank()) return null;
+        return normalizeAllowed(value, null, allowed, fieldName);
     }
 
     private String normalizeSearchQuery(String query) {

@@ -1219,11 +1219,12 @@ export const getChitAuditLogs = async (chitId, page = 0, size = 100) => {
 // scopes this request to the authenticated tenant and orders by the business
 // occurrence time, so offline-synced actions retain their original chronology.
 export const searchAuditLogs = async ({ from, to, entityType, outcome, source, q,
-  page = 0, size = 50 } = {}) => {
+  recordedBefore, page = 0, size = 50 } = {}) => {
   const res = await api.get('/audit/logs', {
     params: {
       from: from ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       ...(to ? { to } : {}),
+      ...(recordedBefore ? { recordedBefore } : {}),
       ...(entityType && entityType !== 'ALL' ? { entityType } : {}),
       ...(outcome && outcome !== 'ALL' ? { outcome } : {}),
       ...(source && source !== 'ALL' ? { source } : {}),
@@ -1247,14 +1248,10 @@ export const getRecentAuditLogs = async (params = {}) => {
 
 // Member profile change history from audit log
 export const getMemberAuditHistory = async (memberId) => {
-  try {
-    const res = await api.get('/audit/logs', {
-      params: { entityType: 'MEMBER', entityId: memberId, size: 30, sort: 'createdAt,desc' },
-    });
-    return res.data.data?.content ?? res.data.data ?? [];
-  } catch {
-    return [];
-  }
+  const res = await api.get('/audit/logs', {
+    params: { entityType: 'MEMBER', entityId: memberId, size: 30, sort: 'occurredAt,desc' },
+  });
+  return res.data.data?.content ?? res.data.data ?? [];
 };
 
 export const markNotificationRead = async (id) => {

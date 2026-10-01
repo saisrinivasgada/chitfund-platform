@@ -213,7 +213,8 @@ export default function TodaysActivityFeed() {
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => getMembers({ size: 50 }), staleTime: 60_000 });
   const { data: chits = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 30_000 });
 
-  const { data: recentAudit = [], isLoading: auditLoading, refetch: refetchAudit } = useQuery({
+  const { data: recentAudit = [], isLoading: auditLoading, isError: auditError,
+    refetch: refetchAudit } = useQuery({
     queryKey: ['dashboard-audit', auditFilter],
     queryFn: () => getRecentAuditLogs({ entityType: auditFilter, size: 100 }),
     staleTime: 30_000,
@@ -285,6 +286,13 @@ export default function TodaysActivityFeed() {
         </div>
         {auditLoading ? (
           <div className="px-6 py-8 text-sm text-gray-400">Loading audited activity…</div>
+        ) : auditError ? (
+          <div className="px-6 py-6 bg-red-50 border-t border-red-100">
+            <p className="text-sm font-semibold text-red-700">Audited activity is temporarily unavailable</p>
+            <p className="text-xs text-red-600 mt-1">Do not interpret this as no activity. The operational summary below may be incomplete.</p>
+            <button type="button" onClick={() => refetchAudit()}
+              className="mt-3 text-xs font-semibold text-red-700 hover:underline cursor-pointer">Try audit history again</button>
+          </div>
         ) : recentAudit.length === 0 ? (
           <div className="px-6 py-8 text-sm text-gray-400">No audited activity in the last 24 hours.</div>
         ) : (

@@ -192,6 +192,31 @@ function jsonObject(value: unknown): Record<string, any> {
   }
 }
 
+function auditRecordRoute(log: any): { pathname: string; params?: Record<string, string> } | null {
+  if (log.entityType === 'MEMBER') {
+    return {
+      pathname: '/(app)/(admin)/members',
+      params: { openMemberId: String(log.entityId), openHistory: '1' },
+    };
+  }
+  if (log.chitId) {
+    return {
+      pathname: '/(app)/(admin)/chits',
+      params: { openChitId: String(log.chitId), openTab: 'audit' },
+    };
+  }
+  if (log.entityType === 'CHIT') {
+    return {
+      pathname: '/(app)/(admin)/chits',
+      params: { openChitId: String(log.entityId), openTab: 'audit' },
+    };
+  }
+  if (log.entityType === 'PAYMENT_BATCH' || log.entityType === 'CASH_REQUEST') {
+    return { pathname: '/(app)/(admin)/payments' };
+  }
+  return null;
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ActivityScreen() {
@@ -205,6 +230,7 @@ export default function ActivityScreen() {
   const [sourceFilter, setSourceFilter] = useState('ALL');
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [recordedBefore, setRecordedBefore] = useState(() => new Date().toISOString());
   const [detailLog,  setDetailLog]  = useState<any>(null);
 
   useEffect(() => { markActivitySeen(); }, []);
@@ -212,6 +238,9 @@ export default function ActivityScreen() {
     const timer = setTimeout(() => setDebouncedSearch(searchText.trim()), 300);
     return () => clearTimeout(timer);
   }, [searchText]);
+  useEffect(() => {
+    setRecordedBefore(new Date().toISOString());
+  }, [typeFilter, outcomeFilter, sourceFilter, datePreset, customFrom, customTo, debouncedSearch]);
 
   // Blinking LIVE dot
   const blink = useRef(new Animated.Value(1)).current;
@@ -233,6 +262,7 @@ export default function ActivityScreen() {
   const {
     data: auditPages,
     isLoading: auditLoading,
+    isError: auditError,
     isRefetching,
     isFetchingNextPage,
     fetchNextPage,
@@ -240,7 +270,7 @@ export default function ActivityScreen() {
     refetch: ra,
   } = useInfiniteQuery({
     queryKey: ['act-audit', typeFilter, outcomeFilter, sourceFilter,
-      datePreset, customFrom, customTo, debouncedSearch],
+      datePreset, customFrom, customTo, debouncedSearch, recordedBefore],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getAuditLogPage({
       page: pageParam, size: 50, sort: 'occurredAt,desc',
@@ -248,6 +278,7 @@ export default function ActivityScreen() {
       ...(outcomeFilter !== 'ALL' ? { outcome: outcomeFilter } : {}),
       ...(sourceFilter !== 'ALL' ? { source: sourceFilter } : {}),
       ...(debouncedSearch ? { q: debouncedSearch } : {}),
+      recordedBefore,
       ...dateRange,
     }),
     getNextPageParam: (lastPage: any) => lastPage?.last
@@ -297,7 +328,7 @@ export default function ActivityScreen() {
   const displayed = feed;
   const hasMore = hasNextPage === true;
 
-  function onRefresh() { ra(); }
+  function onRefresh() { setRecordedBefore(new Date().toISOString()); }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
@@ -407,6 +438,16 @@ export default function ActivityScreen() {
         </ScrollView>
       </View>
 
+      {auditError && displayed.length > 0 && (
+        <View style={{ marginHorizontal: 16, marginBottom: 10, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 10, padding: 12 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.red }}>Could not refresh audited activity</Text>
+          <Text style={{ fontSize: 11, color: '#B91C1C', marginTop: 3 }}>Showing the last successfully loaded snapshot.</Text>
+          <TouchableOpacity onPress={() => ra()} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={{ height: 1, backgroundColor: C.gray200 }} />
 
       <FlatList
@@ -419,6 +460,17 @@ export default function ActivityScreen() {
               <View style={{ alignItems: 'center', paddingVertical: 48, gap: 12 }}>
                 <ActivityIndicator color={C.navy} size="large" />
                 <Text style={{ color: C.gray500, fontSize: 14 }}>Loading activity…</Text>
+              </View>
+            ) : auditError ? (
+              <View style={{ alignItems: 'center', paddingVertical: 48, gap: 8 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: C.red }}>Activity could not be loaded</Text>
+                <Text style={{ color: C.gray500, fontSize: 13, textAlign: 'center' }}>
+                  This does not mean that no audit events were recorded.
+                </Text>
+                <TouchableOpacity onPress={() => ra()}
+                  style={{ marginTop: 6, borderWidth: 1.5, borderColor: C.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8 }}>
+                  <Text style={{ color: C.red, fontSize: 13, fontWeight: '700' }}>Try again</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <EmptyState
@@ -712,9 +764,38 @@ export default function ActivityScreen() {
                 );
               })()}
 
-              {/* Timestamp */}
+              {auditRecordRoute(detailLog.log) && (
+                <TouchableOpacity
+                  onPress={() => {
+                    const destination = auditRecordRoute(detailLog.log);
+                    if (!destination) return;
+                    setDetailLog(null);
+                    router.push(destination as any);
+                  }}
+                  style={{ marginTop: 12, borderWidth: 1.5, borderColor: C.navy, borderRadius: 10, padding: 12, alignItems: 'center' }}>
+                  <Text style={{ color: C.navy, fontSize: 13, fontWeight: '700' }}>Open affected record →</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Business occurrence and evidence-recording timestamps are deliberately
+                  separate. An offline payment happened on the device before it synchronized. */}
               <View style={{ marginTop: 16, padding: 14, backgroundColor: C.gray50, borderRadius: 12 }}>
-                <Text style={{ fontSize: 12, color: C.gray400, textAlign: 'center' }}>{fmtDateTime(detailLog.log.createdAt)}</Text>
+                <Text style={{ fontSize: 11, color: C.gray500 }}>Occurred</Text>
+                <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.occurredAt ?? detailLog.log.createdAt)}</Text>
+                <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Recorded in audit history</Text>
+                <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.createdAt)}</Text>
+                {detailLog.log.originalOfflineAt ? (
+                  <>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Recorded offline on device</Text>
+                    <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.originalOfflineAt)}</Text>
+                  </>
+                ) : null}
+                {detailLog.log.synchronizedAt ? (
+                  <>
+                    <Text style={{ fontSize: 11, color: C.gray500, marginTop: 10 }}>Synchronized</Text>
+                    <Text style={{ fontSize: 12, color: C.gray700, marginTop: 2 }}>{fmtDateTime(detailLog.log.synchronizedAt)}</Text>
+                  </>
+                ) : null}
               </View>
             </ScrollView>
           </SafeAreaView>

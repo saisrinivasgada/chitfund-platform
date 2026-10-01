@@ -25,7 +25,7 @@ class AuditQueryControllerTest {
 
         assertThatThrownBy(() -> controller.search(
                 null, null, null, null, null, null, null, null,
-                null, null, PageRequest.of(0, 50)))
+                null, null, null, PageRequest.of(0, 50)))
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("Organization context");
 

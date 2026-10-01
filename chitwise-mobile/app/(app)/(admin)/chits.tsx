@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, FlatList, Modal, Alert, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -356,7 +356,8 @@ export default function AdminChitsScreen() {
     enabled: !!selected?.id && detailTab === 'draws',
   });
   const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
-  const { data: chitAudit = [] } = useQuery({
+  const { data: chitAudit = [], isLoading: chitAuditLoading, isError: chitAuditError,
+    refetch: refetchChitAudit } = useQuery({
     queryKey: ['a-chit-audit', selected?.id],
     queryFn: () => getChitAuditHistory(selected!.id),
     enabled: !!selected?.id && detailTab === 'audit',
@@ -2197,7 +2198,20 @@ export default function AdminChitsScreen() {
               }
               return (
               <>
-                {(chitAudit as any[]).length === 0 ? (
+                {chitAuditLoading ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator color={C.navy} />
+                    <Text style={{ fontSize: 13, color: C.gray400 }}>Loading audit history…</Text>
+                  </View>
+                ) : chitAuditError ? (
+                  <View style={{ paddingVertical: 40, alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: C.red }}>Audit history could not be loaded</Text>
+                    <Text style={{ fontSize: 12, color: C.gray500, textAlign: 'center' }}>This does not mean that the chit has no history.</Text>
+                    <TouchableOpacity onPress={() => refetchChitAudit()} style={{ borderWidth: 1.5, borderColor: C.red, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 }}>
+                      <Text style={{ color: C.red, fontSize: 12, fontWeight: '700' }}>Try again</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (chitAudit as any[]).length === 0 ? (
                   <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                     <Text style={{ fontSize: 32, marginBottom: 8 }}>◈</Text>
                     <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>No audit events</Text>
@@ -2213,7 +2227,7 @@ export default function AdminChitsScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 2 }}>
                           <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray900, flex: 1 }}>{label}</Text>
                           <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 8 }}>
-                            {fmtDateTime(entry.createdAt ?? entry.timestamp)}
+                            {fmtDateTime(entry.occurredAt ?? entry.createdAt ?? entry.timestamp)}
                           </Text>
                         </View>
                         {summary && (

@@ -102,7 +102,7 @@ class AuditServiceTenantTest {
         Pageable pageable = PageRequest.of(0, 50);
         when(repository.search(eq("tenant-1"), isNull(), isNull(), isNull(),
                 isNull(), isNull(), isNull(), isNull(), eq("%cash pickup%"),
-                isNull(), isNull(), eq(pageable)))
+                isNull(), isNull(), isNull(), eq(pageable)))
                 .thenReturn(Page.empty(pageable));
 
         service.search("tenant-1", null, null, null, null, null,
@@ -110,6 +110,63 @@ class AuditServiceTenantTest {
 
         verify(repository).search(eq("tenant-1"), isNull(), isNull(), isNull(),
                 isNull(), isNull(), isNull(), isNull(), eq("%cash pickup%"),
-                isNull(), isNull(), eq(pageable));
+                isNull(), isNull(), isNull(), eq(pageable));
+    }
+
+    @Test
+    void searchNormalizesAndValidatesTimelineDimensions() {
+        AuditLogRepository repository = mock(AuditLogRepository.class);
+        AuditService service = new AuditService(repository);
+        Pageable pageable = PageRequest.of(0, 50);
+        when(repository.search(eq("tenant-1"), isNull(), isNull(), isNull(),
+                isNull(), isNull(), eq("OFFLINE_SYNC"), eq("DENIED"), isNull(),
+                isNull(), isNull(), isNull(), eq(pageable)))
+                .thenReturn(Page.empty(pageable));
+
+        service.search("tenant-1", null, null, null, null, null,
+                " offline_sync ", " denied ", null, null, null, pageable);
+
+        verify(repository).search(eq("tenant-1"), isNull(), isNull(), isNull(),
+                isNull(), isNull(), eq("OFFLINE_SYNC"), eq("DENIED"), isNull(),
+                isNull(), isNull(), isNull(), eq(pageable));
+
+        assertThatThrownBy(() -> service.search("tenant-1", null, null, null,
+                null, null, "UNTRUSTED", null, null, null, null, pageable))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("source");
+    }
+
+    @Test
+    void searchRejectsAnInvertedDateRange() {
+        AuditLogRepository repository = mock(AuditLogRepository.class);
+        AuditService service = new AuditService(repository);
+        Pageable pageable = PageRequest.of(0, 50);
+
+        assertThatThrownBy(() -> service.search("tenant-1", null, null, null,
+                null, null, null, null, null,
+                java.time.Instant.parse("2026-09-30T12:00:00Z"),
+                java.time.Instant.parse("2026-09-29T12:00:00Z"), pageable))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("from timestamp");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void searchPinsEveryPageToTheRequestedRecordedSnapshot() {
+        AuditLogRepository repository = mock(AuditLogRepository.class);
+        AuditService service = new AuditService(repository);
+        Pageable pageable = PageRequest.of(3, 50);
+        java.time.Instant snapshot = java.time.Instant.parse("2026-09-30T12:34:56Z");
+        when(repository.search(eq("tenant-1"), isNull(), isNull(), isNull(),
+                isNull(), isNull(), isNull(), isNull(), isNull(),
+                isNull(), isNull(), eq(snapshot), eq(pageable)))
+                .thenReturn(Page.empty(pageable));
+
+        service.search("tenant-1", null, null, null, null, null,
+                null, null, null, null, null, snapshot, pageable);
+
+        verify(repository).search(eq("tenant-1"), isNull(), isNull(), isNull(),
+                isNull(), isNull(), isNull(), isNull(), isNull(),
+                isNull(), isNull(), eq(snapshot), eq(pageable));
     }
 }
