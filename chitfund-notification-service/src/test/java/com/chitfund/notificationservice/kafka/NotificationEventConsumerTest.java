@@ -3,11 +3,10 @@ package com.chitfund.notificationservice.kafka;
 import com.chitfund.notificationservice.client.ChitServiceClient;
 import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.client.UserServiceClient;
-import com.chitfund.notificationservice.sender.EmailSender;
 import com.chitfund.notificationservice.service.InAppNotificationService;
-import com.chitfund.notificationservice.service.ExpoPushService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.repository.EventInboxRepository;
+import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -32,8 +31,7 @@ class NotificationEventConsumerTest {
         return new NotificationEventConsumer(
                 notificationService,
                 mock(InAppNotificationService.class),
-                mock(ExpoPushService.class),
-                mock(EmailSender.class),
+                mock(NotificationDeliveryQueue.class),
                 new ObjectMapper(),
                 mock(WebSocketBroadcaster.class),
                 mock(MemberServiceClient.class),
@@ -93,13 +91,13 @@ class NotificationEventConsumerTest {
     void adminAndManagerFanoutIsTenantScopedAndSendsOnePushPerRecipient() {
         UserServiceClient users = mock(UserServiceClient.class);
         InAppNotificationService inApp = mock(InAppNotificationService.class);
-        ExpoPushService push = mock(ExpoPushService.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
         String adminId = UUID.randomUUID().toString();
         String managerId = UUID.randomUUID().toString();
         when(users.getUserIdsByRole("tenant-a", "ADMIN")).thenReturn(List.of(adminId));
         when(users.getUserIdsByRole("tenant-a", "MANAGER")).thenReturn(List.of(managerId));
         NotificationEventConsumer consumer = new NotificationEventConsumer(
-                mock(NotificationService.class), inApp, push, mock(EmailSender.class),
+                mock(NotificationService.class), inApp, deliveryQueue,
                 new ObjectMapper(), mock(WebSocketBroadcaster.class),
                 mock(MemberServiceClient.class), users, mock(ChitServiceClient.class),
                 mock(EventInboxRepository.class));
@@ -114,9 +112,32 @@ class NotificationEventConsumerTest {
                 eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
         verify(inApp).create(eq("tenant-a"), eq(UUID.fromString(managerId)), eq("Title"),
                 eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
-        verify(push).sendToUserWithData(eq(UUID.fromString(adminId)), eq("Title"),
-                eq("Message"), eq(Map.of("screen", "payments")));
-        verify(push).sendToUserWithData(eq(UUID.fromString(managerId)), eq("Title"),
-                eq("Message"), eq(Map.of("screen", "payments")));
+        verify(deliveryQueue).enqueuePush(any(), eq("tenant-a"), eq(UUID.fromString(adminId)),
+                eq("Title"), eq("Message"), eq(Map.of("screen", "payments")));
+        verify(deliveryQueue).enqueuePush(any(), eq("tenant-a"), eq(UUID.fromString(managerId)),
+                eq("Title"), eq("Message"), eq(Map.of("screen", "payments")));
+    }
+
+    @Test
+    void pushEventQueuesProviderDeliveryWithTheStableEnvelopeEventId() {
+        EventInboxRepository inbox = mock(EventInboxRepository.class);
+        NotificationDeliveryQueue deliveryQueue = mock(NotificationDeliveryQueue.class);
+        String eventId = "33333333-3333-3333-3333-333333333333";
+        String userId = UUID.randomUUID().toString();
+        when(inbox.claimIfAbsent(eq(eventId), eq("PUSH_NOTIFICATION"), any()))
+                .thenReturn(1);
+        NotificationEventConsumer consumer = new NotificationEventConsumer(
+                mock(NotificationService.class), mock(InAppNotificationService.class),
+                deliveryQueue, new ObjectMapper(), mock(WebSocketBroadcaster.class),
+                mock(MemberServiceClient.class), mock(UserServiceClient.class),
+                mock(ChitServiceClient.class), inbox);
+
+        consumer.onEvent("""
+                {"eventId":"%s","eventType":"PUSH_NOTIFICATION",
+                 "payload":"{\\"userId\\":\\"%s\\",\\"title\\":\\"Due\\",\\"body\\":\\"Pay now\\",\\"data\\":{\\"screen\\":\\"payments\\"}}"}
+                """.formatted(eventId, userId));
+
+        verify(deliveryQueue).enqueuePush(eventId, null, UUID.fromString(userId),
+                "Due", "Pay now", Map.of("screen", "payments"));
     }
 }

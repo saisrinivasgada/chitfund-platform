@@ -28,13 +28,21 @@ public class LoggingNotificationSender implements NotificationSender {
 
     @Override
     public SendResult send(String to, String message, NotificationChannel channel) {
-        log.info("╔══════════════════════════════════════════════════");
-        log.info("║ [{}] NOTIFICATION", channel);
-        log.info("║ To:      {}", to);
-        log.info("║ Message: {}", message);
-        log.info("╚══════════════════════════════════════════════════");
+        log.info("[{}] notification simulated for destination={} messageLength={}",
+                channel, maskDestination(to), message == null ? 0 : message.length());
 
         // Returns a fake external ID so the rest of the flow (DB logging) works in dev
         return SendResult.ok("MOCK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+    }
+
+    static String maskDestination(String destination) {
+        if (destination == null || destination.isBlank()) return "***";
+        int at = destination.indexOf('@');
+        if (at > 0) {
+            return destination.charAt(0) + "***" + destination.substring(at);
+        }
+        String lastFour = destination.length() <= 4
+                ? destination : destination.substring(destination.length() - 4);
+        return "***" + lastFour;
     }
 }

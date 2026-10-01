@@ -5,8 +5,7 @@ import com.chitfund.notificationservice.client.MemberServiceClient;
 import com.chitfund.notificationservice.dto.request.BulkNotifyRequest;
 import com.chitfund.notificationservice.dto.request.NotifyRequest;
 import com.chitfund.notificationservice.dto.response.NotificationResponse;
-import com.chitfund.notificationservice.sender.EmailSender;
-import com.chitfund.notificationservice.service.ExpoPushService;
+import com.chitfund.notificationservice.outbox.NotificationDeliveryQueue;
 import com.chitfund.notificationservice.service.InAppNotificationService;
 import com.chitfund.notificationservice.service.NotificationService;
 import com.chitfund.notificationservice.websocket.WebSocketBroadcaster;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Internal endpoints — called by other microservices, not by the frontend.
@@ -35,8 +35,7 @@ public class InternalNotifyController {
     private final InAppNotificationService inAppService;
     private final WebSocketBroadcaster broadcaster;
     private final MemberServiceClient memberServiceClient;
-    private final ExpoPushService expoPushService;
-    private final EmailSender emailSender;
+    private final NotificationDeliveryQueue deliveryQueue;
 
     @Value("${notification.internal-key}")
     private String internalKey;
@@ -166,6 +165,7 @@ public class InternalNotifyController {
     public ResponseEntity<ApiResponse<Void>> pushNotify(
             @RequestHeader("X-Internal-Key") String key,
             @RequestHeader("X-Tenant-ID") String tenantId,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -179,7 +179,8 @@ public class InternalNotifyController {
             String message = (String) body.getOrDefault("body", "");
             @SuppressWarnings("unchecked")
             Map<String, String> data = (Map<String, String>) body.getOrDefault("data", null);
-            expoPushService.sendToUserWithData(userId, title, message, data);
+            deliveryQueue.enqueuePush(requestEventId(idempotencyKey), tenantId,
+                    userId, title, message, data);
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to send direct push notification: {}", e.getMessage());
@@ -212,6 +213,7 @@ public class InternalNotifyController {
     @PostMapping("/email")
     public ResponseEntity<ApiResponse<Void>> sendEmail(
             @RequestHeader("X-Internal-Key") String key,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody Map<String, Object> body) {
 
         if (!internalKey.equals(key)) {
@@ -230,13 +232,24 @@ public class InternalNotifyController {
         }
 
         try {
-            emailSender.send(toEmail, subject, textBody, htmlBody);
-            log.info("Transactional email dispatched to {}", toEmail.replaceAll("(?<=.).(?=[^@]*@)", "*"));
+            deliveryQueue.enqueueEmail(requestEventId(idempotencyKey), null,
+                    toEmail, subject, textBody, htmlBody);
+            log.info("Transactional email queued for {}",
+                    toEmail.replaceAll("(?<=.).(?=[^@]*@)", "*"));
             return ResponseEntity.ok(ApiResponse.success(null));
         } catch (Exception e) {
             log.error("Failed to send transactional email to {}: {}", toEmail, e.getMessage());
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.error("GENERAL_500", "Email delivery failed"));
         }
+    }
+
+    private String requestEventId(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return UUID.randomUUID().toString();
+        }
+        return UUID.nameUUIDFromBytes(
+                ("notification-delivery:" + idempotencyKey)
+                        .getBytes(StandardCharsets.UTF_8)).toString();
     }
 }

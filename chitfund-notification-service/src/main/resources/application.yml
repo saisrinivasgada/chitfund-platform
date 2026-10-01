@@ -81,7 +81,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: when-authorized
@@ -91,3 +91,10 @@ logging:
     com.chitfund: INFO
     org.springframework.security: WARN
     org.flywaydb: INFO
+
+chitwise:
+  notification-delivery:
+    relay-delay-ms: ${CHITWISE_NOTIFICATION_RELAY_DELAY_MS:2000}
+    batch-size: ${CHITWISE_NOTIFICATION_BATCH_SIZE:100}
+    max-attempts: ${CHITWISE_NOTIFICATION_MAX_ATTEMPTS:10}
+    lease-seconds: ${CHITWISE_NOTIFICATION_LEASE_SECONDS:30}

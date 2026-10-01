@@ -79,6 +79,32 @@ groups:
           summary: "{{ $labels.service }} finalized an expired or reclaimed domain-event lease"
           runbook: "ops/runbooks/outbox.md#shared-domain-event-alerts"
 
+      - alert: ChitwiseNotificationDeliveryFailed
+        expr: chitwise_notification_delivery_failed_current > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Notification provider deliveries have permanently failed"
+          runbook: "ops/runbooks/outbox.md#notification-delivery-alerts"
+
+      - alert: ChitwiseNotificationDeliveryBacklogStale
+        expr: chitwise_notification_delivery_oldest_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Notification delivery backlog has been blocked for over five minutes"
+          runbook: "ops/runbooks/outbox.md#notification-delivery-alerts"
+
+      - alert: ChitwiseNotificationDeliveryLeaseContention
+        expr: increase(chitwise_notification_delivery_stale_finalize_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification relay finalized an expired or reclaimed lease"
+          runbook: "ops/runbooks/outbox.md#notification-delivery-alerts"
+
       - alert: ChitwiseMoneyShadowMismatch
         expr: chitwise_money_shadow_mismatch > 0
         for: 2m

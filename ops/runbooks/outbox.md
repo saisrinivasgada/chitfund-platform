@@ -76,6 +76,29 @@ the alert critical and escalate until replay can preserve the stable event ID
 and record actor, reason and timestamp. A database update is not a replay API and
 must not be used as an incident workaround.
 
+## Notification-delivery alerts
+
+The `chitwise_notification_delivery_*` metrics cover the notification-service
+provider outbox for Expo push, transactional email, SMS and WhatsApp. The SQS
+consumer commits its inbox claim, in-app notification and provider-delivery row
+together. The relay then leases rows in a short transaction and contacts the
+provider after the database lock has been released.
+
+1. Check `PENDING`, `IN_FLIGHT` and `FAILED` counts without reading the payload.
+   Pending payloads contain delivery addresses and message contents.
+2. Confirm Expo, SES or the selected messaging provider is healthy and that its
+   credentials/quotas are valid. Never paste credentials, recipient data or
+   message bodies into incident chat.
+3. Expired `IN_FLIGHT` rows are reclaimed automatically. `FAILED` rows are
+   retained after ten attempts and must not be deleted or edited.
+4. The protected replay operation for terminal notification failures is not yet
+   implemented. Escalate terminal rows until replay can record actor, reason and
+   timestamp; do not resend by copying the payload manually.
+5. Provider delivery is at-least-once. If the process dies after a provider
+   accepts a message but before the row is marked `PUBLISHED`, the expired lease
+   is retried and the recipient may receive a duplicate. Use provider
+   idempotency when supported; Expo does not provide an exactly-once guarantee.
+
 ## Retention
 
 Retention is disabled by default. When explicitly enabled, each service deletes
