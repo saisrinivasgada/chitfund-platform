@@ -97,6 +97,10 @@ public enum ErrorCode {
     PLAN_LIMIT_EXCEEDED("PLAN_001", "Your current plan limit has been reached — upgrade to continue"),
     PLAN_EXPIRED("PLAN_002", "Your subscription has expired — please renew to continue"),
 
+    // ─── Intimation ───────────────────────────────────────────────────────
+    INTIMATION_NOT_FOUND("INTIMATION_001", "Payment intimation not found"),
+    INTIMATION_INVALID_STATE("INTIMATION_002", "This action is not allowed in the current intimation state"),
+
     // ─── Billing ──────────────────────────────────────────────────────────
     BILLING_PAYMENT_NOT_FOUND("BILLING_001", "Payment record not found"),
     BILLING_ALREADY_REFUNDED("BILLING_002", "This payment has already been refunded");
