@@ -54,7 +54,7 @@ public class SecurityConfig {
                 // WebSocket handshake
                 .requestMatchers("/ws/support/**").permitAll()
                 // Actuator
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

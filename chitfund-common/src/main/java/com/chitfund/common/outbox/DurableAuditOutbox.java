@@ -124,5 +124,27 @@ public class DurableAuditOutbox {
         return age == null ? 0 : Math.max(0, age);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean replayFailed(String deliveryId, String actorId, String reason) {
+        int updated = jdbcTemplate.update("""
+                UPDATE audit_event_outbox
+                SET status='PENDING', attempts=0, available_at=UTC_TIMESTAMP(6),
+                    lease_token=NULL, claimed_until=NULL,
+                    last_error_code=NULL, last_error=NULL
+                WHERE delivery_id=? AND status='FAILED'
+                """, deliveryId);
+        if (updated != 1) return false;
+        int audited = jdbcTemplate.update("""
+                INSERT INTO audit_outbox_replay_audit (
+                    id, delivery_id, event_id, tenant_id, replayed_by, reason, replayed_at)
+                SELECT ?, delivery_id, event_id, tenant_id, ?, ?, UTC_TIMESTAMP(6)
+                FROM audit_event_outbox WHERE delivery_id=?
+                """, UUID.randomUUID().toString(), actorId, reason, deliveryId);
+        if (audited != 1) {
+            throw new IllegalStateException("Audit outbox replay could not be recorded");
+        }
+        return true;
+    }
+
     public record FailureResult(boolean updated, boolean terminal, int attempts) {}
 }

@@ -33,7 +33,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/notifications/internal/**").permitAll()
                 .requestMatchers("/admin/wallet/internal/**").permitAll()
                 .requestMatchers("/payments/internal/**").permitAll()

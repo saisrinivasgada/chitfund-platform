@@ -3,7 +3,7 @@
 The financial/domain-event procedure applies to payment-service and
 payout-service. The audit-evidence procedure also applies to member-service,
 chit-service, user-service and management-service. Prometheus endpoints are
-authenticated; expose them only to the monitoring network and do not make
+available directly on the service network for scraping; expose them only to the monitoring network and do not make
 `/actuator/prometheus` public through the gateway.
 
 ## When an alert fires
@@ -46,17 +46,25 @@ not as a cosmetic notification failure.
 4. `PENDING` and expired `IN_FLIGHT` rows are reclaimed automatically. Do not
    edit their lease fields or start a second ad-hoc publisher.
 5. A `FAILED` row is terminal after the configured retry limit. Do not delete,
-   mark it published, or manually send its payload. Escalate it as an unresolved
-   audit-evidence incident until the service's protected replay operation has
-   re-queued the same stable event ID.
+   mark it published, or manually send its payload. After the dependency is
+   healthy, use the protected internal replay operation below; it re-queues the
+   same row and therefore preserves the stable event ID.
 6. After recovery, verify the original event ID exists once in the audit
    consumer inbox and Activity Center, and that the failed gauge returns to
    zero. A second delivery is safe only because the consumer inbox deduplicates
    that stable event ID.
 
-The dedicated audit outboxes do not yet expose their protected replay operation.
-The alerts deliberately remain critical until that release-blocking operational
-gap is implemented; direct database edits are not an acceptable workaround.
+Replay is deliberately an internal-network operation and is not routed through
+the public gateway:
+
+`POST /internal/operations/outboxes/audit/{deliveryId}/replay`
+
+Send the service credential in `X-Internal-Key` (`X-Internal-Auth` for the
+management service), the authenticated runbook operator identity in
+`X-Operator-Id`, and `{"reason":"INC-123 dependency recovered"}`. Retrieve the
+credential from the approved secret manager; never paste it into the command
+history, ticket, report or chat. Every successful replay writes the original
+event ID, actor, reason and timestamp to `audit_outbox_replay_audit`.
 
 ## Shared domain-event alerts
 
@@ -71,10 +79,15 @@ the destination queue and consumer are healthy, then inspect only operational
 columns and sanitized errors. `PENDING` and expired `IN_FLIGHT` rows retry
 automatically. `FAILED` rows must not be edited, deleted or sent manually.
 
-These shared domain outboxes also lack a protected replay operation today. Keep
-the alert critical and escalate until replay can preserve the stable event ID
-and record actor, reason and timestamp. A database update is not a replay API and
-must not be used as an incident workaround.
+Replay a terminal shared-domain row through the same protected internal API with
+kind `domain`:
+
+`POST /internal/operations/outboxes/domain/{deliveryId}/replay`
+
+The operation accepts only a `FAILED` row, preserves its stable event ID, and
+records actor, reason and timestamp in `domain_outbox_replay_audit`. A second
+request while the row is pending returns not found instead of creating another
+delivery. A database update is not a replay API and must not be used.
 
 ## Notification-delivery alerts
 

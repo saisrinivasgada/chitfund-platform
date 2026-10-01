@@ -100,7 +100,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/forgot-password/**").permitAll()
                 .requestMatchers("/api/plans/**").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
-                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/internal/**").permitAll()
                 .requestMatchers("/api/super-admin/**").hasAuthority("SUPER_ADMIN")
                 .anyRequest().authenticated()
