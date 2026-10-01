@@ -612,6 +612,24 @@ export const partiallyCollectCashRequest = async (requestId: string, collectedAm
 export const memberApproveCashRequest = async (requestId: string, approved: boolean, reason?: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason }));
 
+// ── Payment Intimations ───────────────────────────────────────────────────────
+export const createPaymentIntimation = async (items: Array<{ chitId: string; claimedAmount: number }>, notes?: string) =>
+  unwrapObj(await api.post('/payments/intimations', { items, notes }));
+export const withdrawPaymentIntimation = async (id: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/withdraw`));
+export const getMyIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations/mine'));
+export const getPendingIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations/pending'));
+export const getAllIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations'));
+export const approveIntimation = async (id: string, items: Array<{ itemId: string; approvedAmount: number }>) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/approve`, { items }));
+export const rejectIntimation = async (id: string, reason: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/reject`, { reason }));
+export const voidIntimation = async (id: string, reason: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/void`, { reason }));
+
 // ── Payouts ───────────────────────────────────────────────────────────────────
 export const getAllPayouts = async (params: any = {}) =>
   unwrapList(await api.get('/payouts/all', { params }));

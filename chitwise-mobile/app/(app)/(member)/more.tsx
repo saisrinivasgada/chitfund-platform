@@ -42,6 +42,13 @@ export default function MemberMoreScreen() {
       accent: '#059669',
     },
     {
+      emoji: '📝',
+      label: 'Payment Intimations',
+      description: 'Report a payment your admin missed',
+      route: '/(app)/(member)/intimations',
+      accent: '#D97706',
+    },
+    {
       emoji: '📤',
       label: 'Payouts',
       description: 'Track your payout history',

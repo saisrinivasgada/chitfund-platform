@@ -17,6 +17,7 @@ import {
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
   getSettlementPreview, confirmSettlement, getMemberSettlements, recordSettlementTransaction, getPendingSettlements, getSettlementById,
   getMemberTotalBalance, getMemberCredit, voidSettlement, getSettlementTransactions,
+  getPendingIntimations, getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -28,7 +29,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
-const TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
+const TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3916,6 +3917,310 @@ function HistoryTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// INTIMATIONS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INTIMATION_STATUS: Record<string, { label: string; bg: string; text: string }> = {
+  PENDING:   { label: 'Pending',   bg: '#FEF3C7', text: '#B45309' },
+  APPROVED:  { label: 'Approved',  bg: '#DCFCE7', text: '#15803D' },
+  REJECTED:  { label: 'Rejected',  bg: '#FEE2E2', text: '#DC2626' },
+  WITHDRAWN: { label: 'Withdrawn', bg: '#F3F4F6', text: '#6B7280' },
+  VOIDED:    { label: 'Voided',    bg: '#FEE2E2', text: '#DC2626' },
+};
+
+function IntimationApproveModal({
+  intimation,
+  onClose,
+}: {
+  intimation: any;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [amounts, setAmounts] = useState<Record<string, string>>(
+    Object.fromEntries((intimation.items ?? []).map((it: any) => [it.id, String(it.claimedAmount ?? '')]))
+  );
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const items = (intimation.items ?? []).map((it: any) => ({
+        itemId: it.id,
+        approvedAmount: Number(amounts[it.id] ?? it.claimedAmount),
+      }));
+      return approveIntimation(intimation.id, items);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      qc.invalidateQueries({ queryKey: ['pending-intimations'] });
+      toast.submitted('Intimation approved and payment recorded');
+      onClose();
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Approval failed'),
+  });
+
+  return (
+    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Approve Intimation</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
+              Edit the approved amounts if needed, then tap Approve.
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {(intimation.items ?? []).map((it: any, idx: number) => (
+                <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
+                    Chit {idx + 1} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Approved Amount (₹)</Text>
+                  <TextInput
+                    value={amounts[it.id]}
+                    onChangeText={v => setAmounts(prev => ({ ...prev, [it.id]: v }))}
+                    keyboardType="numeric"
+                    style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, color: C.gray900 }}
+                  />
+                </View>
+              ))}
+              <Button
+                label={mutation.isPending ? 'Approving…' : 'Approve & Record Payment'}
+                onPress={() => mutation.mutate()}
+                disabled={mutation.isPending}
+              />
+              <View style={{ height: 8 }} />
+              <Button label="Cancel" variant="ghost" onPress={onClose} />
+              <View style={{ height: 16 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function IntimationsTab() {
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
+  const [selected, setSelected] = useState<any>(null);
+  const [approveTarget, setApproveTarget] = useState<any>(null);
+  const [rejectTarget, setRejectTarget] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [voidTarget, setVoidTarget] = useState<any>(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const { data: all = [], isLoading, refetch } = useQuery({
+    queryKey: ['admin-intimations'],
+    queryFn: getAllIntimations,
+    refetchOnMount: 'always',
+    refetchInterval: 30_000,
+  });
+
+  const filtered = (all as any[]).filter(i => statusFilter === 'ALL' || i.status === statusFilter);
+  const pendingCount = (all as any[]).filter(i => i.status === 'PENDING').length;
+
+  const rejectMut = useMutation({
+    mutationFn: () => rejectIntimation(rejectTarget.id, rejectReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      setRejectTarget(null);
+      setRejectReason('');
+      toast.cancelled('Intimation rejected');
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Rejection failed'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: () => voidIntimation(voidTarget.id, voidReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      setVoidTarget(null);
+      setVoidReason('');
+      toast.voided('Intimation voided and payments reversed');
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Void failed'),
+  });
+
+  const STATUS_FILTERS = ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'VOIDED', 'ALL'];
+
+  if (isLoading) return <LoadingScreen />;
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Reject modal */}
+      {rejectTarget && (
+        <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setRejectTarget(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+              <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 12 }}>Reject Intimation</Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+                <TextInput
+                  value={rejectReason}
+                  onChangeText={setRejectReason}
+                  multiline
+                  placeholder="Why are you rejecting this?"
+                  style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
+                />
+                <Button label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'} variant="danger" onPress={() => rejectMut.mutate()} disabled={rejectMut.isPending} />
+                <View style={{ height: 8 }} />
+                <Button label="Cancel" variant="ghost" onPress={() => setRejectTarget(null)} />
+                <View style={{ height: 16 }} />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
+
+      {/* Void modal */}
+      {voidTarget && (
+        <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setVoidTarget(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+              <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Void Approved Intimation</Text>
+                <Text style={{ fontSize: 12, color: '#DC2626', marginBottom: 10 }}>
+                  This will reverse all payment batches created for this intimation.
+                </Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
+                <TextInput
+                  value={voidReason}
+                  onChangeText={setVoidReason}
+                  multiline
+                  placeholder="Why are you voiding this?"
+                  style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
+                />
+                <Button
+                  label={voidMut.isPending ? 'Voiding…' : 'Void & Reverse Payments'}
+                  variant="danger"
+                  onPress={() => { if (!voidReason.trim()) { toast.noted('Reason is required'); return; } voidMut.mutate(); }}
+                  disabled={voidMut.isPending}
+                />
+                <View style={{ height: 8 }} />
+                <Button label="Cancel" variant="ghost" onPress={() => setVoidTarget(null)} />
+                <View style={{ height: 16 }} />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
+
+      {approveTarget && (
+        <IntimationApproveModal intimation={approveTarget} onClose={() => setApproveTarget(null)} />
+      )}
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(i: any) => i.id}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        ListHeaderComponent={
+          <View style={{ marginBottom: 12 }}>
+            {pendingCount > 0 && (
+              <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                <Text style={{ fontSize: 12, color: '#B45309', fontWeight: '700' }}>
+                  {pendingCount} payment intimation{pendingCount > 1 ? 's' : ''} awaiting review
+                </Text>
+              </View>
+            )}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {STATUS_FILTERS.map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    onPress={() => setStatusFilter(f)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: statusFilter === f ? C.navy : C.gray100 }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: statusFilter === f ? '#fff' : C.gray600 }}>
+                      {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+                      {f === 'PENDING' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        }
+        ListEmptyComponent={<EmptyState title="No intimations" message="No payment intimations match the filter." />}
+        renderItem={({ item }: { item: any }) => {
+          const s = INTIMATION_STATUS[item.status] ?? { label: item.status, bg: C.gray100, text: C.gray700 };
+          const total = (item.items ?? []).reduce((sum: number, it: any) => sum + Number(it.claimedAmount ?? 0), 0);
+          return (
+            <Card style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: item.status === 'PENDING' ? '#D97706' : C.gray200 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+                    <View style={{ backgroundColor: s.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: s.text }}>{s.label}</Text>
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>
+                      {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 12, color: C.gray500 }}>{fmtDate(item.createdAt)}</Text>
+                  {item.notes && (
+                    <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
+                  )}
+                </View>
+                <Amount value={total} size="md" color={C.gray900} />
+              </View>
+
+              {/* Per-chit breakdown */}
+              {(item.items ?? []).map((it: any, idx: number) => (
+                <View key={it.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderTopWidth: idx === 0 ? 1 : 0, borderTopColor: C.gray100 }}>
+                  <Text style={{ fontSize: 12, color: C.gray500 }}>Chit {idx + 1}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 12, color: C.gray700 }}>
+                      Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                    </Text>
+                    {it.approvedAmount != null && (
+                      <Text style={{ fontSize: 11, color: '#15803D' }}>
+                        Approved ₹{Number(it.approvedAmount).toLocaleString('en-IN')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+
+              {/* Action buttons */}
+              {item.status === 'PENDING' && (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => setApproveTarget(item)}
+                    style={{ flex: 1, backgroundColor: C.navy, borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setRejectTarget(item); setRejectReason(''); }}
+                    style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626' }}>Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {item.status === 'APPROVED' && (
+                <View style={{ marginTop: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => { setVoidTarget(item); setVoidReason(''); }}
+                    style={{ backgroundColor: '#FEF2F2', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626' }}>Void & Reverse</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AdminPaymentsScreen() {
@@ -3955,6 +4260,7 @@ export default function AdminPaymentsScreen() {
       {/* Tab content */}
       <View style={{ flex: 1 }}>
         {activeTab === 'Cash Requests'  && <CashRequestsTab initialFilter={params.filter} />}
+        {activeTab === 'Intimations'    && <IntimationsTab />}
         {activeTab === 'Record Payment' && <RecordPaymentTab />}
         {activeTab === 'Remittance'     && <RemittanceTab />}
         {activeTab === 'History'        && <HistoryTab />}

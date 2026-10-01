@@ -39,6 +39,7 @@ export default function MemberLayout() {
       <Tabs.Screen name="more"      options={{ title: 'More' }} />
 
       {/* ── Hidden (accessible via More or deep links) ───────────── */}
+      <Tabs.Screen name="intimations" options={{ href: null }} />
       <Tabs.Screen name="payments"    options={{ href: null }} />
       <Tabs.Screen name="invitations" options={{ href: null }} />
       <Tabs.Screen name="chitfund-requests" options={{ href: null }} />
