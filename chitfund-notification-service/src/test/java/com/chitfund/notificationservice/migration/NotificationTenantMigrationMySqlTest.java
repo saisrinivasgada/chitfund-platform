@@ -1,7 +1,10 @@
 package com.chitfund.notificationservice.migration;
 
+import com.chitfund.notificationservice.outbox.NotificationDeliveryOutbox;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -81,6 +84,47 @@ class NotificationTenantMigrationMySqlTest {
                 }
             }
         }
+    }
+
+    @Test
+    void failedNotificationDeliveryCanBeReplayedOnceWithAuditEvidence() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+        var jdbc = new JdbcTemplate(dataSource);
+        var outbox = new NotificationDeliveryOutbox(jdbc);
+        String deliveryId = UUID.randomUUID().toString();
+        String eventId = UUID.randomUUID().toString();
+        String notificationId = UUID.randomUUID().toString();
+
+        jdbc.update("""
+                INSERT INTO notifications (
+                    id, recipient_id, channel, event_type, message, status, created_at)
+                VALUES (?, ?, 'SMS', 'PAYMENT_REMINDER', 'test', 'FAILED', NOW(6))
+                """, notificationId, UUID.randomUUID().toString());
+        jdbc.update("""
+                INSERT INTO notification_delivery_outbox (
+                    delivery_id, event_id, dedupe_key, tenant_id, notification_id,
+                    delivery_type, payload, status, attempts, available_at, created_at)
+                VALUES (?, ?, ?, 'tenant-a', ?, 'CHANNEL', JSON_OBJECT(), 'FAILED', 10, NOW(6), NOW(6))
+                """, deliveryId, eventId, "replay:" + deliveryId, notificationId);
+
+        assertThat(outbox.replayFailed(deliveryId, "operator-1", "INC-123 recovered"))
+                .isTrue();
+        assertThat(outbox.replayFailed(deliveryId, "operator-1", "duplicate"))
+                .isFalse();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM notification_delivery_outbox WHERE delivery_id=?",
+                String.class, deliveryId)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM notifications WHERE id=?", String.class, notificationId))
+                .isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM notification_delivery_replay_audit " +
+                        "WHERE delivery_id=? AND event_id=? AND replayed_by='operator-1' " +
+                        "AND reason='INC-123 recovered'",
+                Integer.class, deliveryId, eventId)).isEqualTo(1);
     }
 
     private void insertInApp(java.sql.Connection connection, String tenantId, String recipientId)

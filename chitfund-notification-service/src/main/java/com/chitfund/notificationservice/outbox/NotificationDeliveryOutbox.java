@@ -145,5 +145,37 @@ public class NotificationDeliveryOutbox {
         return age == null ? 0 : Math.max(0, age);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean replayFailed(String deliveryId, String actorId, String reason) {
+        int updated = jdbcTemplate.update("""
+                UPDATE notification_delivery_outbox
+                SET status='PENDING', attempts=0, available_at=UTC_TIMESTAMP(6),
+                    lease_token=NULL, claimed_until=NULL,
+                    last_error_code=NULL, last_error=NULL
+                WHERE delivery_id=? AND status='FAILED'
+                """, deliveryId);
+        if (updated != 1) return false;
+
+        jdbcTemplate.update("""
+                UPDATE notifications
+                SET status='PENDING', error_message=NULL
+                WHERE id=(
+                    SELECT notification_id FROM notification_delivery_outbox
+                    WHERE delivery_id=?
+                ) AND status='FAILED'
+                """, deliveryId);
+
+        int audited = jdbcTemplate.update("""
+                INSERT INTO notification_delivery_replay_audit (
+                    id, delivery_id, event_id, tenant_id, replayed_by, reason, replayed_at)
+                SELECT ?, delivery_id, event_id, tenant_id, ?, ?, UTC_TIMESTAMP(6)
+                FROM notification_delivery_outbox WHERE delivery_id=?
+                """, UUID.randomUUID().toString(), actorId, reason, deliveryId);
+        if (audited != 1) {
+            throw new IllegalStateException("Notification delivery replay could not be recorded");
+        }
+        return true;
+    }
+
     public record FailureResult(boolean updated, boolean terminal, int attempts) { }
 }

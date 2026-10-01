@@ -104,9 +104,17 @@ provider after the database lock has been released.
    message bodies into incident chat.
 3. Expired `IN_FLIGHT` rows are reclaimed automatically. `FAILED` rows are
    retained after ten attempts and must not be deleted or edited.
-4. The protected replay operation for terminal notification failures is not yet
-   implemented. Escalate terminal rows until replay can record actor, reason and
-   timestamp; do not resend by copying the payload manually.
+4. After the provider is healthy, replay a terminal delivery using the internal
+   service-network endpoint:
+
+   `POST /internal/operations/notification-deliveries/{deliveryId}/replay`
+
+   Send `X-Internal-Key`, `X-Operator-Id` and a body such as
+   `{"reason":"INC-123 provider recovered"}`. Read the credential from the
+   approved secret manager without placing it in command history. The operation
+   accepts only a `FAILED` row, preserves its stable event ID, restores linked
+   notification history to `PENDING`, and records the actor, reason and time in
+   `notification_delivery_replay_audit`.
 5. Provider delivery is at-least-once. If the process dies after a provider
    accepts a message but before the row is marked `PUBLISHED`, the expired lease
    is retried and the recipient may receive a duplicate. Use provider
