@@ -58,6 +58,24 @@ The dedicated audit outboxes do not yet expose their protected replay operation.
 The alerts deliberately remain critical until that release-blocking operational
 gap is implemented; direct database edits are not an acceptable workaround.
 
+## Shared domain-event alerts
+
+The `chitwise_event_outbox_*` metrics cover the shared transactional outboxes in
+member-service, chit-service, user-service and management-service. They carry
+events such as member/account activation, chit lifecycle changes, invitations
+and transactional Hub email commands. A stale or failed row can leave services
+out of sync or prevent a user from receiving a required account message.
+
+Use the same privacy and lease rules as the audit procedure above. First confirm
+the destination queue and consumer are healthy, then inspect only operational
+columns and sanitized errors. `PENDING` and expired `IN_FLIGHT` rows retry
+automatically. `FAILED` rows must not be edited, deleted or sent manually.
+
+These shared domain outboxes also lack a protected replay operation today. Keep
+the alert critical and escalate until replay can preserve the stable event ID
+and record actor, reason and timestamp. A database update is not a replay API and
+must not be used as an incident workaround.
+
 ## Retention
 
 Retention is disabled by default. When explicitly enabled, each service deletes

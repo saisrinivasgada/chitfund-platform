@@ -53,6 +53,32 @@ groups:
           summary: "{{ $labels.service }} finalized an expired or reclaimed audit-outbox lease"
           runbook: "ops/runbooks/outbox.md#audit-evidence-alerts"
 
+      - alert: ChitwiseEventOutboxDeliveryFailed
+        expr: chitwise_event_outbox_failed_current > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} has permanently failed domain-event deliveries"
+          runbook: "ops/runbooks/outbox.md#shared-domain-event-alerts"
+
+      - alert: ChitwiseEventOutboxBacklogStale
+        expr: chitwise_event_outbox_oldest_unpublished_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} domain events have been blocked for over five minutes"
+          runbook: "ops/runbooks/outbox.md#shared-domain-event-alerts"
+
+      - alert: ChitwiseEventOutboxLeaseContention
+        expr: increase(chitwise_event_outbox_stale_finalize_total[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} finalized an expired or reclaimed domain-event lease"
+          runbook: "ops/runbooks/outbox.md#shared-domain-event-alerts"
+
       - alert: ChitwiseMoneyShadowMismatch
         expr: chitwise_money_shadow_mismatch > 0
         for: 2m
