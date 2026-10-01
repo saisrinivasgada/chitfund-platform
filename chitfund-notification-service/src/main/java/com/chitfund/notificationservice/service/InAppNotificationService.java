@@ -28,11 +28,15 @@ public class InAppNotificationService {
 
     private final InAppNotificationRepository repo;
     private final ObjectMapper objectMapper;
-    private final ExpoPushService expoPushService;
 
     /**
-     * Create and persist a new in-app notification for a recipient,
-     * then fire a native device push notification via Expo Push API.
+     * Create and persist a new in-app notification for a recipient.
+     *
+     * Native push is deliberately a separate operation. Event producers expose
+     * distinct IN_APP_NOTIFICATION and PUSH_NOTIFICATION commands, and domain
+     * handlers that need both call the push service once with their deep-link
+     * payload. Sending here as well caused every such handler to deliver two
+     * native pushes for one business event.
      */
     public void create(String tenantId, UUID recipientId, String title, String message,
                        String type, Map<String, String> metadata, String link) {
@@ -48,9 +52,6 @@ public class InAppNotificationService {
                     .link(link)
                     .build();
             repo.save(n);
-
-            // Fire native device push (no-op if user has no registered tokens)
-            expoPushService.sendToUser(recipientId, title, message);
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize notification metadata: {}", e.getMessage());
         }

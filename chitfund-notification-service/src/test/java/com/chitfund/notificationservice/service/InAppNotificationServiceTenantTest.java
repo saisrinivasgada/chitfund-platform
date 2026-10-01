@@ -29,12 +29,11 @@ import static org.mockito.Mockito.when;
 class InAppNotificationServiceTenantTest {
 
     @Mock InAppNotificationRepository repository;
-    @Mock ExpoPushService pushService;
     private InAppNotificationService service;
 
     @BeforeEach
     void setUp() {
-        service = new InAppNotificationService(repository, new ObjectMapper(), pushService);
+        service = new InAppNotificationService(repository, new ObjectMapper());
         TenantContext.set("tenant-a");
     }
 
@@ -51,7 +50,6 @@ class InAppNotificationServiceTenantTest {
         ArgumentCaptor<InAppNotification> saved = ArgumentCaptor.forClass(InAppNotification.class);
         verify(repository).save(saved.capture());
         assertThat(saved.getValue().getTenantId()).isEqualTo("tenant-a");
-        verify(pushService).sendToUser(recipient, "Title", "Message");
     }
 
     @Test

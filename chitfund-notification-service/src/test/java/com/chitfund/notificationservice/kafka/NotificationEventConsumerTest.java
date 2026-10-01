@@ -90,7 +90,7 @@ class NotificationEventConsumerTest {
     }
 
     @Test
-    void adminAndManagerFanoutIsRestrictedToEventTenant() {
+    void adminAndManagerFanoutIsTenantScopedAndSendsOnePushPerRecipient() {
         UserServiceClient users = mock(UserServiceClient.class);
         InAppNotificationService inApp = mock(InAppNotificationService.class);
         ExpoPushService push = mock(ExpoPushService.class);
@@ -114,5 +114,9 @@ class NotificationEventConsumerTest {
                 eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
         verify(inApp).create(eq("tenant-a"), eq(UUID.fromString(managerId)), eq("Title"),
                 eq("Message"), eq("CASH_REQUEST_SUBMITTED"), any(), eq("/payments"));
+        verify(push).sendToUserWithData(eq(UUID.fromString(adminId)), eq("Title"),
+                eq("Message"), eq(Map.of("screen", "payments")));
+        verify(push).sendToUserWithData(eq(UUID.fromString(managerId)), eq("Title"),
+                eq("Message"), eq(Map.of("screen", "payments")));
     }
 }
