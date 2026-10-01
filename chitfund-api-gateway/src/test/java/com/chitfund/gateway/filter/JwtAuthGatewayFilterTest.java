@@ -1,5 +1,6 @@
 package com.chitfund.gateway.filter;
 
+import com.chitfund.gateway.client.HubIdentityClient;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -27,10 +29,12 @@ import static org.mockito.Mockito.when;
 class JwtAuthGatewayFilterTest {
     private static final String SECRET = "gateway-test-secret-at-least-thirty-two-characters";
     private JwtAuthGatewayFilter factory;
+    private HubIdentityClient hubIdentityClient;
 
     @BeforeEach
     void setUp() {
-        factory = new JwtAuthGatewayFilter();
+        hubIdentityClient = mock(HubIdentityClient.class);
+        factory = new JwtAuthGatewayFilter(hubIdentityClient);
         ReflectionTestUtils.setField(factory, "jwtSecret", SECRET);
         ReflectionTestUtils.setField(factory, "internalServiceKey", "trusted-internal-key");
     }
@@ -51,6 +55,9 @@ class JwtAuthGatewayFilterTest {
     @Test
     void acceptsHubSuperAdminAndReplacesSpoofedIdentityHeaders() {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "SUPER_ADMIN", true, false, 7L)));
         GatewayFilterChain chain = mock(GatewayFilterChain.class);
         when(chain.filter(any())).thenReturn(Mono.empty());
         var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/super-admin/tenants")
@@ -71,13 +78,71 @@ class JwtAuthGatewayFilterTest {
         assertThat(headers.containsKey("X-Internal-Key")).isFalse();
     }
 
+    @Test
+    void rejectsHubTokenAfterEmployeeAuthVersionChanges() {
+        String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "SUPER_ADMIN", true, false, 8L)));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/audit/super-admin/logs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void failsClosedWhenHubIdentityAuthorityIsUnavailable() {
+        String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001"))
+                .thenReturn(Mono.error(new IllegalStateException("unavailable")));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/super-admin/tenants")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void downstreamFailureIsNotMisreportedAsAnAuthenticationFailure() {
+        String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "SUPER_ADMIN", true, false, 7L)));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.error(
+                new IllegalStateException("downstream unavailable")));
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/super-admin/tenants")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        assertThatThrownBy(() -> factory.apply(new JwtAuthGatewayFilter.Config())
+                .filter(exchange, chain).block())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("downstream unavailable");
+    }
+
     private String token(String subject, String role, String scope) {
         var builder = Jwts.builder()
                 .subject(subject)
                 .claim("role", role)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + 60_000));
-        if (scope != null) builder.claim("scope", scope);
+        if (scope != null) {
+            builder.claim("scope", scope);
+        }
+        if ("HUB_SUPER_ADMIN".equals(scope)) {
+            builder.claim("hubEmployeeId", "EMP-001");
+            builder.claim("authVersion", 7L);
+        }
         return builder.signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8))).compact();
     }
 }

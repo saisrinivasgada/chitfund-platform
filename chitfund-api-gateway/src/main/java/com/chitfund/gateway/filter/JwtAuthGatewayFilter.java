@@ -1,5 +1,6 @@
 package com.chitfund.gateway.filter;
 
+import com.chitfund.gateway.client.HubIdentityClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
@@ -8,6 +9,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilter;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
@@ -40,10 +42,12 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     @Value("${internal.service.key}")
     private String internalServiceKey;
 
+    private final HubIdentityClient hubIdentityClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public JwtAuthGatewayFilter() {
+    public JwtAuthGatewayFilter(HubIdentityClient hubIdentityClient) {
         super(Config.class);
+        this.hubIdentityClient = hubIdentityClient;
     }
 
     @Override
@@ -78,37 +82,59 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                     return unauthorized(exchange, "Super Admins must sign in through the ChitWise Hub");
                 }
 
-                // Forward user identity headers to downstream services
-                String tenantId = claims.get("tenantId", String.class);
-                String username = claims.get("username", String.class);
-                var reqBuilder = exchange.getRequest().mutate()
-                        .headers(headers -> {
-                            // Never forward caller-supplied identity. Only claims from the
-                            // validated JWT may populate these trusted internal headers.
-                            headers.remove("X-User-Id");
-                            headers.remove("X-User-Role");
-                            headers.remove("X-Tenant-Id");
-                            headers.remove("X-User-Name");
-                            headers.remove("X-Internal-Auth");
-                            // X-Internal-Key authenticates direct service-to-service calls.
-                            // It must never be forwarded from an internet-facing request,
-                            // including authenticated requests that happen to target a path
-                            // containing an internal controller segment.
-                            headers.remove("X-Internal-Key");
-                            headers.set("X-User-Id", claims.getSubject());
-                            headers.set("X-User-Role", role);
-                            headers.set("X-Internal-Auth", internalServiceKey);
-                            if (tenantId != null) headers.set("X-Tenant-Id", tenantId);
-                            if (username != null) headers.set("X-User-Name", username);
-                        });
-                ServerHttpRequest mutatedRequest = reqBuilder.build();
+                if ("HUB_SUPER_ADMIN".equals(scope)) {
+                    String employeeId = claims.get("hubEmployeeId", String.class);
+                    Number tokenVersion = claims.get("authVersion", Number.class);
+                    if (employeeId == null || employeeId.isBlank() || tokenVersion == null) {
+                        return unauthorized(exchange, "Invalid privileged session");
+                    }
+                    return hubIdentityClient.getAuthState(employeeId)
+                            // The authority service is part of privileged authentication.
+                            // An outage must fail closed rather than extend a stale session.
+                            .map(state -> state.active()
+                                    && !state.mustChangePassword()
+                                    && "SUPER_ADMIN".equals(state.role())
+                                    && state.authVersion() == tokenVersion.longValue())
+                            .onErrorReturn(false)
+                            .defaultIfEmpty(false)
+                            .flatMap(current -> current
+                                    ? forward(exchange, chain, claims, role)
+                                    : unauthorized(exchange,
+                                            "Privileged session is no longer valid"));
+                }
 
-                return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                return forward(exchange, chain, claims, role);
 
-            } catch (JwtException e) {
+            } catch (JwtException | IllegalArgumentException e) {
                 return unauthorized(exchange, "Invalid or expired token");
             }
         };
+    }
+
+    private Mono<Void> forward(ServerWebExchange exchange, GatewayFilterChain chain,
+                               Claims claims, String role) {
+        String tenantId = claims.get("tenantId", String.class);
+        String username = claims.get("username", String.class);
+        var reqBuilder = exchange.getRequest().mutate()
+                .headers(headers -> {
+                    // Never forward caller-supplied identity. Only claims from the
+                    // validated JWT may populate these trusted internal headers.
+                    headers.remove("X-User-Id");
+                    headers.remove("X-User-Role");
+                    headers.remove("X-Tenant-Id");
+                    headers.remove("X-User-Name");
+                    headers.remove("X-Internal-Auth");
+                    // X-Internal-Key authenticates direct service-to-service calls.
+                    // It must never be forwarded from an internet-facing request.
+                    headers.remove("X-Internal-Key");
+                    headers.set("X-User-Id", claims.getSubject());
+                    headers.set("X-User-Role", role);
+                    headers.set("X-Internal-Auth", internalServiceKey);
+                    if (tenantId != null) headers.set("X-Tenant-Id", tenantId);
+                    if (username != null) headers.set("X-User-Name", username);
+                });
+        ServerHttpRequest mutatedRequest = reqBuilder.build();
+        return chain.filter(exchange.mutate().request(mutatedRequest).build());
     }
 
     private Mono<Void> unauthorized(ServerWebExchange exchange, String message) {

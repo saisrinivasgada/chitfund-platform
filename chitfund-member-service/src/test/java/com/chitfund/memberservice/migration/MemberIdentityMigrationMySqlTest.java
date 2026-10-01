@@ -12,7 +12,7 @@ import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class MemberIdentityMigrationMySqlTest {
     @Container
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")

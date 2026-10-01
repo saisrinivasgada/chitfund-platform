@@ -287,6 +287,9 @@ internal:
   service:
     key: ${INTERNAL_SERVICE_KEY}
 
+chitwise:
+  management-service-url: ${MANAGEMENT_SERVICE_URL:http://localhost:8091}
+
 logging:
   level:
     org.springframework.cloud.gateway: INFO
