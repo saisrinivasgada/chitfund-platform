@@ -92,6 +92,18 @@ public class HubPermissionService {
         }
     }
 
+    public boolean hasPermission(String employeeId, String permission) {
+        var employee = employeeRepository.findById(employeeId)
+                .orElse(null);
+        if (employee == null) return false;
+        if (!employee.isActive()) {
+            return false;
+        }
+        if ("SUPER_ADMIN".equals(employee.getRole())) return true;
+        return employee.getCustomRoleId() != null
+                && permissions(employee.getCustomRoleId()).contains(permission);
+    }
+
     public static void validatePermissions(Set<String> permissions) {
         if (permissions == null) return;
         var unknown = permissions.stream()

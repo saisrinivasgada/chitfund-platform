@@ -2,6 +2,7 @@ package com.chitfund.supportservice.controller;
 
 import com.chitfund.supportservice.domain.entity.Employee;
 import com.chitfund.supportservice.service.EmployeeService;
+import com.chitfund.supportservice.service.HubPermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import java.util.Map;
 public class HubInternalController {
 
     private final EmployeeService employeeService;
+    private final HubPermissionService permissionService;
 
     @GetMapping("/{id}/auth-state")
     public ResponseEntity<Map<String, Object>> authState(@PathVariable String id) {
@@ -29,7 +31,9 @@ public class HubInternalController {
                 "role", employee.getRole(),
                 "active", employee.isActive(),
                 "mustChangePassword", employee.isMustChangePassword(),
-                "authVersion", employee.getAuthVersion()
+                "authVersion", employee.getAuthVersion(),
+                "platformConsoleAccess", permissionService.hasPermission(
+                        employee.getId(), "PLATFORM_CONSOLE_ACCESS")
         ));
     }
 }

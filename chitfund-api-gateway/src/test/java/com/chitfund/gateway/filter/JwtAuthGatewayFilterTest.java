@@ -57,7 +57,7 @@ class JwtAuthGatewayFilterTest {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
-                        "EMP-001", "SUPER_ADMIN", true, false, 7L)));
+                        "EMP-001", "SUPER_ADMIN", true, false, 7L, true)));
         GatewayFilterChain chain = mock(GatewayFilterChain.class);
         when(chain.filter(any())).thenReturn(Mono.empty());
         var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/super-admin/tenants")
@@ -83,10 +83,44 @@ class JwtAuthGatewayFilterTest {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
-                        "EMP-001", "SUPER_ADMIN", true, false, 8L)));
+                        "EMP-001", "SUPER_ADMIN", true, false, 8L, true)));
         GatewayFilterChain chain = mock(GatewayFilterChain.class);
         var exchange = MockServerWebExchange.from(MockServerHttpRequest
                 .get("/api/audit/super-admin/logs")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void acceptsCurrentEmployeeWithExplicitPlatformConsoleCapability() {
+        String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "SUPPORT_AGENT", true, false, 7L, true)));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.empty());
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/super-admin/tenants")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        verify(chain).filter(any());
+    }
+
+    @Test
+    void rejectsSupportEmployeeWithoutPlatformConsoleCapability() {
+        String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
+        when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
+                new HubIdentityClient.HubAuthState(
+                        "EMP-001", "SUPPORT_AGENT", true, false, 7L, false)));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .get("/api/super-admin/tenants")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
 
         factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
@@ -116,7 +150,7 @@ class JwtAuthGatewayFilterTest {
         String token = token("employee-1", "SUPER_ADMIN", "HUB_SUPER_ADMIN");
         when(hubIdentityClient.getAuthState("EMP-001")).thenReturn(Mono.just(
                 new HubIdentityClient.HubAuthState(
-                        "EMP-001", "SUPER_ADMIN", true, false, 7L)));
+                        "EMP-001", "SUPER_ADMIN", true, false, 7L, true)));
         GatewayFilterChain chain = mock(GatewayFilterChain.class);
         when(chain.filter(any())).thenReturn(Mono.error(
                 new IllegalStateException("downstream unavailable")));

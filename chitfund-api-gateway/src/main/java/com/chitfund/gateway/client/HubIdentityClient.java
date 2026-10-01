@@ -40,6 +40,7 @@ public class HubIdentityClient {
             String role,
             boolean active,
             boolean mustChangePassword,
-            long authVersion
+            long authVersion,
+            boolean platformConsoleAccess
     ) { }
 }

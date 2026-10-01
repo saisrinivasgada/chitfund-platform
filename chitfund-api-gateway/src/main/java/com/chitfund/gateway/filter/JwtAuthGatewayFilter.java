@@ -93,7 +93,8 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
                             // An outage must fail closed rather than extend a stale session.
                             .map(state -> state.active()
                                     && !state.mustChangePassword()
-                                    && "SUPER_ADMIN".equals(state.role())
+                                    && ("SUPER_ADMIN".equals(state.role())
+                                            || state.platformConsoleAccess())
                                     && state.authVersion() == tokenVersion.longValue())
                             .onErrorReturn(false)
                             .defaultIfEmpty(false)

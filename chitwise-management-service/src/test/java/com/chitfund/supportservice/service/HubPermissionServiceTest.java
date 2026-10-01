@@ -107,6 +107,28 @@ class HubPermissionServiceTest {
                 .isInstanceOf(SecurityException.class);
     }
 
+    @Test
+    void platformConsoleAccessReflectsTheEmployeesEffectivePermission() {
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent("role-1")));
+        when(roleRepository.findById("role-1")).thenReturn(Optional.of(HubCustomRole.builder()
+                .id("role-1").permissions(Set.of("PLATFORM_CONSOLE_ACCESS")).build()));
+
+        assertThat(service.hasPermission("agent-1", "PLATFORM_CONSOLE_ACCESS")).isTrue();
+    }
+
+    @Test
+    void inactiveOrUnassignedEmployeeDoesNotHavePlatformConsoleAccess() {
+        Employee inactive = agent("role-1");
+        inactive.setActive(false);
+        when(employeeRepository.findById("inactive-agent")).thenReturn(Optional.of(inactive));
+        when(employeeRepository.findById("agent-1")).thenReturn(Optional.of(agent(null)));
+        when(employeeRepository.findById("missing-agent")).thenReturn(Optional.empty());
+
+        assertThat(service.hasPermission("inactive-agent", "PLATFORM_CONSOLE_ACCESS")).isFalse();
+        assertThat(service.hasPermission("agent-1", "PLATFORM_CONSOLE_ACCESS")).isFalse();
+        assertThat(service.hasPermission("missing-agent", "PLATFORM_CONSOLE_ACCESS")).isFalse();
+    }
+
     private Employee agent(String customRoleId) {
         return Employee.builder().id("agent-1").role("SUPPORT_AGENT")
                 .customRoleId(customRoleId).active(true).build();
