@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,5 +50,43 @@ class PayoutOutboxRelayTest {
     void sanitizesSecretsBeforePersistence() {
         assertThat(PayoutOutboxRelay.sanitize("Authorization=top-secret\nfailed"))
                 .isEqualTo("Authorization=[REDACTED] failed");
+    }
+
+    @Test
+    void relayDrainsCommittedAuditRowsWhileDomainModeIsLegacy() {
+        PayoutOutboxStore store = mock(PayoutOutboxStore.class);
+        SqsTemplate sqs = mock(SqsTemplate.class);
+        EventDeliveryProperties properties = new EventDeliveryProperties();
+        properties.setMode(EventDeliveryProperties.Mode.LEGACY);
+        properties.setLeaseDuration(Duration.ofSeconds(20));
+        OutboxDelivery delivery = new OutboxDelivery(
+                "delivery", "22222222-2222-2222-2222-222222222222",
+                "AUDIT_LOG", "audit-events", "{\"action\":\"PAYOUT_CREATED\"}",
+                0, "lease");
+        when(store.claimBatch(100, Duration.ofSeconds(20))).thenReturn(List.of(delivery));
+        when(store.markPublished(delivery)).thenReturn(true);
+        PayoutOutboxRelay relay = new PayoutOutboxRelay(
+                store, sqs, new ObjectMapper(), properties, new SimpleMeterRegistry());
+
+        relay.drain();
+
+        verify(sqs).send(eq("audit-events"), anyString());
+        verify(store).markPublished(delivery);
+    }
+
+    @Test
+    void relayCanBeExplicitlyPausedWithoutClaimingRows() {
+        PayoutOutboxStore store = mock(PayoutOutboxStore.class);
+        EventDeliveryProperties properties = new EventDeliveryProperties();
+        properties.setRelayEnabled(false);
+        PayoutOutboxRelay relay = new PayoutOutboxRelay(
+                store, mock(SqsTemplate.class), new ObjectMapper(), properties,
+                new SimpleMeterRegistry());
+
+        relay.drain();
+
+        verify(store, never()).claimBatch(
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any(Duration.class));
     }
 }

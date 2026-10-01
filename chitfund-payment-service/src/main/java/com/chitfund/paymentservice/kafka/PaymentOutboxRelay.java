@@ -65,7 +65,10 @@ public class PaymentOutboxRelay {
 
     @Scheduled(fixedDelayString = "${chitwise.events.relay-delay-ms:2000}")
     public void drain() {
-        if (!properties.isRelayEnabled() || !properties.getMode().writesOutbox()) return;
+        // Mode controls whether domain publishers create new outbox rows. It must
+        // never strand rows that are already durable: audit events are always
+        // written to this outbox, including while domain delivery is LEGACY.
+        if (!properties.isRelayEnabled()) return;
 
         try {
             for (OutboxDelivery delivery : store.claimBatch(

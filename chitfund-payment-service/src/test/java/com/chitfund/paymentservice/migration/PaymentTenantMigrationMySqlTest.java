@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class PaymentTenantMigrationMySqlTest {
 
     @Container
