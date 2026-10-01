@@ -71,6 +71,12 @@ app:
     cooldown:
       enabled: ${OTP_COOLDOWN_ENABLED:true}
 
+whatsapp:
+  phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:NOT_CONFIGURED}
+  access-token: ${WHATSAPP_ACCESS_TOKEN:NOT_CONFIGURED}
+  otp-template-name: ${WHATSAPP_OTP_TEMPLATE_NAME:otp_verification}
+  otp-template-lang: ${WHATSAPP_OTP_TEMPLATE_LANG:en_US}
+
 management:
   endpoints:
     web:
