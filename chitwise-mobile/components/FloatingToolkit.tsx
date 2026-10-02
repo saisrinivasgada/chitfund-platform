@@ -2,10 +2,11 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 
 import {
   View, Text, Modal, TouchableOpacity, PanResponder,
   Animated, useWindowDimensions, ScrollView, Vibration,
-  Platform, StyleSheet,
+  Platform, StyleSheet, Alert,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToolkitStore } from '../store/toolkitStore';
+import { useAuthStore } from '../store/authStore';
 import { useShake } from '../hooks/useShake';
 import { toast } from './Toast';
 import { C } from './ui';
@@ -249,18 +250,23 @@ export function FloatingToolkit() {
     toast.saved('Screen refreshed');
   }, [qc, scale]);
 
-  // Shake: same animated path so closing always has the slide-down animation
-  const calcOpenRef = useRef(calcOpen);
-  useEffect(() => { calcOpenRef.current = calcOpen; }, [calcOpen]);
-  const handleShake = useCallback(() => {
-    if (calcOpenRef.current) {
-      animatedClose();
-    } else {
-      openCalc();
-    }
-  }, [openCalc, animatedClose]);
+  // Shake: admin-only → confirm then refresh
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === 'ADMIN';
 
-  useShake(handleShake, enabled);
+  const handleShake = useCallback(() => {
+    Alert.alert(
+      'Refresh Screen?',
+      'Reload all data on this screen?',
+      [
+        { text: 'No',  style: 'cancel' },
+        { text: 'Yes', style: 'default', onPress: () => handleRefresh() },
+      ],
+      { cancelable: true }
+    );
+  }, [handleRefresh]);
+
+  useShake(handleShake, enabled && isAdmin);
 
   if (!enabled) return null;
 
