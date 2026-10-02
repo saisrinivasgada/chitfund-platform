@@ -17,6 +17,10 @@ interface UIState {
   hidePlanExpired: () => void;
   isExpired: boolean;
   setIsExpired: (v: boolean) => void;
+  // Capability gate
+  capabilityGateKey: string | null;
+  showCapabilityGate: (key: string) => void;
+  hideCapabilityGate: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -39,4 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
   hidePlanExpired: () => set({ planExpiredVisible: false }),
   isExpired: false,
   setIsExpired: (v) => set({ isExpired: v }),
+  capabilityGateKey: null,
+  showCapabilityGate: (key) => set({ capabilityGateKey: key }),
+  hideCapabilityGate: () => set({ capabilityGateKey: null }),
 }));

@@ -115,6 +115,10 @@ api.interceptors.response.use(
     if (err.response?.data?.errorCode === 'PLAN_002') {
       useUIStore.getState().showPlanExpired();
     }
+    if (err.response?.data?.errorCode === 'CAPABILITY_REQUIRED') {
+      const key = err.response?.data?.capabilityKey ?? err.response?.data?.data?.capabilityKey;
+      if (key) useUIStore.getState().showCapabilityGate(key);
+    }
     return Promise.reject(err);
   }
 );
@@ -749,6 +753,8 @@ export const getMyTenantLimits = async () => {
 export const getPublicPlans = async () => {
   try { return unwrapList(await api.get('/plans/public')); } catch { return []; }
 };
+export const getCapabilityGateInfo = async (key: string): Promise<any> =>
+  unwrapObj(await api.get('/plans/capability-gate', { params: { key } }));
 export const requestRenewal = async () =>
   unwrapObj(await api.post('/plans/renewal-request'));
 export const requestPlanUpgrade = async (toPlan: string) =>

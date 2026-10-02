@@ -4,6 +4,7 @@ import { C } from '../../../components/ui';
 import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
 import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import CapabilityGateModal from '../../../components/CapabilityGateModal';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', more: '···' };
@@ -30,6 +31,7 @@ export default function ManagerLayout() {
           </Pressable>
         </Pressable>
       </Modal>
+    <CapabilityGateModal />
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,

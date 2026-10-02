@@ -24,4 +24,6 @@ public class PlanResponse {
     private int displayOrder;
     private int maxStaff;
     private List<String> enabledCapabilities;
+    private String badgeText;
+    private boolean badgeEnabled;
 }

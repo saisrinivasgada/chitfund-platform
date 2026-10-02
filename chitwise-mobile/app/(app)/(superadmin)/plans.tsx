@@ -26,6 +26,8 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
   const [tagline,     setTagline]     = useState(plan?.tagline ?? '');
   const [priceStr,    setPriceStr]    = useState(String(plan ? (Number(plan.priceMonthlyInr ?? 0) / 100) : ''));
   const [discountPct, setDiscountPct] = useState(String(plan?.globalDiscountPct ?? ''));
+  const [badgeText,    setBadgeText]    = useState(plan?.badgeText ?? '');
+  const [badgeEnabled, setBadgeEnabled] = useState<boolean>(plan?.badgeEnabled ?? false);
   const [maxMembers,  setMaxMembers]  = useState(String(plan?.maxMembers ?? 20));
   const [maxChits,    setMaxChits]    = useState(String(plan?.maxActiveChits ?? 1));
   const [maxStaff,    setMaxStaff]    = useState(String(plan?.maxStaff ?? 0));
@@ -75,6 +77,8 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
         displayName, tagline: tagline || null,
         priceMonthlyInr: Math.round(Number(priceStr) * 100),
         globalDiscountPct: discountPct ? Number(discountPct) : null,
+        badgeText: badgeText.trim() || null,
+        badgeEnabled,
         maxActiveChits: Number(maxChits),
         maxMembers: Number(maxMembers),
         maxStaff: Number(maxStaff),
@@ -135,6 +139,21 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Discount %</Text>
             <TextInput value={discountPct} onChangeText={setDiscountPct} keyboardType="decimal-pad" placeholder="0 (no discount)"
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 5 }}>Badge / Sticker</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <TextInput
+                value={badgeText}
+                onChangeText={(t) => setBadgeText(t.slice(0, 30))}
+                placeholder="e.g. 🔥 HOT DEAL"
+                maxLength={30}
+                style={{ flex: 1, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }}
+              />
+              <Switch value={badgeEnabled} onValueChange={setBadgeEnabled} trackColor={{ true: C.amber }} />
+            </View>
+            <Text style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>Shown as a star sticker on plan cards (landing page, registration, billing)</Text>
           </View>
 
           <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray500, letterSpacing: 0.8, marginTop: 4 }}>LIMITS (−1 = unlimited)</Text>
@@ -340,6 +359,11 @@ export default function PlansScreen() {
                         <Text style={{ fontSize: 10, fontWeight: '700', color: C.gray500 }}>DRAFT</Text>
                       </View>
                     )}
+                    {p.badgeEnabled && p.badgeText ? (
+                      <View style={{ backgroundColor: C.amber, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{p.badgeText}</Text>
+                      </View>
+                    ) : null}
                   </View>
                   {p.tagline && <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{p.tagline}</Text>}
                 </View>

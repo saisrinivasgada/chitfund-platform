@@ -153,6 +153,11 @@ function UpgradeModal({
                   backgroundColor: isSelected ? C.navy50 : C.white,
                 }}
               >
+                {p.badgeEnabled && p.badgeText ? (
+                  <View style={{ position: 'absolute', top: -10, left: 14, backgroundColor: '#F59E0B', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff' }}>{p.badgeText}</Text>
+                  </View>
+                ) : null}
                 {hasDiscount && (
                   <View style={{ position: 'absolute', top: -10, right: 14, backgroundColor: '#16A34A', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
                     <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{p.globalDiscountPct}% off</Text>
