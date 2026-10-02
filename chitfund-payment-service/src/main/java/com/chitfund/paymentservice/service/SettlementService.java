@@ -200,6 +200,13 @@ public class SettlementService {
             }
         }
 
+        // Lock the credit-balance row BEFORE the supersession reversal runs.
+        // reverseCreditForSettlement modifies the balance in the same transaction;
+        // rather than re-reading after the write (which trips Hibernate L1/flush
+        // ordering issues), we capture the current locked balance here and add the
+        // known restored amount below.
+        BigDecimal lockedCreditBefore = memberCreditService.getBalanceForUpdate(memberId);
+
         SupersessionPreparation preparation = prepareSupersession(
                 request, adminId, tenantId, idempotencyKey, requestHash);
         if (preparation.idempotentResult() != null) {
@@ -299,8 +306,9 @@ public class SettlementService {
                 ? request.getAdjustmentAmount()
                 : BigDecimal.ZERO;
 
-        // Apply member credit balance — consume full balance; excess becomes a fund disbursement
-        BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(memberId);
+        // Apply member credit balance — locked before supersession above; add any
+        // credit restored by the reversal so the replacement sees the full amount.
+        BigDecimal creditBalance = lockedCreditBefore.add(preparation.restoredCredit());
         BigDecimal netAmount = baseNetAmount.add(adjustment).subtract(creditBalance);
 
         // 4. Save Settlement entity
@@ -421,7 +429,7 @@ public class SettlementService {
         UUID priorId = request.getSupersedesSettlementId();
         String reason = request.getSupersessionReason();
         if (priorId == null && (reason == null || reason.isBlank())) {
-            return new SupersessionPreparation(null, null);
+            return new SupersessionPreparation(null, null, BigDecimal.ZERO);
         }
         if (priorId == null || reason == null || reason.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
@@ -445,7 +453,7 @@ public class SettlementService {
             if (replacement != null
                     && idempotencyKey.equals(replacement.getIdempotencyKey())
                     && requestHash.equals(replacement.getIdempotencyRequestHash())) {
-                return new SupersessionPreparation(null, replacement);
+                return new SupersessionPreparation(null, replacement, BigDecimal.ZERO);
             }
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "Settlement was already superseded", HttpStatus.CONFLICT);
@@ -456,12 +464,15 @@ public class SettlementService {
                     HttpStatus.CONFLICT);
         }
 
+        BigDecimal restoredCredit;
         if (prior.getPaymentStatus() != SettlementPaymentStatus.VOIDED) {
-            reverseSettlementEffects(prior, adminId, tenantId);
+            restoredCredit = reverseSettlementEffects(prior, adminId, tenantId);
         } else if (prior.getReversalCompletedAt() == null) {
             throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
                     "The void operation did not complete its audited reversal",
                     HttpStatus.CONFLICT);
+        } else {
+            restoredCredit = BigDecimal.ZERO;
         }
 
         // Reserving superseded_by before the replacement insert releases the
@@ -471,11 +482,11 @@ public class SettlementService {
         prior.setSupersededAt(LocalDateTime.now());
         prior.setSupersededByActor(adminId);
         settlementRepository.saveAndFlush(prior);
-        return new SupersessionPreparation(prior, null);
+        return new SupersessionPreparation(prior, null, restoredCredit);
     }
 
     private record SupersessionPreparation(
-            Settlement priorSettlement, Settlement idempotentResult) {
+            Settlement priorSettlement, Settlement idempotentResult, BigDecimal restoredCredit) {
     }
 
     private String settlementRequestHash(ConfirmSettlementRequest request) {
@@ -1010,8 +1021,8 @@ public class SettlementService {
         return toSettlementResponse(settlement);
     }
 
-    private void reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
-        if (settlement.getReversalCompletedAt() != null) return;
+    private BigDecimal reverseSettlementEffects(Settlement settlement, UUID adminId, String tenantId) {
+        if (settlement.getReversalCompletedAt() != null) return BigDecimal.ZERO;
 
         List<SettlementPaymentRecordEffect> effects =
                 recordEffectRepository.findBySettlementIdOrderByPaymentRecordId(settlement.getId());
@@ -1100,6 +1111,7 @@ public class SettlementService {
         }
         settlement.setReversalCompletedAt(reversedAt);
         settlementRepository.save(settlement);
+        return reversedCredit;
     }
 
     private BusinessException reversalConflict(String message) {
