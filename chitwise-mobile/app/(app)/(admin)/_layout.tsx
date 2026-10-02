@@ -7,6 +7,7 @@ import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neum
 import { useUIStore } from '../../../store/uiStore';
 import { getAuditLogs, getBillingInfo } from '../../../services/api';
 import { useAdminStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import CapabilityGateModal from '../../../components/CapabilityGateModal';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -73,6 +74,7 @@ export default function AdminLayout() {
         </Pressable>
       </Pressable>
     </Modal>
+    <CapabilityGateModal />
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,

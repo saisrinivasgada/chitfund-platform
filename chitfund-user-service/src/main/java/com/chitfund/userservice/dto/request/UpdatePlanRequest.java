@@ -20,4 +20,5 @@ public class UpdatePlanRequest {
     private Integer displayOrder;
     private Integer maxStaff;
     private List<String> enabledCapabilities;
+    private String badges; // raw JSON array: [{text,color,enabled}]
 }

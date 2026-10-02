@@ -48,6 +48,22 @@ function PlanCard({ plan }) {
       className="relative flex flex-col rounded-2xl border border-gray-200 bg-white text-gray-900"
       style={{ minWidth: 220, maxWidth: 280 }}
     >
+      {(() => {
+        let bs = []; try { bs = JSON.parse(plan.badges || '[]'); } catch {}
+        const enabled = bs.filter(b => b.enabled && b.text);
+        if (!enabled.length) return null;
+        return (
+          <div className="absolute -top-3 left-4 flex gap-1.5 flex-wrap max-w-[90%]">
+            {enabled.slice(0, 2).map((b, i) => (
+              <span key={i} className="px-2.5 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap shadow-sm"
+                style={{ backgroundColor: b.color }}>{b.text}</span>
+            ))}
+            {enabled.length > 2 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white bg-gray-400 whitespace-nowrap">+{enabled.length - 2}</span>
+            )}
+          </div>
+        );
+      })()}
       <div className="p-6 flex-1">
         <p className="text-xs font-bold uppercase tracking-widest mb-1 text-gray-400">
           {plan.displayName ?? plan.plan}
@@ -187,6 +203,31 @@ function PlanModal({ plan, onSave, onClose }) {
     maxStaff:               plan?.maxStaff != null ? String(plan.maxStaff) : '0',
     displayOrder:           plan?.displayOrder != null ? String(plan.displayOrder) : '99',
   });
+  const [badges, setBadges] = useState(() => {
+    try {
+      const parsed = JSON.parse(plan?.badges || '[]');
+      const pct = plan?.globalDiscountPct;
+      if (pct && pct > 0 && !parsed.some(b => /^\d+(\.\d+)?%\s*off$/i.test(b.text))) {
+        return [{ text: `${pct}% off`, color: '#22C55E', enabled: true }, ...parsed];
+      }
+      return parsed;
+    } catch { return []; }
+  });
+  useEffect(() => {
+    const pct = parseFloat(form.globalDiscountPct);
+    if (!pct || pct <= 0) return;
+    const newText = `${pct}% off`;
+    setBadges(prev => {
+      const idx = prev.findIndex(b => /^\d+(\.\d+)?%\s*off$/i.test(b.text));
+      if (idx >= 0) {
+        if (prev[idx].text === newText) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], text: newText };
+        return updated;
+      }
+      return [{ text: newText, color: '#22C55E', enabled: true }, ...prev];
+    });
+  }, [form.globalDiscountPct]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
@@ -270,6 +311,7 @@ function PlanModal({ plan, onSave, onClose }) {
         enabledCapabilities: form.enabledCapabilityKeys,
         priceMonthlyInr:     priceInPaise,
         globalDiscountPct:   form.globalDiscountPct ? parseFloat(form.globalDiscountPct) : null,
+        badges:              badges.filter(b => b.text.trim()).length ? JSON.stringify(badges.filter(b => b.text.trim())) : null,
         maxActiveChits:      parseInt(form.maxActiveChits) || 1,
         maxMembers:          parseInt(form.maxMembers) || 20,
         maxStaff:            parseInt(form.maxStaff) || 0,
@@ -342,6 +384,49 @@ function PlanModal({ plan, onSave, onClose }) {
               </label>
               <input type="number" min="0" max="100" step="0.01" className={INPUT} value={form.globalDiscountPct} onChange={e => set('globalDiscountPct', e.target.value)} placeholder="0" />
             </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-gray-600">Badges / Stickers</label>
+              <button type="button"
+                onClick={() => setBadges(p => [...p, { text: '', color: '#D4A017', enabled: true }])}
+                className="text-xs font-semibold text-[#1E3A5F] hover:underline cursor-pointer">
+                + Add badge
+              </button>
+            </div>
+            {badges.length === 0 && (
+              <p className="text-xs text-gray-400 italic mb-1">No badges yet — click + Add badge</p>
+            )}
+            {badges.map((b, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <input type="text" maxLength={30} className={INPUT + ' flex-1 !py-1.5 !text-xs'}
+                  value={b.text}
+                  onChange={e => setBadges(p => p.map((x, j) => j === i ? { ...x, text: e.target.value } : x))}
+                  placeholder="🔥 HOT DEAL" />
+                {/* Color swatch → native color picker */}
+                <label className="relative cursor-pointer flex-shrink-0" title="Pick color">
+                  <span className="block w-6 h-6 rounded-full border-2 border-white shadow ring-1 ring-gray-200"
+                    style={{ backgroundColor: b.color }} />
+                  <input type="color" value={b.color}
+                    onChange={e => setBadges(p => p.map((x, j) => j === i ? { ...x, color: e.target.value } : x))}
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer select-none flex-shrink-0">
+                  <input type="checkbox" checked={b.enabled}
+                    onChange={e => setBadges(p => p.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x))}
+                    className="w-3.5 h-3.5 accent-[#1E3A5F]" />
+                  Show
+                </label>
+                <button type="button" onClick={() => setBadges(p => p.filter((_, j) => j !== i))}
+                  className="text-gray-300 hover:text-red-400 cursor-pointer flex-shrink-0"><X size={13} /></button>
+                {b.enabled && b.text && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap flex-shrink-0"
+                    style={{ backgroundColor: b.color }}>{b.text}</span>
+                )}
+              </div>
+            ))}
+            <p className="text-xs text-gray-400 mt-1">Shown on plan cards on landing page, registration &amp; billing. Max 30 chars each.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">

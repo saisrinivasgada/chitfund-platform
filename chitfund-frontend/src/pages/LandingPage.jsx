@@ -814,20 +814,28 @@ function apiPlanToCard(p, allPlans) {
   const effectiveRupees = (p.effectivePriceInr ?? p.priceMonthlyInr) / 100;
   const originalRupees = p.priceMonthlyInr / 100;
 
+  const effectivePaise = p.effectivePriceInr ?? p.priceMonthlyInr;
+  const originalPaise  = p.priceMonthlyInr;
+  const effectiveRupees2 = effectivePaise / 100;
+  const originalRupees2  = originalPaise / 100;
+  const hasStrike = hasDiscount && effectivePaise !== originalPaise && originalPaise > 0;
+
   const priceStr = isCustom ? 'Contact us'
-    : p.priceMonthlyInr === 0 ? 'Free'
-    : `₹${effectiveRupees.toLocaleString('en-IN')}/mo`;
+    : effectivePaise === 0 ? 'Free'
+    : `₹${effectiveRupees2.toLocaleString('en-IN')}/mo`;
 
-  const sub = isCustom ? 'Tailored pricing for large operations'
-    : hasDiscount ? `₹${originalRupees}/mo original`
-    : 'Billed monthly, cancel anytime';
+  const originalStr = hasStrike ? `₹${originalRupees2.toLocaleString('en-IN')}/mo` : null;
 
-  const badge = hasDiscount ? `${p.globalDiscountPct}% off` : null;
+  const sub = isCustom ? 'Tailored pricing for large operations' : 'Billed monthly, cancel anytime';
+
+  let enabledBadges = []; try { enabledBadges = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text); } catch {}
+  const discountBadge = !enabledBadges.length && hasDiscount ? `${p.globalDiscountPct}% off` : null;
+
   const selectablePlans = allPlans.filter(x => x.plan !== 'CUSTOM');
   const midIdx = Math.floor(selectablePlans.length / 2);
   const highlight = selectablePlans[midIdx]?.plan === p.plan;
 
-  return { plan: p.plan, label: p.displayName, tagline: p.tagline, price: priceStr, sub, badge, features: p.features ?? [], highlight, isCustom };
+  return { plan: p.plan, label: p.displayName, tagline: p.tagline, price: priceStr, originalPrice: originalStr, sub, badge: discountBadge, badges: enabledBadges, features: p.features ?? [], highlight, isCustom };
 }
 
 const PORTALS = [
@@ -1148,7 +1156,7 @@ export default function LandingPage() {
             <Star size={14} className="text-yellow-300 flex-shrink-0" />
             🇮🇳 Built by India, for India
             <span className="w-px h-4 bg-white/20" />
-            <span className="font-medium text-white/75">First 6 months free · No credit card needed</span>
+            <span className="font-medium text-white/75">No credit card needed · Migration included</span>
           </motion.div>
 
           <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
@@ -1170,7 +1178,7 @@ export default function LandingPage() {
               className="flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-bold cursor-pointer shadow-xl"
               style={{ backgroundColor: 'white', color: P }}
               whileHover={{ scale: 1.05, boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} whileTap={{ scale: 0.97 }}>
-              Start free — 6 months on us <ArrowRight size={18} />
+              Get started free <ArrowRight size={18} />
             </motion.button>
             <motion.button onClick={() => navigate('/login')}
               className="flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-medium cursor-pointer border border-white/30 text-white"
@@ -1743,7 +1751,7 @@ export default function LandingPage() {
               <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl font-semibold text-sm"
                 style={{ backgroundColor: '#22C55E', color: 'white' }}>
                 <span className="text-base">🎉</span>
-                <span>Introductory offer — first 6 months free on any plan</span>
+                <span>Basic plan is free — upgrade anytime as you grow</span>
               </div>
             </div>
           </Reveal>
@@ -1775,8 +1783,8 @@ export default function LandingPage() {
                   <ChevronRight size={20} className="text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }} />
                 </button>
               )}
-            <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
-              {planCards.map(({ plan, label, tagline, price, sub, badge, features, isCustom }, i) => {
+            <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pt-5 pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
+              {planCards.map(({ plan, label, tagline, price, originalPrice, sub, badge, badges: planBadges = [], features, isCustom }, i) => {
                 const active = plan === selectedPlan;
                 return (
                 <Reveal key={plan} delay={i * 0.1} className="flex-shrink-0 flex flex-col">
@@ -1787,15 +1795,33 @@ export default function LandingPage() {
                       active ? 'bg-white shadow-2xl' :
                       isCustom ? 'bg-white/5 border-2 border-dashed border-white/20' : 'bg-white/10 border border-white/20'
                     }`}
-                    whileHover={{ y: -5 }} transition={{ duration: 0.3 }}>
-                    {badge && (
+                    transition={{ duration: 0.3 }}>
+                    {/* Custom badges (all enabled, max 2 visible + count) */}
+                    {planBadges.length > 0 && (
+                      <div className="absolute -top-3.5 left-5 flex gap-1.5">
+                        {planBadges.slice(0, 2).map((b, bi) => (
+                          <span key={bi} className="px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap shadow-sm"
+                            style={{ backgroundColor: b.color }}>{b.text}</span>
+                        ))}
+                        {planBadges.length > 2 && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white bg-white/30 whitespace-nowrap">+{planBadges.length - 2}</span>
+                        )}
+                      </div>
+                    )}
+                    {/* Fallback: discount badge when no custom badges */}
+                    {!planBadges.length && badge && (
                       <span className="absolute -top-3.5 left-6 px-4 py-1 rounded-full text-xs font-bold text-white"
                         style={{ backgroundColor: '#22C55E' }}>{badge}</span>
                     )}
                     <div className="mb-6">
                       <p className="text-xl font-bold mb-1" style={{ color: active ? P : 'white' }}>{label}</p>
                       <p className="text-sm mb-5" style={{ color: active ? '#9CA3AF' : 'rgba(255,255,255,0.5)' }}>{tagline}</p>
-                      <p className="text-3xl font-extrabold" style={{ color: active ? '#111827' : 'white' }}>{price}</p>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        {originalPrice && (
+                          <span className="text-base line-through" style={{ color: active ? '#9CA3AF' : 'rgba(255,255,255,0.4)' }}>{originalPrice}</span>
+                        )}
+                        <p className="text-3xl font-extrabold" style={{ color: active ? '#111827' : 'white' }}>{price}</p>
+                      </div>
                       <p className="text-xs mt-1" style={{ color: active ? '#9CA3AF' : 'rgba(255,255,255,0.4)' }}>{sub}</p>
                     </div>
                     <ul className="space-y-3 flex-1 mb-8">
@@ -1933,7 +1959,7 @@ export default function LandingPage() {
                 <LogIn size={18} /> Already enrolled? Sign in
               </motion.button>
             </div>
-            <p className="text-white/40 text-sm mt-8">No credit card · 6 months free · Migration included · All portals included</p>
+            <p className="text-white/40 text-sm mt-8">No credit card · Basic plan free · Migration included · All portals included</p>
           </Reveal>
         </div>
       </section>
