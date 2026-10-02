@@ -86,7 +86,7 @@ public class ChitMonthDrawService {
             String tenantId = com.chitfund.common.context.TenantContext.get();
             for (var m : request.getMembers()) {
                 BigDecimal amountDue = m.getAmountDue();
-                BigDecimal creditBalance = memberCreditService.getBalance(m.getMemberId());
+                BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(m.getMemberId());
                 BigDecimal creditToApply = creditBalance.min(amountDue);
 
                 PaymentRecordStatus status;

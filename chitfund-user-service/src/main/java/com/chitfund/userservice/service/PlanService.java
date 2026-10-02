@@ -138,8 +138,7 @@ public class PlanService {
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
         if (req.getEnabledCapabilities() != null)
             p.setCapabilities(serializeFeatures(req.getEnabledCapabilities()));
-        if (req.getBadgeText() != null) p.setBadgeText(req.getBadgeText().isBlank() ? null : req.getBadgeText().trim());
-        if (req.getBadgeEnabled() != null) p.setBadgeEnabled(req.getBadgeEnabled());
+        if (req.getBadges() != null) p.setBadges(req.getBadges().isBlank() ? null : req.getBadges());
         return toResponse(planRepo.save(p));
     }
 
@@ -228,8 +227,7 @@ public class PlanService {
                 .isActive(p.isActive())
                 .displayOrder(p.getDisplayOrder())
                 .maxStaff(p.getMaxStaff())
-                .badgeText(p.getBadgeText())
-                .badgeEnabled(p.isBadgeEnabled())
+                .badges(p.getBadges())
                 .build();
     }
 

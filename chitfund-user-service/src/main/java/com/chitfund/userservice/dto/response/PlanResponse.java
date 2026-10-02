@@ -24,6 +24,5 @@ public class PlanResponse {
     private int displayOrder;
     private int maxStaff;
     private List<String> enabledCapabilities;
-    private String badgeText;
-    private boolean badgeEnabled;
+    private String badges; // raw JSON array: [{text,color,enabled}]
 }

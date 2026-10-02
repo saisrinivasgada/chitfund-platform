@@ -689,7 +689,7 @@ export default function RegisterOrgPage() {
                       <ChevronRight size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                     </button>
                   )}
-                <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
+                <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pt-5 pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
                   {plans.map((p) => {
                     const isCustom = p.plan === 'CUSTOM';
                     const selected = form.plan === p.plan;
@@ -707,15 +707,24 @@ export default function RegisterOrgPage() {
                           selected ? 'border-[#1E3A5F] bg-[#f0f5fb]' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                         }`}
                       >
-                        {p.badgeEnabled && p.badgeText ? (
-                          <span className="absolute -top-3 left-4 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap" style={{ backgroundColor: '#F59E0B' }}>
-                            {p.badgeText}
-                          </span>
-                        ) : hasDiscount && (
-                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap bg-emerald-600">
-                            {priceInfo.discountPct}% off
-                          </span>
-                        )}
+                        {(() => {
+                          let eb = []; try { eb = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text); } catch {}
+                          if (eb.length) return (
+                            <div className="absolute -top-3 left-3 flex gap-1 flex-wrap max-w-[90%]">
+                              {eb.slice(0, 2).map((b, bi) => (
+                                <span key={bi} className="px-2.5 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap shadow-sm"
+                                  style={{ backgroundColor: b.color }}>{b.text}</span>
+                              ))}
+                              {eb.length > 2 && <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white bg-gray-400">+{eb.length - 2}</span>}
+                            </div>
+                          );
+                          if (hasDiscount) return (
+                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap bg-emerald-600">
+                              {priceInfo.discountPct}% off
+                            </span>
+                          );
+                          return null;
+                        })()}
                         <p className={`text-base font-bold mb-0.5 ${selected ? 'text-[#1E3A5F]' : 'text-gray-800'}`}>{p.displayName}</p>
                         <p className="text-xs text-gray-400 mb-5">{p.tagline}</p>
                         <ul className="space-y-3 flex-1">
