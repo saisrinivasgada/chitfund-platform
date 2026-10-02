@@ -1,6 +1,8 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
+  Dimensions,
   Modal,
   Pressable,
   StyleSheet,
@@ -30,6 +32,23 @@ interface TutorialContextValue {
 
 const TutorialContext = createContext<TutorialContextValue | null>(null);
 
+// ── Anchor registry (internal — used for spotlight) ─────────────────────────
+
+export interface AnchorLayout {
+  x: number; y: number; width: number; height: number;
+}
+
+interface AnchorContextValue {
+  registerAnchor: (name: string, layout: AnchorLayout) => void;
+}
+
+const AnchorContext = createContext<AnchorContextValue | null>(null);
+
+const SPOT_PAD  = 10;
+const DARK_OVL  = 'rgba(10, 18, 34, 0.78)';
+
+// ────────────────────────────────────────────────────────────────────────────
+
 function getScreenFromSegments(segments: string[]) {
   return segments[2] ?? 'index';
 }
@@ -46,6 +65,21 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
   const [showWelcome, setShowWelcome] = useState(false);
   const [activeTutorial, setActiveTutorial] = useState<PageTutorial | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
+
+  // Anchor registry for spotlight highlights
+  const anchorsRef  = useRef<Map<string, AnchorLayout>>(new Map());
+  const [, forceAnchorRender] = useState(0);
+  const pulseAnim   = useRef(new Animated.Value(1)).current;
+  const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const registerAnchor = useCallback((name: string, layout: AnchorLayout) => {
+    anchorsRef.current.set(name, layout);
+    forceAnchorRender((n) => n + 1);
+  }, []);
+
+  const anchorContextValue = useMemo<AnchorContextValue>(() => ({
+    registerAnchor,
+  }), [registerAnchor]);
 
   const supportedSession = segments[0] === '(app)'
     && !!user
@@ -179,10 +213,29 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
 
   const step = activeTutorial?.steps[stepIndex];
   const isLastStep = !!activeTutorial && stepIndex === activeTutorial.steps.length - 1;
+  const spotlightLayout = step?.highlight ? (anchorsRef.current.get(step.highlight) ?? null) : null;
+
+  // Pulse animation: start when a highlighted step is visible
+  useEffect(() => {
+    pulseLoopRef.current?.stop();
+    if (spotlightLayout) {
+      pulseAnim.setValue(1);
+      pulseLoopRef.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1,    duration: 700, useNativeDriver: true }),
+        ])
+      );
+      pulseLoopRef.current.start();
+    }
+    return () => { pulseLoopRef.current?.stop(); };
+  }, [spotlightLayout]);
 
   return (
     <TutorialContext.Provider value={contextValue}>
-      {children}
+      <AnchorContext.Provider value={anchorContextValue}>
+        {children}
+      </AnchorContext.Provider>
 
       <Modal visible={showWelcome && supportedSession} transparent animationType="fade" onRequestClose={declineTutorials}>
         <View style={styles.backdrop}>
@@ -216,9 +269,22 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
       </Modal>
 
       <Modal visible={!!activeTutorial && !!step} transparent animationType="fade" onRequestClose={finishCurrentPage}>
-        <View style={styles.backdrop}>
+        <View style={spotlightLayout ? { flex: 1 } : styles.backdrop}>
+          {spotlightLayout && (() => {
+            const sl = spotlightLayout;
+            const { height: SCREEN_H } = Dimensions.get('window');
+            return (
+              <>
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: Math.max(0, sl.y - SPOT_PAD), backgroundColor: DARK_OVL }} />
+                <View style={{ position: 'absolute', top: sl.y + sl.height + SPOT_PAD, left: 0, right: 0, height: SCREEN_H, backgroundColor: DARK_OVL }} />
+                <View style={{ position: 'absolute', top: Math.max(0, sl.y - SPOT_PAD), left: 0, width: Math.max(0, sl.x - SPOT_PAD), height: sl.height + 2 * SPOT_PAD, backgroundColor: DARK_OVL }} />
+                <View style={{ position: 'absolute', top: Math.max(0, sl.y - SPOT_PAD), left: sl.x + sl.width + SPOT_PAD, right: 0, height: sl.height + 2 * SPOT_PAD, backgroundColor: DARK_OVL }} />
+                <Animated.View style={{ position: 'absolute', top: sl.y - SPOT_PAD, left: sl.x - SPOT_PAD, width: sl.width + 2 * SPOT_PAD, height: sl.height + 2 * SPOT_PAD, borderRadius: 12, borderWidth: 2.5, borderColor: C.gold, opacity: pulseAnim }} />
+              </>
+            );
+          })()}
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel="Close tutorial" onPress={() => { void finishCurrentPage(); }} />
-          <View style={styles.sheet} accessibilityViewIsModal>
+          <View style={[styles.sheet, spotlightLayout ? { position: 'absolute', bottom: 16, left: 16, right: 16 } : null]} accessibilityViewIsModal>
             <View style={styles.progressRow}>
               <Text style={styles.pageLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{activeTutorial?.pageTitle}</Text>
               <Text style={styles.progressText}>{stepIndex + 1} of {activeTutorial?.steps.length}</Text>
@@ -276,6 +342,19 @@ export function useTutorials() {
   const context = useContext(TutorialContext);
   if (!context) throw new Error('useTutorials must be used inside TutorialProvider');
   return context;
+}
+
+/** Returns a ref callback — attach to a View to register it as a spotlight anchor. */
+export function useTutorialAnchor(name: string) {
+  const ctx = useContext(AnchorContext);
+  return useCallback((view: View | null) => {
+    if (!view || !ctx) return;
+    setTimeout(() => {
+      view.measureInWindow((x, y, width, height) => {
+        if (width > 0 || height > 0) ctx.registerAnchor(name, { x, y, width, height });
+      });
+    }, 120);
+  }, [name, ctx]);
 }
 
 export function TutorialHelpButton() {
