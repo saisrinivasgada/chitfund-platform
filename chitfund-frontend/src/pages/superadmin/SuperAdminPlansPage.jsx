@@ -204,8 +204,30 @@ function PlanModal({ plan, onSave, onClose }) {
     displayOrder:           plan?.displayOrder != null ? String(plan.displayOrder) : '99',
   });
   const [badges, setBadges] = useState(() => {
-    try { return JSON.parse(plan?.badges || '[]'); } catch { return []; }
+    try {
+      const parsed = JSON.parse(plan?.badges || '[]');
+      const pct = plan?.globalDiscountPct;
+      if (pct && pct > 0 && !parsed.some(b => /^\d+(\.\d+)?%\s*off$/i.test(b.text))) {
+        return [{ text: `${pct}% off`, color: '#22C55E', enabled: true }, ...parsed];
+      }
+      return parsed;
+    } catch { return []; }
   });
+  useEffect(() => {
+    const pct = parseFloat(form.globalDiscountPct);
+    if (!pct || pct <= 0) return;
+    const newText = `${pct}% off`;
+    setBadges(prev => {
+      const idx = prev.findIndex(b => /^\d+(\.\d+)?%\s*off$/i.test(b.text));
+      if (idx >= 0) {
+        if (prev[idx].text === newText) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], text: newText };
+        return updated;
+      }
+      return [{ text: newText, color: '#22C55E', enabled: true }, ...prev];
+    });
+  }, [form.globalDiscountPct]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);

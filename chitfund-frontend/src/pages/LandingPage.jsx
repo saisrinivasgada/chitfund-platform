@@ -1783,7 +1783,7 @@ export default function LandingPage() {
                   <ChevronRight size={20} className="text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))' }} />
                 </button>
               )}
-            <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
+            <div ref={planScrollRef} className="flex items-stretch gap-6 overflow-x-auto pt-5 pb-4 -mx-2 px-2" style={{ scrollbarWidth: 'none' }}>
               {planCards.map(({ plan, label, tagline, price, originalPrice, sub, badge, badges: planBadges = [], features, isCustom }, i) => {
                 const active = plan === selectedPlan;
                 return (

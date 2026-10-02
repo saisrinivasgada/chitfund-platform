@@ -689,7 +689,7 @@ export default function RegisterOrgPage() {
                       <ChevronRight size={18} style={{ color: '#1E3A5F', filter: 'drop-shadow(0 1px 1px rgba(30,58,95,0.2))' }} />
                     </button>
                   )}
-                <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
+                <div ref={planScrollRef} className="flex gap-4 overflow-x-auto pt-5 pb-2 -mx-1 px-1 items-stretch" style={{ scrollbarWidth: 'none' }}>
                   {plans.map((p) => {
                     const isCustom = p.plan === 'CUSTOM';
                     const selected = form.plan === p.plan;
