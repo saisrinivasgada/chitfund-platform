@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, PanResponder,
   Animated, useWindowDimensions, ScrollView, Vibration,
@@ -34,7 +34,11 @@ const BTN_STYLE: Record<string, { bg: string; color: string; flex?: number }> = 
 
 // ─── Calculator component ───────────────────────────────────────────────────
 
-function Calculator({ onClose }: { onClose: () => void }) {
+export interface CalcHandle {
+  animatedClose: () => void;
+}
+
+const Calculator = forwardRef<CalcHandle, { onClose: () => void }>(({ onClose }, ref) => {
   const { display, expression, calcInput } = useToolkitStore();
   const scaleAnim = useRef(new Animated.Value(0.92)).current;
   const fadeAnim  = useRef(new Animated.Value(0)).current;
@@ -46,12 +50,14 @@ function Calculator({ onClose }: { onClose: () => void }) {
     ]).start();
   }, []);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     Animated.parallel([
       Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true, tension: 180, friction: 12 }),
       Animated.timing(fadeAnim, { toValue: 0, duration: 140, useNativeDriver: true }),
     ]).start(() => onClose());
-  };
+  }, [onClose]);
+
+  useImperativeHandle(ref, () => ({ animatedClose: handleClose }), [handleClose]);
 
   return (
     <Animated.View style={[styles.calcSheet, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
@@ -90,7 +96,7 @@ function Calculator({ onClose }: { onClose: () => void }) {
       </View>
     </Animated.View>
   );
-}
+});
 
 // ─── Refresh spinner overlay ────────────────────────────────────────────────
 
@@ -131,11 +137,12 @@ function RefreshSpinner({ visible }: { visible: boolean }) {
 export function FloatingToolkit() {
   const {
     enabled, opacity, buttonSize,
-    calcOpen, openCalc, closeCalc, toggleCalc,
+    calcOpen, openCalc, closeCalc,
     loadSettings,
   } = useToolkitStore();
 
-  const qc = useQueryClient();
+  const qc      = useQueryClient();
+  const calcRef = useRef<CalcHandle>(null);
   const { width: W, height: H } = useWindowDimensions();
 
   // Animated position (starts right-centre)
@@ -199,10 +206,23 @@ export function FloatingToolkit() {
     })
   ).current;
 
+  // Tap always uses animated close so the sheet slides out properly
+  const animatedClose = useCallback(() => {
+    if (calcRef.current) {
+      calcRef.current.animatedClose();
+    } else {
+      closeCalc();
+    }
+  }, [closeCalc]);
+
   const handleTap = useCallback(() => {
-    toggleCalc();
+    if (calcOpen) {
+      animatedClose();
+    } else {
+      openCalc();
+    }
     Vibration.vibrate(Platform.OS === 'ios' ? [0, 8] : [0, 10]);
-  }, [toggleCalc]);
+  }, [calcOpen, openCalc, animatedClose]);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing.current) return;
@@ -229,7 +249,18 @@ export function FloatingToolkit() {
     toast.saved('Screen refreshed');
   }, [qc, scale]);
 
-  useShake(toggleCalc, enabled);
+  // Shake: same animated path so closing always has the slide-down animation
+  const calcOpenRef = useRef(calcOpen);
+  useEffect(() => { calcOpenRef.current = calcOpen; }, [calcOpen]);
+  const handleShake = useCallback(() => {
+    if (calcOpenRef.current) {
+      animatedClose();
+    } else {
+      openCalc();
+    }
+  }, [openCalc, animatedClose]);
+
+  useShake(handleShake, enabled);
 
   if (!enabled) return null;
 
@@ -284,15 +315,15 @@ export function FloatingToolkit() {
         visible={calcOpen}
         transparent
         animationType="none"
-        onRequestClose={closeCalc}
+        onRequestClose={animatedClose}
         statusBarTranslucent
       >
         <TouchableOpacity
           style={styles.backdrop}
           activeOpacity={1}
-          onPress={closeCalc}
+          onPress={animatedClose}
         />
-        <Calculator onClose={closeCalc} />
+        <Calculator ref={calcRef} onClose={closeCalc} />
       </Modal>
     </>
   );
