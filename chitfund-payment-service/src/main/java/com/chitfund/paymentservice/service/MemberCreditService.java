@@ -40,14 +40,14 @@ public class MemberCreditService {
     /** Locks the balance while a financial workflow decides and records its use. */
     @Transactional
     public BigDecimal getBalanceForUpdate(UUID memberId) {
-        // Flush any pending credit-balance writes (e.g. from reverseCreditForSettlement)
-        // before acquiring the row lock. Hibernate's FlushMode.AUTO flushes before
-        // queries touching the same table, but the @Lock(PESSIMISTIC_WRITE) path in
-        // Hibernate 6 can refresh the entity from DB before the dirty state is flushed,
-        // returning a stale 0 when a restored balance is sitting unflushed in the cache.
+        // Flush pending writes first so the native read sees the latest state.
+        // Then use a native scalar query instead of a JPQL entity query: Hibernate 6's
+        // PESSIMISTIC_WRITE entity-query path can serve a stale L1-cache value when a
+        // credit restoration (reverseCreditForSettlement) is dirty-but-unflushed in the
+        // session, returning 0 for a balance that should be 200. A native scalar query
+        // bypasses entity caching entirely and always reads the current DB row value.
         entityManager.flush();
-        return creditBalanceRepository.findByMemberIdForUpdate(memberId)
-                .map(MemberCreditBalance::getBalance)
+        return creditBalanceRepository.findBalanceByMemberIdForUpdate(memberId.toString())
                 .orElse(BigDecimal.ZERO);
     }
 
