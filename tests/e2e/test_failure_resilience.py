@@ -47,6 +47,7 @@ class TestDownstreamFailureDoesNotLoseMoney:
 
     def test_payment_succeeds_with_every_downstream_dead(self, api, db, open_month):
         r = api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
+                        headers={"X-Idempotency-Key": str(uuid.uuid4())},
                         json={"chitId": open_month["chit_id"],
                               "memberId": open_month["member_id"],
                               "amount": 1000, "paymentMode": "UPI"})
@@ -66,6 +67,7 @@ class TestDownstreamFailureDoesNotLoseMoney:
             "SELECT COALESCE(SUM(amount),0) FROM admin_wallet WHERE entry_type='IN'")))
 
         api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
+                    headers={"X-Idempotency-Key": str(uuid.uuid4())},
                     json={"chitId": open_month["chit_id"],
                           "memberId": open_month["member_id"],
                           "amount": 400, "paymentMode": "CASH"})
@@ -84,6 +86,7 @@ class TestDownstreamFailureDoesNotLoseMoney:
         account for.
         """
         api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
+                    headers={"X-Idempotency-Key": str(uuid.uuid4())},
                     json={"chitId": open_month["chit_id"],
                           "memberId": open_month["member_id"],
                           "amount": 600, "paymentMode": "UPI"})
@@ -111,6 +114,7 @@ class TestDownstreamFailureDoesNotLoseMoney:
 class TestVoidUnderFailure:
     def test_void_reverses_fully_with_downstreams_dead(self, api, db, open_month):
         pay = api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
+                          headers={"X-Idempotency-Key": str(uuid.uuid4())},
                           json={"chitId": open_month["chit_id"],
                                 "memberId": open_month["member_id"],
                                 "amount": 1000, "paymentMode": "UPI"})
@@ -135,6 +139,7 @@ class TestEventDeliveryGap:
 
     def test_payment_is_durable_while_event_destinations_are_down(self, api, db, open_month):
         api.as_role("POST", f"{api.payment}/payments", open_month["admin"],
+                    headers={"X-Idempotency-Key": str(uuid.uuid4())},
                     json={"chitId": open_month["chit_id"],
                           "memberId": open_month["member_id"],
                           "amount": 250, "paymentMode": "UPI"})

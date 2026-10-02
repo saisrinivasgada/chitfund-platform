@@ -1,8 +1,8 @@
 import { Tabs } from 'expo-router';
-import { Text, Platform, StyleSheet } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { C } from '../../../components/ui';
+import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useReminderSync } from '../../../hooks/useReminderSync';
+import { useMemberStartupPrefetch } from '../../../offline/useStartupPrefetch';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
@@ -12,15 +12,12 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     requests:  '↩',
     more:      '···',
   };
-  return (
-    <Text style={{ fontSize: name === 'more' ? 14 : 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
-      {icons[name] ?? '●'}
-    </Text>
-  );
+  return <NeumorphicTabIcon glyph={icons[name] ?? '●'} focused={focused} size={name === 'more' ? 15 : 19} />;
 }
 
 export default function MemberLayout() {
   useReminderSync();
+  useMemberStartupPrefetch();
   return (
     <Tabs
       screenOptions={({ route }) => ({
@@ -28,19 +25,10 @@ export default function MemberLayout() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarBackground: Platform.OS === 'ios'
-          ? () => <BlurView intensity={95} tint="systemChromeMaterial" style={StyleSheet.absoluteFill} />
-          : undefined,
-        tabBarStyle: {
-          backgroundColor: Platform.OS === 'ios' ? 'transparent' : C.white,
-          borderTopWidth: Platform.OS === 'ios' ? StyleSheet.hairlineWidth : 1,
-          borderTopColor: Platform.OS === 'ios' ? 'rgba(200,200,200,0.45)' : C.gray200,
-          height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
-          paddingTop: 8,
-          elevation: 10,
-        },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarBackground: NeumorphicTabBackground,
+        tabBarStyle: neumorphicTabBarStyle,
+        tabBarItemStyle: neumorphicTabItemStyle,
+        tabBarLabelStyle: neumorphicTabLabelStyle,
       })}
     >
       {/* ── Visible tabs (5) ─────────────────────────────────────── */}
@@ -51,6 +39,7 @@ export default function MemberLayout() {
       <Tabs.Screen name="more"      options={{ title: 'More' }} />
 
       {/* ── Hidden (accessible via More or deep links) ───────────── */}
+      <Tabs.Screen name="intimations" options={{ href: null }} />
       <Tabs.Screen name="payments"    options={{ href: null }} />
       <Tabs.Screen name="invitations" options={{ href: null }} />
       <Tabs.Screen name="chitfund-requests" options={{ href: null }} />

@@ -272,7 +272,8 @@ public class NotificationEventConsumer {
                             "amount",           event.amount().toPlainString(),
                             "chitId",           event.chitId(),
                             "monthNumber",      String.valueOf(event.monthsSettled()),
-                            "remainingBalance", remaining
+                            "remainingBalance", remaining,
+                            "recordedAt",       event.occurredAt().toString()
                     )
             );
             notificationService.send(req);
@@ -284,7 +285,8 @@ public class NotificationEventConsumer {
                 inAppService.create(
                     UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
                     Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                           "monthsSettled", String.valueOf(event.monthsSettled())),
+                           "monthsSettled", String.valueOf(event.monthsSettled()),
+                           "recordedAt", event.occurredAt().toString()),
                     "/member/chits/" + event.chitId()
                 );
                 pushService.sendToUserWithData(UUID.fromString(userId), title, body,

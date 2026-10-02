@@ -187,6 +187,64 @@ class PayoutServiceTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("Discount amount cannot be equal to or greater than");
         }
+
+        @Test
+        @DisplayName("treasury safety: breakdown (installment+crossChit+manual) exceeding discountAmount is rejected " +
+                "— otherwise admin pays full cash AND forgives extra dues, losing the difference")
+        void rejectsBreakdownExceedingDiscountAmount() {
+            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+                    .thenReturn(false);
+
+            CreatePayoutRequest req = createRequest(bd(100_000), bd(2_000));
+            req.setInstallmentSettlement(bd(5_000));
+            req.setCrossChitSettlement(bd(3_000)); // 5,000 + 3,000 = 8,000 > discountAmount of 2,000
+
+            assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("cannot exceed discountAmount");
+        }
+
+        @Test
+        @DisplayName("breakdown exactly equal to discountAmount is allowed (real frontend flow)")
+        void allowsBreakdownExactlyEqualToDiscountAmount() {
+            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+                    .thenReturn(false);
+            when(payoutRepository.save(any())).thenAnswer(inv -> {
+                Payout p = inv.getArgument(0);
+                p.setId(payoutId);
+                p.setCreatedAt(LocalDateTime.now());
+                p.setUpdatedAt(LocalDateTime.now());
+                return p;
+            });
+            when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
+                    .thenReturn(Collections.emptyList());
+
+            CreatePayoutRequest req = createRequest(bd(100_000), bd(8_000));
+            req.setInstallmentSettlement(bd(5_000));
+            req.setCrossChitSettlement(bd(3_000)); // exactly equals discountAmount
+
+            assertThatCode(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("treasury safety: crossChitDeductions total not matching crossChitSettlement is rejected")
+        void rejectsCrossChitDeductionsMismatch() {
+            when(payoutRepository.existsByChitIdAndMonthNumberAndMemberIdAndStatusNotIn(any(), anyInt(), any(), any()))
+                    .thenReturn(false);
+
+            CreatePayoutRequest req = createRequest(bd(100_000), bd(3_000));
+            req.setCrossChitSettlement(bd(3_000));
+            com.chitfund.payoutservice.dto.request.CrossChitDeductionDto d =
+                    new com.chitfund.payoutservice.dto.request.CrossChitDeductionDto();
+            d.setChitId(UUID.randomUUID());
+            d.setAmount(bd(1_500)); // doesn't match crossChitSettlement of 3,000
+            req.setCrossChitDeductions(List.of(d));
+
+            assertThatThrownBy(() -> payoutService.createPayout(req, adminId, "test-tenant-id"))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("crossChitDeductions total");
+        }
     }
 
     // ─── disburse tests ───────────────────────────────────────────────────────

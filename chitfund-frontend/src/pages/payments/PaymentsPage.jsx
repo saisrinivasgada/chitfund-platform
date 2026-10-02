@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, NavLink, Outlet, useSearchParams, Navigate } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -8,6 +8,7 @@ import {
   getPendingRemittance, remitPayment, voidPaymentBatch,
   adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
   updateCashRequest, getCashRequestSummary, getCancelledCashRequests,
+  getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -20,16 +21,17 @@ import Modal from '../../components/ui/Modal';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { ListSkeleton } from '../../components/ui/Spinner';
 import RoleBadge from '../../components/ui/RoleBadge';
-import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock } from 'lucide-react';
+import { CreditCard, Clock, History, Banknote, UserCheck, CheckCircle, Plus, PackageCheck, XCircle, RotateCcw, AlertTriangle, Pencil, AlertCircle, HandCoins, CalendarClock, FileCheck } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
-const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Remittance', 'History'];
-const MANAGER_TABS = ['Cash Requests', 'History']; // Managers record cash via My Pickups; no direct payment entry
+const ADMIN_TABS   = ['Record Payment', 'Cash Requests', 'Intimations', 'Remittance', 'History'];
+const MANAGER_TABS = ['Cash Requests', 'Intimations', 'History']; // Managers record cash via My Pickups; no direct payment entry
 const STAFF_TABS   = ['Record Payment'];
 
 const TAB_ROUTES = {
   'Record Payment': 'record',
   'Cash Requests':  'cash-requests',
+  'Intimations':    'intimations',
   'Remittance':     'remittance',
   'History':        'history',
 };
@@ -37,6 +39,7 @@ const TAB_ROUTES = {
 const TAB_ICONS = {
   'Record Payment': CreditCard,
   'Cash Requests':  Banknote,
+  'Intimations':    FileCheck,
   'Remittance':     Clock,
   'History':        History,
 };
@@ -1082,6 +1085,7 @@ export function RecordPaymentTab() {
 
   const [memberId, setMemberId]     = useState('');
   const [chitId, setChitId]         = useState('');
+  const [selectedAllocations, setSelectedAllocations] = useState({});
   const [amount, setAmount]         = useState('');
   const [notes, setNotes]           = useState('');
   const [paymentMode, setMode]      = useState('CASH');
@@ -1122,6 +1126,12 @@ export function RecordPaymentTab() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      const allocationEntries = Object.entries(selectedAllocations)
+        .map(([selectedChitId, selectedAmount]) => ({
+          chitId: selectedChitId,
+          amount: Number(selectedAmount || 0),
+        }))
+        .filter((entry) => entry.amount > 0);
       if (isCredit) {
         return recordPayment({ chitId, memberId, amount: 0, paymentMode: 'CREDIT', notes: notes || null, idempotencyKey });
       }
@@ -1130,7 +1140,15 @@ export function RecordPaymentTab() {
         return collectPayment({ chitId, memberId, amount: Number(amount), notes: notes || null, overrideCollectedBy: collectedBy }, idempotencyKey);
       } else {
         // Admin direct (cash/upi/bank) → COMPLETED immediately
-        return recordPayment({ chitId, memberId, amount: Number(amount), paymentMode, notes: notes || null, idempotencyKey });
+        return recordPayment({
+          chitId: allocationEntries[0]?.chitId ?? chitId,
+          memberId,
+          amount: Number(amount),
+          paymentMode,
+          notes: notes || null,
+          allocations: allocationEntries.length > 0 ? allocationEntries : undefined,
+          idempotencyKey,
+        });
       }
     },
     onSuccess: () => {
@@ -1156,6 +1174,7 @@ export function RecordPaymentTab() {
         qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       }
       setMemberId(''); setChitId(''); setAmount(''); setNotes('');
+      setSelectedAllocations({});
       setMode('CASH'); setCollectedBy('SELF');
       setIdempotencyKey(crypto.randomUUID());
     },
@@ -1185,22 +1204,59 @@ export function RecordPaymentTab() {
   });
   const creditBalance = memberCredit ? Number(memberCredit.balance ?? 0) : 0;
 
-  // Managers don't record direct payments — redirect to cash requests
+  const selectedChit = collectableChits.find((c) => c.id === chitId);
+  const isCash = paymentMode === 'CASH';
+  const isExplicitMode = !isCredit && !isWorkerCollect;
+  const allocationEntries = Object.entries(selectedAllocations)
+    .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
+    .filter((entry) => entry.amount > 0);
+  const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
+
+  useEffect(() => {
+    if (isExplicitMode && Object.keys(selectedAllocations).length > 0) {
+      setAmount(allocationTotal > 0 ? allocationTotal.toFixed(2) : '');
+    }
+  }, [allocationTotal, isExplicitMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Managers don't record direct payments — redirect to cash requests.
+  // This comes after all hooks so role changes never alter hook ordering.
   if (user?.role === 'MANAGER') {
     return <Navigate to="/payments/cash-requests" replace />;
   }
 
-  const selectedChit = collectableChits.find((c) => c.id === chitId);
-  const isCash = paymentMode === 'CASH';
+  function toggleChitAllocation(chit) {
+    setSelectedAllocations((current) => {
+      if (current[chit.id] !== undefined) {
+        const next = { ...current };
+        delete next[chit.id];
+        const nextFirst = Object.keys(next)[0] ?? '';
+        setChitId(nextFirst);
+        return next;
+      }
+      const outstandingForChit = Number(balanceMap[chit.id] ?? 0);
+      const suggested = outstandingForChit > 0
+        ? outstandingForChit
+        : Number(chit.installmentAmount ?? 0);
+      setChitId((previous) => previous || chit.id);
+      return { ...current, [chit.id]: suggested > 0 ? suggested.toFixed(2) : '' };
+    });
+  }
+
+  function updateChitAllocation(chitIdToUpdate, value) {
+    setSelectedAllocations((current) => ({
+      ...current,
+      [chitIdToUpdate]: value,
+    }));
+  }
 
   const outstanding = chitId ? (balanceMap[chitId] ?? null) : null;
   const amtNum = Number(amount || 0);
   const creditCoversAll = chitId && outstanding !== null && outstanding > 0 && creditBalance >= outstanding;
   // Effective amount after credit auto-applies
   const effectiveAmount = amtNum + creditBalance;
-  const isOverpay = !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
+  const isOverpay = !isExplicitMode && !isCredit && outstanding !== null && effectiveAmount > outstanding && outstanding > 0;
   // Cross-chit overpayment: amount exceeds member's total outstanding across ALL chits
-  const totalOverpayAmt = !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
+  const totalOverpayAmt = !isExplicitMode && !isCredit && !isWorkerCollect && amtNum > 0 && memberTotalBalance > 0
     ? Math.max(0, amtNum - memberTotalBalance)
     : 0;
 
@@ -1279,11 +1335,55 @@ export function RecordPaymentTab() {
         </FormField>
 
         {/* Chit */}
-        <FormField label="Chit" required>
+        <FormField label={isExplicitMode ? 'Chits to allocate payment' : 'Chit'} required>
           {!memberId ? (
             <Select disabled><option>— Select a member first —</option></Select>
           ) : collectableChits.length === 0 ? (
             <p className="text-xs text-gray-400 py-2">No active chits found for this member.</p>
+          ) : isExplicitMode ? (
+            <div className="space-y-2 rounded-lg border border-gray-200 p-3 bg-gray-50">
+              <p className="text-xs text-gray-500 mb-2">
+                Select one or more chits. Each amount is applied FIFO within that chit only.
+                Nothing is silently moved to another chit.
+              </p>
+              {collectableChits.map((c) => {
+                const checked = selectedAllocations[c.id] !== undefined;
+                const bal = balanceMap[c.id];
+                return (
+                  <div key={c.id} className={`rounded-lg border px-3 py-2 ${checked ? 'border-[#1E3A5F] bg-white' : 'border-gray-200 bg-white'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleChitAllocation(c)}
+                        className="accent-[#1E3A5F]"
+                      />
+                      <span className="text-sm font-medium text-gray-700 flex-1">{c.name}</span>
+                      <span className="text-xs text-gray-500">
+                        {bal == null ? 'Loading…' : bal > 0 ? `₹${bal.toLocaleString('en-IN')} due` : 'No dues'}
+                      </span>
+                    </label>
+                    {checked && (
+                      <div className="mt-2 ml-6 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Allocate ₹</span>
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={selectedAllocations[c.id]}
+                          onChange={(e) => updateChitAllocation(c.id, e.target.value)}
+                          className="!py-1.5 !text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="flex justify-between border-t border-gray-200 pt-2 text-sm font-semibold text-gray-700">
+                <span>Total payment</span>
+                <span>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
           ) : (
             <Select value={chitId} onChange={(e) => setChitId(e.target.value)} required>
               <option value="">— Select chit —</option>
@@ -1296,7 +1396,7 @@ export function RecordPaymentTab() {
           )}
         </FormField>
 
-        {selectedChit && (
+        {selectedChit && !isExplicitMode && (
           <div className="bg-gray-50 rounded-lg px-4 py-2.5 text-xs text-gray-500 space-y-1.5">
             <div className="flex items-center gap-3 flex-wrap">
               <ChitStatusDot status={selectedChit.status} />
@@ -1323,6 +1423,7 @@ export function RecordPaymentTab() {
               placeholder={selectedChit?.installmentAmount ? String(selectedChit.installmentAmount) : 'Enter amount'}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              readOnly={isExplicitMode}
               required
             />
             {outstanding > 0 && (
@@ -1330,6 +1431,9 @@ export function RecordPaymentTab() {
                 className="mt-1 text-xs font-semibold hover:underline cursor-pointer" style={{ color: '#1E3A5F' }}>
                 Fill {hidden ? '••••••' : `₹${outstanding.toLocaleString('en-IN')}`} due →
               </button>
+            )}
+            {isExplicitMode && allocationEntries.length > 0 && (
+              <p className="mt-1.5 text-xs text-gray-500">Payment total is calculated from the selected chit allocations above.</p>
             )}
             {isOverpay && (
               <div className="mt-1.5 flex items-start gap-1.5 text-xs rounded-lg px-3 py-2" style={{ color: '#1E3A5F', background: '#EEF2F8', border: '1px solid #C7D5E8' }}>
@@ -1391,7 +1495,9 @@ export function RecordPaymentTab() {
         <Button
           onClick={() => mutation.mutate()}
           loading={mutation.isPending}
-          disabled={isExpired || !memberId || !chitId || (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0))}
+          disabled={isExpired || !memberId || (!isExplicitMode && !chitId) || (isExplicitMode
+            ? allocationTotal <= 0
+            : (isCredit ? !creditCoversAll : (!amount || Number(amount) <= 0)))}
           className="w-full"
           title={isExpired ? 'Plan expired — renew to record payments' : undefined}
         >
@@ -1956,6 +2062,271 @@ export function HistoryTab() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Intimations Tab ───────────────────────────────────────────────────────
+
+const INTIMATION_STATUS = {
+  PENDING:   { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
+  APPROVED:  { label: 'Approved',  cls: 'bg-green-100 text-green-700' },
+  REJECTED:  { label: 'Rejected',  cls: 'bg-red-100 text-red-600' },
+  WITHDRAWN: { label: 'Withdrawn', cls: 'bg-gray-100 text-gray-500' },
+  VOIDED:    { label: 'Voided',    cls: 'bg-red-100 text-red-600' },
+};
+
+export function IntimationsTab() {
+  const qc = useQueryClient();
+  const { toast } = useToastContext();
+  const [statusFilter, setStatusFilter] = useState('PENDING');
+  const [approveTarget, setApproveTarget] = useState(null);
+  const [approvedAmounts, setApprovedAmounts] = useState({});
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [voidTarget, setVoidTarget] = useState(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const { data: all = [], isLoading, refetch } = useQuery({
+    queryKey: ['admin-intimations'],
+    queryFn: getAllIntimations,
+    refetchOnMount: true,
+    refetchInterval: 30_000,
+  });
+
+  const filtered = all.filter(i => statusFilter === 'ALL' || i.status === statusFilter);
+  const pendingCount = all.filter(i => i.status === 'PENDING').length;
+
+  const approveMut = useMutation({
+    mutationFn: () => {
+      const items = (approveTarget.items ?? []).map(it => ({
+        itemId: it.id,
+        approvedAmount: Number(approvedAmounts[it.id] ?? it.claimedAmount),
+      }));
+      return approveIntimation(approveTarget.id, items);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      toast('Intimation approved and payment recorded');
+      setApproveTarget(null);
+    },
+    onError: (e) => toast(e?.response?.data?.message ?? 'Approval failed', 'error'),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: () => rejectIntimation(rejectTarget.id, rejectReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      toast('Intimation rejected');
+      setRejectTarget(null);
+      setRejectReason('');
+    },
+    onError: (e) => toast(e?.response?.data?.message ?? 'Rejection failed', 'error'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: () => voidIntimation(voidTarget.id, voidReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      toast('Intimation voided and payments reversed');
+      setVoidTarget(null);
+      setVoidReason('');
+    },
+    onError: (e) => toast(e?.response?.data?.message ?? 'Void failed', 'error'),
+  });
+
+  const fmtAmt = (n) => n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
+  const fmtTs  = (s) => s ? new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  return (
+    <div className="space-y-4">
+      {pendingCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <span className="text-sm font-semibold text-amber-700">
+            {pendingCount} payment intimation{pendingCount > 1 ? 's' : ''} awaiting your review
+          </span>
+        </div>
+      )}
+
+      {/* Approve modal */}
+      {approveTarget && (
+        <Modal title="Approve Payment Intimation" onClose={() => setApproveTarget(null)}>
+          <p className="text-sm text-gray-500 mb-4">
+            Edit the approved amounts if needed, then confirm.
+          </p>
+          <div className="space-y-3 mb-4">
+            {(approveTarget.items ?? []).map((it, idx) => (
+              <div key={it.id} className="bg-gray-50 rounded-lg p-3">
+                <div className="text-xs text-gray-500 mb-1">
+                  Chit {idx + 1} · Member claimed {fmtAmt(it.claimedAmount)}
+                </div>
+                <FormField label="Approved Amount (₹)">
+                  <Input
+                    type="number"
+                    value={approvedAmounts[it.id] ?? it.claimedAmount ?? ''}
+                    onChange={e => setApprovedAmounts(prev => ({ ...prev, [it.id]: e.target.value }))}
+                    min={1}
+                  />
+                </FormField>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setApproveTarget(null)}>Cancel</Button>
+            <Button onClick={() => approveMut.mutate()} disabled={approveMut.isPending}>
+              {approveMut.isPending ? 'Approving…' : 'Approve & Record Payment'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Reject modal */}
+      {rejectTarget && (
+        <Modal title="Reject Intimation" onClose={() => setRejectTarget(null)}>
+          <FormField label="Reason (optional)">
+            <Textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              placeholder="Why are you rejecting this?"
+              rows={3}
+            />
+          </FormField>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="secondary" onClick={() => setRejectTarget(null)}>Cancel</Button>
+            <Button variant="danger" onClick={() => rejectMut.mutate()} disabled={rejectMut.isPending}>
+              {rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Void modal */}
+      {voidTarget && (
+        <Modal title="Void Approved Intimation" onClose={() => setVoidTarget(null)}>
+          <p className="text-sm text-red-600 mb-3">
+            This will reverse all payment batches created for this intimation.
+          </p>
+          <FormField label="Reason (required)">
+            <Textarea
+              value={voidReason}
+              onChange={e => setVoidReason(e.target.value)}
+              placeholder="Why are you voiding this?"
+              rows={3}
+            />
+          </FormField>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="secondary" onClick={() => setVoidTarget(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => { if (!voidReason.trim()) { toast('Reason is required', 'error'); return; } voidMut.mutate(); }}
+              disabled={voidMut.isPending}
+            >
+              {voidMut.isPending ? 'Voiding…' : 'Void & Reverse Payments'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Status filter pills */}
+      <div className="flex gap-2 flex-wrap">
+        {['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'VOIDED', 'ALL'].map(f => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setStatusFilter(f)}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+            style={{
+              backgroundColor: statusFilter === f ? '#1E3A5F' : '#fff',
+              color: statusFilter === f ? '#fff' : '#374151',
+              borderColor: statusFilter === f ? '#1E3A5F' : '#D1D5DB',
+            }}
+          >
+            {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+            {f === 'PENDING' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <ListSkeleton rows={4} />
+      ) : filtered.length === 0 ? (
+        <EmptyState title="No intimations" description="No payment intimations match the selected filter." />
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(item => {
+            const s = INTIMATION_STATUS[item.status] ?? { label: item.status, cls: 'bg-gray-100 text-gray-500' };
+            const total = (item.items ?? []).reduce((sum, it) => sum + Number(it.claimedAmount ?? 0), 0);
+            return (
+              <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
+                    <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
+                    <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
+                </div>
+
+                {/* Per-chit breakdown */}
+                <div className="bg-gray-50 rounded-lg divide-y divide-gray-100 mb-3">
+                  {(item.items ?? []).map((it, idx) => (
+                    <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
+                      <span className="text-gray-500">Chit {idx + 1}</span>
+                      <div className="text-right">
+                        <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
+                        {it.approvedAmount != null && (
+                          <div className="text-green-600 text-xs font-semibold">Approved {fmtAmt(it.approvedAmount)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {item.notes && (
+                  <p className="text-xs text-gray-500 mb-3 italic">"{item.notes}"</p>
+                )}
+                {item.rejectReason && (
+                  <p className="text-xs text-red-600 mb-3">Reject reason: {item.rejectReason}</p>
+                )}
+                {item.voidReason && (
+                  <p className="text-xs text-red-600 mb-3">Void reason: {item.voidReason}</p>
+                )}
+
+                {/* Action buttons */}
+                {item.status === 'PENDING' && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setApproveTarget(item);
+                        setApprovedAmounts(Object.fromEntries((item.items ?? []).map(it => [it.id, String(it.claimedAmount ?? '')])));
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => { setRejectTarget(item); setRejectReason(''); }}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+                {item.status === 'APPROVED' && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => { setVoidTarget(item); setVoidReason(''); }}
+                  >
+                    Void & Reverse
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

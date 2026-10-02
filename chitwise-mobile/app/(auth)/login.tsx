@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Image, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useAuthStore } from '../../store/authStore';
-import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken } from '../../services/api';
+import { accountStorageId, useAuthStore } from '../../store/authStore';
+import { login, selectTenant, verifyLoginOtp, verifyLoginEmailOtp, resendLoginEmailOtp, TenantOption, forgotPasswordLookup, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordResetWithToken, refreshAuthToken, getMe } from '../../services/api';
 import { C, T, Input, Button } from '../../components/ui';
 import OtpCodeInput from '../../components/OtpCodeInput';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -153,7 +153,7 @@ function ForgotPasswordFlow({ onClose }: { onClose: () => void }) {
   ) : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.white }}>
+    <View style={{ flex: 1, backgroundColor: C.surface }}>
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           {/* Header */}
@@ -340,8 +340,17 @@ export default function LoginScreen() {
   const router  = useRouter();
 
   // "Add account" mode — navigated here from Accounts tab in profile
-  const { addAccount } = useLocalSearchParams<{ addAccount?: string }>();
+  const { addAccount, username: presetUsername } = useLocalSearchParams<{ addAccount?: string; username?: string }>();
   const isAddAccountMode = addAccount === '1';
+  // Re-login for a specific saved account (tapped "Login" on its card) already
+  // knows which account this is — lock the username so it can't be fat-fingered
+  // into logging into a different one, and drop the user straight into the
+  // password field.
+  const isLockedUsername = !!presetUsername;
+
+  useEffect(() => {
+    if (presetUsername) setUsername(presetUsername);
+  }, [presetUsername]);
 
   const checkBiometric = useCallback(async () => {
     const [avail, enabled, label] = await Promise.all([
@@ -366,8 +375,10 @@ export default function LoginScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [biometricOn]);
 
-  function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
-    setUser({
+  async function applyAuth(data: any, offerBiometric = false, tenantName?: string) {
+    // Wait until SecureStore contains this account's tokens before AuthGuard
+    // mounts its role dashboard and dashboard queries begin.
+    await setUser({
       id:                 data.userId,
       username:           data.username,
       fullName:           data.fullName,
@@ -381,6 +392,12 @@ export default function LoginScreen() {
       adminPhone:         data.adminPhone ?? undefined,
       adminEmail:         data.adminEmail ?? undefined,
     });
+    // Backfill the account's own phone in the background so it can be shown
+    // on the Instagram-style account switcher card.
+    const accountId = accountStorageId(data.userId, data.tenantId, 'ORGANIZATION');
+    getMe().then((me: any) => {
+      if (me?.phone) useAuthStore.getState().updateAccountPhone(accountId, me.phone, me.phoneCountryCode);
+    }).catch(() => {});
     if (offerBiometric && biometricAvail && !biometricOn && !data.mustChangePassword && data.refreshToken) {
       setPendingCreds({ username: username.trim(), refreshToken: data.refreshToken });
       setShowEnablePrompt(true);
@@ -397,7 +414,7 @@ export default function LoginScreen() {
     try {
       const data = await selectTenant(loginToken, tenantId);
       setTenantPicker(null);
-      applyAuth(data, true, tenantName);
+      await applyAuth(data, true, tenantName);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Tenant selection failed');
     } finally {
@@ -412,7 +429,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const data = await refreshAuthToken(creds.refreshToken);
-      applyAuth(data);
+      await applyAuth(data);
     } catch {
       await disableBiometric();
       setBiometricOn(false);
@@ -450,7 +467,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? err.message ?? 'Login failed');
     } finally {
@@ -474,7 +491,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Incorrect OTP. Please try again.');
     } finally {
@@ -504,7 +521,7 @@ export default function LoginScreen() {
         }
         return;
       }
-      applyAuth(data, true);
+      await applyAuth(data, true);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Incorrect email OTP. Please try again.');
     } finally {
@@ -558,22 +575,22 @@ export default function LoginScreen() {
           {/* Logo */}
           <View style={{ alignItems: 'center', marginBottom: 48 }}>
             <Image
-              source={require('../../assets/logo-dark.png')}
+              source={require('../../assets/icon.png')}
               style={{ width: 200, height: 90, resizeMode: 'contain' }}
             />
             <Text style={{ fontSize: 14, color: C.white + 'AA', marginTop: 8 }}>
-              {isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management'}
+              {isLockedUsername ? `Sign in as @${presetUsername}` : isAddAccountMode ? 'Add Another Account' : 'Chit Fund Management Platform'}
             </Text>
           </View>
 
           {/* Form Card */}
           <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 24,
+            backgroundColor: C.surface, borderRadius: 24, padding: 24,
             shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
           }}>
             <Text style={{ fontSize: 20, fontWeight: '700', color: C.navy, marginBottom: 20 }}>
-              {isAddAccountMode ? 'Add Account' : 'Sign In'}
+              {isLockedUsername ? 'Welcome Back' : isAddAccountMode ? 'Add Account' : 'Sign In'}
             </Text>
 
             <Input
@@ -583,6 +600,7 @@ export default function LoginScreen() {
               placeholder="Enter your username"
               autoCapitalize="none"
               returnKeyType="next"
+              editable={!isLockedUsername}
             />
             <View style={{ height: 14 }} />
             <Input
@@ -673,7 +691,7 @@ export default function LoginScreen() {
       {/* Tenant picker — shown when user belongs to multiple orgs */}
       <Modal visible={!!tenantPicker} transparent animationType="slide">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Select Organisation</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Choose the org you want to sign into</Text>
             <ScrollView style={{ maxHeight: 320 }}>{tenantPicker?.tenants.map((t) => (
@@ -681,7 +699,7 @@ export default function LoginScreen() {
                 disabled={loading}
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
                   padding: 16, borderRadius: 14, borderWidth: 1.5, borderColor: '#E5E7EB',
-                  marginBottom: 10, backgroundColor: '#F9FAFB' }}>
+                  marginBottom: 10, backgroundColor: C.surface }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: t.status === 'PENDING' ? '#9CA3AF' : C.navy }}>{t.name}</Text>
                   <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{t.role} · {t.plan}</Text>
@@ -703,7 +721,7 @@ export default function LoginScreen() {
       <Modal visible={!!loginOtpState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your identity</Text>
             <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
               A 6-digit OTP was sent to {loginOtpState?.maskedPhone}
@@ -728,7 +746,7 @@ export default function LoginScreen() {
       <Modal visible={!!loginEmailState} transparent animationType="slide">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-            <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+            <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
               <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Verify your email</Text>
               <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
                 Enter the 6-digit code generated for {loginEmailState?.maskedEmail}
@@ -763,7 +781,7 @@ export default function LoginScreen() {
           justifyContent: 'center', alignItems: 'center', padding: 24,
         }}>
           <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 28,
+            backgroundColor: C.surface, borderRadius: 24, padding: 28,
             width: '100%', maxWidth: 360,
             shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
             shadowOpacity: 0.2, shadowRadius: 24, elevation: 15,

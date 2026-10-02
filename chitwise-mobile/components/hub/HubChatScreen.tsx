@@ -26,7 +26,7 @@ function Thread({ selected, onBack }: { selected: Selection; onBack: () => void 
   });
   const items: any[] = (query.data as any)?.items ?? [];
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
       <TouchableOpacity onPress={onBack} style={{ padding: 8 }}><Text style={{ fontSize: 22, color: C.navy }}>‹</Text></TouchableOpacity>
       <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{selected.name}</Text>
     </View>
@@ -37,7 +37,7 @@ function Thread({ selected, onBack }: { selected: Selection; onBack: () => void 
           <View style={{ maxWidth: '86%', backgroundColor: message.senderId === currentUserId ? C.navy : C.white, borderWidth: message.senderId === currentUserId ? 0 : 1, borderColor: C.gray100, borderRadius: 13, paddingHorizontal: 12, paddingVertical: 9 }}><Text style={{ color: message.senderId === currentUserId ? C.white : C.gray900 }}>{message.deleted ? 'This message was deleted' : message.content}</Text></View>
         </View>)}
       </ScrollView>
-      <View style={{ flexDirection: 'row', gap: 8, padding: 12, backgroundColor: C.white, borderTopWidth: 1, borderTopColor: C.gray100 }}>
+      <View style={{ flexDirection: 'row', gap: 8, padding: 12, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.gray100 }}>
         <TextInput value={draft} onChangeText={setDraft} multiline placeholder="Message your team…" style={{ flex: 1, maxHeight: 90, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 10 }} />
         <TouchableOpacity onPress={() => send.mutate()} disabled={!draft.trim() || send.isPending} style={{ width: 43, height: 43, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: draft.trim() ? C.navy : C.gray200 }}><Text style={{ color: C.white, fontSize: 18 }}>↑</Text></TouchableOpacity>
       </View>
@@ -72,24 +72,24 @@ export default function HubChatScreen() {
     .sort((a, b) => new Date(b.lastMessageAt ?? 0).getTime() - new Date(a.lastMessageAt ?? 0).getTime());
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-    <View style={{ padding: 14, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+    <View style={{ padding: 14, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={T.h2}>Team Chat</Text><TouchableOpacity onPress={() => setShowGroup(true)} style={{ backgroundColor: C.navy, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 }}><Text style={{ color: C.white, fontWeight: '700', fontSize: 12 }}>+ Group</Text></TouchableOpacity></View>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
         {(['messages', 'directory'] as const).map(value => <TouchableOpacity key={value} onPress={() => setTab(value)} style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 99, backgroundColor: tab === value ? C.navy : C.gray100 }}><Text style={{ color: tab === value ? C.white : C.gray600, fontWeight: '700', fontSize: 12 }}>{value === 'messages' ? 'Messages' : 'Employees'}</Text></TouchableOpacity>)}
       </View>
     </View>
     <ScrollView contentContainerStyle={{ padding: 14 }}>
-      {tab === 'messages' ? (dms.isLoading || groups.isLoading ? <ActivityIndicator color={C.navy} /> : conversations.length === 0 ? <Text style={{ color: C.gray400, textAlign: 'center', marginTop: 35 }}>Start a conversation from Employees</Text> : conversations.map((item: any) => <TouchableOpacity key={`${item.kind}-${item.id}`} onPress={() => setSelected({ id: item.id, name: item.otherEmployeeName, kind: item.kind })} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.gray100 }}>
+      {tab === 'messages' ? (dms.isLoading || groups.isLoading ? <ActivityIndicator color={C.navy} /> : conversations.length === 0 ? <Text style={{ color: C.gray400, textAlign: 'center', marginTop: 35 }}>Start a conversation from Employees</Text> : conversations.map((item: any) => <TouchableOpacity key={`${item.kind}-${item.id}`} onPress={() => setSelected({ id: item.id, name: item.otherEmployeeName, kind: item.kind })} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.gray100 }}>
         <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: C.white, fontWeight: '800' }}>{item.otherEmployeeName?.[0] ?? '?'}</Text></View>
         <View style={{ flex: 1, marginLeft: 10 }}><Text style={{ fontWeight: '700', color: C.gray900 }}>{item.otherEmployeeName}</Text><Text style={{ color: C.gray400, fontSize: 12 }} numberOfLines={1}>{item.lastMessagePreview ?? (item.kind === 'group' ? 'Group conversation' : 'No messages yet')}</Text></View>
         {item.unreadCount > 0 && <Text style={{ color: C.white, backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, fontSize: 10 }}>{item.unreadCount}</Text>}
-      </TouchableOpacity>)) : (directory.isLoading ? <ActivityIndicator color={C.navy} /> : ((directory.data ?? []) as any[]).map(employee => <TouchableOpacity key={employee.id} onPress={() => start.mutate(employee.id)} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.gray100 }}>
+      </TouchableOpacity>)) : (directory.isLoading ? <ActivityIndicator color={C.navy} /> : ((directory.data ?? []) as any[]).map(employee => <TouchableOpacity key={employee.id} onPress={() => start.mutate(employee.id)} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.gray100 }}>
         <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E0E7FF', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: C.navy, fontWeight: '800' }}>{employee.fullName?.[0] ?? '?'}</Text></View>
         <View style={{ flex: 1, marginLeft: 10 }}><Text style={{ fontWeight: '700', color: C.gray900 }}>{employee.fullName}</Text><Text style={{ color: C.gray400, fontSize: 11 }}>{employee.employeeId} · {employee.role?.replace('_', ' ')}</Text></View><Text style={{ color: C.navy, fontSize: 18 }}>›</Text>
       </TouchableOpacity>))}
     </ScrollView>
     <Modal visible={showGroup} transparent animationType="slide">
-      <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'flex-end' }}><View style={{ maxHeight: '82%', backgroundColor: C.white, padding: 22, paddingBottom: 36, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+      <View style={{ flex: 1, backgroundColor: '#0008', justifyContent: 'flex-end' }}><View style={{ maxHeight: '82%', backgroundColor: C.surface, padding: 22, paddingBottom: 36, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
         <Text style={T.h2}>Create group</Text>
         <TextInput value={groupName} onChangeText={setGroupName} maxLength={100} placeholder="Group name" style={{ marginTop: 16, borderWidth: 1, borderColor: C.gray200, borderRadius: 10, padding: 11 }} />
         <TextInput value={groupDescription} onChangeText={setGroupDescription} maxLength={500} placeholder="Description (optional)" style={{ marginTop: 10, borderWidth: 1, borderColor: C.gray200, borderRadius: 10, padding: 11 }} />

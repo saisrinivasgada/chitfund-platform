@@ -51,7 +51,7 @@ function MemberDetailModal({ member, onClose }: { member: any; onClose: () => vo
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }} numberOfLines={1}>{member.fullName ?? member.name}</Text>
@@ -188,7 +188,7 @@ export default function ManagerMembersScreen() {
               placeholder="Search by name or phone…"
               placeholderTextColor={C.gray400}
               style={{
-                backgroundColor: C.white, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200,
+                backgroundColor: C.surface, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200,
                 paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900,
               }}
             />

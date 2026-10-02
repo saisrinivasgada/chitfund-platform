@@ -1,0 +1,23 @@
+appId: ${APP_ID}
+name: Offline Payment — Phase 2 (session and queue persist across restart)
+---
+# Relaunch WITHOUT clearState to verify session and queue persist
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd
+
+# Must land on Dashboard — session survived the restart
+- extendedWaitUntil:
+    visible:
+      text: "Dashboard"
+    timeout: 15000
+
+# Queue must still show the pending payment
+- assertVisible:
+    text: "waiting"
+
+# Payment service is still down here — verify indicator stays amber (not red)
+- assertNotVisible:
+    text: "Sync needs attention"
+- assertNotVisible:
+    text: "Login required"

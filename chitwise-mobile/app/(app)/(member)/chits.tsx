@@ -175,7 +175,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
   return (
     <Modal visible animationType="slide" transparent presentationStyle="overFullScreen">
       <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
-        <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%' }}>
+        <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '92%' }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <View style={{ flex: 1 }}>
@@ -447,7 +447,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
                     <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
                       <View style={{
                         flex: 1, flexDirection: 'row', alignItems: 'center',
-                        backgroundColor: C.white, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray200,
+                        backgroundColor: C.surface, borderRadius: 10, borderWidth: 1.5, borderColor: C.gray200,
                         paddingHorizontal: 12,
                       }}>
                         <Text style={{ fontSize: 15, color: C.gray500, marginRight: 4 }}>₹</Text>
@@ -573,7 +573,7 @@ function ChitDetailModal({ chit, memberId, onClose }: { chit: any; memberId: str
                       const won = winnerByMonth[r.monthNumber] && winnerByMonth[r.monthNumber].memberId === memberId;
                       const pct = r.amountDue > 0 ? Math.min(100, Math.round((r.amountPaid / r.amountDue) * 100)) : 0;
                       return (
-                        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.white }}>
+                        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, backgroundColor: C.surface }}>
                           <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ fontSize: 13, fontWeight: '800', color: C.white }}>{r.monthNumber}</Text>
                           </View>
@@ -700,7 +700,7 @@ export default function MemberChitsScreen() {
                 <View>
                   <Text style={{ fontSize: 10, color: C.gray400, marginBottom: 2, textTransform: 'uppercase' }}>Draws</Text>
                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>
-                    {c.status === 'COMPLETED' ? c.totalDraws : (c.currentDraw ?? 1)} / {c.totalDraws ?? '?'}
+                    {c.status === 'COMPLETED' ? (c.durationMonths ?? c.totalDraws) : (c.winnersAssigned ?? c.currentDraw ?? 0)} / {c.durationMonths ?? c.totalDraws ?? '?'}
                   </Text>
                 </View>
                 {c.totalAmount && (
@@ -712,21 +712,21 @@ export default function MemberChitsScreen() {
               </View>
 
               {/* Progress bar */}
-              {c.totalDraws && c.currentDraw && (
+              {(c.durationMonths ?? c.totalDraws) && (c.winnersAssigned != null || c.currentDraw != null) && (
                 <>
                   <Divider />
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                       <Text style={{ fontSize: 11, color: C.gray400 }}>Progress</Text>
                       <Text style={{ fontSize: 11, color: C.navy, fontWeight: '600' }}>
-                        {Math.round((c.currentDraw / c.totalDraws) * 100)}%
+                        {Math.round(((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}%
                       </Text>
                     </View>
                     <View style={{ height: 6, backgroundColor: C.gray200, borderRadius: 3 }}>
                       <View style={{
                         height: 6, borderRadius: 3,
                         backgroundColor: c.status === 'COMPLETED' ? C.green : C.navy,
-                        width: `${Math.min(100, (c.currentDraw / c.totalDraws) * 100)}%`,
+                        width: `${Math.min(100, ((c.winnersAssigned ?? c.currentDraw ?? 0) / (c.durationMonths ?? c.totalDraws)) * 100)}%`,
                       }} />
                     </View>
                   </View>

@@ -48,7 +48,7 @@ function PaymentDetailModal({ payment, tenantMap, onClose, onRefunded }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -95,13 +95,13 @@ function PaymentDetailModal({ payment, tenantMap, onClose, onRefunded }: {
               <View>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Refund Amount (₹) *</Text>
                 <TextInput value={refAmount} onChangeText={setRefAmount} keyboardType="numeric"
-                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: '#fff' }} />
+                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
               </View>
 
               <View>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
                 <TextInput value={refReason} onChangeText={setRefReason} multiline numberOfLines={2} placeholder="Reason for refund…" placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: '#fff', minHeight: 56 }} />
+                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface, minHeight: 56 }} />
               </View>
 
               <View>
@@ -119,13 +119,13 @@ function PaymentDetailModal({ payment, tenantMap, onClose, onRefunded }: {
               <View>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reference / UTR</Text>
                 <TextInput value={refRef} onChangeText={setRefRef} placeholder="Optional" placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: '#fff' }} />
+                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
               </View>
 
               <View>
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Refund Date</Text>
                 <TextInput value={refDate} onChangeText={setRefDate} placeholder="YYYY-MM-DD" placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: '#fff' }} />
+                  style={{ borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -204,7 +204,7 @@ function RecordPaymentModal({ visible, onClose, onDone, tenants }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Payment</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -392,7 +392,7 @@ export default function SuperAdminBillingScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -436,7 +436,7 @@ export default function SuperAdminBillingScreen() {
             const isRefund = p.type === 'REFUND';
             return (
               <TouchableOpacity key={p.id ?? i} activeOpacity={0.75} onPress={() => setSelectedPayment(p)} style={{
-                backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10,
+                backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10,
                 borderWidth: 1, borderColor: C.gray100,
                 shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
               }}>

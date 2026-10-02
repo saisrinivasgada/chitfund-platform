@@ -96,7 +96,7 @@ function ChatInput({
         style={{
           flex: 1, maxHeight: 100, fontSize: 14, color: C.gray900,
           borderWidth: 1, borderColor: C.gray200, borderRadius: 16,
-          paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB',
+          paddingHorizontal: 14, paddingVertical: 10, backgroundColor: C.surface,
         }}
       />
       <TouchableOpacity
@@ -499,7 +499,7 @@ export default function MemberMessagesScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }} edges={['top']}>
       {!activeConv && !activeGroup && (
         <View style={{ padding: 16, paddingBottom: 12, borderBottomWidth: 1, borderColor: C.gray100 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy }}>Messages</Text>

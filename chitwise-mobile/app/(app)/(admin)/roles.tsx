@@ -126,7 +126,7 @@ export default function RolesScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -156,7 +156,7 @@ export default function RolesScreen() {
         </View>
 
         {/* Legend */}
-        <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20, backgroundColor: C.white, borderRadius: 12, padding: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20, backgroundColor: C.surface, borderRadius: 12, padding: 12 }}>
           {[
             { sym: '✓', label: 'Full access', color: '#16A34A' },
             { sym: '~', label: 'Limited',     color: '#D97706' },
@@ -179,7 +179,7 @@ export default function RolesScreen() {
               {section.title.toUpperCase()}
             </Text>
             <View style={{
-              backgroundColor: C.white, borderRadius: 14,
+              backgroundColor: C.surface, borderRadius: 14,
               borderWidth: 1, borderColor: C.gray100,
               overflow: 'hidden',
             }}>

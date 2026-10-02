@@ -295,9 +295,10 @@ public class CashRequestService {
 
         String sName = userServiceClient.getUserName(collectorId);
         String sDisplay = sName.isBlank() ? "A staff member" : sName;
+        String pickedUpAmount = req.getRequestedAmount() != null ? "₹" + req.getRequestedAmount().toPlainString() : "your payment";
         notificationService.notifyUser(req.getMemberId(), NotificationType.CASH_REQUEST_ASSIGNED,
-                "Cash Picked Up",
-                sDisplay + " has picked up your cash payment and is handing it to admin. You'll be notified once it's confirmed.",
+                "Cash Pickup — Please Confirm",
+                sDisplay + " has picked up " + pickedUpAmount + " from you. Please open the app to confirm this collection.",
                 "CASH_REQUEST", requestId, "/member");
         notificationService.notifyRole("ADMIN", NotificationType.CASH_COLLECTED,
                 "Cash Picked Up — Ready to Collect",
@@ -359,12 +360,43 @@ public class CashRequestService {
 
     @Transactional
     public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId) {
+        return collectForRequest(requestId, adminId, false, null);
+    }
+
+    /**
+     * @param overrideMemberRejection when the member explicitly rejected the collection —
+     *                                 partial (PARTIALLY_COLLECTED) or full (PICKED_UP),
+     *                                 memberApproved == false either way — this must be
+     *                                 true with a non-blank overrideReason, otherwise the
+     *                                 disputed amount is never silently credited without an
+     *                                 admin's explicit, auditable acknowledgement that
+     *                                 they're proceeding anyway.
+     */
+    @Transactional
+    public PaymentBatchResponse collectForRequest(UUID requestId, UUID adminId,
+                                                   boolean overrideMemberRejection, String overrideReason) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.PICKED_UP
                 && req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Request must be in PICKED_UP or PARTIALLY_COLLECTED state before admin can confirm collection — current status: " + req.getStatus());
+        }
+
+        // Member rejection applies to both a disputed partial amount AND a disputed full
+        // pickup (memberApprovePartial can be called against either status) — the guard
+        // must cover both, not just PARTIALLY_COLLECTED, or a rejected full pickup would
+        // be confirmable with zero enforcement.
+        if (Boolean.FALSE.equals(req.getMemberApproved())) {
+            if (!overrideMemberRejection || overrideReason == null || overrideReason.isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Member rejected this "
+                                + (req.getStatus() == CashRequestStatus.PARTIALLY_COLLECTED ? "partial collection" : "collection")
+                                + " (" + (req.getMemberRejectionReason() != null ? req.getMemberRejectionReason() : "no reason given")
+                                + "). Confirming it anyway requires an explicit override with a reason.");
+            }
+            logAudit(requestId, "MEMBER_REJECTION_OVERRIDDEN", req.getStatus(), req.getStatus(),
+                    adminId, "ADMIN", overrideReason);
         }
 
         BigDecimal amountToCredit = req.getCollectedAmount() != null
@@ -491,9 +523,10 @@ public class CashRequestService {
     public CashRequestResponse memberApprovePartial(UUID requestId, boolean approved, String reason, UUID memberId) {
         CashPaymentRequest req = findOrThrowForWrite(requestId);
 
-        if (req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
+        boolean isFullPickup = req.getStatus() == CashRequestStatus.PICKED_UP;
+        if (!isFullPickup && req.getStatus() != CashRequestStatus.PARTIALLY_COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
-                    "Only PARTIALLY_COLLECTED requests can be approved/rejected by member");
+                    "Only PICKED_UP or PARTIALLY_COLLECTED requests can be approved/rejected by member");
         }
         if (!req.getMemberId().equals(memberId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This request does not belong to you");
@@ -506,28 +539,32 @@ public class CashRequestService {
         CashPaymentRequest saved = requestRepository.save(req);
 
         logAudit(requestId, approved ? "MEMBER_APPROVED" : "MEMBER_REJECTED",
-                CashRequestStatus.PARTIALLY_COLLECTED, CashRequestStatus.PARTIALLY_COLLECTED,
+                req.getStatus(), req.getStatus(),
                 memberId, "MEMBER", approved ? null : reason);
 
+        BigDecimal displayAmount = isFullPickup ? req.getRequestedAmount() : req.getCollectedAmount();
+        String amountStr = displayAmount != null ? "₹" + displayAmount.toPlainString() : "the payment";
+        String collectionLabel = isFullPickup ? "Collection" : "Partial Collection";
+
         notificationService.notifyRole("ADMIN", NotificationType.CASH_REQUEST_ASSIGNED,
-                approved ? "Member Approved Partial Collection" : "Member Rejected Partial Collection",
+                approved ? "Member Approved " + collectionLabel : "Member Rejected " + collectionLabel,
                 approved
-                        ? "Member confirmed that ₹" + req.getCollectedAmount().toPlainString() + " was collected. Proceed to remit."
-                        : "Member disputed the partial collection. Reason: " + (reason != null ? reason : "—") + ". Review and edit amount if needed.",
+                        ? "Member confirmed that " + amountStr + " was collected. Proceed to remit."
+                        : "Member disputed the collection. Reason: " + (reason != null ? reason : "—") + ". Review and re-arrange pickup if needed.",
                 "CASH_REQUEST", requestId, "/payments");
         notificationService.notifyRole("MANAGER", NotificationType.CASH_REQUEST_ASSIGNED,
-                approved ? "Member Approved Partial Collection" : "Member Rejected Partial Collection",
+                approved ? "Member Approved " + collectionLabel : "Member Rejected " + collectionLabel,
                 approved
-                        ? "Member confirmed that ₹" + req.getCollectedAmount().toPlainString() + " was collected. Proceed to remit."
-                        : "Member disputed the partial collection. Reason: " + (reason != null ? reason : "—") + ". Review and edit amount if needed.",
+                        ? "Member confirmed that " + amountStr + " was collected. Proceed to remit."
+                        : "Member disputed the collection. Reason: " + (reason != null ? reason : "—") + ". Review and re-arrange pickup if needed.",
                 "CASH_REQUEST", requestId, "/payments");
 
         if (req.getAssignedStaffId() != null) {
             notificationService.notifyUser(req.getAssignedStaffId(), NotificationType.CASH_REQUEST_ASSIGNED,
                     approved ? "Member Approved Your Collection" : "Member Disputed Your Collection",
                     approved
-                            ? "The member confirmed the ₹" + req.getCollectedAmount().toPlainString() + " partial collection. Admin will remit soon."
-                            : "The member disputed the partial collection. Admin will review. Reason: " + (reason != null ? reason : "—"),
+                            ? "The member confirmed the " + amountStr + " collection. Admin will remit soon."
+                            : "The member disputed the collection. Admin will review. Reason: " + (reason != null ? reason : "—"),
                     "CASH_REQUEST", requestId, "/tasks");
         }
 
@@ -536,7 +573,7 @@ public class CashRequestService {
         publishCashRequestEvent(
                 approved ? "MEMBER_APPROVED" : "MEMBER_REJECTED",
                 saved, mName, sName,
-                req.getCollectedAmount(),
+                displayAmount,
                 approved ? null : reason
         );
 

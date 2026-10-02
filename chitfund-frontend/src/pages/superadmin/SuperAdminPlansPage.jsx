@@ -48,6 +48,11 @@ function PlanCard({ plan }) {
       className="relative flex flex-col rounded-2xl border border-gray-200 bg-white text-gray-900"
       style={{ minWidth: 220, maxWidth: 280 }}
     >
+      {plan.badgeEnabled && plan.badgeText && (
+        <span className="absolute -top-3 left-4 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap" style={{ backgroundColor: '#F59E0B' }}>
+          {plan.badgeText}
+        </span>
+      )}
       <div className="p-6 flex-1">
         <p className="text-xs font-bold uppercase tracking-widest mb-1 text-gray-400">
           {plan.displayName ?? plan.plan}
@@ -182,6 +187,8 @@ function PlanModal({ plan, onSave, onClose }) {
     enabledCapabilityKeys:  plan?.enabledCapabilities ?? [],
     priceRupees:            plan?.priceMonthlyInr != null ? String(plan.priceMonthlyInr / 100) : '0',
     globalDiscountPct:      plan?.globalDiscountPct != null ? String(plan.globalDiscountPct) : '',
+    badgeText:              plan?.badgeText ?? '',
+    badgeEnabled:           plan?.badgeEnabled ?? false,
     maxActiveChits:         plan?.maxActiveChits != null ? String(plan.maxActiveChits) : '1',
     maxMembers:             plan?.maxMembers != null ? String(plan.maxMembers) : '20',
     maxStaff:               plan?.maxStaff != null ? String(plan.maxStaff) : '0',
@@ -270,6 +277,8 @@ function PlanModal({ plan, onSave, onClose }) {
         enabledCapabilities: form.enabledCapabilityKeys,
         priceMonthlyInr:     priceInPaise,
         globalDiscountPct:   form.globalDiscountPct ? parseFloat(form.globalDiscountPct) : null,
+        badgeText:           form.badgeText.trim() || null,
+        badgeEnabled:        form.badgeEnabled,
         maxActiveChits:      parseInt(form.maxActiveChits) || 1,
         maxMembers:          parseInt(form.maxMembers) || 20,
         maxStaff:            parseInt(form.maxStaff) || 0,
@@ -342,6 +351,35 @@ function PlanModal({ plan, onSave, onClose }) {
               </label>
               <input type="number" min="0" max="100" step="0.01" className={INPUT} value={form.globalDiscountPct} onChange={e => set('globalDiscountPct', e.target.value)} placeholder="0" />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Badge / Sticker</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                maxLength={30}
+                className={INPUT + ' flex-1'}
+                value={form.badgeText}
+                onChange={e => set('badgeText', e.target.value)}
+                placeholder="e.g. 🔥 HOT DEAL"
+              />
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.badgeEnabled}
+                  onChange={e => set('badgeEnabled', e.target.checked)}
+                  className="w-4 h-4 accent-[#1E3A5F]"
+                />
+                Show
+              </label>
+              {form.badgeEnabled && form.badgeText && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap" style={{ backgroundColor: '#F59E0B' }}>
+                  {form.badgeText}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Displayed on plan cards on landing page, registration, and billing. Max 30 chars.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">

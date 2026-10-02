@@ -1,5 +1,7 @@
 package com.chitfund.paymentservice.service;
 
+import com.chitfund.common.exception.BusinessException;
+import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.domain.MemberCreditBalance;
 import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
@@ -7,6 +9,7 @@ import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -121,12 +124,17 @@ public class MemberCreditService {
                 ? credit.getBalance().add(amount)
                 : credit.getBalance().subtract(amount);
         if (newBalance.compareTo(BigDecimal.ZERO) < 0) {
-            // Settlement movements must be exact and auditable. Preserve the
-            // pre-existing clamp only for legacy payment-batch consumption.
-            if (settlementId != null) {
-                throw new IllegalStateException("Settlement credit movement would make the member balance negative");
-            }
-            newBalance = BigDecimal.ZERO;
+            // Every credit movement must be exact and auditable — never silently clamp
+            // a shortfall to zero, since that destroys real money with no ledger trace.
+            // Callers are expected to size their consumption against a locked read
+            // (getBalanceForUpdate) beforehand; if we still land here, the balance
+            // moved out from under the caller (e.g. spent elsewhere since a batch was
+            // recorded) and needs a human to reconcile rather than an automatic write-off.
+            throw new BusinessException(ErrorCode.CONCURRENT_MODIFICATION,
+                    "Credit movement would make member " + memberId + " balance negative (current ₹"
+                            + credit.getBalance() + ", requested " + type + " ₹" + amount + ") — "
+                            + "the balance changed since it was last read; needs manual reconciliation",
+                    HttpStatus.CONFLICT);
         }
         credit.setBalance(newBalance);
         creditBalanceRepository.save(credit);
@@ -161,18 +169,21 @@ public class MemberCreditService {
         List<MemberCreditTransaction> txns = creditTxnRepository.findBySourceBatchId(batchId);
         if (txns.isEmpty()) return;
 
+        int reversedCount = 0;
         for (MemberCreditTransaction txn : txns) {
-            if ("IN".equals(txn.getType())) {
-                // Credit was added from this batch's overpayment → now remove it
-                consumeCredit(memberId, txn.getAmount(), batchId, txn.getChitId(), actorId,
-                        "Void reversal — removing credit created by voided batch " + batchId);
-            } else {
-                // Credit was consumed by this batch → restore it
-                addCredit(memberId, txn.getAmount(), batchId, txn.getChitId(), actorId,
-                        "Void reversal — restoring credit consumed by voided batch " + batchId);
+            if (txn.getReversalOfId() != null) {
+                continue; // this row is itself a reversal, not an original movement — never re-reverse it
             }
+            if (creditTxnRepository.existsByReversalOfId(txn.getId())) {
+                continue; // already reversed — replay-safe
+            }
+            String reverseType = "IN".equals(txn.getType()) ? "OUT" : "IN";
+            recordMovement(memberId, txn.getAmount(), reverseType, batchId, null, txn.getId(),
+                    txn.getChitId(), actorId,
+                    "Void reversal for credit transaction " + txn.getId() + " (batch " + batchId + ")");
+            reversedCount++;
         }
         log.info("Reversed {} credit transaction(s) for voided batch {} (member {})",
-                txns.size(), batchId, memberId);
+                reversedCount, batchId, memberId);
     }
 }

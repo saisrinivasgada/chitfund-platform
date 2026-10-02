@@ -822,7 +822,8 @@ function apiPlanToCard(p, allPlans) {
     : hasDiscount ? `₹${originalRupees}/mo original`
     : 'Billed monthly, cancel anytime';
 
-  const badge = hasDiscount ? `${p.globalDiscountPct}% off` : null;
+  const badge = (p.badgeEnabled && p.badgeText) ? p.badgeText
+    : hasDiscount ? `${p.globalDiscountPct}% off` : null;
   const selectablePlans = allPlans.filter(x => x.plan !== 'CUSTOM');
   const midIdx = Math.floor(selectablePlans.length / 2);
   const highlight = selectablePlans[midIdx]?.plan === p.plan;
@@ -1148,7 +1149,7 @@ export default function LandingPage() {
             <Star size={14} className="text-yellow-300 flex-shrink-0" />
             🇮🇳 Built by India, for India
             <span className="w-px h-4 bg-white/20" />
-            <span className="font-medium text-white/75">First 6 months free · No credit card needed</span>
+            <span className="font-medium text-white/75">No credit card needed · Migration included</span>
           </motion.div>
 
           <motion.h1 initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }}
@@ -1170,7 +1171,7 @@ export default function LandingPage() {
               className="flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-bold cursor-pointer shadow-xl"
               style={{ backgroundColor: 'white', color: P }}
               whileHover={{ scale: 1.05, boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} whileTap={{ scale: 0.97 }}>
-              Start free — 6 months on us <ArrowRight size={18} />
+              Get started free <ArrowRight size={18} />
             </motion.button>
             <motion.button onClick={() => navigate('/login')}
               className="flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-medium cursor-pointer border border-white/30 text-white"
@@ -1743,7 +1744,7 @@ export default function LandingPage() {
               <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl font-semibold text-sm"
                 style={{ backgroundColor: '#22C55E', color: 'white' }}>
                 <span className="text-base">🎉</span>
-                <span>Introductory offer — first 6 months free on any plan</span>
+                <span>Basic plan is free — upgrade anytime as you grow</span>
               </div>
             </div>
           </Reveal>
@@ -1933,7 +1934,7 @@ export default function LandingPage() {
                 <LogIn size={18} /> Already enrolled? Sign in
               </motion.button>
             </div>
-            <p className="text-white/40 text-sm mt-8">No credit card · 6 months free · Migration included · All portals included</p>
+            <p className="text-white/40 text-sm mt-8">No credit card · Basic plan free · Migration included · All portals included</p>
           </Reveal>
         </div>
       </section>

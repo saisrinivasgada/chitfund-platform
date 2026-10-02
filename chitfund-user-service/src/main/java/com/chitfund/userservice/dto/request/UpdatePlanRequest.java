@@ -20,4 +20,6 @@ public class UpdatePlanRequest {
     private Integer displayOrder;
     private Integer maxStaff;
     private List<String> enabledCapabilities;
+    private String badgeText;
+    private Boolean badgeEnabled;
 }

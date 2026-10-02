@@ -106,13 +106,18 @@ class TestIdempotencyKey:
         # The first payload wins; only 400 was ever really collected.
         assert _paid(db, chit_month["chit_id"], chit_month["member"]) == Decimal("400.00")
 
-    def test_no_key_allows_a_genuine_second_payment(self, api, db, chit_month):
-        # Idempotency must not be so eager that two real instalments collapse
-        # into one — without a key these are distinct payments.
+    def test_two_distinct_payments_allowed_with_confirm(self, api, db, chit_month):
+        # X-Idempotency-Key is now required. Two genuinely separate instalments for
+        # the same member/chit/amount within the 10-minute duplicate-check window
+        # need confirmDuplicate=true on the second to affirm they are not an
+        # accidental double-entry. Idempotency must not collapse them into one.
         body = {"chitId": chit_month["chit_id"], "memberId": chit_month["member"],
                 "amount": 300, "paymentMode": "CASH"}
-        api.as_role("POST", f"{api.payment}/payments", chit_month["admin"], json=body)
-        api.as_role("POST", f"{api.payment}/payments", chit_month["admin"], json=body)
+        api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
+                    json=body, headers={"X-Idempotency-Key": str(uuid.uuid4())})
+        body_confirm = {**body, "confirmDuplicate": True}
+        api.as_role("POST", f"{api.payment}/payments", chit_month["admin"],
+                    json=body_confirm, headers={"X-Idempotency-Key": str(uuid.uuid4())})
 
         assert len(_batches(db, chit_month["chit_id"], chit_month["member"])) == 2
 

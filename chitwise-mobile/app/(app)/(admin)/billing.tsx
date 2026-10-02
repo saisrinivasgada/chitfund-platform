@@ -127,7 +127,7 @@ function UpgradeModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <View>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Change Plan</Text>
@@ -153,6 +153,11 @@ function UpgradeModal({
                   backgroundColor: isSelected ? C.navy50 : C.white,
                 }}
               >
+                {p.badgeEnabled && p.badgeText ? (
+                  <View style={{ position: 'absolute', top: -10, left: 14, backgroundColor: '#F59E0B', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#fff' }}>{p.badgeText}</Text>
+                  </View>
+                ) : null}
                 {hasDiscount && (
                   <View style={{ position: 'absolute', top: -10, right: 14, backgroundColor: '#16A34A', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 }}>
                     <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>{p.globalDiscountPct}% off</Text>
@@ -343,7 +348,7 @@ export default function BillingScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>

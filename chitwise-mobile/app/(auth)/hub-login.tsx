@@ -47,7 +47,7 @@ export default function HubLoginScreen() {
         </Text>
       </View>
 
-      <View style={{ backgroundColor: C.white, borderRadius: 24, padding: 24 }}>
+      <View style={{ backgroundColor: C.surface, borderRadius: 24, padding: 24 }}>
         <Text style={{ color: C.navy, fontSize: 20, fontWeight: '700', marginBottom: 20 }}>Employee sign in</Text>
         <Input label="Username" value={username} onChangeText={setUsername} autoCapitalize="none" placeholder="Your Hub username" />
         <View style={{ height: 14 }} />

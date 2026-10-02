@@ -1280,6 +1280,40 @@ export const getMemberPaymentHistoryByChit = async (memberId, chitId) => {
   return res.data.data ?? [];
 };
 
+// ─── Payment Intimations (payment-service) ────────────────────────────────
+export const createPaymentIntimation = async (items, notes) => {
+  const res = await api.post('/payments/intimations', { items, notes });
+  return res.data.data;
+};
+export const withdrawPaymentIntimation = async (id) => {
+  const res = await api.post(`/payments/intimations/${id}/withdraw`);
+  return res.data.data;
+};
+export const getMyIntimations = async () => {
+  const res = await api.get('/payments/intimations/mine');
+  return res.data.data ?? [];
+};
+export const getPendingIntimations = async () => {
+  const res = await api.get('/payments/intimations/pending');
+  return res.data.data ?? [];
+};
+export const getAllIntimations = async () => {
+  const res = await api.get('/payments/intimations');
+  return res.data.data ?? [];
+};
+export const approveIntimation = async (id, items) => {
+  const res = await api.post(`/payments/intimations/${id}/approve`, { items });
+  return res.data.data;
+};
+export const rejectIntimation = async (id, reason) => {
+  const res = await api.post(`/payments/intimations/${id}/reject`, { reason });
+  return res.data.data;
+};
+export const voidIntimation = async (id, reason) => {
+  const res = await api.post(`/payments/intimations/${id}/void`, { reason });
+  return res.data.data;
+};
+
 // ─── Admin Wallet / Treasury (payment-service) ────────────────────────────
 export const getWalletBalance = async () => {
   const res = await api.get('/admin/wallet/balance');

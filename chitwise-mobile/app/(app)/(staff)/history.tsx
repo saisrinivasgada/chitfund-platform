@@ -49,7 +49,7 @@ function PickupTrailModal({ request, memberName, chitName, onClose }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{
           flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
           padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200,

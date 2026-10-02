@@ -622,7 +622,10 @@ export default function TransactionDetailPage() {
             </span>
           } />
         )}
-        <InfoRow icon={Clock} label={batch.collectedAt ? 'Collected At' : 'Recorded At'} value={fmtDateTime(batch.collectedAt ?? batch.createdAt)} />
+        <InfoRow icon={Clock} label={batch.collectedAt ? 'Collected At' : 'Recorded At'} value={fmtDateTime(batch.collectedAt ?? batch.recordedAt ?? batch.createdAt)} />
+        {batch.syncedAt && batch.recordedAt && batch.syncedAt !== batch.recordedAt && (
+          <InfoRow icon={Clock} label="Synced At" value={fmtDateTime(batch.syncedAt)} />
+        )}
       </Card>
 
       {/* Remittance Info (only if COMPLETED) */}

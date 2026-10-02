@@ -1,30 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl, Alert, TextInput, Modal, TouchableOpacity, FlatList, Switch,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { ProfileAvatarButton } from '../../../components/ProfileAvatarButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getActiveCashRequests, collectForRequest, voidCashPickup, cancelCashRequest,
   getCashRequestAuditLog, assignStaffToRequest, listStaff, adminCreateCashRequest, updateCashRequest,
-  getMembers, getChits, getChitsForMember, collectPayment,
+  getMembers, getChits, getChitsForMember,
   getMemberBalance, getPaymentBatches, getAllPaymentBatches, voidPaymentBatch, remitPayment, getPendingRemittance,
   getPendingPayouts, getAllPayouts, createPayout, disbursePayout, cancelPayout, voidPayout, getWinners,
   getWalletBalance, getWalletTransactions, addWalletTransaction, redeemMemberCredit,
   getSettlementPreview, confirmSettlement, getMemberSettlements, recordSettlementTransaction, getPendingSettlements, getSettlementById,
   getMemberTotalBalance, getMemberCredit, voidSettlement, getSettlementTransactions,
+  getPendingIntimations, getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
 } from '../../../services/api';
 import { C, T, Card, Badge, Button, Amount, EyeToggle, EmptyState, LoadingScreen, SectionHeader, Divider, fmtDate, fmtDateTime } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
 import { useUIStore } from '../../../store/uiStore';
 import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
+import { getPendingCountForMember } from '../../../offline/database';
+import { getAccountScope } from '../../../offline/accountScope';
+import { useAuthStore } from '../../../store/authStore';
 import { SyncStatusCard } from '../../../components/SyncStatusCard';
 import { PendingPaymentQueueCard } from '../../../components/PendingPaymentQueueCard';
 
-const TABS = ['Cash Requests', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
+const TABS = ['Cash Requests', 'Intimations', 'Settlement', 'Record Payment', 'Remittance', 'Payouts', 'History', 'Treasury'] as const;
 type Tab = typeof TABS[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,6 +70,9 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
   const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
 
+  // Multi-chit requests carry their planned per-chit split — tap the card to see it
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+
   // Setup new cash pickup (admin creates on behalf of member)
   const [showSetup, setShowSetup] = useState(false);
   const [setupMemberId, setSetupMemberId] = useState('');
@@ -79,7 +87,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
     queryFn: getActiveCashRequests,
     refetchInterval: 30_000,
   });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: allChits = [] } = useQuery({ queryKey: ['a-chits'], queryFn: getChits });
   const { data: auditLog = [], isLoading: auditLoading } = useQuery({
@@ -95,7 +103,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
     }),
   ]);
-  const workers = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
+  const workers = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER', 'AGENT'].includes(s.role));
   const workerMap = Object.fromEntries((staff as any[]).map((w: any) => [w.id, w.fullName ?? w.username ?? '—']));
 
   // Chits for the selected setup member
@@ -241,20 +249,48 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 
       {displayed.map((r: any) => {
         const cfg = CP_STATUS[r.status] ?? CP_STATUS.PENDING;
+        const breakdown: any[] = r.allocations ?? [];
+        const hasBreakdown = breakdown.length > 1;
+        const isExpanded = expandedRequestId === r.id;
         return (
           <Card key={r.id} style={{ marginBottom: 12, borderLeftWidth: 4, borderLeftColor: cfg.color }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
-                  {memberMap[r.memberId] ?? `…${r.memberId?.slice(-6)}`}
-                </Text>
-                <Amount value={r.requestedAmount} size="md" />
+            <TouchableOpacity
+              activeOpacity={hasBreakdown ? 0.6 : 1}
+              disabled={!hasBreakdown}
+              onPress={() => setExpandedRequestId(isExpanded ? null : r.id)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray900 }}>
+                      {memberMap[r.memberId] ?? `…${r.memberId?.slice(-6)}`}
+                    </Text>
+                    {hasBreakdown && (
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>
+                        {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                      </Text>
+                    )}
+                  </View>
+                  <Amount value={r.requestedAmount} size="md" />
+                </View>
+                <View style={{ backgroundColor: cfg.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: cfg.color }}>{cfg.label}</Text>
+                </View>
               </View>
-              <View style={{ backgroundColor: cfg.bg, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: cfg.color }}>{cfg.label}</Text>
-              </View>
-            </View>
+              {isExpanded && hasBreakdown && (
+                <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 8, gap: 4 }}>
+                  {breakdown.map((a: any) => (
+                    <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 12, color: C.gray700 }}>
+                        {(allChits as any[]).find((c: any) => c.id === a.chitId)?.name ?? 'Chit'}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </TouchableOpacity>
 
             {/* Details */}
             {r.assignedStaffId && (
@@ -395,7 +431,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       <Modal visible={showSetup} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowSetup(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.white }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200, backgroundColor: C.surface }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Setup Cash Pickup</Text>
             <TouchableOpacity onPress={() => setShowSetup(false)}>
               <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
@@ -404,7 +440,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
           <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
 
             {/* Step 1 — Select Member */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 10 }}>1. Select Member *</Text>
               <TextInput
                 value={setupMemberSearch}
@@ -439,7 +475,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 2 — Select Chit */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: setupMemberId ? C.gray200 : C.gray100 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: setupMemberId ? C.gray200 : C.gray100 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: setupMemberId ? C.gray700 : C.gray400, marginBottom: 10 }}>2. Select Chit *</Text>
               {!setupMemberId ? (
                 <Text style={{ fontSize: 12, color: C.gray400 }}>Select a member first</Text>
@@ -468,7 +504,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 3 — Amount */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>3. Amount (₹) *</Text>
               <TextInput
                 value={setupAmount}
@@ -481,10 +517,10 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
             </View>
 
             {/* Step 4 — Assign Staff (optional) */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 4 }}>4. Assign Staff</Text>
               <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 10 }}>Optional — leave empty to assign later</Text>
-              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+              <View style={{ maxHeight: 180 }}>
                 {/* None option */}
                 <TouchableOpacity onPress={() => setSetupWorkerId('')}
                   style={{ padding: 10, borderRadius: 10, marginBottom: 6, borderWidth: 2,
@@ -505,11 +541,11 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
                     {w.phone && <Text style={{ fontSize: 12, color: C.gray500 }}>{w.phone}</Text>}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
             </View>
 
             {/* Step 5 — Notes */}
-            <View style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700, marginBottom: 8 }}>5. Notes (optional)</Text>
               <TextInput
                 value={setupNotes}
@@ -553,7 +589,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Edit Cash Request Modal ─────────────────────────────────────────── */}
       <Modal visible={!!editTarget} animationType="slide" transparent onRequestClose={() => setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '80%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Edit Cash Pickup</Text>
               <TouchableOpacity onPress={() => setEditTarget(null)}>
@@ -622,7 +658,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Void Pickup Modal ───────────────────────────────────────────────── */}
       <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>Void Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               This reverts the request back to Assigned — the staff member must physically re-collect and re-mark pickup.
@@ -643,7 +679,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Assign Staff Modal ─────────────────────────────────────────────── */}
       <Modal visible={!!assignTarget} animationType="slide" transparent onRequestClose={() => setAssignTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Assign Staff</Text>
@@ -691,7 +727,7 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
       {/* ── Audit Trail Modal ────────────────────────────────────────────────── */}
       <Modal visible={!!auditTarget} animationType="slide" transparent onRequestClose={() => setAuditTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '75%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Pickup Trail</Text>
               <TouchableOpacity onPress={() => setAuditTarget(null)}>
@@ -755,8 +791,10 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
 function RecordPaymentTab() {
   const { isExpired } = useUIStore();
   const qc = useQueryClient();
+  const scrollRef = useRef<ScrollView>(null);
   const [memberId, setMemberId] = useState('');
   const [chitId, setChitId] = useState('');
+  const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState('CASH');
   const [collectedBy, setCollectedBy] = useState('SELF');
@@ -766,10 +804,10 @@ function RecordPaymentTab() {
   const [voidReason, setVoidReason] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [memberInfoId, setMemberInfoId] = useState('');
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: memberChits = [] } = useQuery({
     queryKey: ['m-member-chits-pay', memberId],
     queryFn: () => getChitsForMember(memberId),
@@ -791,11 +829,32 @@ function RecordPaymentTab() {
   const payableChits = (memberChits as any[]).filter((c: any) =>
     ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status)
   );
+  const { data: multiBalances = {} } = useQuery({
+    queryKey: ['m-pay-multi-balances', memberId, payableChits.map((c: any) => c.id).join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(payableChits.map(async (c: any) => {
+        try {
+          const result: any = await getMemberBalance(memberId, c.id);
+          return [String(c.id), Number(result?.totalOutstanding ?? result?.outstanding ?? result?.balance ?? 0)];
+        } catch {
+          return [String(c.id), 0];
+        }
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: !!memberId && payableChits.length > 0,
+    staleTime: 30_000,
+  });
   const selectedChit = payableChits.find((c: any) => c.id === chitId);
-  const bal = (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
+  const bal = (balance as any)?.totalOutstanding ?? (balance as any)?.outstanding ?? (balance as any)?.balance ?? null;
   const isCash = mode === 'CASH';
   const isCredit = mode === 'CREDIT';
   const workerCollect = isCash && collectedBy !== 'SELF';
+  const isExplicitMode = !isCredit && !workerCollect;
+  const allocationEntries = Object.entries(selectedAllocations)
+    .map(([selectedChitId, selectedAmount]) => ({ chitId: selectedChitId, amount: Number(selectedAmount || 0) }))
+    .filter((entry) => entry.amount > 0);
+  const allocationTotal = allocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const amtNum = isCredit ? 0 : (Number(amount) || 0);
   const isOverpay = amtNum > 0 && bal != null && bal > 0 && amtNum > bal;
 
@@ -815,32 +874,92 @@ function RecordPaymentTab() {
     }
   }, [creditBalance, outstanding]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (isExplicitMode && Object.keys(selectedAllocations).length > 0) {
+      setAmount(allocationTotal > 0 ? allocationTotal.toFixed(2) : '');
+    }
+  }, [allocationTotal, isExplicitMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleChitAllocation = (chit: any) => {
+    setSelectedAllocations((current) => {
+      if (current[chit.id] !== undefined) {
+        const next = { ...current };
+        delete next[chit.id];
+        setChitId(Object.keys(next)[0] ?? '');
+        return next;
+      }
+      const due = Number((multiBalances as any)[chit.id] ?? 0);
+      const suggested = due > 0 ? due : Number(chit.installmentAmount ?? 0);
+      setChitId((previous) => previous || chit.id);
+      return { ...current, [chit.id]: suggested > 0 ? suggested.toFixed(2) : '' };
+    });
+  };
+
   // ── Mutations ──────────────────────────────────────────────────────────────
   const recordMut = useMutation({
+    // Staff/manager collection creates a Cash Pickup Request instead of recording
+    // a payment directly — nobody's balance changes until that staff member
+    // confirms they collected the cash and admin confirms receipt. See the
+    // matching comment in members.tsx's collectMutation for the full reasoning.
     mutationFn: () => workerCollect
-      ? collectPayment({ chitId, memberId, amount: amtNum, notes: notes || undefined, overrideCollectedBy: collectedBy, idempotencyKey })
-      : recordPaymentOfflineCapable({ chitId, memberId, amount: isCredit ? 0 : amtNum, paymentMode: mode, notes: notes || undefined, paymentReference: paymentReference || undefined, idempotencyKey }),
+      ? adminCreateCashRequest(
+          memberId,
+          allocationEntries[0]?.chitId ?? chitId,
+          amtNum,
+          collectedBy,
+          notes || undefined,
+          allocationEntries.length > 1 ? allocationEntries : undefined,
+        )
+      : recordPaymentOfflineCapable({
+        chitId: allocationEntries[0]?.chitId ?? chitId,
+        memberId,
+        amount: isCredit ? 0 : amtNum,
+        paymentMode: mode,
+        notes: notes || undefined,
+        paymentReference: paymentReference || undefined,
+        allocations: isExplicitMode && allocationEntries.length > 0 ? allocationEntries : undefined,
+        idempotencyKey,
+      }),
+    onMutate: () => {
+      // Scroll to top immediately so the SyncStatusCard is on-screen before the
+      // pending-count update arrives (which happens right after the fast local
+      // SQLite write, long before the server responds or times out).
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    },
     onSuccess: (data: any) => {
       const msg = isCredit
         ? 'Credits applied — outstanding settled'
         : workerCollect
-        ? 'Recorded — awaiting remittance from staff'
+        ? 'Cash pickup request sent — awaiting staff collection'
         : data?.offlineQueued
           ? 'Payment saved securely — pending sync'
           : 'Payment recorded — treasury credited';
       toast.saved(msg);
-      setIdempotencyKey(crypto.randomUUID());
+      setIdempotencyKey(Crypto.randomUUID());
       setAmount(''); setNotes(''); setPaymentReference(''); setCollectedBy('SELF');
+      setSelectedAllocations({});
       if (isCredit) setMode('CASH');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+
+      if (workerCollect) {
+        // No balance change here — see the mutationFn comment above.
+        qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+        qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'staff-tasks' || q.queryKey[0] === 'manager-pickups' });
+        return;
+      }
+
       qc.invalidateQueries({ queryKey: ['m-pay-balance', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pay-batches', memberId, chitId] });
       qc.invalidateQueries({ queryKey: ['m-pending-remittance'] });
       qc.invalidateQueries({ queryKey: ['m-member-credit-pay', memberId] });
       qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'draw-payments' });
       if (chitId) qc.invalidateQueries({ queryKey: ['a-draws', chitId] });
-      if (!workerCollect) qc.invalidateQueries({ queryKey: ['m-wallet'] });
+      qc.invalidateQueries({ queryKey: ['m-wallet'] });
     },
-    onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to record payment — please try again.'),
+    onError: (e: any) => {
+      console.error('[RecordPayment] onError status=' + (e?.response?.status ?? 'none') + ' code=' + (e?.code ?? 'none') + ' msg=' + (e?.message ?? '') + ' data=' + JSON.stringify(e?.response?.data));
+      Alert.alert('Error', e.response?.data?.message ?? e?.message ?? 'Failed to record payment — please try again.');
+    },
   });
 
   const voidMut = useMutation({
@@ -890,12 +1009,12 @@ function RecordPaymentTab() {
   const submitLabel = isCredit
     ? `Apply ₹${(outstanding ?? 0).toLocaleString('en-IN')} Credits`
     : workerCollect
-    ? 'Record Collection (via Staff)'
+    ? `Send for Pickup — ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'}`
     : `Record ₹${amtNum > 0 ? amtNum.toLocaleString('en-IN') : '0'} Payment`;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
 
       <SyncStatusCard compact />
       <PendingPaymentQueueCard memberNames={paymentMemberNames} />
@@ -912,11 +1031,13 @@ function RecordPaymentTab() {
       </View>
       <TextInput value={memberSearch} onChangeText={setMemberSearch} placeholder="Search name or phone…"
         placeholderTextColor={C.gray400}
-        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }} />
+        style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.surface }} />
       <ScrollView style={{ maxHeight: 160, marginBottom: 16, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
         {filteredMembers.map((m: any) => (
           <TouchableOpacity key={m.id}
-            onPress={() => { setMemberId(m.id); setChitId(''); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
+            testID={`member-row-${m.fullName ?? m.name}`}
+            accessibilityLabel={m.fullName ?? m.name}
+            onPress={() => { setMemberId(m.id); setChitId(''); setSelectedAllocations({}); setAmount(''); setMemberSearch(''); setCollectedBy('SELF'); }}
             style={{ padding: 12, backgroundColor: memberId === m.id ? C.navy50 : 'transparent', borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <Text style={{ fontSize: 14, fontWeight: memberId === m.id ? '700' : '400', color: memberId === m.id ? C.navy : C.gray900 }}>
               {m.fullName ?? m.name} {memberId === m.id ? '✓' : ''}
@@ -932,7 +1053,7 @@ function RecordPaymentTab() {
       {/* Member info sheet */}
       <Modal visible={!!memberInfoId} animationType="slide" transparent onRequestClose={() => setMemberInfoId('')}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             {(() => {
               const mi = (members as any[]).find((m: any) => m.id === memberInfoId);
               if (!mi) return null;
@@ -961,11 +1082,49 @@ function RecordPaymentTab() {
           <Text style={{ ...T.label, marginBottom: 8 }}>Select Chit Fund</Text>
           {payableChits.length === 0 ? (
             <Text style={{ color: C.gray400, marginBottom: 16 }}>No active chits for this member</Text>
+          ) : isExplicitMode ? (
+            <View style={{ marginBottom: 16, gap: 8 }}>
+              <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 2 }}>
+                Select one or more chits. Amounts are applied FIFO within the selected chits only.
+              </Text>
+              {payableChits.map((c: any) => {
+                const checked = selectedAllocations[c.id] !== undefined;
+                const due = (multiBalances as any)[c.id];
+                return (
+                  <View key={c.id} style={{ borderWidth: 1.5, borderColor: checked ? C.navy : C.gray300, borderRadius: 12, padding: 11, backgroundColor: checked ? C.navy50 : C.white }}>
+                    <TouchableOpacity onPress={() => toggleChitAllocation(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                      <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: checked ? C.navy : C.gray300, backgroundColor: checked ? C.navy : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {checked && <Text style={{ color: C.white, fontSize: 12, fontWeight: '800' }}>✓</Text>}
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: checked ? C.navy : C.gray900 }}>{c.name}</Text>
+                      <Text style={{ fontSize: 11, color: C.gray500 }}>{due == null ? 'Loading…' : due > 0 ? `₹${due.toLocaleString('en-IN')} due` : 'No dues'}</Text>
+                    </TouchableOpacity>
+                    {checked && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginLeft: 27 }}>
+                        <Text style={{ fontSize: 11, color: C.gray500 }}>Allocate ₹</Text>
+                        <TextInput
+                          value={selectedAllocations[c.id]}
+                          onChangeText={(value) => setSelectedAllocations((current) => ({ ...current, [c.id]: value }))}
+                          keyboardType="numeric"
+                          style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.surface }}
+                        />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 8 }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Total payment</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: C.navy }}>₹{allocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              </View>
+            </View>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {payableChits.map((c: any) => (
                   <TouchableOpacity key={c.id}
+                    testID={`chit-chip-${c.name}`}
+                    accessibilityLabel={c.name}
                     onPress={() => { setChitId(c.id); setAmount(c.installmentAmount ? String(c.installmentAmount) : ''); }}
                     style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: chitId === c.id ? C.navy : C.gray300, backgroundColor: chitId === c.id ? C.navy50 : C.white, minWidth: 110 }}>
                     <Text style={{ fontSize: 13, fontWeight: '600', color: chitId === c.id ? C.navy : C.gray700 }}>{c.name}</Text>
@@ -1041,12 +1200,15 @@ function RecordPaymentTab() {
           {!isCredit && (
             <>
           <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹) *</Text>
-          <TextInput value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="0"
+          <TextInput value={amount} onChangeText={setAmount} editable={!isExplicitMode} keyboardType="numeric" placeholder="0"
             placeholderTextColor={C.gray400}
             style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, color: C.gray900, marginBottom: 8, fontWeight: '700' }} />
 
           {/* Overpay warning */}
-          {isOverpay && (
+          {isExplicitMode && allocationEntries.length > 0 && (
+            <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 10 }}>Payment total is calculated from the selected chit allocations above.</Text>
+          )}
+          {!isExplicitMode && isOverpay && (
             <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#F59E0B' }}>
               <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '600' }}>
                 ₹{amtNum.toLocaleString('en-IN')} exceeds outstanding ₹{bal!.toLocaleString('en-IN')} — this will create a credit balance.
@@ -1129,9 +1291,9 @@ function RecordPaymentTab() {
               {/* Worker warning banner */}
               {workerCollect && (
                 <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 14, borderWidth: 1, borderColor: '#F59E0B' }}>
-                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Cash stays with staff</Text>
+                  <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Not collected yet</Text>
                   <Text style={{ fontSize: 11, color: '#92400E' }}>
-                    This will appear in Remittance until the staff member hands the cash to you and you remit it.
+                    This sends a pickup request — nothing is credited until they mark it collected and you confirm receipt.
                   </Text>
                 </View>
               )}
@@ -1150,21 +1312,69 @@ function RecordPaymentTab() {
             label={submitLabel}
             variant={isCredit ? 'success' : workerCollect ? 'primary' : 'success'}
             fullWidth
-            disabled={isExpired || (isCredit ? !creditCoversAll : (!amount || amtNum <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim())))}
+            disabled={isExpired || (isCredit
+              ? !creditCoversAll
+              : (isExplicitMode ? allocationTotal <= 0 : (!amount || amtNum <= 0))
+                || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(mode) && !paymentReference.trim()))}
             loading={recordMut.isPending}
-            onPress={() => {
+            onPress={async () => {
               const workerName = workerCollect
                 ? ((collectors as any[]).find((w: any) => w.id === collectedBy)?.fullName ?? 'staff')
                 : null;
+
+              // Guard rail: never silently apply an overpayment as credit — the
+              // person recording the payment must explicitly acknowledge it.
+              const totalPay = isExplicitMode ? allocationTotal : amtNum;
+              const totalDue = isExplicitMode
+                ? allocationEntries.reduce((sum, e) => sum + Number((multiBalances as any)[e.chitId] ?? 0), 0)
+                : (outstanding ?? 0);
+              const isOverpayNow = !isCredit && totalPay > 0 && totalDue > 0 && totalPay > totalDue;
+              const breakdown = isExplicitMode && allocationEntries.length > 1
+                ? '\n\n' + allocationEntries
+                    .map((e) => `${payableChits.find((c: any) => c.id === e.chitId)?.name ?? 'Chit'}: ₹${e.amount.toLocaleString('en-IN')}`)
+                    .join('\n')
+                : '';
+
+              const actionVerb = workerCollect ? 'Send a pickup request for' : 'Record';
+
               const confirmMsg = isCredit
                 ? `Apply ₹${creditBalance.toLocaleString('en-IN')} credit balance to settle ₹${(outstanding ?? 0).toLocaleString('en-IN')} outstanding for ${selectedChit?.name}?`
+                : isOverpayNow
+                ? `This exceeds the amount owed (₹${totalDue.toLocaleString('en-IN')}). ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${(totalPay - totalDue).toLocaleString('en-IN')} will be added to credit balance and can be applied to future dues.${breakdown}\n\nContinue?`
                 : workerCollect
-                ? `Record ₹${amtNum.toLocaleString('en-IN')} collected by ${workerName} for ${selectedChit?.name}?\n\nCash stays with them until remitted.`
+                ? `${actionVerb} ₹${amtNum.toLocaleString('en-IN')} to ${workerName} for ${selectedChit?.name}?${breakdown}\n\nThey'll need to confirm they collected it before it's credited.`
+                : isExplicitMode && allocationEntries.length > 1
+                ? `Record ₹${allocationTotal.toLocaleString('en-IN')} total across ${allocationEntries.length} chits?${breakdown}`
                 : `Record ₹${amtNum.toLocaleString('en-IN')} via ${mode.replace(/_/g, ' ')} for ${selectedChit?.name}?`;
-              Alert.alert('Confirm Payment', confirmMsg, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Record', onPress: () => recordMut.mutate() },
-              ]);
+
+              const doRecord = () => Alert.alert(
+                workerCollect ? 'Confirm Pickup Request' : 'Confirm Payment',
+                confirmMsg,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: workerCollect ? 'Send Request' : 'Record', onPress: () => recordMut.mutate() },
+                ],
+              );
+
+              if (!isCredit && memberId) {
+                const user = useAuthStore.getState().user;
+                const scope = getAccountScope(user);
+                if (scope) {
+                  const pending = await getPendingCountForMember(scope, memberId);
+                  if (pending > 0) {
+                    Alert.alert(
+                      'Payment already waiting',
+                      `This member already has ${pending} payment${pending > 1 ? 's' : ''} saved on this device waiting to sync. Recording again may create a duplicate.\n\nRecord anyway?`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Record Anyway', style: 'destructive', onPress: doRecord },
+                      ],
+                    );
+                    return;
+                  }
+                }
+              }
+              doRecord();
             }}
           />
         </>
@@ -1192,7 +1402,7 @@ function RecordPaymentTab() {
                       </View>
                     </View>
                     <Text style={{ fontSize: 11, color: C.gray500, marginTop: 2 }}>
-                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH')} · {fmtDate(b.collectedAt ?? b.createdAt)}
+                      {b.paymentMode === 'CREDIT' ? 'Credit Balance' : (b.paymentMode ?? 'CASH')} · {fmtDate(b.collectedAt ?? b.recordedAt ?? b.createdAt)}
                     </Text>
                     {b.collectedByName && (
                       <Text style={{ fontSize: 11, color: C.amber, marginTop: 1 }}>via {b.collectedByName}</Text>
@@ -1221,7 +1431,7 @@ function RecordPaymentTab() {
       {/* ── Void batch modal ───────────────────────────────────────────────── */}
       <Modal visible={!!voidBatchId} animationType="slide" transparent>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 12 }}>Void Payment</Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 8 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -1631,7 +1841,7 @@ function PayoutsTab() {
 
       {/* ── Create Payout Modal ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setShowCreate(false); resetCreateForm(); }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Create Payout</Text>
             <TouchableOpacity onPress={() => { setShowCreate(false); resetCreateForm(); }}>
@@ -1988,7 +2198,7 @@ function PayoutsTab() {
       {/* ── Disburse Modal ───────────────────────────────────────────────────── */}
       <Modal visible={!!disburseTarget} animationType="slide" transparent onRequestClose={() => setDisburseTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.green, marginBottom: 4 }}>Disburse Payout</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 16 }}>
               Winner: {(memberMap[disburseTarget?.memberId ?? disburseTarget?.winnerId] as any)?.fullName ?? '—'}
@@ -2027,7 +2237,7 @@ function PayoutsTab() {
       {/* ── Cancel / Void Modal ──────────────────────────────────────────────── */}
       <Modal visible={!!actionTarget} animationType="slide" transparent onRequestClose={() => setActionTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 4 }}>
               {actionType === 'cancel' ? 'Cancel Payout' : 'Void Payout'}
             </Text>
@@ -2088,7 +2298,7 @@ function TreasuryTab() {
   const { data: txns = [], isLoading: txLoading, refetch: refetchTxns } = useQuery({ queryKey: ['m-wallet-txns'], queryFn: getWalletTransactions, staleTime: 0 });
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 120_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 120_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 120_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff, staleTime: 120_000 });
 
   const memberMap = Object.fromEntries((members as any[]).map((m: any) => [m.id.toLowerCase(), m.fullName ?? '—']));
   const chitMap   = Object.fromEntries((allChits as any[]).map((c: any) => [c.id.toLowerCase(), c.name ?? '—']));
@@ -2203,7 +2413,7 @@ function TreasuryTab() {
       {/* Add Transaction Modal */}
       <Modal visible={showAdd} animationType="slide" transparent>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: txType === 'DEPOSIT' ? C.green : C.red, marginBottom: 16 }}>
               {txType === 'DEPOSIT' ? '+ Add Deposit' : '− Record Withdrawal'}
             </Text>
@@ -2294,7 +2504,7 @@ function TreasuryTab() {
 
       {/* Transaction Detail Modal */}
       <Modal visible={!!selectedTx} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSelectedTx(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Transaction Detail</Text>
             <TouchableOpacity onPress={() => setSelectedTx(null)}
@@ -2351,7 +2561,7 @@ function TreasuryTab() {
       {/* Treasury Load More */}
       {(txns as any[]).length > txShowCount && (
         <TouchableOpacity onPress={() => setTxShowCount(c => c + 20)}
-          style={{ margin: 16, marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+          style={{ margin: 16, marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
           <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({(txns as any[]).length - txShowCount} remaining)</Text>
         </TouchableOpacity>
       )}
@@ -2631,7 +2841,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
             onChangeText={(t) => { setMemberSearch(t); if (!t) setMemberId(''); }}
             placeholder="Search name or phone…"
             placeholderTextColor={C.gray400}
-            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.white }}
+            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 14, color: C.gray900, marginBottom: 8, backgroundColor: C.surface }}
           />
           <ScrollView style={{ maxHeight: 200, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, marginBottom: 16 }} nestedScrollEnabled>
             {filteredMembers.map((m: any) => (
@@ -2886,7 +3096,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
                 multiline
                 placeholder="Mandatory reason for replacing this settlement"
                 placeholderTextColor={C.gray400}
-                style={{ borderWidth: 1, borderColor: '#FCD34D', borderRadius: 8, padding: 10, backgroundColor: C.white, minHeight: 55, textAlignVertical: 'top' }}
+                style={{ borderWidth: 1, borderColor: '#FCD34D', borderRadius: 8, padding: 10, backgroundColor: C.surface, minHeight: 55, textAlignVertical: 'top' }}
               />
             </View>
           )}
@@ -2987,7 +3197,7 @@ function SettlementTab({ initialMemberId }: { initialMemberId?: string }) {
 
       {/* ── Settlement Detail Modal ────────────────────────────────────────── */}
       <Modal visible={!!detailSettlement} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailSettlement(null)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           {detailSettlement && (() => {
             const s = detailSettlement;
             const net = Number(s.netAmount ?? 0);
@@ -3165,9 +3375,10 @@ function RemittanceTab() {
   const qc = useQueryClient();
   const [voidTarget, setVoidTarget] = useState<any>(null);
   const [voidReason, setVoidReason] = useState('');
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits'], queryFn: getChits, staleTime: 60_000 });
   const { data: pendingItems = [], isLoading, refetch } = useQuery({
     queryKey: ['m-pending-remittance'],
@@ -3224,7 +3435,20 @@ function RemittanceTab() {
 
   if (isLoading) return <LoadingScreen />;
 
-  const total = (pendingItems as any[]).reduce((s, b) => s + Number(b.amount ?? b.totalAmount ?? 0), 0);
+  // Unified "cash not yet in treasury" queue. A PICKED_UP cash request (staff
+  // has cash, admin hasn't confirmed receipt) and an AWAITING_REMITTANCE
+  // payment batch (admin has the cash, or it was recorded as collected-by-staff
+  // directly, but FIFO/treasury hasn't run yet) are two different backend
+  // entities converging on the same real-world question for admin: "what do I
+  // still need to act on?" — shown as one sorted queue with a stage badge per
+  // card instead of a summary banner sitting above a disconnected list.
+  type RemitItem = { kind: 'pickup' | 'batch'; id: string; memberId: string; chitId?: string; amount: number; staffId?: string; at?: string; paymentMode?: string; raw: any };
+  const remitItems: RemitItem[] = [
+    ...pickedUpRequests.map((r: any): RemitItem => ({ kind: 'pickup', id: r.id, memberId: r.memberId, chitId: r.chitId, amount: Number(r.requestedAmount ?? 0), staffId: r.assignedStaffId, at: r.pickedUpAt, raw: r })),
+    ...(pendingItems as any[]).map((b: any): RemitItem => ({ kind: 'batch', id: b.id, memberId: b.memberId, chitId: b.chitId, amount: Number(b.amount ?? b.totalAmount ?? 0), staffId: b.collectedBy, at: b.collectedAt ?? b.recordedAt ?? b.createdAt, paymentMode: b.paymentMode, raw: b })),
+  ].sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+
+  const total = remitItems.reduce((s, item) => s + item.amount, 0);
 
   function onRefresh() { refetch(); }
 
@@ -3233,130 +3457,134 @@ function RemittanceTab() {
       refreshControl={<RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={C.navy} />}
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
     >
-      {/* ── PICKED_UP section: worker has physically collected, admin needs to take cash ── */}
-      {pickedUpRequests.length > 0 && (
-        <View style={{ backgroundColor: '#F0FDF4', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: '#86EFAC' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#15803D' }}>
-              {pickedUpRequests.length} pickup{pickedUpRequests.length !== 1 ? 's' : ''} ready — collect cash from staff
-            </Text>
-          </View>
-          {pickedUpRequests.map((r: any) => (
-            <View key={r.id} style={{ backgroundColor: C.white, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: '#BBF7D0', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray900 }}>{memberMap[r.memberId] ?? '—'}</Text>
-                <Text style={{ fontSize: 12, color: C.gray500 }}>
-                  Staff: {staffMap[r.assignedStaffId] ?? '—'} · ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
-                </Text>
-                {r.pickedUpAt && (
-                  <Text style={{ fontSize: 11, color: '#16A34A', marginTop: 2 }}>
-                    Picked up {fmtDateTime(r.pickedUpAt)}
-                  </Text>
-                )}
-              </View>
-              <Button
-                label="Collect"
-                variant="success"
-                size="sm"
-                loading={collectPickupMut.isPending}
-                onPress={() => Alert.alert(
-                  'Confirm Cash Received',
-                  `You received ₹${Number(r.requestedAmount).toLocaleString('en-IN')} from ${staffMap[r.assignedStaffId] ?? 'staff'}?\n\nMember account will be credited and treasury updated.`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Yes, Received', onPress: () => collectPickupMut.mutate(r.id) },
-                  ]
-                )}
-              />
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* ── Pending remittance batches ── */}
-      {(pendingItems as any[]).length === 0 && pickedUpRequests.length === 0 ? (
+      {/* ── Unified queue: cash requests staff has picked up (not yet confirmed
+          received) interleaved with payment batches already recorded but not
+          yet remitted to treasury — one sorted list instead of a banner sitting
+          above a disconnected one, with a stage badge per card. ── */}
+      {remitItems.length === 0 ? (
         <EmptyState title="All clear" message="No payments pending remittance." />
-      ) : (pendingItems as any[]).length === 0 ? null : (
+      ) : (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <Text style={{ fontSize: 13, color: C.gray500 }}>
-              {(pendingItems as any[]).length} batch{(pendingItems as any[]).length !== 1 ? 'es' : ''} awaiting remittance
+              {remitItems.length} item{remitItems.length !== 1 ? 's' : ''} awaiting your confirmation
             </Text>
             <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
               <Amount value={total} size="sm" />
             </View>
           </View>
 
-          {(pendingItems as any[]).map((batch: any) => (
-            <Card key={batch.id} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: C.amber }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
-                    {memberMap[batch.memberId] ?? '—'}
-                  </Text>
-                  <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>
-                    {chitMap[batch.chitId] ?? batch.chitName ?? '—'}
-                  </Text>
-                  {batch.collectedBy && staffMap[batch.collectedBy] && (
-                    <Text style={{ fontSize: 12, color: C.amber, marginTop: 2, fontWeight: '600' }}>
-                      Collector: {staffMap[batch.collectedBy]}
+          {remitItems.map((item) => {
+            const isPickup = item.kind === 'pickup';
+            const stageColor = isPickup ? '#16A34A' : C.amber;
+            const isCredit = !isPickup && item.paymentMode === 'CREDIT';
+            const confirmReceived = () => Alert.alert(
+              'Confirm Cash Received',
+              `You received ₹${item.amount.toLocaleString('en-IN')} from ${staffMap[item.staffId ?? ''] ?? (isPickup ? 'staff' : 'collector')}?\n\n${isPickup ? 'Member account will be credited and treasury updated.' : 'Payment will be credited to member.'}`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: isPickup ? 'Yes, Received' : 'Confirm Received', onPress: () => (isPickup ? collectPickupMut.mutate(item.id) : remitMut.mutate(item.id)) },
+              ]
+            );
+            const itemKey = `${item.kind}-${item.id}`;
+            const breakdown: any[] = (item.raw?.allocations ?? []);
+            const hasBreakdown = isPickup && breakdown.length > 1;
+            const isExpanded = expandedItem === itemKey;
+            return (
+              <Card key={itemKey} style={{ marginBottom: 10, borderLeftWidth: 3, borderLeftColor: stageColor }}>
+                <TouchableOpacity
+                  activeOpacity={hasBreakdown ? 0.6 : 1}
+                  disabled={!hasBreakdown}
+                  onPress={() => setExpandedItem(isExpanded ? null : itemKey)}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.gray900 }}>
+                          {memberMap[item.memberId] ?? '—'}
+                        </Text>
+                        {hasBreakdown && (
+                          <Text style={{ fontSize: 11, color: C.gray400 }}>
+                            {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                          </Text>
+                        )}
+                      </View>
+                      {item.chitId && chitMap[item.chitId] && (
+                        <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{chitMap[item.chitId]}</Text>
+                      )}
+                      {item.staffId && staffMap[item.staffId] && (
+                        <Text style={{ fontSize: 12, color: stageColor, marginTop: 2, fontWeight: '600' }}>
+                          {isPickup ? 'Staff' : 'Collector'}: {staffMap[item.staffId]}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <Amount value={item.amount} size="md" />
+                      <View style={{ backgroundColor: stageColor + '18', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: stageColor }}>
+                          {isPickup ? 'PICKED UP' : 'AWAITING REMITTANCE'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  {isExpanded && hasBreakdown && (
+                    <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 10, gap: 4 }}>
+                      {breakdown.map((a: any) => (
+                        <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                          <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {isCredit && (
+                  <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                    <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>Settled via Credit Balance — no cash collected</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: isCredit ? '#ECFDF5' : '#FEF3C7', borderRadius: 6 }}>
+                    <Text style={{ fontSize: 11, color: isCredit ? '#059669' : C.amber, fontWeight: '600' }}>
+                      {isPickup ? 'CASH' : isCredit ? 'Credit Balance' : (item.paymentMode ?? 'CASH')}
                     </Text>
+                  </View>
+                  {item.at && <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(item.at)}</Text>}
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Button
+                    label="Collect"
+                    variant="success"
+                    size="sm"
+                    loading={isPickup ? collectPickupMut.isPending : remitMut.isPending}
+                    onPress={confirmReceived}
+                  />
+                  {!isPickup && (
+                    <Button
+                      label="Cancel"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => Alert.alert(
+                        'Cancel Remittance',
+                        `Cancel this ₹${item.amount.toLocaleString('en-IN')} remittance? The member's payment record will be rolled back.`,
+                        [
+                          { text: 'Back', style: 'cancel' },
+                          { text: 'Cancel Remittance', style: 'destructive', onPress: () => voidMut.mutate({ batchId: item.id, reason: 'Cancelled from Remittance' }) },
+                        ]
+                      )}
+                    />
                   )}
                 </View>
-                <Amount value={batch.amount ?? batch.totalAmount ?? 0} size="md" />
-              </View>
-              {batch.paymentMode === 'CREDIT' && (
-                <View style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#6EE7B7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-                  <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600' }}>Settled via Credit Balance — no cash collected</Text>
-                </View>
-              )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: batch.paymentMode === 'CREDIT' ? '#ECFDF5' : '#FEF3C7', borderRadius: 6 }}>
-                  <Text style={{ fontSize: 11, color: batch.paymentMode === 'CREDIT' ? '#059669' : C.amber, fontWeight: '600' }}>
-                    {batch.paymentMode === 'CREDIT' ? 'Credit Balance' : (batch.paymentMode ?? 'CASH')}
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 11, color: C.gray400 }}>{fmtDate(batch.collectedAt ?? batch.createdAt)}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Button
-                  label="Collect"
-                  variant="success"
-                  size="sm"
-                  loading={remitMut.isPending}
-                  onPress={() => Alert.alert(
-                    'Confirm Cash Received',
-                    `Confirm you received ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} from ${staffMap[batch.collectedBy] ?? 'collector'}?\n\nPayment will be credited to member.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Confirm Received', onPress: () => remitMut.mutate(batch.id) },
-                    ]
-                  )}
-                />
-                <Button
-                  label="Cancel"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => Alert.alert(
-                    'Cancel Remittance',
-                    `Cancel this ₹${Number(batch.amount ?? batch.totalAmount ?? 0).toLocaleString('en-IN')} remittance? The member's payment record will be rolled back.`,
-                    [
-                      { text: 'Back', style: 'cancel' },
-                      { text: 'Cancel Remittance', style: 'destructive', onPress: () => voidMut.mutate({ batchId: batch.id, reason: 'Cancelled from Remittance' }) },
-                    ]
-                  )}
-                />
-              </View>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </>
       )}
 
       {/* Void reason modal (for when more context is needed) */}
       <Modal visible={!!voidTarget} animationType="slide" transparent onRequestClose={() => setVoidTarget(null)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.red, marginBottom: 8 }}>Cancel Remittance</Text>
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Reason *</Text>
             <TextInput value={voidReason} onChangeText={setVoidReason} multiline
@@ -3400,7 +3628,7 @@ function HistoryTab() {
 
   const { data: members = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers, staleTime: 60_000 });
   const { data: allChits = [] } = useQuery({ queryKey: ['m-chits-hist'], queryFn: getChits, staleTime: 60_000 });
-  const { data: staff = [] } = useQuery({ queryKey: ['m-staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff, staleTime: 60_000 });
 
   const payableChitsForMember = memberId
     ? (allChits as any[]).filter((c: any) => c.status !== 'DRAFT')
@@ -3480,7 +3708,7 @@ function HistoryTab() {
           const b = selectedBatch;
           const st = BATCH_STATUS_STYLE[b.status] ?? { bg: C.gray100, color: C.gray500, label: b.status };
           return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
                 <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
                 <TouchableOpacity onPress={() => setSelectedBatch(null)} style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: C.gray100, alignItems: 'center', justifyContent: 'center' }}>
@@ -3505,13 +3733,16 @@ function HistoryTab() {
                   </View>
                 </View>
                 {/* Details */}
-                <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, overflow: 'hidden' }}>
+                <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.gray100, overflow: 'hidden' }}>
                   {[
                     { label: 'Member', value: memberMap[b.memberId] ?? '—' },
                     { label: 'Chit', value: chitMap[b.chitId] ?? '—' },
                     { label: 'Draw(s)', value: b.allocations?.length ? drawLabel(b.allocations) : '—' },
                     { label: 'Collected By', value: b.collectedBy ? (staffMap[b.collectedBy] ?? b.collectedBy.slice(0, 8)) : '—' },
-                    { label: 'Date', value: b.collectedAt ? fmtDateTime(b.collectedAt) : fmtDateTime(b.createdAt) },
+                    { label: 'Recorded', value: fmtDateTime(b.collectedAt ?? b.recordedAt ?? b.createdAt) },
+                    ...(b.syncedAt && b.recordedAt && b.syncedAt !== b.recordedAt
+                      ? [{ label: 'Synced', value: fmtDateTime(b.syncedAt) }]
+                      : []),
                     { label: 'Ref / Notes', value: b.referenceNumber ?? b.notes ?? '—' },
                   ].map(({ label, value }) => (
                     <View key={label} style={{ flexDirection: 'row', padding: 13, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
@@ -3663,7 +3894,7 @@ function HistoryTab() {
                   )}
                   {/* Date */}
                   <Text style={{ fontSize: 11, color: C.gray400, marginLeft: 'auto' }}>
-                    {fmtDateTime(b.collectedAt ?? b.createdAt)}
+                    {fmtDateTime(b.collectedAt ?? b.recordedAt ?? b.createdAt)}
                   </Text>
                 </View>
               </Card>
@@ -3672,7 +3903,7 @@ function HistoryTab() {
           })}
           {allDisplayedBatches.length > histShowCount && (
             <TouchableOpacity onPress={() => setHistShowCount(c => c + 20)}
-              style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+              style={{ marginTop: 8, padding: 14, borderRadius: 12, backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>Load More ({allDisplayedBatches.length - histShowCount} remaining)</Text>
             </TouchableOpacity>
           )}
@@ -3682,6 +3913,310 @@ function HistoryTab() {
         </>
       )}
     </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTIMATIONS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INTIMATION_STATUS: Record<string, { label: string; bg: string; text: string }> = {
+  PENDING:   { label: 'Pending',   bg: '#FEF3C7', text: '#B45309' },
+  APPROVED:  { label: 'Approved',  bg: '#DCFCE7', text: '#15803D' },
+  REJECTED:  { label: 'Rejected',  bg: '#FEE2E2', text: '#DC2626' },
+  WITHDRAWN: { label: 'Withdrawn', bg: '#F3F4F6', text: '#6B7280' },
+  VOIDED:    { label: 'Voided',    bg: '#FEE2E2', text: '#DC2626' },
+};
+
+function IntimationApproveModal({
+  intimation,
+  onClose,
+}: {
+  intimation: any;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [amounts, setAmounts] = useState<Record<string, string>>(
+    Object.fromEntries((intimation.items ?? []).map((it: any) => [it.id, String(it.claimedAmount ?? '')]))
+  );
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const items = (intimation.items ?? []).map((it: any) => ({
+        itemId: it.id,
+        approvedAmount: Number(amounts[it.id] ?? it.claimedAmount),
+      }));
+      return approveIntimation(intimation.id, items);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      qc.invalidateQueries({ queryKey: ['pending-intimations'] });
+      toast.submitted('Intimation approved and payment recorded');
+      onClose();
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Approval failed'),
+  });
+
+  return (
+    <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Approve Intimation</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Text style={{ fontSize: 22, color: C.gray400 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
+              Edit the approved amounts if needed, then tap Approve.
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {(intimation.items ?? []).map((it: any, idx: number) => (
+                <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
+                    Chit {idx + 1} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Approved Amount (₹)</Text>
+                  <TextInput
+                    value={amounts[it.id]}
+                    onChangeText={v => setAmounts(prev => ({ ...prev, [it.id]: v }))}
+                    keyboardType="numeric"
+                    style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15, color: C.gray900 }}
+                  />
+                </View>
+              ))}
+              <Button
+                label={mutation.isPending ? 'Approving…' : 'Approve & Record Payment'}
+                onPress={() => mutation.mutate()}
+                disabled={mutation.isPending}
+              />
+              <View style={{ height: 8 }} />
+              <Button label="Cancel" variant="ghost" onPress={onClose} />
+              <View style={{ height: 16 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function IntimationsTab() {
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
+  const [selected, setSelected] = useState<any>(null);
+  const [approveTarget, setApproveTarget] = useState<any>(null);
+  const [rejectTarget, setRejectTarget] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [voidTarget, setVoidTarget] = useState<any>(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const { data: all = [], isLoading, refetch } = useQuery({
+    queryKey: ['admin-intimations'],
+    queryFn: getAllIntimations,
+    refetchOnMount: 'always',
+    refetchInterval: 30_000,
+  });
+
+  const filtered = (all as any[]).filter(i => statusFilter === 'ALL' || i.status === statusFilter);
+  const pendingCount = (all as any[]).filter(i => i.status === 'PENDING').length;
+
+  const rejectMut = useMutation({
+    mutationFn: () => rejectIntimation(rejectTarget.id, rejectReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      setRejectTarget(null);
+      setRejectReason('');
+      toast.cancelled('Intimation rejected');
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Rejection failed'),
+  });
+
+  const voidMut = useMutation({
+    mutationFn: () => voidIntimation(voidTarget.id, voidReason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-intimations'] });
+      setVoidTarget(null);
+      setVoidReason('');
+      toast.voided('Intimation voided and payments reversed');
+    },
+    onError: (e: any) => toast.noted(e?.response?.data?.message ?? 'Void failed'),
+  });
+
+  const STATUS_FILTERS = ['PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN', 'VOIDED', 'ALL'];
+
+  if (isLoading) return <LoadingScreen />;
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Reject modal */}
+      {rejectTarget && (
+        <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setRejectTarget(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+              <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 12 }}>Reject Intimation</Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+                <TextInput
+                  value={rejectReason}
+                  onChangeText={setRejectReason}
+                  multiline
+                  placeholder="Why are you rejecting this?"
+                  style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
+                />
+                <Button label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'} variant="danger" onPress={() => rejectMut.mutate()} disabled={rejectMut.isPending} />
+                <View style={{ height: 8 }} />
+                <Button label="Cancel" variant="ghost" onPress={() => setRejectTarget(null)} />
+                <View style={{ height: 16 }} />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
+
+      {/* Void modal */}
+      {voidTarget && (
+        <Modal visible animationType="slide" transparent presentationStyle="overFullScreen" onRequestClose={() => setVoidTarget(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
+              <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Void Approved Intimation</Text>
+                <Text style={{ fontSize: 12, color: '#DC2626', marginBottom: 10 }}>
+                  This will reverse all payment batches created for this intimation.
+                </Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
+                <TextInput
+                  value={voidReason}
+                  onChangeText={setVoidReason}
+                  multiline
+                  placeholder="Why are you voiding this?"
+                  style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
+                />
+                <Button
+                  label={voidMut.isPending ? 'Voiding…' : 'Void & Reverse Payments'}
+                  variant="danger"
+                  onPress={() => { if (!voidReason.trim()) { toast.noted('Reason is required'); return; } voidMut.mutate(); }}
+                  disabled={voidMut.isPending}
+                />
+                <View style={{ height: 8 }} />
+                <Button label="Cancel" variant="ghost" onPress={() => setVoidTarget(null)} />
+                <View style={{ height: 16 }} />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
+
+      {approveTarget && (
+        <IntimationApproveModal intimation={approveTarget} onClose={() => setApproveTarget(null)} />
+      )}
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(i: any) => i.id}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={C.navy} />}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        ListHeaderComponent={
+          <View style={{ marginBottom: 12 }}>
+            {pendingCount > 0 && (
+              <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                <Text style={{ fontSize: 12, color: '#B45309', fontWeight: '700' }}>
+                  {pendingCount} payment intimation{pendingCount > 1 ? 's' : ''} awaiting review
+                </Text>
+              </View>
+            )}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {STATUS_FILTERS.map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    onPress={() => setStatusFilter(f)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: statusFilter === f ? C.navy : C.gray100 }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: statusFilter === f ? '#fff' : C.gray600 }}>
+                      {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+                      {f === 'PENDING' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        }
+        ListEmptyComponent={<EmptyState title="No intimations" message="No payment intimations match the filter." />}
+        renderItem={({ item }: { item: any }) => {
+          const s = INTIMATION_STATUS[item.status] ?? { label: item.status, bg: C.gray100, text: C.gray700 };
+          const total = (item.items ?? []).reduce((sum: number, it: any) => sum + Number(it.claimedAmount ?? 0), 0);
+          return (
+            <Card style={{ marginBottom: 10, borderLeftWidth: 4, borderLeftColor: item.status === 'PENDING' ? '#D97706' : C.gray200 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+                    <View style={{ backgroundColor: s.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: s.text }}>{s.label}</Text>
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.gray400 }}>
+                      {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 12, color: C.gray500 }}>{fmtDate(item.createdAt)}</Text>
+                  {item.notes && (
+                    <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
+                  )}
+                </View>
+                <Amount value={total} size="md" color={C.gray900} />
+              </View>
+
+              {/* Per-chit breakdown */}
+              {(item.items ?? []).map((it: any, idx: number) => (
+                <View key={it.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderTopWidth: idx === 0 ? 1 : 0, borderTopColor: C.gray100 }}>
+                  <Text style={{ fontSize: 12, color: C.gray500 }}>Chit {idx + 1}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 12, color: C.gray700 }}>
+                      Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                    </Text>
+                    {it.approvedAmount != null && (
+                      <Text style={{ fontSize: 11, color: '#15803D' }}>
+                        Approved ₹{Number(it.approvedAmount).toLocaleString('en-IN')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+
+              {/* Action buttons */}
+              {item.status === 'PENDING' && (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  <TouchableOpacity
+                    onPress={() => setApproveTarget(item)}
+                    style={{ flex: 1, backgroundColor: C.navy, borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff' }}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { setRejectTarget(item); setRejectReason(''); }}
+                    style={{ flex: 1, backgroundColor: '#FEE2E2', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626' }}>Reject</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {item.status === 'APPROVED' && (
+                <View style={{ marginTop: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => { setVoidTarget(item); setVoidReason(''); }}
+                    style={{ backgroundColor: '#FEF2F2', borderRadius: 8, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#DC2626' }}>Void & Reverse</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Card>
+          );
+        }}
+      />
+    </View>
   );
 }
 
@@ -3725,6 +4260,7 @@ export default function AdminPaymentsScreen() {
       {/* Tab content */}
       <View style={{ flex: 1 }}>
         {activeTab === 'Cash Requests'  && <CashRequestsTab initialFilter={params.filter} />}
+        {activeTab === 'Intimations'    && <IntimationsTab />}
         {activeTab === 'Record Payment' && <RecordPaymentTab />}
         {activeTab === 'Remittance'     && <RemittanceTab />}
         {activeTab === 'History'        && <HistoryTab />}

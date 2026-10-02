@@ -17,8 +17,9 @@ import {
   superAdminMemberUsageSummary,
 } from '../../../services/api';
 import { useAuthStore } from '../../../store/authStore';
-import { C, T, Badge, fmtDate } from '../../../components/ui';
+import { C, Badge, fmtDate } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
+import RoleLogo from '../../../components/RoleLogo';
 
 const PLAN_COLORS: Record<string, { bg: string; text: string }> = {
   BASIC:      { bg: C.gray100,      text: C.gray600 },
@@ -94,27 +95,27 @@ export default function SuperAdminOrgsPage() {
       <View style={{
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: 16, paddingVertical: 14,
-        backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200,
+        backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200,
       }}>
-        <View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text style={T.h2}>Organizations</Text>
-            <View style={{ backgroundColor: '#EDE9FE', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#7C3AED' }}>SUPER ADMIN</Text>
-            </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+          <RoleLogo role="SUPER_ADMIN" size={58} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy, letterSpacing: -0.55 }} numberOfLines={1}>Platform</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.gold, marginTop: 1 }}>ChitWise Hub</Text>
           </View>
-          <Text style={{ fontSize: 13, color: C.gray500, marginTop: 1 }}>Hello, {user?.fullName?.split(' ')[0]}</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${totalAlerts} platform alerts`}
             onPress={() => router.push('/(app)/(superadmin)/alerts' as any)}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#FEF3C7' }}
+            style={{ width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: totalAlerts > 0 ? '#FEF3C7' : C.gray100 }}
           >
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#92400E' }}>🔔 Alerts</Text>
+            <Text style={{ fontSize: 18 }}>🔔</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={logout}
-            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.gray100 }}
+            style={{ paddingHorizontal: 12, height: 42, justifyContent: 'center', borderRadius: 21, backgroundColor: C.gray100 }}
           >
             <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Sign out</Text>
           </TouchableOpacity>
@@ -126,6 +127,13 @@ export default function SuperAdminOrgsPage() {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ marginBottom: 16, paddingHorizontal: 2 }}>
+          <Text style={{ fontSize: 27, lineHeight: 33, fontWeight: '800', color: C.navy, letterSpacing: -0.65 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+            Welcome, {user?.fullName?.split(' ')[0] ?? 'Admin'} 👋
+          </Text>
+          <Text style={{ marginTop: 3, fontSize: 12, lineHeight: 17, color: C.gray500 }}>Manage organizations and platform operations.</Text>
+        </View>
+
         {/* Alert banner */}
         {totalAlerts > 0 && (
           <TouchableOpacity
@@ -150,32 +158,39 @@ export default function SuperAdminOrgsPage() {
         )}
 
         {/* Stats row */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
           {[
-            { label: 'Total',     value: stats.total,     color: C.navy },
-            { label: 'Active',    value: stats.active,    color: C.green },
-            { label: 'Pending',   value: stats.pending,   color: C.amber },
-            { label: 'Suspended', value: stats.suspended, color: C.red },
-          ].map(({ label, value, color }) => (
-            <View key={label} style={{ flex: 1, backgroundColor: C.white, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+            { label: 'Total',     value: stats.total,     color: C.navy, filter: '' },
+            { label: 'Active',    value: stats.active,    color: C.green, filter: 'ACTIVE' },
+            { label: 'Pending',   value: stats.pending,   color: C.amber, filter: 'PENDING' },
+            { label: 'Suspended', value: stats.suspended, color: C.red, filter: 'SUSPENDED' },
+          ].map(({ label, value, color, filter }) => (
+            <TouchableOpacity
+              key={label}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={`${label} organizations: ${value}`}
+              onPress={() => setStatusFilter(filter)}
+              style={{ width: '48%', backgroundColor: C.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: statusFilter === filter ? color : 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4 }}
+            >
               <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>{label}</Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color, marginTop: 2 }}>{value}</Text>
-            </View>
+              <Text style={{ fontSize: 24, fontWeight: '800', color: value === 0 ? C.gray400 : color, marginTop: 2 }}>{value}</Text>
+            </TouchableOpacity>
           ))}
         </View>
 
         {/* Platform usage */}
         {(totalChits > 0 || totalMembers > 0) && (
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.38, shadowRadius: 8, elevation: 4 }}>
               <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Active Chits</Text>
               <Text style={{ fontSize: 22, fontWeight: '800', color: '#7C3AED', marginTop: 2 }}>{totalChits}</Text>
             </View>
-            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.38, shadowRadius: 8, elevation: 4 }}>
               <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Total Members</Text>
               <Text style={{ fontSize: 22, fontWeight: '800', color: '#0891B2', marginTop: 2 }}>{totalMembers}</Text>
             </View>
-            <View style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.gray200 }}>
+            <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 4, height: 4 }, shadowOpacity: 0.38, shadowRadius: 8, elevation: 4 }}>
               <Text style={{ fontSize: 10, fontWeight: '600', color: C.gray400, textTransform: 'uppercase' }}>Upgrades</Text>
               <Text style={{ fontSize: 22, fontWeight: '800', color: '#EA580C', marginTop: 2 }}>{(upgrades as any[]).length}</Text>
             </View>
@@ -193,7 +208,7 @@ export default function SuperAdminOrgsPage() {
             <TouchableOpacity
               key={n.label}
               onPress={() => router.push(n.route as any)}
-              style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: C.gray200 }}
+              style={{ flex: 1, backgroundColor: C.surface, borderRadius: 14, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.82)', shadowColor: '#AEB9C7', shadowOffset: { width: 3, height: 3 }, shadowOpacity: 0.36, shadowRadius: 7, elevation: 3 }}
             >
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>{n.label}</Text>
             </TouchableOpacity>
@@ -209,7 +224,7 @@ export default function SuperAdminOrgsPage() {
             {recentOrgs.map((t: any) => (
               <TouchableOpacity key={t.id}
                 onPress={() => router.push({ pathname: '/(app)/(superadmin)/org-detail', params: { tenantId: t.id } })}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: C.gray100 }}>
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 6, borderWidth: 1, borderColor: C.gray100 }}>
                 <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: C.navy, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>{t.name?.[0]?.toUpperCase() ?? '?'}</Text>
                 </View>
@@ -240,7 +255,7 @@ export default function SuperAdminOrgsPage() {
           placeholder="Search by name or slug…"
           placeholderTextColor={C.gray400}
           style={{
-            backgroundColor: C.white, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200,
+            backgroundColor: C.surface, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200,
             padding: 12, fontSize: 14, color: C.gray900, marginBottom: 10,
           }}
         />
@@ -307,9 +322,9 @@ function TenantCard({ tenant, onPress, onActivate, onSuspend, onPlan }: {
 
   return (
     <View style={{
-      backgroundColor: C.white, borderRadius: 16, marginBottom: 12,
+      backgroundColor: C.surface, borderRadius: 16, marginBottom: 12,
       borderWidth: 1, borderColor: C.gray200,
-      shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+      shadowColor: '#AEB9C7', shadowOffset: { width: 6, height: 6 }, shadowOpacity: 0.46, shadowRadius: 11, elevation: 5,
     }}>
       {/* Main row */}
       <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 }}>

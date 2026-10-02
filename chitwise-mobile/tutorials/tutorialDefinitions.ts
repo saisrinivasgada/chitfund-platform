@@ -48,9 +48,12 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
-    key: 'ADMIN:more', role: 'ADMIN', screen: 'more', pageTitle: 'More', version: 1,
+    key: 'ADMIN:more', role: 'ADMIN', screen: 'more', pageTitle: 'More', version: 2,
     steps: [
       { icon: '✨', title: 'More administration tools', description: 'Reports, team access, billing, support and organization settings live here.' },
+      { icon: '⌗', title: 'Quick Toolkit — always within reach', description: 'A floating ⌗ button sits on every screen. Tap it to open the calculator without leaving your current screen. Long-press to refresh all data.' },
+      { icon: '🧮', title: 'Calculator state is preserved', description: 'Whatever is on the calculator stays there as you move between screens — only pressing AC clears it.' },
+      { icon: '⚙️', title: 'Adjust opacity and size', description: 'Scroll to the Quick Toolkit card at the bottom of this page to change the button\'s opacity, size, or turn it off entirely.' },
       { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
     ],
   },
@@ -91,6 +94,15 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
+    key: 'MANAGER:more', role: 'MANAGER', screen: 'more', pageTitle: 'More', version: 1,
+    steps: [
+      { icon: '⌗', title: 'Quick Toolkit — always within reach', description: 'A floating ⌗ button sits on every screen. Tap to open the calculator without leaving your current screen. Long-press to refresh all data.' },
+      { icon: '🧮', title: 'Calculator state is preserved', description: 'Whatever is on the calculator stays as you move between screens — only pressing AC clears it.' },
+      { icon: '⚙️', title: 'Adjust opacity and size', description: 'Use the Quick Toolkit card on this page to change the button\'s opacity, size, or turn it off entirely.' },
+      { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
+    ],
+  },
+  {
     key: 'STAFF:index', role: 'STAFF', screen: 'index', pageTitle: 'My tasks', version: 1,
     steps: [
       { icon: '📋', title: 'Start with assigned work', description: 'Your open pickup tasks appear here with the amount and member details needed for collection.' },
@@ -103,6 +115,15 @@ const tutorials: PageTutorial[] = [
     steps: [
       { icon: '🕒', title: 'Review completed work', description: 'Use History to confirm past pickups, collection amounts and remittance status.' },
       { icon: '🔎', title: 'Investigate differences', description: 'Open a record when the expected cash or status does not match what happened.' },
+    ],
+  },
+  {
+    key: 'STAFF:more', role: 'STAFF', screen: 'more', pageTitle: 'More', version: 1,
+    steps: [
+      { icon: '⌗', title: 'Quick Toolkit — always within reach', description: 'A floating ⌗ button sits on every screen. Tap to open the calculator without leaving your current screen. Long-press to refresh all data.' },
+      { icon: '🧮', title: 'Calculator state is preserved', description: 'Whatever is on the calculator stays as you move between screens — only pressing AC clears it.' },
+      { icon: '⚙️', title: 'Adjust opacity and size', description: 'Use the Quick Toolkit card on this page to change the button\'s opacity, size, or turn it off entirely.' },
+      { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
     ],
   },
   {
@@ -142,9 +163,11 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
-    key: 'MEMBER:more', role: 'MEMBER', screen: 'more', pageTitle: 'More', version: 1,
+    key: 'MEMBER:more', role: 'MEMBER', screen: 'more', pageTitle: 'More', version: 2,
     steps: [
       { icon: '✨', title: 'More member tools', description: 'Find finance history, payouts, invitations, Chitfund Requests, support and account settings here.' },
+      { icon: '⌗', title: 'Quick Toolkit — floating calculator', description: 'A floating ⌗ button sits on every screen. Tap to open the calculator without leaving the page. Long-press to refresh your data.' },
+      { icon: '⚙️', title: 'Customise the button', description: 'Scroll to the Quick Toolkit card at the bottom of this page to change the button\'s opacity, size, or turn it off.' },
       { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
     ],
   },

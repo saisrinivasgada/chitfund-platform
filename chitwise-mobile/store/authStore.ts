@@ -25,6 +25,8 @@ export interface AuthUser {
   chatEnabled?: boolean;
   adminPhone?: string;
   adminEmail?: string;
+  phone?: string;
+  phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
 }
@@ -41,6 +43,8 @@ export interface StoredAccount {
   authSource?: 'ORGANIZATION' | 'HUB';
   tenantId?: string;
   tenantName?: string;
+  phone?: string;
+  phoneCountryCode?: string;
   canManageIdentityCases?: boolean;
   platformOwner?: boolean;
   sessionValid: boolean;
@@ -56,7 +60,7 @@ interface AuthState {
   user: AuthUser | null;
   accounts: StoredAccount[];
   isLoading: boolean;
-  setUser: (user: AuthUser | null) => void;
+  setUser: (user: AuthUser | null) => Promise<void>;
   logout: () => Promise<void>;
   logoutFromAccount: (userId: string) => Promise<void>;
   logoutAll: () => Promise<void>;
@@ -66,6 +70,7 @@ interface AuthState {
   updateTokenForAccount: (userId: string, token: string, refreshToken?: string) => Promise<void>;
   markSessionInvalid: (userId: string) => Promise<void>;
   updateCachedInfo: (userId: string, info: AccountCachedInfo) => Promise<void>;
+  updateAccountPhone: (accountId: string, phone?: string, phoneCountryCode?: string) => Promise<void>;
 }
 
 const TOKEN_KEY         = 'chitwise_token';
@@ -95,8 +100,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
 
   setUser: async (user) => {
-    set({ user });
     if (user) {
+      // Persist the new credentials before exposing the new identity to the
+      // route guard. Screens start their queries as soon as `user` changes;
+      // publishing state first lets those requests leave with the previous
+      // account's token during account switching.
       await SecureStore.setItemAsync(TOKEN_KEY, user.token);
       if (user.refreshToken) {
         await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, user.refreshToken);
@@ -120,6 +128,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         authSource: user.authSource ?? 'ORGANIZATION',
         tenantId: user.tenantId,
         tenantName: user.tenantName,
+        phone: user.phone ?? (idx >= 0 ? existing[idx].phone : undefined),
+        phoneCountryCode: user.phoneCountryCode ?? (idx >= 0 ? existing[idx].phoneCountryCode : undefined),
         canManageIdentityCases: user.canManageIdentityCases,
         platformOwner: user.platformOwner,
         sessionValid: true,
@@ -132,12 +142,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         existing.unshift(entry);
       }
       await saveAccounts(existing);
-      set({ accounts: existing });
+      set({ user, accounts: existing });
     } else {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       await SecureStore.deleteItemAsync(USER_KEY);
       await SecureStore.deleteItemAsync(HUB_TOKEN_KEY);
+      set({ user: null });
     }
   },
 
@@ -229,6 +240,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       authSource: target.authSource ?? 'ORGANIZATION',
       tenantId: target.tenantId,
       tenantName: target.tenantName,
+      phone: target.phone,
+      phoneCountryCode: target.phoneCountryCode,
       canManageIdentityCases: target.canManageIdentityCases,
       platformOwner: target.platformOwner,
     };
@@ -275,12 +288,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         : a
     );
     await saveAccounts(updated);
-    set((s) => ({
-      accounts: updated,
-      user: s.user && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId
-        ? { ...s.user, token, refreshToken: refreshToken ?? s.user.refreshToken }
-        : s.user,
-    }));
+    set((s) => {
+      const isCurrentUser = !!s.user
+        && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId;
+      const nextUser = isCurrentUser
+        ? { ...s.user!, token, refreshToken: refreshToken ?? s.user!.refreshToken }
+        : s.user;
+      // Keep USER_KEY in sync so loadFromStorage on next open restores a fresh token.
+      if (isCurrentUser) SecureStore.setItemAsync(USER_KEY, JSON.stringify(nextUser));
+      return { accounts: updated, user: nextUser };
+    });
   },
 
   updateCachedInfo: async (accountId: string, info: AccountCachedInfo) => {
@@ -292,15 +309,57 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ accounts: updated });
   },
 
+  updateAccountPhone: async (accountId: string, phone?: string, phoneCountryCode?: string) => {
+    if (!phone) return;
+    const accounts = await loadAccounts();
+    const updated = accounts.map((a) =>
+      a.accountId === accountId ? { ...a, phone, phoneCountryCode } : a
+    );
+    await saveAccounts(updated);
+    set((s) => {
+      const isCurrentUser = !!s.user
+        && accountStorageId(s.user.id, s.user.tenantId, s.user.authSource ?? 'ORGANIZATION') === accountId;
+      return { accounts: updated, user: isCurrentUser ? { ...s.user!, phone, phoneCountryCode } : s.user };
+    });
+  },
+
   loadFromStorage: async () => {
     try {
-      const [raw, accounts] = await Promise.all([
+      const [raw, accounts, token] = await Promise.all([
         SecureStore.getItemAsync(USER_KEY),
         loadAccounts(),
+        SecureStore.getItemAsync(TOKEN_KEY),
       ]);
-      if (raw) {
-        const user = JSON.parse(raw) as AuthUser;
-        set({ user, accounts, isLoading: false });
+      if (raw && token) {
+        let user = JSON.parse(raw) as AuthUser;
+        // Backfill tenantId from JWT for sessions stored before the JWT-decode fix.
+        if (!user.tenantId && token) {
+          try {
+            const part = token.split('.')[1];
+            if (part) {
+              const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((part.length + 3) % 4 || 4);
+              const claims = JSON.parse(atob(padded));
+              if (typeof claims.tenantId === 'string') user = { ...user, tenantId: claims.tenantId };
+            }
+          } catch {}
+        }
+        // USER_KEY + TOKEN_KEY are the authoritative active-session pair.
+        // If a previous interrupted switch left the matching account card
+        // marked invalid, reconcile it so the picker cannot show the same
+        // account as both ACTIVE and NEEDS LOGIN.
+        const currentId = accountStorageId(user.id, user.tenantId, user.authSource ?? 'ORGANIZATION');
+        let reconciled = accounts;
+        const currentIndex = accounts.findIndex((a) => a.accountId === currentId);
+        if (currentIndex >= 0 && !accounts[currentIndex].sessionValid) {
+          reconciled = accounts.map((a) => a.accountId === currentId ? {
+            ...a,
+            token,
+            refreshToken: user.refreshToken ?? a.refreshToken,
+            sessionValid: true,
+          } : a);
+          await saveAccounts(reconciled);
+        }
+        set({ user, accounts: reconciled, isLoading: false });
       } else {
         set({ accounts, isLoading: false });
       }

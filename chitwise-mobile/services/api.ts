@@ -72,7 +72,7 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config;
-    if (err.response?.status === 401 && !original._retry) {
+    if (err.response?.status === 401 && !original._retry && !(original.url ?? '').startsWith('/auth/')) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -114,6 +114,10 @@ api.interceptors.response.use(
     }
     if (err.response?.data?.errorCode === 'PLAN_002') {
       useUIStore.getState().showPlanExpired();
+    }
+    if (err.response?.data?.errorCode === 'CAPABILITY_REQUIRED') {
+      const key = err.response?.data?.capabilityKey ?? err.response?.data?.data?.capabilityKey;
+      if (key) useUIStore.getState().showCapabilityGate(key);
     }
     return Promise.reject(err);
   }
@@ -250,7 +254,21 @@ export const hubSendGroupMessage = async (id: string, content: string, clientMes
 export const hubCreateGroup = async (body: { name: string; description?: string; memberIds: string[] }) =>
   unwrapObj(await hubApi.post('/hub/chat/groups', body));
 
+function decodeJwtClaims(token: string): Record<string, any> | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((part.length + 3) % 4 || 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 function parseAuthResponse(auth: any): LoginResponse {
+  // UserResponse on the server has no tenantId field — extract it from the JWT claims instead.
+  const tenantId: string | undefined = auth.user?.tenantId
+    ?? decodeJwtClaims(auth.accessToken ?? '')?.tenantId;
   return {
     token: auth.accessToken,
     refreshToken: auth.refreshToken,
@@ -259,7 +277,7 @@ function parseAuthResponse(auth: any): LoginResponse {
     fullName: auth.user.fullName,
     role: auth.user.role,
     mustChangePassword: auth.user.mustChangePassword ?? false,
-    tenantId: auth.user.tenantId,
+    tenantId,
   };
 }
 
@@ -546,10 +564,13 @@ export const getActiveCashRequests = async () =>
   unwrapList(await api.get('/payments/requests/active'));
 export const createCashRequest = async (chitId: string, requestedAmount: number, notes?: string) =>
   unwrapObj(await api.post('/payments/requests', { chitId, requestedAmount, notes }));
-export const adminCreateCashRequest = async (memberId: string, chitId: string, requestedAmount: number, staffId?: string, notes?: string) => {
+export const adminCreateCashRequest = async (
+  memberId: string, chitId: string, requestedAmount: number, staffId?: string, notes?: string,
+  allocations?: Array<{ chitId: string; amount: number }>,
+) => {
   const params: any = { memberId };
   if (staffId) params.staffId = staffId;
-  return unwrapObj(await api.post('/payments/requests/admin', { chitId, requestedAmount, notes }, { params }));
+  return unwrapObj(await api.post('/payments/requests/admin', { chitId, requestedAmount, notes, allocations }, { params }));
 };
 export const assignStaffToRequest = async (requestId: string, staffId: string, adminNotes?: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/assign`, { staffId, adminNotes }));
@@ -594,6 +615,24 @@ export const partiallyCollectCashRequest = async (requestId: string, collectedAm
   unwrapObj(await api.patch(`/payments/requests/${requestId}/partial-collect`, { collectedAmount }));
 export const memberApproveCashRequest = async (requestId: string, approved: boolean, reason?: string) =>
   unwrapObj(await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason }));
+
+// ── Payment Intimations ───────────────────────────────────────────────────────
+export const createPaymentIntimation = async (items: Array<{ chitId: string; claimedAmount: number }>, notes?: string) =>
+  unwrapObj(await api.post('/payments/intimations', { items, notes }));
+export const withdrawPaymentIntimation = async (id: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/withdraw`));
+export const getMyIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations/mine'));
+export const getPendingIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations/pending'));
+export const getAllIntimations = async () =>
+  unwrapList(await api.get('/payments/intimations'));
+export const approveIntimation = async (id: string, items: Array<{ itemId: string; approvedAmount: number }>) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/approve`, { items }));
+export const rejectIntimation = async (id: string, reason: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/reject`, { reason }));
+export const voidIntimation = async (id: string, reason: string) =>
+  unwrapObj(await api.post(`/payments/intimations/${id}/void`, { reason }));
 
 // ── Payouts ───────────────────────────────────────────────────────────────────
 export const getAllPayouts = async (params: any = {}) =>
@@ -714,6 +753,8 @@ export const getMyTenantLimits = async () => {
 export const getPublicPlans = async () => {
   try { return unwrapList(await api.get('/plans/public')); } catch { return []; }
 };
+export const getCapabilityGateInfo = async (key: string): Promise<any> =>
+  unwrapObj(await api.get('/plans/capability-gate', { params: { key } }));
 export const requestRenewal = async () =>
   unwrapObj(await api.post('/plans/renewal-request'));
 export const requestPlanUpgrade = async (toPlan: string) =>

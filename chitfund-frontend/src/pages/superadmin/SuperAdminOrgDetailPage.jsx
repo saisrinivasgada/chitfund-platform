@@ -37,6 +37,12 @@ import Button from '../../components/ui/Button';
 import RecordOrgPaymentModal from '../../components/superadmin/RecordOrgPaymentModal';
 import ManageCreditModal from '../../components/superadmin/ManageCreditModal';
 
+const RESERVED_SLUGS = new Set([
+  'hub', 'www', 'api', 'app', 'mail', 'admin', 'support', 'help',
+  'status', 'cdn', 'static', 'assets', 'login', 'signup', 'register',
+  'dashboard', 'billing', 'dev', 'staging', 'test', 'demo',
+]);
+
 const STATUS_CONFIG = {
   ACTIVE:    { label: 'Active',    icon: CheckCircle, cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
   PENDING:   { label: 'Pending',   icon: Clock,       cls: 'bg-amber-50 text-amber-700 border-amber-100' },
@@ -712,6 +718,10 @@ function RenameModal({ tenant, onClose, onSuccess }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (slug && RESERVED_SLUGS.has(slug.toLowerCase())) {
+      setError(`"${slug}" is a reserved name and cannot be used.`);
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -2066,6 +2076,10 @@ function ReactivateModal({ tenant, onClose, onSuccess }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!slug.trim()) { setError('Subdomain is required'); return; }
+    if (RESERVED_SLUGS.has(slug.trim().toLowerCase())) {
+      setError(`"${slug.trim()}" is a reserved name and cannot be used.`);
+      return;
+    }
     setError('');
     setLoading(true);
     try {

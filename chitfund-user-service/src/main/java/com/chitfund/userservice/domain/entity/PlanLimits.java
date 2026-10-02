@@ -45,6 +45,12 @@ public class PlanLimits {
     @Column(name = "global_discount_pct", precision = 5, scale = 2)
     private BigDecimal globalDiscountPct;
 
+    @Column(name = "badge_text", length = 80)
+    private String badgeText;
+
+    @Column(name = "badge_enabled", nullable = false)
+    private boolean badgeEnabled = false;
+
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
 

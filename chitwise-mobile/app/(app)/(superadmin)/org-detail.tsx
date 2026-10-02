@@ -275,7 +275,7 @@ export default function OrgDetailPage() {
       <View style={{
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
-        backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200,
+        backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -335,7 +335,7 @@ export default function OrgDetailPage() {
             { label: 'Staff',    value: roleCounts.STAFF,   color: '#059669' },
             { label: 'Members',  value: roleCounts.MEMBER,  color: C.navy },
           ].map(({ label, value, color }) => (
-            <View key={label} style={{ flex: 1, backgroundColor: C.white, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: C.gray200 }}>
+            <View key={label} style={{ flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 10, borderWidth: 1, borderColor: C.gray200 }}>
               <Text style={{ fontSize: 9, fontWeight: '700', color: C.gray400, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Text>
               <Text style={{ fontSize: 20, fontWeight: '800', color, marginTop: 2 }}>{value}</Text>
             </View>
@@ -479,7 +479,7 @@ export default function OrgDetailPage() {
 
         {/* Org discount */}
         <View style={{
-          backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16,
+          backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 16,
           borderWidth: 1, borderColor: C.gray100,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -521,7 +521,7 @@ export default function OrgDetailPage() {
 
         {/* Plan usage bars */}
         {effectiveLimits && (
-          <View style={{ backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: C.gray100 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Plan Usage</Text>
               {(effectiveLimits as any).hasCustomLimits && (
@@ -659,7 +659,7 @@ export default function OrgDetailPage() {
           ) : (
             userList.map((u: any) => (
               <View key={u.userId ?? u.id} style={{
-                backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8,
+                backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
                 borderWidth: 1, borderColor: C.gray200,
               }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -754,7 +754,7 @@ export default function OrgDetailPage() {
               const sc = CHIT_STATUS_COLORS[c.status] ?? { bg: C.gray100, text: C.gray500 };
               return (
                 <View key={c.id} style={{
-                  backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 8,
+                  backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 8,
                   borderWidth: 1, borderColor: C.gray200,
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -801,7 +801,7 @@ export default function OrgDetailPage() {
       <Modal visible={showPlanMenu} transparent animationType="slide">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <View style={{
-            backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24,
+            backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24,
             paddingBottom: 40,
           }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy, marginBottom: 16 }}>Change Plan</Text>
@@ -893,7 +893,7 @@ export default function OrgDetailPage() {
 
       {/* Reactivate modal */}
       <Modal visible={showReactivate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowReactivate(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
             <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Reactivate Registration</Text>
             <TouchableOpacity onPress={() => setShowReactivate(false)}>
@@ -965,7 +965,7 @@ export default function OrgDetailPage() {
       {/* Credentials after a password reset — shown once */}
       <Modal visible={!!resetCreds} animationType="fade" transparent onRequestClose={() => setResetCreds(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 }}>
-          <View style={{ backgroundColor: C.white, borderRadius: 18, padding: 20 }}>
+          <View style={{ backgroundColor: C.surface, borderRadius: 18, padding: 20 }}>
             <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Password Reset</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginTop: 4 }}>
               Share these credentials with the user — they won't be shown again.
@@ -1006,7 +1006,7 @@ function SetExpiryModal({ currentExpiry, saving, onClose, onSave }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Set Plan Expiry</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1090,7 +1090,7 @@ function TenantCreditModal({ orgName, saving, onClose, onSubmit }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Account Credit</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1189,7 +1189,7 @@ function SetDiscountModal({ existing, saving, onClose, onSave }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>{existing ? 'Edit' : 'Set'} Discount</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 24, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1280,7 +1280,7 @@ function RecordPaymentModal({ visible, orgName, orgPlan, onClose, onRecord, load
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Payment</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1371,7 +1371,7 @@ function AddUserModal({ tenantId, onClose, onAdded }: {
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={T.h2}>Add User to Org</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1462,7 +1462,7 @@ function SetCustomLimitsModal({ tenantId, existing, plans, capDefs, onClose, onS
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Set Custom Limits</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -1560,7 +1560,7 @@ function RenameModal({ tenantId, currentName, currentSlug, onClose, onRenamed }:
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={T.h2}>Rename Organization</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>

@@ -9,6 +9,7 @@ import {
   getMyPaymentBatches, listAuctions,
   getMyInvitations, respondToInvitation,
   getAdminSupportContact,
+  getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
@@ -19,19 +20,20 @@ import {
   Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
   Phone, ArrowRight, Layers, LayoutDashboard,
   CalendarCheck, Zap, ArrowUpRight, ThumbsUp, ThumbsDown,
-  CreditCard, ArrowDownCircle, Building2, Gavel, Bell,
+  CreditCard, ArrowDownCircle, Building2, Gavel, Bell, FileCheck,
 } from 'lucide-react';
 import { useHiddenAmounts } from '../../hooks/useHiddenAmounts';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'overview',     label: 'Home',        icon: LayoutDashboard, color: '#1E3A5F', bg: '#EEF2F8' },
-  { id: 'chits',        label: 'Chits',       icon: Layers,          color: '#1E3A5F', bg: '#EEF2F8' },
-  { id: 'invitations',  label: 'Invites',     icon: Bell,            color: '#1E3A5F', bg: '#EEF2F8' },
-  { id: 'payouts',      label: 'Payouts',     icon: Trophy,          color: '#D4A017', bg: '#FEF9C3' },
-  { id: 'payments',     label: 'Payments',    icon: CreditCard,      color: '#16A34A', bg: '#F0FDF4' },
-  { id: 'requests',     label: 'Pickups',     icon: Banknote,        color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'overview',     label: 'Home',          icon: LayoutDashboard, color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'chits',        label: 'Chits',         icon: Layers,          color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'invitations',  label: 'Invites',       icon: Bell,            color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'payouts',      label: 'Payouts',       icon: Trophy,          color: '#D4A017', bg: '#FEF9C3' },
+  { id: 'payments',     label: 'Payments',      icon: CreditCard,      color: '#16A34A', bg: '#F0FDF4' },
+  { id: 'requests',     label: 'Pickups',       icon: Banknote,        color: '#1E3A5F', bg: '#EEF2F8' },
+  { id: 'intimations',  label: 'Intimations',   icon: FileCheck,       color: '#D97706', bg: '#FEF3C7' },
 ];
 
 // ─── Status maps ──────────────────────────────────────────────────────────────
@@ -1236,6 +1238,212 @@ function PaymentsTab() {
 
 // ─── Requests tab ─────────────────────────────────────────────────────────────
 
+// ─── Intimations Tab (Member) ──────────────────────────────────────────────
+
+const INTIMATION_STATUS_WEB = {
+  PENDING:   { label: 'Pending',   cls: 'bg-amber-100 text-amber-700' },
+  APPROVED:  { label: 'Approved',  cls: 'bg-green-100 text-green-700' },
+  REJECTED:  { label: 'Rejected',  cls: 'bg-red-100 text-red-600' },
+  WITHDRAWN: { label: 'Withdrawn', cls: 'bg-gray-100 text-gray-500' },
+  VOIDED:    { label: 'Voided',    cls: 'bg-red-100 text-red-600' },
+};
+
+function IntimationMemberTab({ memberId, chits = [] }) {
+  const qc = useQueryClient();
+  const { toast } = useToastContext();
+  const [showCreate, setShowCreate] = useState(false);
+  const [items, setItems] = useState([{ chitId: '', claimedAmount: '' }]);
+  const [notes, setNotes] = useState('');
+  const [withdrawTarget, setWithdrawTarget] = useState(null);
+
+  const { data: intimations = [], isLoading } = useQuery({
+    queryKey: ['my-intimations'],
+    queryFn: getMyIntimations,
+    refetchOnMount: true,
+    refetchInterval: 30_000,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => {
+      const payload = items
+        .filter(it => it.chitId && it.claimedAmount)
+        .map(it => ({ chitId: it.chitId, claimedAmount: Number(it.claimedAmount) }));
+      if (payload.length === 0) throw new Error('Add at least one chit and amount');
+      return createPaymentIntimation(payload, notes || undefined);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-intimations'] });
+      toast('Payment intimation submitted');
+      setShowCreate(false);
+      setItems([{ chitId: '', claimedAmount: '' }]);
+      setNotes('');
+    },
+    onError: (e) => toast(e?.response?.data?.message ?? e?.message ?? 'Failed to submit', 'error'),
+  });
+
+  const withdrawMut = useMutation({
+    mutationFn: (id) => withdrawPaymentIntimation(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-intimations'] });
+      toast('Intimation withdrawn');
+      setWithdrawTarget(null);
+    },
+    onError: (e) => toast(e?.response?.data?.message ?? 'Failed to withdraw', 'error'),
+  });
+
+  const fmtAmt = (n) => n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
+  const fmtTs  = (s) => s ? new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+  const pendingCount = intimations.filter(i => i.status === 'PENDING').length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800">Payment Intimations</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Report a payment you made that wasn't recorded by your admin</p>
+        </div>
+        <Button onClick={() => setShowCreate(true)}>Report a Payment</Button>
+      </div>
+
+      {pendingCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+          <p className="text-sm font-semibold text-amber-700">
+            {pendingCount} intimation{pendingCount > 1 ? 's' : ''} awaiting admin review
+          </p>
+        </div>
+      )}
+
+      {/* Create modal */}
+      {showCreate && (
+        <Modal title="Report a Payment" onClose={() => setShowCreate(false)}>
+          <p className="text-sm text-gray-500 mb-4">
+            Select the chit(s) and amount(s) you paid. Your admin will review and confirm.
+          </p>
+          <div className="space-y-3 mb-3">
+            {items.map((it, idx) => (
+              <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-gray-700">Chit {idx + 1}</span>
+                  {items.length > 1 && (
+                    <button type="button" className="text-xs text-red-500 hover:text-red-700"
+                      onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <FormField label="Chit">
+                  <Select
+                    value={it.chitId}
+                    onChange={e => setItems(prev => prev.map((x, i) => i === idx ? { ...x, chitId: e.target.value } : x))}
+                  >
+                    <option value="">Select a chit…</option>
+                    {chits.map(c => (
+                      <option key={c.id} value={c.id}>{c.name ?? c.id.substring(0, 8)}</option>
+                    ))}
+                  </Select>
+                </FormField>
+                <FormField label="Amount (₹)">
+                  <Input
+                    type="number"
+                    value={it.claimedAmount}
+                    onChange={e => setItems(prev => prev.map((x, i) => i === idx ? { ...x, claimedAmount: e.target.value } : x))}
+                    min={1}
+                    placeholder="0"
+                  />
+                </FormField>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="text-sm text-blue-600 hover:text-blue-800 font-medium mb-3"
+            onClick={() => setItems(prev => [...prev, { chitId: '', claimedAmount: '' }])}
+          >
+            + Add another chit
+          </button>
+          <FormField label="Notes (optional)">
+            <Textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Paid via UPI on 25 Sep"
+              rows={2}
+            />
+          </FormField>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>
+              {createMut.isPending ? 'Submitting…' : 'Submit Intimation'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Withdraw confirm */}
+      {withdrawTarget && (
+        <Modal title="Withdraw Intimation?" onClose={() => setWithdrawTarget(null)} size="sm">
+          <p className="text-sm text-gray-600 mb-4">This will cancel your pending payment intimation.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setWithdrawTarget(null)}>Cancel</Button>
+            <Button variant="danger" onClick={() => withdrawMut.mutate(withdrawTarget.id)} disabled={withdrawMut.isPending}>
+              {withdrawMut.isPending ? 'Withdrawing…' : 'Withdraw'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {isLoading ? (
+        <div className="py-6 text-center text-gray-400 text-sm">Loading…</div>
+      ) : intimations.length === 0 ? (
+        <EmptyState title="No intimations yet" description="Use the button above to report a payment your admin missed." />
+      ) : (
+        <div className="space-y-3">
+          {intimations.map(item => {
+            const s = INTIMATION_STATUS_WEB[item.status] ?? { label: item.status, cls: 'bg-gray-100 text-gray-500' };
+            const total = (item.items ?? []).reduce((sum, it) => sum + Number(it.claimedAmount ?? 0), 0);
+            return (
+              <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
+                    <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
+                    <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg divide-y divide-gray-100 mb-2">
+                  {(item.items ?? []).map((it, idx) => (
+                    <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
+                      <span className="text-gray-500">Chit {idx + 1}</span>
+                      <div className="text-right">
+                        <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
+                        {it.approvedAmount != null && (
+                          <div className="text-green-600 text-xs font-semibold">Approved {fmtAmt(it.approvedAmount)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {item.notes && <p className="text-xs text-gray-500 italic mb-2">"{item.notes}"</p>}
+                {item.rejectReason && <p className="text-xs text-red-600 mb-2">Rejected: {item.rejectReason}</p>}
+                {item.voidReason   && <p className="text-xs text-red-600 mb-2">Voided: {item.voidReason}</p>}
+
+                {item.status === 'PENDING' && (
+                  <Button size="sm" variant="secondary" onClick={() => setWithdrawTarget(item)}>
+                    Withdraw
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RequestsTab({ chits, onNewRequest }) {
   const { hidden } = useHiddenAmounts();
   const [trail, setTrail] = useState(null);
@@ -2175,8 +2383,9 @@ export default function MemberPortalPage() {
       {tab === 'chits' && <ChitsTab memberId={member.id} chits={myChits} chitsLoading={chitsLoading} />}
       {tab === 'invitations' && <MemberInvitationsTab memberId={member.id} />}
       {tab === 'payouts' && <PayoutsTab memberId={member.id} chits={myChits} />}
-      {tab === 'payments' && <PaymentsTab />}
-      {tab === 'requests' && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)} />}
+      {tab === 'payments'    && <PaymentsTab />}
+      {tab === 'requests'    && <RequestsTab memberId={member.id} chits={myChits} onNewRequest={isPlanExpired ? null : () => setShowCashRequest(true)} />}
+      {tab === 'intimations' && <IntimationMemberTab memberId={member.id} chits={myChits} />}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
       {showCashRequest && !isPlanExpired && outstanding > 0 && (
@@ -2244,7 +2453,8 @@ export function MemberPortalContent({ memberId }) {
       </div>
       {tab === 'chits' && <ChitsTab memberId={memberId} chits={chits} chitsLoading={chitsLoading} />}
       {tab === 'payouts' && <PayoutsTab memberId={memberId} chits={chits} />}
-      {tab === 'requests' && <RequestsTab memberId={memberId} chits={chits} onNewRequest={() => {}} />}
+      {tab === 'requests'    && <RequestsTab memberId={memberId} chits={chits} onNewRequest={() => {}} />}
+      {tab === 'intimations' && <IntimationMemberTab memberId={memberId} chits={chits} />}
     </div>
   );
 }

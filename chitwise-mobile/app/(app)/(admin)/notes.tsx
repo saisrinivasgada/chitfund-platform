@@ -51,7 +51,7 @@ function NoteCard({
   return (
     <View
       style={{
-        backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 10,
+        backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 10,
         borderWidth: 1, borderColor: C.gray100, borderLeftWidth: 3,
         borderLeftColor: shared ? '#D97706' : C.gray300,
       }}
@@ -177,7 +177,7 @@ export default function TeamNotesScreen() {
       {/* Header */}
       <View style={{
         flexDirection: 'row', alignItems: 'center', padding: 16,
-        backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100,
+        backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100,
       }}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -217,7 +217,7 @@ export default function TeamNotesScreen() {
           {/* Composer */}
           {composerOpen && (
             <View style={{
-              backgroundColor: C.white, borderRadius: 14, padding: 14, marginBottom: 16,
+              backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16,
               borderWidth: 1.5, borderColor: C.navy,
             }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: C.gray400, marginBottom: 8 }}>

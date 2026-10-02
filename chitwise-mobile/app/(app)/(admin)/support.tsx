@@ -84,7 +84,7 @@ function NewTicketModal({ visible, onClose, onCreate }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>New Support Ticket</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400, lineHeight: 32 }}>×</Text></TouchableOpacity>
@@ -141,7 +141,7 @@ function NewTicketModal({ visible, onClose, onCreate }: {
         {/* Type picker modal */}
         <Modal visible={showTypePicker} transparent animationType="slide" onRequestClose={() => setShowTypePicker(false)}>
           <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} activeOpacity={1} onPress={() => setShowTypePicker(false)} />
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 }}>
             <View style={{ alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
               <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy }}>Select Category</Text>
             </View>
@@ -197,7 +197,7 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Header */}
-      <View style={{ backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200, padding: 14 }}>
+      <View style={{ backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray200, padding: 14 }}>
         <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Text style={{ fontSize: 18, color: C.gray500 }}>‹</Text>
           <Text style={{ fontSize: 13, color: C.gray500 }}>All Tickets</Text>
@@ -261,7 +261,7 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
       {/* Input */}
       {!isClosed && (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: C.white, borderTopWidth: 1, borderTopColor: C.gray200 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.gray200 }}>
             <TextInput
               value={text}
               onChangeText={setText}
@@ -281,7 +281,7 @@ function TicketChat({ ticket, onBack }: { ticket: any; onBack: () => void }) {
         </KeyboardAvoidingView>
       )}
       {isClosed && (
-        <View style={{ padding: 12, backgroundColor: '#F9FAFB', borderTopWidth: 1, borderTopColor: C.gray200, alignItems: 'center' }}>
+        <View style={{ padding: 12, backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.gray200, alignItems: 'center' }}>
           <Text style={{ fontSize: 12, color: C.gray400 }}>This ticket is {ticket.status.toLowerCase()}. No further replies.</Text>
         </View>
       )}
@@ -315,7 +315,7 @@ export default function SupportScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
       {/* Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <TouchableOpacity onPress={() => router.back()} style={{ width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: C.gray200, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ fontSize: 18, color: C.gray600 }}>‹</Text>
@@ -359,7 +359,7 @@ export default function SupportScreen() {
                 key={ticket.id}
                 onPress={() => setActiveTicket(ticket)}
                 activeOpacity={0.75}
-                style={{ backgroundColor: C.white, borderRadius: 14, padding: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2, borderWidth: 1, borderColor: C.gray100 }}
+                style={{ backgroundColor: C.surface, borderRadius: 14, padding: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2, borderWidth: 1, borderColor: C.gray100 }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
                   <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: C.gray900, marginRight: 8 }} numberOfLines={1}>{ticket.subject}</Text>

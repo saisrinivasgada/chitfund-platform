@@ -1,16 +1,20 @@
 #!/bin/bash
 # Run all Maestro flows (admin suite + session persistence)
 # Usage: bash maestro/run_suite.sh
-# NOTE: Requires a release build (npx expo run:ios --configuration Release --port 8089)
+# NOTE: Requires a release build (npx expo run:ios --configuration Release)
 #       so the app works without Metro running.
 
 MAESTRO_DIR="$(dirname "$0")"
 
+# Kill any stale XCTest runner from a previous session so Maestro always
+# starts with a fresh XCTest connection (reusing a stale session causes crashes).
+pkill -f "maestro-driver-iosUITests-Runner" 2>/dev/null
+sleep 3
+
 maestro test \
-  -e ADMIN_USERNAME=Vasu \
+  -e ADMIN_USERNAME=offlineadmin \
   -e ADMIN_PASSWORD=Password@1 \
   -e APP_ID=com.chitwise.mobile \
-  -e USER_SERVICE_LOG=/Users/saisrinivas/Projects/learning/logs/user-service.log \
   "$MAESTRO_DIR/01_login_admin.yaml" \
   "$MAESTRO_DIR/02_admin_dashboard.yaml" \
   "$MAESTRO_DIR/03_admin_members.yaml" \

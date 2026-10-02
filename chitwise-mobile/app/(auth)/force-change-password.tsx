@@ -89,7 +89,7 @@ export default function ForceChangePasswordScreen() {
 
           {/* Card */}
           <View style={{
-            backgroundColor: C.white, borderRadius: 24, padding: 24,
+            backgroundColor: C.surface, borderRadius: 24, padding: 24,
             shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 10,
           }}>
             {/* Context banner */}

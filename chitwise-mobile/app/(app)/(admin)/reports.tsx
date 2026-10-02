@@ -112,7 +112,7 @@ function PayoutDetailModal({ payoutId, onClose }: { payoutId: string | null; onC
     <Modal visible={!!payoutId} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.gray100, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.gray100, backgroundColor: C.surface }}>
           <TouchableOpacity onPress={onClose} style={{ marginRight: 12, padding: 4 }}>
             <Text style={{ fontSize: 22, color: C.gray500 }}>×</Text>
           </TouchableOpacity>
@@ -357,7 +357,7 @@ function MemberReport() {
       {/* Member Selector */}
       <TouchableOpacity
         onPress={() => setShowPicker(true)}
-        style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+        style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 14, marginBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
       >
         <Text style={{ color: selectedMember ? C.gray900 : C.gray400, fontSize: 15 }}>
           {selectedMember ? (selectedMember as any).name : 'Select a member…'}
@@ -367,7 +367,7 @@ function MemberReport() {
 
       {/* Member picker modal */}
       {showPicker && (
-        <View style={{ backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.gray200, marginBottom: 16, maxHeight: 320 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.gray200, marginBottom: 16, maxHeight: 320 }}>
           <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: C.gray100 }}>
             <View style={{ backgroundColor: C.gray50, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}>
               <Text style={{ color: C.gray400, fontSize: 13, marginBottom: 4 }}>Search</Text>
@@ -545,7 +545,7 @@ function PaymentDetailModal({ batchId, onClose }: { batchId: string | null; onCl
 
   return (
     <Modal visible={!!batchId} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Payment Detail</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -883,7 +883,7 @@ function ChitReport() {
       {/* Chit selector */}
       <TouchableOpacity
         onPress={() => setShowPicker(true)}
-        style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 14, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+        style={{ backgroundColor: C.surface, borderWidth: 1, borderColor: C.gray200, borderRadius: 12, padding: 14, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
       >
         <Text style={{ color: selectedChit ? C.gray900 : C.gray400, fontSize: 15 }}>
           {selectedChit ? (selectedChit as any).name : 'Select a chit fund…'}
@@ -892,7 +892,7 @@ function ChitReport() {
       </TouchableOpacity>
 
       {showPicker && (
-        <View style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, marginBottom: 12, maxHeight: 280 }}>
+        <View style={{ backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.gray200, marginBottom: 12, maxHeight: 280 }}>
           <ScrollView>
             {(chits as any[]).map((c: any) => (
               <TouchableOpacity
@@ -1034,7 +1034,7 @@ function DrawDetailModal({ draw, onClose }: {
 
   return (
     <Modal visible={!!draw} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Draw #{draw?.monthNumber} Detail</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>

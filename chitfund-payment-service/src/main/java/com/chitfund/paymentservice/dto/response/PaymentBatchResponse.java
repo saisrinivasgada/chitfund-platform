@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +24,8 @@ public class PaymentBatchResponse {
 
     private UUID collectedBy;
     private UUID recordedBy;
+    private Instant recordedAt;
+    private Instant syncedAt;
     private LocalDateTime collectedAt;
     private LocalDateTime remittedAt;
     private UUID remittedBy;

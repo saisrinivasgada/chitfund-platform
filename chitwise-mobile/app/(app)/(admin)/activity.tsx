@@ -412,13 +412,13 @@ export default function ActivityScreen() {
             <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 4, fontWeight: '600' }}>FROM</Text>
             <TextInput value={customFrom} onChangeText={setCustomFrom} placeholder="YYYY-MM-DD"
               placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white }} />
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 4, fontWeight: '600' }}>TO</Text>
             <TextInput value={customTo} onChangeText={setCustomTo} placeholder="YYYY-MM-DD"
               placeholderTextColor={C.gray400}
-              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white }} />
+              style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
           </View>
         </View>
       )}
@@ -566,7 +566,7 @@ export default function ActivityScreen() {
             hasMore ? (
               <TouchableOpacity onPress={() => setShowCount((c) => c + PAGE_SIZE)}
                 style={{ marginTop: 12, padding: 14, borderRadius: 12,
-                  backgroundColor: C.white, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
+                  backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.gray200, alignItems: 'center' }}>
                 <Text style={{ fontSize: 14, fontWeight: '600', color: C.navy }}>
                   Load More ({feed.length - showCount} remaining)
                 </Text>
@@ -582,7 +582,7 @@ export default function ActivityScreen() {
       {/* ── Activity Detail Modal ─────────────────────────────────────────────── */}
       {detailLog && (
         <Modal visible={!!detailLog} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailLog(null)}>
-          <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: detailLog.iconBg, alignItems: 'center', justifyContent: 'center' }}>

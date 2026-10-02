@@ -1,0 +1,176 @@
+appId: ${APP_ID}
+name: Offline Payment — Phase 1 (record while service is down)
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd
+
+# Login
+- runFlow:
+    when:
+      visible:
+        text: "Sign In"
+    commands:
+      - tapOn:
+          text: "Enter your username"
+      - inputText: ${ADMIN_USERNAME}
+      - pressKey: Enter
+      - tapOn:
+          text: "Enter your password"
+      - inputText: ${ADMIN_PASSWORD}
+      - pressKey: Enter
+      - extendedWaitUntil:
+          visible:
+            text: "Verify your identity"
+          timeout: 15000
+      - waitForAnimationToEnd
+      - runScript: helpers/read_otp.js
+      - inputText: ${output.otp}
+      - tapOn:
+          text: "Verify & Sign In"
+      - waitForAnimationToEnd
+      - runFlow:
+          when:
+            visible:
+              text: "Select Organisation"
+          commands:
+            - tapOn:
+                index: 0
+                text: "›"
+            - waitForAnimationToEnd
+
+# Tutorial modal (clearState) grabs iOS focus — dismiss if visible.
+# Three waits give the 900ms delayed showWelcome time to fire before we check.
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible:
+        text: "Welcome to ChitWise"
+    commands:
+      - tapOn:
+          text: "No thanks"
+      - waitForAnimationToEnd
+      - waitForAnimationToEnd
+
+# Ensure modal is fully dismissed — accessibilityViewIsModal blocks the Dashboard
+# tab text until the backdrop animation completes.
+- extendedWaitUntil:
+    notVisible:
+      text: "Welcome to ChitWise"
+    timeout: 10000
+
+# The Keychain session may have a different tutorial state that pushed a sub-page
+# (e.g. "Roles & Permissions"). Navigate to Dashboard tab explicitly so we always
+# land on the correct screen regardless of the tutorial step we ended up on.
+- tapOn:
+    text: "Dashboard"
+- waitForAnimationToEnd
+
+- extendedWaitUntil:
+    visible:
+      text: "Dashboard"
+    timeout: 10000
+
+# Assert initial sync state is healthy (no pending payments)
+- assertNotVisible:
+    text: "waiting"
+- assertNotVisible:
+    text: "Sync needs attention"
+
+# Stop the payment service (simulate outage)
+- runScript: helpers/stop_payment_service.js
+
+# Navigate to Finance → Record Payment
+- tapOn:
+    point: "70%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "Finance"
+
+- tapOn:
+    text: "Record Payment"
+- waitForAnimationToEnd
+
+# Member is pre-listed. The list sits inside a nested ScrollView which XCTest
+# can't address by text — tap by coordinate instead (member card ~28% from top).
+- waitForAnimationToEnd
+- tapOn:
+    point: "50%,38%"
+- waitForAnimationToEnd
+
+# Chit checkbox is at ~48% — display ~40% maps to Maestro ~48% (status bar offset).
+- tapOn:
+    point: "50%,48%"
+- waitForAnimationToEnd
+- waitForAnimationToEnd
+
+# Allocation input appears inline when checkbox is checked (~52% after row expands).
+- tapOn:
+    point: "65%,52%"
+- eraseText: 20
+- inputText: "3500"
+- hideKeyboard
+- waitForAnimationToEnd
+
+# Scroll down to bring payment mode buttons into view
+- scroll
+- waitForAnimationToEnd
+
+# Select UPI payment mode.
+# The radio button's accessibilityText is the merged label "UPI, UPI / PhonePe / GPay"
+# so we need a wildcard regex to fully match it.
+- tapOn:
+    text: "UPI.*"
+- waitForAnimationToEnd
+
+# Enter UPI reference — placeholder is unique after UPI mode is selected
+- tapOn:
+    text: "UPI UTR.*"
+- inputText: "TEST${OFFLINE_IDEMPOTENCY_KEY}"
+- hideKeyboard
+- waitForAnimationToEnd
+
+# Submit — button label is "Record ₹10,000 Payment". Use ₹ to distinguish from the
+# "Record Payment" tab which also matches "Record.*".
+- tapOn:
+    text: "Record ₹.*"
+- waitForAnimationToEnd
+
+# Confirmation dialog appears: "Record ₹10,000 via UPI for Sri Lakshmi Monthly Chit?"
+# The dialog's confirm button text is exactly "Record" (no ₹ suffix).
+- tapOn:
+    text: "Record"
+- waitForAnimationToEnd
+
+# The mutation saves to SQLite immediately (fast local write) which sets pendingCount=1
+# and re-renders the SyncStatusCard, but it then spends ~20 s waiting for the stopped
+# payment service to time out before onSuccess fires the programmatic scrollTo({y:0}).
+# Swipe UP now so the SyncStatusCard at the top of the page is on-screen while we poll.
+- swipe:
+    direction: DOWN
+    duration: 600
+- waitForAnimationToEnd
+- swipe:
+    direction: DOWN
+    duration: 600
+- waitForAnimationToEnd
+
+# Verify "1 payment waiting" amber state.
+# The compact SyncStatusCard is a single TouchableOpacity whose accessibilityLabel is the
+# full compound string "1 payment waiting. Saved safely on this device. Tap to sync now."
+# Maestro uses full regex matching against accessibilityText — no implicit substring — so
+# we append .* to match the rest of the label.
+# Timeout is 30 s: 20 s for Axios timeout + 10 s headroom for React re-render + animation.
+- extendedWaitUntil:
+    visible:
+      text: "1 payment waiting.*"
+    timeout: 30000
+
+# Navigate back to dashboard and verify sync indicator is still showing
+- tapOn:
+    point: "10%,94%"
+- waitForAnimationToEnd
+- assertVisible:
+    text: "1 payment waiting.*"

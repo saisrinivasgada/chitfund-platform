@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, FlatList, TextInput, Modal, Alert, TouchableOpacity, Pressable, Clipboard, KeyboardAvoidingView, Platform, Linking, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
+import { useOnlineMutation } from '../../../offline/useOnlineMutation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getMembers, getMembersPage, createMember, patchMemberStatus, softDeleteMember, updateMember,
@@ -12,6 +14,7 @@ import {
   sendPaymentReminder, sendWhatsAppReminder, getMyTenantLimits, getMemberSettlements,
   adminUpdateUserPhone, startConversation, getRemindersForMember, removeReminder, sendReminder,
   getPaymentHistory, getDeletedMembers, setPromisedPaymentDate,
+  adminCreateCashRequest, listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, LoadingScreen, ListLoadingScreen, Button, fmtDate, EyeToggle, PhoneInput, formatPhone } from '../../../components/ui';
 import { AdminPhoneOtpInput } from '../../../components/AdminPhoneOtpInput';
@@ -23,7 +26,7 @@ import { recordPaymentOfflineCapable } from '../../../offline/paymentQueue';
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'BLACKLISTED'];
 
 // Per-chit balance badge shown on the enrolled chit card
-function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: string }) {
+function ChitBalanceBadge({ memberId, chitId, onCollect }: { memberId: string; chitId: string; onCollect?: () => void }) {
   const { data: balance, isLoading } = useQuery({
     queryKey: ['m-chit-balance', memberId, chitId],
     queryFn: () => getMemberBalance(memberId, chitId),
@@ -31,13 +34,15 @@ function ChitBalanceBadge({ memberId, chitId }: { memberId: string; chitId: stri
   });
   if (isLoading) return <Text style={{ fontSize: 11, color: C.gray400 }}>…</Text>;
   const outstanding = Number(balance?.totalOutstanding ?? 0);
-  if (outstanding > 0) {
-    return <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>;
-  }
-  if (balance !== undefined) {
-    return <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Clear ✓</Text>;
-  }
-  return null;
+  const label = outstanding > 0
+    ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.red }}>₹{outstanding.toLocaleString('en-IN')} due</Text>
+    : balance !== undefined
+      ? <Text style={{ fontSize: 12, fontWeight: '700', color: C.green }}>Clear ✓</Text>
+      : null;
+  if (!label) return null;
+  return onCollect
+    ? <Pressable onPress={onCollect} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>{label}</Pressable>
+    : label;
 }
 
 // Sub-component for per-card balance (calls its own query so hooks are valid)
@@ -123,6 +128,8 @@ export default function AdminMembersScreen() {
   const [collectNotes, setCollectNotes] = useState('');
   const [collectReference, setCollectReference] = useState('');
   const [useCredits, setUseCredits] = useState(false);
+  const [collectedBy, setCollectedBy] = useState('SELF');
+  const [selectedAllocations, setSelectedAllocations] = useState<Record<string, string>>({});
 
   // Create form - all fields matching web + backend
   const [cFullName, setCFullName] = useState('');
@@ -146,11 +153,14 @@ export default function AdminMembersScreen() {
   const [newReferralId, setNewReferralId] = useState('');
   const [newReferralSearch, setNewReferralSearch] = useState('');
   const [idCopied, setIdCopied] = useState(false);
-  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [collectIdempotencyKey, setCollectIdempotencyKey] = useState(() => Crypto.randomUUID());
 
   // Full list for dropdowns, referral search, status counts, limit check
   const { data: allMembers = [] } = useQuery({ queryKey: ['m-members'], queryFn: getMembers });
   const { data: tenantLimits } = useQuery({ queryKey: ['my-tenant-limits'], queryFn: getMyTenantLimits, staleTime: 5 * 60 * 1000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['a-staff'], queryFn: listStaff });
+  const collectors = (staff as any[]).filter((s: any) => ['STAFF', 'MANAGER'].includes(s.role));
+  const workerCollect = collectMode === 'CASH' && collectedBy !== 'SELF';
 
   const statusApiFilter = statusFilter === 'Active' ? 'ACTIVE' : statusFilter === 'Inactive' ? 'INACTIVE' : statusFilter === 'Blacklisted' ? 'BLACKLISTED' : undefined;
 
@@ -176,7 +186,7 @@ export default function AdminMembersScreen() {
     ? (deletedMembers as any[]).length
     : (membersInfinite?.pages[0]?.totalElements ?? 0);
 
-  const createMutation = useMutation({
+  const createMutation = useOnlineMutation({
     mutationFn: () => createMember({
       fullName: cFullName, phone: cPhone, phoneCountryCode: cPhoneCountryCode,
       email: cEmail.trim(),
@@ -200,7 +210,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const changeReferralMutation = useMutation({
+  const changeReferralMutation = useOnlineMutation({
     mutationFn: () => updateMember(selected?.id, {
       fullName: selected?.fullName,
       phone: selected?.phone,
@@ -215,7 +225,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const statusMutation = useMutation({
+  const statusMutation = useOnlineMutation({
     mutationFn: ({ id, status, reason }: any) => patchMemberStatus(id, status, reason),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
@@ -229,7 +239,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useOnlineMutation({
     mutationFn: (id: string) => softDeleteMember(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['m-members'] });
@@ -239,7 +249,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to delete member'),
   });
 
-  const createLoginMutation = useMutation({
+  const createLoginMutation = useOnlineMutation({
     mutationFn: () => requestMemberAppAccess(selected!.id),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ['members'] });
@@ -250,7 +260,7 @@ export default function AdminMembersScreen() {
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? e.message ?? 'Failed to send Chitfund Request'),
   });
 
-  const updateMutation = useMutation({
+  const updateMutation = useOnlineMutation({
     mutationFn: async () => {
       const data = await updateMember(selected!.id, {
         fullName: eName || null,
@@ -279,34 +289,82 @@ export default function AdminMembersScreen() {
   });
 
   const collectMutation = useMutation({
-    mutationFn: () => recordPaymentOfflineCapable({
+    // Staff/manager collection creates a Cash Pickup Request instead of recording
+    // a payment directly — nobody's balance changes until that staff member
+    // actually confirms they collected the cash (marks it picked up) and admin
+    // confirms receipt. This replaces the old direct-to-batch shortcut, which let
+    // whoever filled this form claim money was collected without the staff
+    // member ever being asked to confirm it.
+    mutationFn: () => workerCollect
+      ? adminCreateCashRequest(
+          selected?.id,
+          collectAllocationEntries[0]?.chitId ?? collectChitId,
+          Number(collectAmount),
+          collectedBy,
+          collectNotes || undefined,
+          collectAllocationEntries.length > 1 ? collectAllocationEntries : undefined,
+        )
+      : recordPaymentOfflineCapable({
       memberId: selected?.id,
-      chitId: collectChitId,
+      chitId: collectAllocationEntries[0]?.chitId ?? collectChitId,
       amount: useCredits ? 0 : Number(collectAmount),
       paymentMode: useCredits ? 'CREDIT' : collectMode,
       notes: collectNotes || undefined,
       paymentReference: collectReference || undefined,
+      allocations: isExplicitAllocationMode && collectAllocationEntries.length > 0 ? collectAllocationEntries : undefined,
       idempotencyKey: collectIdempotencyKey,
     }),
     onSuccess: (data: any) => {
-      setCollectIdempotencyKey(crypto.randomUUID());
+      // Capture before state is cleared
+      const memberId = selected?.id;
+      const chitId = data?.chitId ?? collectChitId;
+      setCollectIdempotencyKey(Crypto.randomUUID());
       setShowCollect(false);
       setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setCollectReference(''); setUseCredits(false);
-      qc.invalidateQueries({ queryKey: ['m-member-balance-card', selected?.id] });
-      qc.invalidateQueries({ queryKey: ['m-member-balance', selected?.id] });
-      qc.invalidateQueries({ queryKey: ['m-member-credit', selected?.id] });
+      setCollectedBy('SELF'); setSelectedAllocations({});
+
+      if (workerCollect) {
+        // No balance change here — the member still owes this until the staff
+        // member picks it up AND admin confirms receipt. Only the cash-request
+        // queues move; payment/balance queries are untouched on purpose.
+        toast.saved('Cash pickup request sent — awaiting staff collection');
+        qc.invalidateQueries({ queryKey: ['m-cash-requests'] });
+        qc.invalidateQueries({ queryKey: ['m-member-cash-requests', memberId] });
+        qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'staff-tasks' || q.queryKey[0] === 'manager-pickups' });
+        return;
+      }
+
+      if (data?.offlineQueued) {
+        // Server doesn't have this payment yet — reduce the displayed balance
+        // immediately so the member card reflects it without waiting for sync.
+        const paid = Number(data.totalAmount ?? 0);
+        qc.setQueryData(['m-member-balance-card', memberId], (old: any) =>
+          typeof old === 'number' ? old - paid : old,
+        );
+        qc.setQueryData(['m-member-balance', memberId], (old: any) =>
+          typeof old === 'number' ? old - paid : old,
+        );
+        qc.setQueryData(['m-chit-balance', memberId, chitId], (old: any) => {
+          if (!old || typeof old !== 'object') return old;
+          return { ...old, totalOutstanding: Math.max(0, Number(old.totalOutstanding ?? 0) - paid) };
+        });
+      } else {
+        qc.invalidateQueries({ queryKey: ['m-member-balance-card', memberId] });
+        qc.invalidateQueries({ queryKey: ['m-member-balance', memberId] });
+        qc.invalidateQueries({ queryKey: ['m-member-credit', memberId] });
+      }
       toast.saved(useCredits ? 'Credits applied — outstanding settled' : data?.offlineQueued ? 'Payment saved securely — pending sync' : 'Payment recorded');
     },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed'),
   });
 
-  const reminderMutation = useMutation({
+  const reminderMutation = useOnlineMutation({
     mutationFn: () => sendPaymentReminder(selected!.userId ?? selected!.linkedUserId),
     onSuccess: () => toast.noted('Payment reminder sent'),
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Failed to send reminder'),
   });
 
-  const whatsappMutation = useMutation({
+  const whatsappMutation = useOnlineMutation({
     mutationFn: () => {
       const totalOutstanding = Number((memberBalance as any)?.totalBalance ?? 0);
       return sendWhatsAppReminder({
@@ -326,6 +384,57 @@ export default function AdminMembersScreen() {
     queryFn: () => getChitsForMember(selected!.id),
     enabled: !!selected?.id && showDetail,
   });
+
+  // Multi-chit allocation for Collect Payment — same mechanism as the Payments tab:
+  // pick one or more chits, allocate a portion of the payment to each (FIFO within each chit).
+  const collectPayableChits = (memberChits as any[]).filter((c: any) =>
+    ['ACTIVE', 'PAUSED', 'COMPLETED'].includes(c.status)
+  );
+  const { data: collectMultiBalances = {} } = useQuery({
+    queryKey: ['m-collect-multi-balances', selected?.id, collectPayableChits.map((c: any) => c.id).join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(collectPayableChits.map(async (c: any) => {
+        try {
+          const result: any = await getMemberBalance(selected!.id, c.id);
+          return [String(c.id), Number(result?.totalOutstanding ?? result?.outstanding ?? result?.balance ?? 0)];
+        } catch {
+          return [String(c.id), 0];
+        }
+      }));
+      return Object.fromEntries(entries);
+    },
+    enabled: !!selected?.id && showDetail && collectPayableChits.length > 0,
+    staleTime: 30_000,
+  });
+  const toggleChitAllocation = (chit: any) => {
+    setSelectedAllocations((current) => {
+      if (current[chit.id] !== undefined) {
+        const next = { ...current };
+        delete next[chit.id];
+        setCollectChitId(Object.keys(next)[0] ?? '');
+        return next;
+      }
+      const due = Number((collectMultiBalances as any)[chit.id] ?? 0);
+      const suggested = due > 0 ? due : Number(chit.installmentAmount ?? 0);
+      setCollectChitId((previous) => previous || chit.id);
+      return { ...current, [chit.id]: suggested > 0 ? suggested.toFixed(2) : '' };
+    });
+  };
+  const collectAllocationEntries = Object.entries(selectedAllocations)
+    .map(([chitId, amt]) => ({ chitId, amount: Number(amt || 0) }))
+    .filter((entry) => entry.amount > 0);
+  const collectAllocationTotal = collectAllocationEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  // Both self- and staff-collection now use the same chit checklist for the
+  // amount — staff-collection used to allow a freely-typed amount disconnected
+  // from the selected chits, which is exactly the kind of mismatch that made the
+  // multi-chit selection misleading before the backend could act on it.
+  const isExplicitAllocationMode = !useCredits;
+
+  useEffect(() => {
+    if (isExplicitAllocationMode && Object.keys(selectedAllocations).length > 0) {
+      setCollectAmount(collectAllocationTotal > 0 ? collectAllocationTotal.toFixed(2) : '');
+    }
+  }, [collectAllocationTotal, isExplicitAllocationMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: memberBalance } = useQuery({
     queryKey: ['m-member-balance', selected?.id],
@@ -360,13 +469,13 @@ export default function AdminMembersScreen() {
   });
   const memberReminders: any[] = (memberRemindersPage as any)?.content ?? [];
 
-  const cancelReminderMutation = useMutation({
+  const cancelReminderMutation = useOnlineMutation({
     mutationFn: (reminderId: string) => removeReminder(reminderId),
     onSuccess: () => { refetchReminders(); toast.noted('Reminder cancelled'); },
     onError: () => Alert.alert('Error', 'Failed to cancel reminder'),
   });
 
-  const createReminderMutation = useMutation({
+  const createReminderMutation = useOnlineMutation({
     mutationFn: () => sendReminder({
       memberProfileId: selected!.id,
       chits: [],
@@ -422,7 +531,7 @@ export default function AdminMembersScreen() {
     qc.invalidateQueries({ queryKey: ['m-chitfund-requests', selected?.id] });
     qc.invalidateQueries({ queryKey: ['members'] });
   };
-  const resendChitfundMutation = useMutation({
+  const resendChitfundMutation = useOnlineMutation({
     mutationFn: () => resendChitfundRequest(latestChitfundRequest.id),
     onSuccess: (data: any) => { refreshChitfundRequest(); showChitfundRequestLink(data, 'Chitfund Request resent'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not resend request'),
@@ -442,17 +551,17 @@ export default function AdminMembersScreen() {
       { text: 'Copy Link', onPress: () => { Clipboard.setString(url); toast.noted('One-time link copied'); } },
     ]);
   }
-  const revokeChitfundMutation = useMutation({
+  const revokeChitfundMutation = useOnlineMutation({
     mutationFn: () => revokeChitfundRequest(latestChitfundRequest.id),
     onSuccess: () => { refreshChitfundRequest(); toast.cancelled('Chitfund Request revoked'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not revoke request'),
   });
-  const confirmChitfundMutation = useMutation({
+  const confirmChitfundMutation = useOnlineMutation({
     mutationFn: () => confirmChitfundRequest(latestChitfundRequest.id),
     onSuccess: () => { refreshChitfundRequest(); toast.saved('Member app access activated'); },
     onError: (e: any) => Alert.alert('Error', e.response?.data?.message ?? 'Could not activate app access'),
   });
-  const accountAccessTicketMutation = useMutation({
+  const accountAccessTicketMutation = useOnlineMutation({
     mutationFn: () => createSupportTicket({
       type: 'ACCOUNT',
       accountCaseSubtype: 'APP_ACCESS_FAILURE',
@@ -485,7 +594,7 @@ export default function AdminMembersScreen() {
   // Promised-payment-date editor: which record is open, and its draft value.
   const [promiseRecordId, setPromiseRecordId] = useState<string | null>(null);
   const [promiseDate, setPromiseDate] = useState('');
-  const promiseMut = useMutation({
+  const promiseMut = useOnlineMutation({
     mutationFn: ({ recordId, date }: { recordId: string; date: string }) =>
       setPromisedPaymentDate(recordId, date),
     onSuccess: () => {
@@ -507,6 +616,64 @@ export default function AdminMembersScreen() {
     (r) => r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PENDING',
   );
 
+
+  function submitCollectPayment() {
+    if (useCredits) { collectMutation.mutate(); return; }
+
+    const totalPay = collectAllocationEntries.length > 0 ? collectAllocationTotal : Number(collectAmount || 0);
+    const totalDue = collectAllocationEntries.length > 0
+      ? collectAllocationEntries.reduce((sum, e) => sum + Number((collectMultiBalances as any)[e.chitId] ?? 0), 0)
+      : collectOutstanding;
+    const isOverpay = totalPay > 0 && totalDue > 0 && totalPay > totalDue;
+
+    const breakdown = collectAllocationEntries.length > 1
+      ? '\n\n' + collectAllocationEntries
+          .map((e) => `${collectPayableChits.find((c: any) => c.id === e.chitId)?.name ?? 'Chit'}: ₹${e.amount.toLocaleString('en-IN')}`)
+          .join('\n')
+      : '';
+
+    const actionVerb = workerCollect ? 'Send a pickup request for' : 'Record';
+    const actionButtonLabel = workerCollect ? 'Yes, Send Pickup Request' : 'Yes, Add Extra to Credit';
+
+    // Guard rail: never silently apply an overpayment as credit — the person
+    // recording the payment must explicitly acknowledge it before it happens.
+    // Same wording applies whether this settles now (self) or once staff/admin
+    // finish the pickup — either way the excess ends up as credit, not lost.
+    if (isOverpay) {
+      const extra = totalPay - totalDue;
+      Alert.alert(
+        'Amount Exceeds Outstanding',
+        `${selected?.fullName} owes ₹${totalDue.toLocaleString('en-IN')}. ${actionVerb} ₹${totalPay.toLocaleString('en-IN')} — the extra ₹${extra.toLocaleString('en-IN')} will be added to their credit balance and can be applied to future dues.${breakdown}\n\nContinue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: actionButtonLabel, onPress: () => collectMutation.mutate() },
+        ],
+      );
+      return;
+    }
+
+    if (collectAllocationEntries.length > 1) {
+      // Multi-chit payment — show the per-chit breakdown so the amount being
+      // told to the member matches exactly what gets recorded (or requested).
+      Alert.alert(
+        workerCollect ? 'Confirm Pickup Request' : 'Confirm Payment',
+        `${actionVerb} ₹${collectAllocationTotal.toLocaleString('en-IN')} total across ${collectAllocationEntries.length} chits?${breakdown}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: workerCollect ? 'Send Request' : 'Record', onPress: () => collectMutation.mutate() },
+        ],
+      );
+      return;
+    }
+
+    collectMutation.mutate();
+  }
+
+  function closeCollectModal() {
+    setShowCollect(false);
+    setCollectChitId(''); setCollectAmount(''); setCollectMode('CASH'); setCollectNotes(''); setCollectReference('');
+    setUseCredits(false); setCollectedBy('SELF'); setSelectedAllocations({});
+  }
 
   function openDetail(m: any) {
     setSelected(m);
@@ -563,7 +730,7 @@ export default function AdminMembersScreen() {
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search name, phone, email…"
           placeholderTextColor={C.gray400}
-          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.white, marginBottom: 10 }} />
+          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface, marginBottom: 10 }} />
         {/* Status filter tabs */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {[null, 'Active', 'Inactive', 'Blacklisted', 'Deleted'].map((f) => {
@@ -643,7 +810,7 @@ export default function AdminMembersScreen() {
 
       {/* ── Member Detail Modal ──────────────────────────────────────────────── */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <View style={{ flex: 1 }}>
               <Text style={T.h2} numberOfLines={1}>{selected?.fullName ?? 'Member'}</Text>
@@ -916,24 +1083,36 @@ export default function AdminMembersScreen() {
                         </Text>
                       ) : (
                         displayChits.map((c: any) => (
-                          <TouchableOpacity key={c.id} activeOpacity={0.75}
-                            onPress={() => {
-                              setShowDetail(false);
-                              setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
-                            }}>
-                            <Card style={{ marginBottom: 8, borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
+                          <View key={c.id} style={{ marginBottom: 8 }}>
+                            <Card style={{ borderLeftWidth: 3, borderLeftColor: c.status === 'ACTIVE' ? C.green : C.gray300 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <View style={{ flex: 1 }}>
+                                {/* Left: tap navigates to the chit detail */}
+                                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.75}
+                                  onPress={() => {
+                                    setShowDetail(false);
+                                    setTimeout(() => router.push({ pathname: '/(app)/(admin)/chits', params: { openChitId: c.id } }), 300);
+                                  }}>
                                   <Text style={{ fontSize: 14, fontWeight: '600', color: C.gray900 }}>{c.name}</Text>
                                   {c.installmentAmount && <Amount value={c.installmentAmount} size="sm" color={C.navy} />}
-                                </View>
+                                </TouchableOpacity>
+                                {/* Right: status badge + tappable balance badge (no nesting issue) */}
                                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
                                   <Badge status={c.status} />
-                                  <ChitBalanceBadge memberId={selected.id} chitId={c.id} />
+                                  <ChitBalanceBadge
+                                    memberId={selected.id}
+                                    chitId={c.id}
+                                    onCollect={c.status === 'ACTIVE' ? () => {
+                                      const due = Number((collectMultiBalances as any)[c.id] ?? 0);
+                                      const suggested = due > 0 ? due : Number(c.installmentAmount ?? 0);
+                                      setSelectedAllocations({ [c.id]: suggested > 0 ? suggested.toFixed(2) : '' });
+                                      setCollectChitId(c.id);
+                                      setShowCollect(true);
+                                    } : undefined}
+                                  />
                                 </View>
                               </View>
                             </Card>
-                          </TouchableOpacity>
+                          </View>
                         ))
                       )}
                     </>
@@ -1104,7 +1283,7 @@ export default function AdminMembersScreen() {
                           <TextInput value={value} onChangeText={set} placeholder={placeholder}
                             keyboardType={keyboard ?? 'default'} maxLength={maxLen}
                             placeholderTextColor={C.gray400} autoCapitalize="none"
-                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.white }} />
+                            style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface }} />
                         </View>
                       ))}
                       <AdminPhoneOtpInput
@@ -1121,7 +1300,7 @@ export default function AdminMembersScreen() {
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Notes</Text>
                         <TextInput value={eNotes} onChangeText={setENotes} placeholder="Any notes…" multiline
                           placeholderTextColor={C.gray400}
-                          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.white, minHeight: 60, textAlignVertical: 'top' }} />
+                          style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, backgroundColor: C.surface, minHeight: 60, textAlignVertical: 'top' }} />
                       </View>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
                         <View style={{ flex: 1 }}>
@@ -1143,7 +1322,7 @@ export default function AdminMembersScreen() {
                   {!showStatusInline ? (
                     <TouchableOpacity
                       onPress={() => { setNewStatus(selected.status ?? 'ACTIVE'); setShowStatusInline(true); }}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.white }}>
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.gray200, backgroundColor: C.surface }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700 }}>Member Status</Text>
                         <Text style={{ fontSize: 12, color: C.gray400, marginTop: 1 }}>Currently: {selected.status ?? 'ACTIVE'}</Text>
@@ -1412,7 +1591,7 @@ export default function AdminMembersScreen() {
                   <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => setShowCreateReminder(false)}>
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
                       <TouchableOpacity activeOpacity={1}>
-                        <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
+                        <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 }}>
                           <View style={{ alignItems: 'center', marginBottom: 16 }}>
                             <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: C.gray200 }} />
                           </View>
@@ -1425,7 +1604,7 @@ export default function AdminMembersScreen() {
                             placeholder="e.g. Please pay your monthly installment"
                             placeholderTextColor={C.gray400}
                             multiline
-                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: '#F9FAFB', minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
+                            style={{ borderWidth: 1, borderColor: C.gray200, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: C.gray900, backgroundColor: C.surface, minHeight: 72, marginBottom: 16, textAlignVertical: 'top' }}
                           />
 
                           <Text style={{ fontSize: 12, fontWeight: '600', color: C.gray500, marginBottom: 8 }}>Repeat Frequency</Text>
@@ -1489,21 +1668,68 @@ export default function AdminMembersScreen() {
             )}
           </ScrollView>
         </SafeAreaView>
-      </Modal>
 
-      {/* ── Collect Payment Modal ─────────────────────────────────────────────── */}
-      <Modal visible={showCollect} animationType="slide" transparent onRequestClose={() => setShowCollect(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+        {/* ── Collect Payment Sheet — nested inside member detail so it stacks on iOS ── */}
+        <Modal visible={showCollect} animationType="slide" transparent onRequestClose={closeCollectModal}>
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+              contentContainerStyle={{ padding: 24 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View>
                 <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Collect Payment</Text>
                 <Text style={{ fontSize: 12, color: C.gray500, marginTop: 2 }}>{selected?.fullName}</Text>
               </View>
-              <TouchableOpacity onPress={() => setShowCollect(false)}>
+              <TouchableOpacity onPress={closeCollectModal}>
                 <Text style={{ fontSize: 24, color: C.gray400 }}>×</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Chit picker — select one or more chits, allocate a portion to each */}
+            {collectPayableChits.length > 0 && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ ...T.label, marginBottom: 6 }}>Select Chit Fund</Text>
+                <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 8 }}>
+                  Select one or more chits. Amounts are applied FIFO within the selected chits only.
+                </Text>
+                <View style={{ gap: 8 }}>
+                  {collectPayableChits.map((c: any) => {
+                    const checked = selectedAllocations[c.id] !== undefined;
+                    const due = (collectMultiBalances as any)[c.id];
+                    return (
+                      <View key={c.id} style={{ borderWidth: 1.5, borderColor: checked ? C.navy : C.gray300, borderRadius: 12, padding: 11, backgroundColor: checked ? C.navy50 : C.white }}>
+                        <TouchableOpacity onPress={() => toggleChitAllocation(c)} style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                          <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: checked ? C.navy : C.gray300, backgroundColor: checked ? C.navy : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {checked && <Text style={{ color: C.white, fontSize: 12, fontWeight: '800' }}>✓</Text>}
+                          </View>
+                          <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: checked ? C.navy : C.gray900 }}>{c.name}</Text>
+                          <Text style={{ fontSize: 11, color: C.gray500 }}>{due == null ? 'Loading…' : due > 0 ? `₹${due.toLocaleString('en-IN')} due` : 'No dues'}</Text>
+                        </TouchableOpacity>
+                        {checked && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, marginLeft: 27 }}>
+                            <Text style={{ fontSize: 11, color: C.gray500 }}>Allocate ₹</Text>
+                            <TextInput
+                              value={selectedAllocations[c.id]}
+                              onChangeText={(value) => setSelectedAllocations((current) => ({ ...current, [c.id]: value }))}
+                              keyboardType="numeric"
+                              style={{ flex: 1, borderWidth: 1, borderColor: C.gray300, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, fontSize: 14, color: C.gray900, backgroundColor: C.surface }}
+                            />
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                  {Object.keys(selectedAllocations).length > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: C.gray200, paddingTop: 8 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.gray700 }}>Total payment</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: C.navy }}>₹{collectAllocationTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
 
             {/* Credit balance banner */}
             {memberCreditBalance > 0 && (
@@ -1539,13 +1765,17 @@ export default function AdminMembersScreen() {
               <>
                 <Text style={{ ...T.label, marginBottom: 6 }}>Amount (₹)</Text>
                 <TextInput value={collectAmount} onChangeText={setCollectAmount} keyboardType="numeric" placeholder="0"
+                  editable={!isExplicitAllocationMode}
                   placeholderTextColor={C.gray400}
-                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, fontWeight: '700', color: C.gray900, marginBottom: 14 }} />
+                  style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 18, fontWeight: '700', color: isExplicitAllocationMode ? C.gray500 : C.gray900, marginBottom: 6, backgroundColor: isExplicitAllocationMode ? C.gray100 : C.white }} />
+                {isExplicitAllocationMode && (
+                  <Text style={{ fontSize: 11, color: C.gray500, marginBottom: 8 }}>Calculated from the chit allocations above.</Text>
+                )}
 
-                <Text style={{ ...T.label, marginBottom: 8 }}>Payment Mode</Text>
+                <Text style={{ ...T.label, marginBottom: 8, marginTop: 8 }}>Payment Mode</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
                   {['CASH', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].map((m) => (
-                    <TouchableOpacity key={m} onPress={() => { setCollectMode(m); setCollectReference(''); }}
+                    <TouchableOpacity key={m} onPress={() => { setCollectMode(m); setCollectReference(''); if (m !== 'CASH') setCollectedBy('SELF'); }}
                       style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
                         borderColor: collectMode === m ? C.navy : C.gray300,
                         backgroundColor: collectMode === m ? C.navy50 : C.white }}>
@@ -1569,6 +1799,51 @@ export default function AdminMembersScreen() {
                     />
                   </>
                 )}
+
+                {/* Collected By — CASH mode only: self, or send a staff member for pickup */}
+                {collectMode === 'CASH' && (
+                  <>
+                    <Text style={{ ...T.label, marginBottom: 8 }}>Collected By</Text>
+
+                    <TouchableOpacity onPress={() => setCollectedBy('SELF')}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, borderWidth: 2, borderColor: collectedBy === 'SELF' ? C.navy : C.gray300, backgroundColor: collectedBy === 'SELF' ? C.navy50 : C.white, marginBottom: 6 }}>
+                      <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: collectedBy === 'SELF' ? C.navy : C.gray300, backgroundColor: collectedBy === 'SELF' ? C.navy : 'transparent', flexShrink: 0 }} />
+                      <View>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: collectedBy === 'SELF' ? C.navy : C.gray700 }}>Self (I collected it directly)</Text>
+                        <Text style={{ fontSize: 11, color: C.gray500 }}>Treasury credited immediately</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {collectors.length === 0 ? (
+                      <Text style={{ fontSize: 12, color: C.gray400, marginBottom: 14 }}>No staff in team yet</Text>
+                    ) : (
+                      <ScrollView style={{ maxHeight: 160, marginBottom: 6, borderWidth: 1.5, borderColor: C.gray300, borderRadius: 12 }} nestedScrollEnabled>
+                        {collectors.map((w: any) => (
+                          <TouchableOpacity key={w.id} onPress={() => setCollectedBy(w.id)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: C.gray100, backgroundColor: collectedBy === w.id ? '#FFFBEB' : 'transparent' }}>
+                            <View style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 2, flexShrink: 0, borderColor: collectedBy === w.id ? C.amber : C.gray300, backgroundColor: collectedBy === w.id ? C.amber : 'transparent' }} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 14, fontWeight: collectedBy === w.id ? '700' : '400', color: collectedBy === w.id ? '#92400E' : C.gray900 }}>
+                                {w.fullName ?? w.username}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: C.gray400 }}>{w.role}{w.phone ? ` · ${w.phone}` : ''}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+
+                    {workerCollect && (
+                      <View style={{ backgroundColor: '#FEF3C7', borderRadius: 10, padding: 10, marginBottom: 14, borderWidth: 1, borderColor: '#F59E0B' }}>
+                        <Text style={{ fontSize: 12, color: '#92400E', fontWeight: '700', marginBottom: 2 }}>Not collected yet</Text>
+                        <Text style={{ fontSize: 11, color: '#92400E' }}>
+                          This sends a pickup request — nothing is credited until they mark it collected and you confirm receipt.
+                        </Text>
+                      </View>
+                    )}
+                    {!workerCollect && <View style={{ marginBottom: 14 }} />}
+                  </>
+                )}
               </>
             )}
 
@@ -1578,18 +1853,20 @@ export default function AdminMembersScreen() {
               style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900, minHeight: 56, textAlignVertical: 'top', marginBottom: 16 }} />
 
             <Button
-              label={useCredits ? `Apply ₹${collectOutstanding.toLocaleString('en-IN')} Credits` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
+              label={useCredits ? `Apply ₹${collectOutstanding.toLocaleString('en-IN')} Credits` : workerCollect ? `Send for Pickup — ₹${Number(collectAmount || 0).toLocaleString('en-IN')}` : `Record ₹${Number(collectAmount || 0).toLocaleString('en-IN')} Payment`}
               variant="success" fullWidth size="lg"
               disabled={!collectChitId || (useCredits ? !creditCoversCollect : (!collectAmount || Number(collectAmount) <= 0 || (['UPI', 'BANK_TRANSFER', 'CHEQUE'].includes(collectMode) && !collectReference.trim())))}
               loading={collectMutation.isPending}
-              onPress={() => collectMutation.mutate()} />
+              onPress={submitCollectPayment} />
+            </ScrollView>
+            </KeyboardAvoidingView>
           </View>
-        </View>
+        </Modal>
       </Modal>
 
       {/* ── Create Member Modal ────────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: C.white }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
             <Text style={T.h2}>Add Member</Text>
             <TouchableOpacity onPress={() => setShowCreate(false)}>
@@ -1694,7 +1971,7 @@ export default function AdminMembersScreen() {
       {/* ── Change Referral Modal ──────────────────────────────────────────────── */}
       <Modal visible={showReferralChange} animationType="slide" transparent onRequestClose={() => setShowReferralChange(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Change Referral</Text>
               <TouchableOpacity onPress={() => setShowReferralChange(false)}>

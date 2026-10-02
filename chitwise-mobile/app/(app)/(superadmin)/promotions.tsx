@@ -79,7 +79,7 @@ function PromoFormModal({ visible, promo, onClose, onDone }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>
             {isEdit ? 'Edit Promotion' : 'New Promotion'}
@@ -285,7 +285,7 @@ export default function PromotionsScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -325,15 +325,15 @@ export default function PromotionsScreen() {
           {referralProgram ? (
             <>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
-                <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
+                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 10, padding: 12 }}>
                   <Text style={{ fontSize: 11, color: C.gray500 }}>Registrant Discount</Text>
                   <Text style={{ fontSize: 22, fontWeight: '800', color: '#7C3AED' }}>{referralProgram.discountPct}%</Text>
                 </View>
-                <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
+                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 10, padding: 12 }}>
                   <Text style={{ fontSize: 11, color: C.gray500 }}>Referrer Credit</Text>
                   <Text style={{ fontSize: 22, fontWeight: '800', color: '#7C3AED' }}>₹{referralProgram.referrerCreditInr ?? 0}</Text>
                 </View>
-                <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12 }}>
+                <View style={{ flex: 1, backgroundColor: C.surface, borderRadius: 10, padding: 12 }}>
                   <Text style={{ fontSize: 11, color: C.gray500 }}>Total Uses</Text>
                   <Text style={{ fontSize: 22, fontWeight: '800', color: '#7C3AED' }}>{referralProgram.usesCount ?? 0}</Text>
                 </View>
@@ -364,7 +364,7 @@ export default function PromotionsScreen() {
               const isCredited = rc.status === 'CREDITED';
               return (
                 <View key={rc.id} style={{
-                  backgroundColor: C.white, borderRadius: 12, padding: 12, marginBottom: 8,
+                  backgroundColor: C.surface, borderRadius: 12, padding: 12, marginBottom: 8,
                   flexDirection: 'row', alignItems: 'center', gap: 10,
                   borderWidth: 1, borderColor: C.gray100,
                 }}>
@@ -394,7 +394,7 @@ export default function PromotionsScreen() {
         </Text>
 
         {standardPromos.length === 0 ? (
-          <View style={{ alignItems: 'center', paddingVertical: 40, backgroundColor: C.white, borderRadius: 16, borderWidth: 1, borderColor: C.gray200, borderStyle: 'dashed' }}>
+          <View style={{ alignItems: 'center', paddingVertical: 40, backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.gray200, borderStyle: 'dashed' }}>
             <Text style={{ fontSize: 32, marginBottom: 8 }}>🎟️</Text>
             <Text style={{ fontSize: 15, fontWeight: '700', color: C.gray700 }}>No Promo Codes</Text>
             <Text style={{ fontSize: 13, color: C.gray400, marginTop: 6 }}>Create a promo code to offer discounts.</Text>
@@ -402,7 +402,7 @@ export default function PromotionsScreen() {
         ) : (
           standardPromos.map((p: any) => (
             <View key={p.id ?? p.code} style={{
-              backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 12,
+              backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 12,
               borderWidth: 1, borderColor: C.gray100,
               opacity: p.isActive === false ? 0.6 : 1,
             }}>

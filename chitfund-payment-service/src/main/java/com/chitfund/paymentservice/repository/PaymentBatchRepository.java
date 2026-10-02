@@ -30,6 +30,21 @@ public interface PaymentBatchRepository extends JpaRepository<PaymentBatch, UUID
     @Query("SELECT b FROM PaymentBatch b WHERE b.id = :id AND b.tenantId = :tenantId")
     Optional<PaymentBatch> findByIdAndTenantIdForUpdate(@Param("id") UUID id, @Param("tenantId") String tenantId);
 
+    // Recent-duplicate guard: catches the same real-world cash handover being recorded
+    // twice under two different idempotency keys — e.g. queued offline on a phone AND
+    // separately entered on the web while the phone had no signal. Scoped to a short
+    // window and exact amount match so two genuinely separate payments (different
+    // months, different amounts) are never flagged.
+    @Query("SELECT b FROM PaymentBatch b WHERE b.tenantId = :tenantId AND b.memberId = :memberId " +
+           "AND b.chitId = :chitId AND b.totalAmount = :amount AND b.status <> 'VOIDED' " +
+           "AND b.createdAt >= :since ORDER BY b.createdAt DESC")
+    List<PaymentBatch> findRecentPossibleDuplicates(
+            @Param("tenantId") String tenantId,
+            @Param("memberId") UUID memberId,
+            @Param("chitId") UUID chitId,
+            @Param("amount") java.math.BigDecimal amount,
+            @Param("since") LocalDateTime since);
+
     // ── Tenant-scoped list queries (primary paths) ────────────────────────────
 
     List<PaymentBatch> findByTenantIdAndStatusOrderByCreatedAtAsc(String tenantId, BatchStatus status);

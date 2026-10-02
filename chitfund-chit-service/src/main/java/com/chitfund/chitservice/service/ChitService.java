@@ -479,6 +479,14 @@ public class ChitService {
                 .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
     }
 
+    // Row-locks the chit for the caller's transaction — used where two concurrent
+    // writes for the same chit must serialize (e.g. winner assignment) rather than
+    // both reading stale state and racing past each other.
+    public Chit findByIdForUpdate(UUID id) {
+        return chitRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Chit", id));
+    }
+
     // Used by all admin-facing operations — enforces tenant ownership
     public Chit findByIdScoped(UUID id) {
         return chitRepository.findByIdAndTenantIdAndDeletedAtIsNull(id, TenantContext.get())

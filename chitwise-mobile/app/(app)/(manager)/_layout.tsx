@@ -1,25 +1,25 @@
 import { Tabs } from 'expo-router';
-import { Text, Platform, Modal, Pressable, TouchableOpacity, View } from 'react-native';
+import { Text, Modal, Pressable, TouchableOpacity } from 'react-native';
 import { C } from '../../../components/ui';
+import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neumorphicTabItemStyle, neumorphicTabLabelStyle } from '../../../components/NeumorphicTabs';
 import { useUIStore } from '../../../store/uiStore';
+import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
+import CapabilityGateModal from '../../../components/CapabilityGateModal';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', reports: '≡' };
-  return (
-    <Text style={{ fontSize: 18, color: focused ? C.navy : C.gray400, marginBottom: -2 }}>
-      {icons[name] ?? '●'}
-    </Text>
-  );
+  const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', more: '···' };
+  return <NeumorphicTabIcon glyph={icons[name] ?? '●'} focused={focused} />;
 }
 
 export default function ManagerLayout() {
   const { planExpiredVisible, hidePlanExpired } = useUIStore();
+  useManagerStartupPrefetch();
 
   return (
     <>
       <Modal transparent animationType="fade" visible={planExpiredVisible} onRequestClose={hidePlanExpired}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 }} onPress={hidePlanExpired}>
-          <Pressable style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
+          <Pressable style={{ backgroundColor: C.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 340 }} onPress={() => {}}>
             <Text style={{ fontSize: 28, textAlign: 'center', marginBottom: 4 }}>🚫</Text>
             <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>Subscription Expired</Text>
             <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 21, marginBottom: 20 }}>
@@ -31,19 +31,17 @@ export default function ManagerLayout() {
           </Pressable>
         </Pressable>
       </Modal>
+    <CapabilityGateModal />
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: C.navy,
         tabBarInactiveTintColor: C.gray400,
-        tabBarStyle: {
-          backgroundColor: C.white, borderTopColor: C.gray200,
-          height: Platform.OS === 'ios' ? 84 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 8, paddingTop: 8,
-          elevation: 10,
-        },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarBackground: NeumorphicTabBackground,
+        tabBarStyle: neumorphicTabBarStyle,
+        tabBarItemStyle: neumorphicTabItemStyle,
+        tabBarLabelStyle: neumorphicTabLabelStyle,
       })}
     >
       <Tabs.Screen name="index"    options={{ title: 'Dashboard' }} />
@@ -51,6 +49,7 @@ export default function ManagerLayout() {
       <Tabs.Screen name="payments" options={{ title: 'Payments' }} />
       <Tabs.Screen name="chits"    options={{ title: 'Chits' }} />
       <Tabs.Screen name="members"  options={{ title: 'Members' }} />
+      <Tabs.Screen name="more"     options={{ title: 'More' }} />
     </Tabs>
     </>
   );

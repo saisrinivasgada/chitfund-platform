@@ -39,7 +39,7 @@ function RequestTimeline({ status }: { status: string }) {
                 borderWidth: 2, borderColor: done ? C.navy : C.gray300,
                 alignItems: 'center', justifyContent: 'center',
               }}>
-                {done && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.white }} />}
+                {done && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.surface }} />}
               </View>
               {!isLast && <View style={{ width: 2, flex: 1, backgroundColor: done ? C.navy + '40' : C.gray200, marginTop: 2, minHeight: 16 }} />}
             </View>
@@ -82,6 +82,8 @@ export default function MemberRequestsScreen() {
     queryKey: ['member-chits'],
     queryFn: getMyChits,
   });
+  const chitMap = Object.fromEntries((chits as any[]).map((c: any) => [c.id, c.name ?? c.chitName ?? 'Chit']));
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
   const { data: myProfile } = useQuery({
     queryKey: ['myMemberProfile'],
@@ -215,13 +217,39 @@ export default function MemberRequestsScreen() {
         }
         renderItem={({ item: r }) => {
           const canEdit = r.status === 'PENDING' || r.status === 'ASSIGNED';
-          const needsApproval = r.status === 'PARTIALLY_COLLECTED';
+          const needsApproval = r.status === 'PARTIALLY_COLLECTED' || r.status === 'PICKED_UP';
+          const breakdown: any[] = r.allocations ?? [];
+          const hasBreakdown = breakdown.length > 1;
+          const isExpanded = expandedRequestId === r.id;
           return (
             <Card style={{ marginBottom: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
-                <Badge status={r.status} />
-              </View>
+              <TouchableOpacity
+                activeOpacity={hasBreakdown ? 0.6 : 1}
+                disabled={!hasBreakdown}
+                onPress={() => setExpandedRequestId(isExpanded ? null : r.id)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Amount value={r.collectedAmount ?? r.requestedAmount} size="sm" />
+                    {hasBreakdown && (
+                      <Text style={{ fontSize: 11, color: C.gray400 }}>
+                        {isExpanded ? '▾' : '▸'} {breakdown.length} chits
+                      </Text>
+                    )}
+                  </View>
+                  <Badge status={r.status} />
+                </View>
+                {isExpanded && hasBreakdown && (
+                  <View style={{ backgroundColor: C.gray50, borderRadius: 8, padding: 10, marginBottom: 8, gap: 4 }}>
+                    {breakdown.map((a: any) => (
+                      <View key={a.chitId} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 12, color: C.gray700 }}>{chitMap[a.chitId] ?? 'Chit'}</Text>
+                        <Text style={{ fontSize: 12, color: C.gray900, fontWeight: '600' }}>₹{Number(a.amount ?? 0).toLocaleString('en-IN')}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
               {r.collectedAmount && r.collectedAmount !== r.requestedAmount && (
                 <Text style={{ fontSize: 11, color: C.gray400, marginBottom: 2 }}>
                   Requested: ₹{Number(r.requestedAmount).toLocaleString('en-IN')}
@@ -235,11 +263,19 @@ export default function MemberRequestsScreen() {
               {needsApproval && (
                 <View style={{ marginTop: 8, backgroundColor: '#FFF7ED', borderRadius: 12, padding: 14, borderWidth: 1.5, borderColor: '#F97316' }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: '#C2410C', marginBottom: 4 }}>Action Required</Text>
-                  <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
-                    Staff collected{r.collectedAmount ? ` ₹${Number(r.collectedAmount).toLocaleString('en-IN')}` : ' a partial amount'} of your requested ₹{Number(r.requestedAmount).toLocaleString('en-IN')}.
-                  </Text>
+                  {r.status === 'PICKED_UP' ? (
+                    <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
+                      Staff collected ₹{Number(r.requestedAmount).toLocaleString('en-IN')} from you. Please confirm this collection.
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 13, color: C.gray700, marginBottom: 2 }}>
+                      Staff collected{r.collectedAmount ? ` ₹${Number(r.collectedAmount).toLocaleString('en-IN')}` : ' a partial amount'} of your requested ₹{Number(r.requestedAmount).toLocaleString('en-IN')}.
+                    </Text>
+                  )}
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
-                    Approve to accept this amount, or reject and request a new pickup.
+                    {r.status === 'PICKED_UP'
+                      ? 'Confirm to let admin proceed, or reject if the amount is wrong.'
+                      : 'Approve to accept this amount, or reject and request a new pickup.'}
                   </Text>
                   {rejectTarget === r.id ? (
                     <>
@@ -251,7 +287,7 @@ export default function MemberRequestsScreen() {
                         style={{
                           borderWidth: 1.5, borderColor: C.gray300, borderRadius: 8,
                           padding: 10, fontSize: 13, color: C.gray900,
-                          backgroundColor: C.white, marginBottom: 10,
+                          backgroundColor: C.surface, marginBottom: 10,
                         }}
                       />
                       <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -318,7 +354,7 @@ export default function MemberRequestsScreen() {
       {/* Create Request Modal */}
       <Modal visible={showCreate} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 20 }}>Request Cash Pickup</Text>
 
             <Text style={T.label}>Select Chit Fund</Text>
@@ -397,7 +433,7 @@ export default function MemberRequestsScreen() {
       {/* Edit Request Modal */}
       <Modal visible={!!editTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: C.navy, marginBottom: 6 }}>Edit Cash Pickup</Text>
             <Text style={{ fontSize: 13, color: C.gray500, marginBottom: 20 }}>
               Editing is allowed before pickup. All changes are logged in audit.
@@ -441,7 +477,7 @@ export default function MemberRequestsScreen() {
       {/* Receipt Modal */}
       <Modal visible={!!receiptTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '70%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '70%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Payment Receipt</Text>
               <TouchableOpacity onPress={() => setReceiptTarget(null)}>
@@ -501,7 +537,7 @@ export default function MemberRequestsScreen() {
       {/* Audit Log Modal */}
       <Modal visible={!!auditTarget} animationType="slide" transparent presentationStyle="overFullScreen">
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: C.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
+          <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '65%' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <Text style={{ fontSize: 17, fontWeight: '700', color: C.navy }}>Activity Log</Text>
               <TouchableOpacity onPress={() => setAuditTarget(null)}>

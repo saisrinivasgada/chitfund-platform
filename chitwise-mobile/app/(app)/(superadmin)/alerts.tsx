@@ -60,7 +60,7 @@ function RecordPaymentModal({ visible, tenant, onClose, onDone }: {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.surface }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: C.gray200 }}>
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.navy }}>Record Payment</Text>
           <TouchableOpacity onPress={onClose}><Text style={{ fontSize: 28, color: C.gray400 }}>×</Text></TouchableOpacity>
@@ -262,7 +262,7 @@ export default function AlertsScreen() {
         flexDirection: 'row', alignItems: 'center', gap: 12,
         paddingHorizontal: 16, paddingVertical: 14,
         borderBottomWidth: 1, borderBottomColor: C.gray200,
-        backgroundColor: C.white,
+        backgroundColor: C.surface,
       }}>
         <TouchableOpacity onPress={() => router.back()} style={{ padding: 4 }}>
           <Text style={{ fontSize: 22, color: C.navy }}>‹</Text>
@@ -324,7 +324,7 @@ export default function AlertsScreen() {
               const tenant = (tenants as any[]).find((t: any) => t.id === alert.tenantId);
               return (
                 <View key={`${alert.type}-${alert.tenantId}-${i}`} style={{
-                  backgroundColor: C.white, borderRadius: 16, padding: 16, marginBottom: 10,
+                  backgroundColor: C.surface, borderRadius: 16, padding: 16, marginBottom: 10,
                   borderLeftWidth: 4, borderLeftColor: meta.dot,
                   shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
                 }}>

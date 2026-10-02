@@ -18,6 +18,12 @@ public interface MonthlyWinnerRepository extends JpaRepository<MonthlyWinner, UU
 
     boolean existsByChitIdAndMonthNumber(UUID chitId, Integer monthNumber);
 
+    // Exact-duplicate guard: the same member can legitimately win different months
+    // (multi-spot), and different members can legitimately both win the same month
+    // (intentional — see V8/V9 migrations), but the same member winning the same
+    // month twice is never legitimate — it's always a double-submit/retry.
+    boolean existsByChitIdAndMonthNumberAndMemberId(UUID chitId, Integer monthNumber, UUID memberId);
+
     // Members who have already won — used to exclude from lottery draws
     @Query("SELECT w.memberId FROM MonthlyWinner w WHERE w.chit.id = :chitId")
     List<UUID> findWinnerMemberIdsByChitId(UUID chitId);

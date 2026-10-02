@@ -27,7 +27,7 @@ export default function ChitfundRequestLanding() {
   const verify = useMutation({ mutationFn: () => verifyChitfundRequestRecoveryEmailOtp(token, otp), onSuccess: (data: any) => { setResetToken(data.resetToken); setError(''); setStep('password'); }, onError: (e: any) => setError(e.response?.data?.message ?? 'Incorrect or expired OTP') });
   const reset = useMutation({ mutationFn: async () => { if (password !== confirm) throw new Error("Passwords don't match"); const issue = validatePassword(password); if (issue) throw new Error(issue); await forgotPasswordResetWithToken({ resetToken, newPassword: password }); }, onSuccess: () => { setError(''); setStep('done'); }, onError: (e: any) => setError(e.response?.data?.message ?? e.message ?? 'Password reset failed') });
   const data: any = request.data;
-  return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}><ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 22 }}><View style={{ backgroundColor: C.white, borderRadius: 20, borderWidth: 1, borderColor: C.gray200, padding: 22 }}>
+  return <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}><ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 22 }}><View style={{ backgroundColor: C.surface, borderRadius: 20, borderWidth: 1, borderColor: C.gray200, padding: 22 }}>
     <Text style={{ fontSize: 24, fontWeight: '800', color: C.navy }}>Chitfund Request</Text>
     {request.isLoading && <Text style={{ marginTop: 12, color: C.gray500 }}>Loading request…</Text>}
     {(request.isError || !token) && <Text style={{ marginTop: 12, color: C.red }}>This link is invalid, expired, or replaced. Ask the organization to resend it.</Text>}
