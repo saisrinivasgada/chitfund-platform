@@ -707,7 +707,11 @@ export default function RegisterOrgPage() {
                           selected ? 'border-[#1E3A5F] bg-[#f0f5fb]' : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm'
                         }`}
                       >
-                        {hasDiscount && (
+                        {p.badgeEnabled && p.badgeText ? (
+                          <span className="absolute -top-3 left-4 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap" style={{ backgroundColor: '#F59E0B' }}>
+                            {p.badgeText}
+                          </span>
+                        ) : hasDiscount && (
                           <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold text-white whitespace-nowrap bg-emerald-600">
                             {priceInfo.discountPct}% off
                           </span>

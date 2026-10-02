@@ -12,6 +12,7 @@ import com.chitfund.userservice.dto.request.CreatePlanRequest;
 import com.chitfund.userservice.dto.request.SetTenantDiscountRequest;
 import com.chitfund.userservice.dto.request.UpdatePlanRequest;
 import com.chitfund.userservice.dto.response.CapabilityDefResponse;
+import com.chitfund.userservice.dto.response.CapabilityGateResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.dto.response.TenantDiscountResponse;
 import com.chitfund.userservice.repository.PlanCapabilityDefRepository;
@@ -137,6 +138,8 @@ public class PlanService {
         if (req.getMaxStaff() != null) p.setMaxStaff(req.getMaxStaff());
         if (req.getEnabledCapabilities() != null)
             p.setCapabilities(serializeFeatures(req.getEnabledCapabilities()));
+        if (req.getBadgeText() != null) p.setBadgeText(req.getBadgeText().isBlank() ? null : req.getBadgeText().trim());
+        if (req.getBadgeEnabled() != null) p.setBadgeEnabled(req.getBadgeEnabled());
         return toResponse(planRepo.save(p));
     }
 
@@ -225,6 +228,8 @@ public class PlanService {
                 .isActive(p.isActive())
                 .displayOrder(p.getDisplayOrder())
                 .maxStaff(p.getMaxStaff())
+                .badgeText(p.getBadgeText())
+                .badgeEnabled(p.isBadgeEnabled())
                 .build();
     }
 
@@ -248,6 +253,41 @@ public class PlanService {
     public List<String> getAllCapabilityKeys() {
         return capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()
                 .stream().map(PlanCapabilityDef::getKey).toList();
+    }
+
+    public CapabilityGateResponse getCapabilityGate(String capKey, String tenantId) {
+        PlanCapabilityDef def = capabilityRepo.findById(capKey)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        "Unknown capability: " + capKey));
+
+        long currentPlanPrice = 0;
+        if (tenantId != null) {
+            Tenant tenant = tenantRepository.findById(UUID.fromString(tenantId)).orElse(null);
+            if (tenant != null) {
+                PlanLimits current = planRepo.findById(
+                        tenant.getPlan() != null ? tenant.getPlan().toUpperCase() : "BASIC").orElse(null);
+                if (current != null) currentPlanPrice = current.getPriceMonthlyInr();
+            }
+        }
+
+        final long threshold = currentPlanPrice;
+        List<PlanResponse> upgradePlans = planRepo.findByIsPublicTrueAndIsActiveTrueOrderByDisplayOrderAsc()
+                .stream()
+                .filter(p -> {
+                    boolean hasCapability = CapabilityJson.parse(p.getCapabilities(), objectMapper).contains(capKey);
+                    boolean aboveCurrentPrice = p.getPriceMonthlyInr() > threshold || "CUSTOM".equalsIgnoreCase(p.getPlan());
+                    return hasCapability && aboveCurrentPrice;
+                })
+                .map(this::toResponse)
+                .toList();
+
+        return CapabilityGateResponse.builder()
+                .capabilityKey(capKey)
+                .name(def.getLabel())
+                .description(def.getDescription())
+                .importance(def.getImportance())
+                .upgradePlans(upgradePlans)
+                .build();
     }
 
     private String serializeFeatures(List<String> features) {

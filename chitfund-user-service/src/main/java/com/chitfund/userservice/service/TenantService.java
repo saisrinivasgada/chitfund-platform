@@ -88,6 +88,9 @@ public class TenantService {
                 .termsAcceptedAt(java.time.LocalDateTime.now())
                 .termsVersion("1.0")
                 .build();
+        if ("BASIC".equalsIgnoreCase(plan)) {
+            tenant.setPlanExpiresAt(java.time.LocalDateTime.of(9999, 12, 31, 23, 59, 59));
+        }
         tenantRepository.save(tenant);
 
         // Apply promo or referral code if provided

@@ -64,10 +64,11 @@ public class SettlementController {
         }
     }
 
-    private static final ResponseEntity<ApiResponse<Object>> SETTLEMENT_DENIED =
+    private static final ResponseEntity<ApiResponse<java.util.Map<String, String>>> SETTLEMENT_DENIED =
             ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResponse.error("CAPABILITY_REQUIRED",
-                            "Settlement is not included in your current plan. Contact support to upgrade."));
+                            "Settlement is not included in your current plan. Contact support to upgrade.",
+                            java.util.Map.of("capabilityKey", "settlement")));
 
     /**
      * Computes the settlement preview for a member across their chits.
