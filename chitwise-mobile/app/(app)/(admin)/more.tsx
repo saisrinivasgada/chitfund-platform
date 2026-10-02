@@ -103,7 +103,7 @@ function ToolkitSettingsCard() {
           </View>
 
           <Text style={{ fontSize: 11, color: C.gray400, marginTop: 12 }}>
-            Tap to open calculator · Long-press to refresh screen · Drag to reposition · Shake phone to toggle
+            Tap to open calculator · Long-press to refresh screen · Drag to reposition
           </Text>
         </>
       )}

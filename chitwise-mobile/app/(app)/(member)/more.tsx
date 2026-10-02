@@ -65,7 +65,7 @@ function MemberToolkitSettingsCard() {
             ))}
           </View>
           <Text style={{ fontSize: 11, color: C.gray400, marginTop: 12 }}>
-            Tap → calculator · Long-press → refresh · Drag to move · Shake to toggle
+            Tap → calculator · Long-press → refresh · Drag to move
           </Text>
         </>
       )}
