@@ -94,6 +94,15 @@ const tutorials: PageTutorial[] = [
     ],
   },
   {
+    key: 'MANAGER:more', role: 'MANAGER', screen: 'more', pageTitle: 'More', version: 1,
+    steps: [
+      { icon: '⌗', title: 'Quick Toolkit — always within reach', description: 'A floating ⌗ button sits on every screen. Tap to open the calculator without leaving your current screen. Long-press to refresh all data.' },
+      { icon: '🧮', title: 'Calculator state is preserved', description: 'Whatever is on the calculator stays as you move between screens — only pressing AC clears it.' },
+      { icon: '⚙️', title: 'Adjust opacity and size', description: 'Use the Quick Toolkit card on this page to change the button\'s opacity, size, or turn it off entirely.' },
+      { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
+    ],
+  },
+  {
     key: 'STAFF:index', role: 'STAFF', screen: 'index', pageTitle: 'My tasks', version: 1,
     steps: [
       { icon: '📋', title: 'Start with assigned work', description: 'Your open pickup tasks appear here with the amount and member details needed for collection.' },
@@ -106,6 +115,15 @@ const tutorials: PageTutorial[] = [
     steps: [
       { icon: '🕒', title: 'Review completed work', description: 'Use History to confirm past pickups, collection amounts and remittance status.' },
       { icon: '🔎', title: 'Investigate differences', description: 'Open a record when the expected cash or status does not match what happened.' },
+    ],
+  },
+  {
+    key: 'STAFF:more', role: 'STAFF', screen: 'more', pageTitle: 'More', version: 1,
+    steps: [
+      { icon: '⌗', title: 'Quick Toolkit — always within reach', description: 'A floating ⌗ button sits on every screen. Tap to open the calculator without leaving your current screen. Long-press to refresh all data.' },
+      { icon: '🧮', title: 'Calculator state is preserved', description: 'Whatever is on the calculator stays as you move between screens — only pressing AC clears it.' },
+      { icon: '⚙️', title: 'Adjust opacity and size', description: 'Use the Quick Toolkit card on this page to change the button\'s opacity, size, or turn it off entirely.' },
+      { icon: '❓', title: 'Replay guidance anytime', description: 'Use Tutorials on this page whenever you want to replay the current guide or restart all guides.' },
     ],
   },
   {
