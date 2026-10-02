@@ -416,10 +416,15 @@ function CashRequestsTab({ initialFilter }: { initialFilter?: string }) {
               )}
               {(r.status === 'PENDING' || r.status === 'ASSIGNED' || r.status === 'PICKED_UP' || r.status === 'PARTIALLY_COLLECTED') && (
                 <Button label="Cancel" variant="ghost" size="sm"
-                  onPress={() => Alert.alert('Cancel Pickup', 'Cancel this cash pickup request?', [
-                    { text: 'No', style: 'cancel' },
-                    { text: 'Cancel Pickup', style: 'destructive', onPress: () => cancelMut.mutate(r.id) },
-                  ])} />
+                  loading={cancelMut.isPending}
+                  disabled={cancelMut.isPending}
+                  onPress={() => {
+                    if (cancelMut.isPending) return;
+                    Alert.alert('Cancel Pickup', 'Cancel this cash pickup request?', [
+                      { text: 'No', style: 'cancel' },
+                      { text: 'Cancel Pickup', style: 'destructive', onPress: () => { if (!cancelMut.isPending) cancelMut.mutate(r.id); } },
+                    ]);
+                  }} />
               )}
               <Button label="Audit Trail" variant="outline" size="sm" onPress={() => setAuditTarget(r)} />
             </View>
@@ -1414,10 +1419,14 @@ function RecordPaymentTab() {
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
                     <Button label="Remit to Treasury" variant="outline" size="sm"
                       loading={remitMut.isPending}
-                      onPress={() => Alert.alert('Remit', 'Mark this payment as remitted to treasury?', [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Remit', onPress: () => remitMut.mutate(b.id) },
-                      ])} />
+                      disabled={remitMut.isPending}
+                      onPress={() => {
+                        if (remitMut.isPending) return;
+                        Alert.alert('Remit', 'Mark this payment as remitted to treasury?', [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Remit', onPress: () => { if (!remitMut.isPending) remitMut.mutate(b.id); } },
+                        ]);
+                      }} />
                     <Button label="Void" variant="danger" size="sm"
                       onPress={() => { setVoidBatchId(b.id); setVoidReason(''); }} />
                   </View>
@@ -1585,8 +1594,17 @@ function PayoutsTab() {
       return Object.fromEntries(entries);
     },
     enabled: cpOtherActiveChits.length > 0 && !!selectedMemberId,
-    staleTime: 60_000,
+    staleTime: 0,
   });
+
+  // Force-refresh cross-chit balances every time the Create Payout form opens
+  // so deduction figures are never stale when confirming a payout.
+  useEffect(() => {
+    if (showCreate) {
+      qc.invalidateQueries({ queryKey: ['m-cp-cross-balances'] });
+      qc.invalidateQueries({ queryKey: ['m-cp-current-balance'] });
+    }
+  }, [showCreate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Actual remaining installment for the winning month
   const winningMonthRemaining = (() => {
@@ -2494,9 +2512,21 @@ function TreasuryTab() {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <View style={{ flex: 1 }}><Button label="Cancel" variant="ghost" onPress={() => setShowAdd(false)} /></View>
               <View style={{ flex: 1 }}><Button label="Save" variant={txType === 'DEPOSIT' ? 'success' : 'danger'}
-                disabled={!txAmount || Number(txAmount) <= 0 || (isCreditReturn && (!txMemberId || txAvailableCredit === 0 || Number(txAmount) > (txAvailableCredit ?? 0)))}
+                disabled={!txAmount || Number(txAmount) <= 0 || addMut.isPending || (isCreditReturn && (!txMemberId || txAvailableCredit === 0 || Number(txAmount) > (txAvailableCredit ?? 0)))}
                 loading={addMut.isPending}
-                onPress={() => addMut.mutate()} /></View>
+                onPress={() => {
+                  if (addMut.isPending) return;
+                  const typeLabel = isCreditReturn ? 'Credit Return' : txType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal';
+                  const amt = Number(txAmount).toLocaleString('en-IN');
+                  Alert.alert(
+                    `Confirm ${typeLabel}`,
+                    `Record ₹${amt} as a ${typeLabel.toLowerCase()} to treasury?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Confirm', onPress: () => { if (!addMut.isPending) addMut.mutate(); } },
+                    ]
+                  );
+                }} /></View>
             </View>
           </View>
         </View>
@@ -3478,14 +3508,21 @@ function RemittanceTab() {
             const isPickup = item.kind === 'pickup';
             const stageColor = isPickup ? '#16A34A' : C.amber;
             const isCredit = !isPickup && item.paymentMode === 'CREDIT';
-            const confirmReceived = () => Alert.alert(
-              'Confirm Cash Received',
-              `You received ₹${item.amount.toLocaleString('en-IN')} from ${staffMap[item.staffId ?? ''] ?? (isPickup ? 'staff' : 'collector')}?\n\n${isPickup ? 'Member account will be credited and treasury updated.' : 'Payment will be credited to member.'}`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: isPickup ? 'Yes, Received' : 'Confirm Received', onPress: () => (isPickup ? collectPickupMut.mutate(item.id) : remitMut.mutate(item.id)) },
-              ]
-            );
+            const confirmReceived = () => {
+              if (collectPickupMut.isPending || remitMut.isPending) return;
+              Alert.alert(
+                'Confirm Cash Received',
+                `You received ₹${item.amount.toLocaleString('en-IN')} from ${staffMap[item.staffId ?? ''] ?? (isPickup ? 'staff' : 'collector')}?\n\n${isPickup ? 'Member account will be credited and treasury updated.' : 'Payment will be credited to member.'}`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: isPickup ? 'Yes, Received' : 'Confirm Received', onPress: () => {
+                    if (isPickup ? !collectPickupMut.isPending : !remitMut.isPending) {
+                      isPickup ? collectPickupMut.mutate(item.id) : remitMut.mutate(item.id);
+                    }
+                  }},
+                ]
+              );
+            };
             const itemKey = `${item.kind}-${item.id}`;
             const breakdown: any[] = (item.raw?.allocations ?? []);
             const hasBreakdown = isPickup && breakdown.length > 1;

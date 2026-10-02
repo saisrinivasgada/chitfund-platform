@@ -61,6 +61,7 @@ class ChitMonthDrawEventTimingTest {
         when(drawRepository.save(any(ChitMonthDraw.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(paymentRecordRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(memberCreditService.getBalance(any())).thenReturn(BigDecimal.ZERO);
+        lenient().when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
         lenient().when(memberServiceClient.batchGetUserIds(anyList())).thenReturn(Map.of());
     }
 

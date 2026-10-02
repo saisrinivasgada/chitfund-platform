@@ -416,7 +416,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be cancelled")
         void cancelsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -432,7 +432,7 @@ class PayoutServiceTest {
         void rejectsCancelOfDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.DISBURSED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -444,7 +444,7 @@ class PayoutServiceTest {
         void rejectsCancelOfPartiallyDisbursedPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.PARTIALLY_DISBURSED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -456,7 +456,7 @@ class PayoutServiceTest {
         void rejectsDoubleCancellation() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class)
@@ -474,7 +474,7 @@ class PayoutServiceTest {
         @DisplayName("PENDING payout can be voided")
         void voidsPendingPayout() {
             Payout payout = pendingPayout(bd(45_000));
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
             when(payoutRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
             when(disbursementRepository.findByPayoutIdOrderByDisbursedAtAsc(any()))
                     .thenReturn(Collections.emptyList());
@@ -491,7 +491,7 @@ class PayoutServiceTest {
         void rejectsVoidOfCancelledPayout() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.CANCELLED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -502,7 +502,7 @@ class PayoutServiceTest {
         void rejectsDoubleVoid() {
             Payout payout = pendingPayout(bd(45_000));
             payout.setStatus(PayoutStatus.VOIDED);
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.of(payout));
 
             assertThatThrownBy(() -> payoutService.voidPayout(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
@@ -527,7 +527,7 @@ class PayoutServiceTest {
         @Test
         @DisplayName("cancel on non-existent payout throws")
         void cancelThrowsWhenPayoutNotFound() {
-            when(payoutRepository.findByIdAndTenantId(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
+            when(payoutRepository.findByIdAndTenantIdForUpdate(payoutId, "test-tenant-id")).thenReturn(Optional.empty());
             assertThatThrownBy(() -> payoutService.cancel(payoutId, cancelRequest(), adminId))
                     .isInstanceOf(BusinessException.class);
         }
