@@ -7,6 +7,8 @@ import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
 import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,9 @@ public class MemberCreditService {
     private final MemberCreditBalanceRepository creditBalanceRepository;
     private final MemberCreditTransactionRepository creditTxnRepository;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Transactional(readOnly = true)
     public BigDecimal getBalance(UUID memberId) {
         return creditBalanceRepository.findByMemberId(memberId)
@@ -35,6 +40,12 @@ public class MemberCreditService {
     /** Locks the balance while a financial workflow decides and records its use. */
     @Transactional
     public BigDecimal getBalanceForUpdate(UUID memberId) {
+        // Flush any pending credit-balance writes (e.g. from reverseCreditForSettlement)
+        // before acquiring the row lock. Hibernate's FlushMode.AUTO flushes before
+        // queries touching the same table, but the @Lock(PESSIMISTIC_WRITE) path in
+        // Hibernate 6 can refresh the entity from DB before the dirty state is flushed,
+        // returning a stale 0 when a restored balance is sitting unflushed in the cache.
+        entityManager.flush();
         return creditBalanceRepository.findByMemberIdForUpdate(memberId)
                 .map(MemberCreditBalance::getBalance)
                 .orElse(BigDecimal.ZERO);
