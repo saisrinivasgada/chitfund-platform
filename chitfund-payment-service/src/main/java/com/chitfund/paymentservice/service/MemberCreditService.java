@@ -7,6 +7,8 @@ import com.chitfund.paymentservice.domain.MemberCreditTransaction;
 import com.chitfund.paymentservice.dto.response.MemberCreditResponse;
 import com.chitfund.paymentservice.repository.MemberCreditBalanceRepository;
 import com.chitfund.paymentservice.repository.MemberCreditTransactionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,9 @@ public class MemberCreditService {
     private final MemberCreditBalanceRepository creditBalanceRepository;
     private final MemberCreditTransactionRepository creditTxnRepository;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Transactional(readOnly = true)
     public BigDecimal getBalance(UUID memberId) {
         return creditBalanceRepository.findByMemberId(memberId)
@@ -35,8 +40,14 @@ public class MemberCreditService {
     /** Locks the balance while a financial workflow decides and records its use. */
     @Transactional
     public BigDecimal getBalanceForUpdate(UUID memberId) {
-        return creditBalanceRepository.findByMemberIdForUpdate(memberId)
-                .map(MemberCreditBalance::getBalance)
+        // Flush pending writes first so the native read sees the latest state.
+        // Then use a native scalar query instead of a JPQL entity query: Hibernate 6's
+        // PESSIMISTIC_WRITE entity-query path can serve a stale L1-cache value when a
+        // credit restoration (reverseCreditForSettlement) is dirty-but-unflushed in the
+        // session, returning 0 for a balance that should be 200. A native scalar query
+        // bypasses entity caching entirely and always reads the current DB row value.
+        entityManager.flush();
+        return creditBalanceRepository.findBalanceByMemberIdForUpdate(memberId.toString())
                 .orElse(BigDecimal.ZERO);
     }
 
