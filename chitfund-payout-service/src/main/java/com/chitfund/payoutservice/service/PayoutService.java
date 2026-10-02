@@ -283,7 +283,7 @@ public class PayoutService {
 
     @Transactional
     public PayoutResponse voidPayout(UUID payoutId, CancelPayoutRequest request, UUID adminId) {
-        Payout payout = findOrThrow(payoutId);
+        Payout payout = findOrThrowForWrite(payoutId);
         if (payout.getStatus() == PayoutStatus.CANCELLED || payout.getStatus() == PayoutStatus.VOIDED) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Payout is already " + payout.getStatus(), HttpStatus.BAD_REQUEST);
@@ -332,7 +332,7 @@ public class PayoutService {
 
     @Transactional
     public PayoutResponse cancel(UUID payoutId, CancelPayoutRequest request, UUID adminId) {
-        Payout payout = findOrThrow(payoutId);
+        Payout payout = findOrThrowForWrite(payoutId);
 
         if (payout.getStatus() == PayoutStatus.DISBURSED) {
             throw new BusinessException(ErrorCode.PAYOUT_ALREADY_DISBURSED,

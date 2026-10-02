@@ -200,6 +200,13 @@ public class SettlementService {
             }
         }
 
+        // Acquire a pessimistic write lock on this member's credit balance row before
+        // any duplicate/existence check. This serializes concurrent confirm calls for
+        // the same member so only one can proceed past this point at a time.
+        // When the member has no credit balance the DB unique constraint on Settlement
+        // (tenant_id, member_id) is the final safety net for the no-prior-row case.
+        BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(memberId);
+
         SupersessionPreparation preparation = prepareSupersession(
                 request, adminId, tenantId, idempotencyKey, requestHash);
         if (preparation.idempotentResult() != null) {
@@ -299,8 +306,7 @@ public class SettlementService {
                 ? request.getAdjustmentAmount()
                 : BigDecimal.ZERO;
 
-        // Apply member credit balance — consume full balance; excess becomes a fund disbursement
-        BigDecimal creditBalance = memberCreditService.getBalanceForUpdate(memberId);
+        // creditBalance acquired at top of method (with row lock) — reuse here
         BigDecimal netAmount = baseNetAmount.add(adjustment).subtract(creditBalance);
 
         // 4. Save Settlement entity
