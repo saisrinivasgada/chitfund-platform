@@ -6,6 +6,7 @@ import com.chitfund.paymentservice.client.MemberServiceClient;
 import com.chitfund.paymentservice.dto.request.ApproveIntimationRequest;
 import com.chitfund.paymentservice.dto.request.CreateIntimationRequest;
 import com.chitfund.paymentservice.dto.response.IntimationResponse;
+import com.chitfund.paymentservice.dto.response.PaymentIntimationAuditLogResponse;
 import com.chitfund.paymentservice.service.PaymentIntimationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -84,6 +85,13 @@ public class PaymentIntimationController {
     @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
     public ResponseEntity<ApiResponse<IntimationResponse>> getById(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.success(intimationService.getById(id)));
+    }
+
+    /** All roles: audit trail for a single intimation. */
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_MANAGER') or hasAuthority('ROLE_MEMBER')")
+    public ResponseEntity<ApiResponse<List<PaymentIntimationAuditLogResponse>>> getHistory(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.success(intimationService.getHistory(id)));
     }
 
     /** Admin/Manager: approve with optional per-item amount edits. */

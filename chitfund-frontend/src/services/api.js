@@ -1313,6 +1313,10 @@ export const voidIntimation = async (id, reason) => {
   const res = await api.post(`/payments/intimations/${id}/void`, { reason });
   return res.data.data;
 };
+export const getIntimationHistory = async (id) => {
+  const res = await api.get(`/payments/intimations/${id}/history`);
+  return res.data.data ?? [];
+};
 
 // ─── Admin Wallet / Treasury (payment-service) ────────────────────────────
 export const getWalletBalance = async () => {

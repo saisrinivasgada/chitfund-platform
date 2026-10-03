@@ -9,12 +9,15 @@ import {
   getMyPaymentBatches, listAuctions,
   getMyInvitations, respondToInvitation,
   getAdminSupportContact,
-  getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation,
+  getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation, getIntimationHistory,
 } from '../../services/api';
 import { PageSpinner } from '../../components/ui/Spinner';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
-import FormField, { Input, Select } from '../../components/ui/FormField';
+import FormField, { Input, Select, Textarea } from '../../components/ui/FormField';
+import Toast from '../../components/ui/Toast';
+import useToast from '../../hooks/useToast';
+import EmptyState from '../../components/ui/EmptyState';
 import {
   BookOpen, AlertTriangle, Trophy, CheckCircle, Banknote,
   Clock, UserCheck, ExternalLink, ChevronRight, PackageCheck,
@@ -1248,13 +1251,96 @@ const INTIMATION_STATUS_WEB = {
   VOIDED:    { label: 'Voided',    cls: 'bg-red-100 text-red-600' },
 };
 
+const INTIMATION_ACTION_META = {
+  CREATED:   { label: 'Submitted',   dot: 'bg-blue-500' },
+  WITHDRAWN: { label: 'Withdrawn',   dot: 'bg-gray-400' },
+  APPROVED:  { label: 'Approved',    dot: 'bg-green-500' },
+  REJECTED:  { label: 'Rejected',    dot: 'bg-red-500' },
+  VOIDED:    { label: 'Voided',      dot: 'bg-red-500' },
+};
+
+function IntimationHistorySection({ intimationId }) {
+  const [open, setOpen] = useState(false);
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['intimation-history', intimationId],
+    queryFn: () => getIntimationHistory(intimationId),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const fmtTs = (s) => {
+    if (!s) return '—';
+    const d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="border-t border-gray-100 mt-3 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+      >
+        {open ? '▲' : '▼'} Activity
+      </button>
+      {open && (
+        <div className="mt-2">
+          {isLoading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="text-xs text-gray-400">No history yet.</p>
+          ) : (
+            <ol className="relative border-l border-gray-200 ml-1.5 space-y-3">
+              {logs.map(log => {
+                const meta = INTIMATION_ACTION_META[log.action] ?? { label: log.action, dot: 'bg-gray-400' };
+                return (
+                  <li key={log.id} className="ml-4">
+                    <span className={`absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white ${meta.dot}`} />
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xs font-semibold text-gray-700">{meta.label}</span>
+                      <span className="text-xs text-gray-400">{fmtTs(log.performedAt)}</span>
+                    </div>
+                    {log.reason && (
+                      <p className="text-xs text-gray-500 mt-0.5 italic">"{log.reason}"</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IntimationMemberTab({ memberId, chits = [] }) {
   const qc = useQueryClient();
-  const { toast } = useToastContext();
+  const { toasts, toast, dismiss } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [items, setItems] = useState([{ chitId: '', claimedAmount: '' }]);
   const [notes, setNotes] = useState('');
   const [withdrawTarget, setWithdrawTarget] = useState(null);
+
+  // Fetch balance for every chit so we can filter to outstanding-only
+  const balanceResults = useQueries({
+    queries: chits.map(c => ({
+      queryKey: ['memberBalance', memberId, c.id],
+      queryFn: () => getMemberBalance({ memberId, chitId: c.id }),
+      enabled: !!memberId,
+      staleTime: 60_000,
+    })),
+  });
+  const balanceMap = Object.fromEntries(
+    chits.map((c, i) => [
+      c.id,
+      balanceResults[i]?.data?.totalOutstanding != null
+        ? Number(balanceResults[i].data.totalOutstanding)
+        : null,
+    ])
+  );
+  // Show chits where balance is unknown (still loading) OR outstanding > 0
+  const chitsWithDues = chits.filter(c => balanceMap[c.id] === null || balanceMap[c.id] > 0);
 
   const { data: intimations = [], isLoading } = useQuery({
     queryKey: ['my-intimations'],
@@ -1273,22 +1359,22 @@ function IntimationMemberTab({ memberId, chits = [] }) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-intimations'] });
-      toast('Payment intimation submitted');
+      toast.success('Payment intimation submitted');
       setShowCreate(false);
       setItems([{ chitId: '', claimedAmount: '' }]);
       setNotes('');
     },
-    onError: (e) => toast(e?.response?.data?.message ?? e?.message ?? 'Failed to submit', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? e?.message ?? 'Failed to submit'),
   });
 
   const withdrawMut = useMutation({
     mutationFn: (id) => withdrawPaymentIntimation(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-intimations'] });
-      toast('Intimation withdrawn');
+      toast.success('Intimation withdrawn');
       setWithdrawTarget(null);
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Failed to withdraw', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Failed to withdraw'),
   });
 
   const fmtAmt = (n) => n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
@@ -1298,6 +1384,7 @@ function IntimationMemberTab({ memberId, chits = [] }) {
 
   return (
     <div className="space-y-4">
+      <Toast toasts={toasts} onDismiss={dismiss} />
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-800">Payment Intimations</h3>
@@ -1324,7 +1411,9 @@ function IntimationMemberTab({ memberId, chits = [] }) {
             {items.map((it, idx) => (
               <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-gray-700">Chit {idx + 1}</span>
+                  <span className="text-sm font-medium text-gray-700">
+                    {it.chitId ? (chits.find(c => c.id === it.chitId)?.name ?? `Chit ${idx + 1}`) : `Chit ${idx + 1}`}
+                  </span>
                   {items.length > 1 && (
                     <button type="button" className="text-xs text-red-500 hover:text-red-700"
                       onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}>
@@ -1338,9 +1427,11 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                     onChange={e => setItems(prev => prev.map((x, i) => i === idx ? { ...x, chitId: e.target.value } : x))}
                   >
                     <option value="">Select a chit…</option>
-                    {chits.map(c => (
-                      <option key={c.id} value={c.id}>{c.name ?? c.id.substring(0, 8)}</option>
-                    ))}
+                    {chitsWithDues.map(c => {
+                      const due = balanceMap[c.id];
+                      const suffix = due > 0 ? ` — ₹${due.toLocaleString('en-IN')} due` : '';
+                      return <option key={c.id} value={c.id}>{c.name ?? c.id.substring(0, 8)}{suffix}</option>;
+                    })}
                   </Select>
                 </FormField>
                 <FormField label="Amount (₹)">
@@ -1435,6 +1526,8 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                     Withdraw
                   </Button>
                 )}
+
+                <IntimationHistorySection intimationId={item.id} />
               </div>
             );
           })}

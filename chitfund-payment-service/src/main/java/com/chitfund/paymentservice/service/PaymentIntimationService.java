@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.service;
 
 import com.chitfund.common.context.TenantContext;
+import com.chitfund.common.event.PaymentIntimationNotificationEvent;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
 import com.chitfund.paymentservice.domain.PaymentIntimation;
@@ -14,6 +15,10 @@ import com.chitfund.paymentservice.dto.request.VoidPaymentRequest;
 import com.chitfund.paymentservice.dto.response.IntimationItemResponse;
 import com.chitfund.paymentservice.dto.response.IntimationResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.domain.PaymentIntimationAuditLog;
+import com.chitfund.paymentservice.dto.response.PaymentIntimationAuditLogResponse;
+import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
+import com.chitfund.paymentservice.repository.PaymentIntimationAuditLogRepository;
 import com.chitfund.paymentservice.repository.PaymentIntimationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
@@ -36,7 +42,9 @@ import java.util.stream.Collectors;
 public class PaymentIntimationService {
 
     private final PaymentIntimationRepository intimationRepository;
+    private final PaymentIntimationAuditLogRepository auditLogRepository;
     private final PaymentService paymentService;
+    private final PaymentEventPublisher eventPublisher;
 
     private String tenantId() {
         String tid = TenantContext.get();
@@ -70,6 +78,17 @@ public class PaymentIntimationService {
         intimation.setItems(items);
 
         intimationRepository.save(intimation);
+
+        logAudit(intimation.getId(), tid, "CREATED", null, IntimationStatus.PENDING,
+                memberId.toString(), "MEMBER", null);
+
+        BigDecimal total = request.getItems().stream()
+                .map(CreateIntimationRequest.IntimationItemRequest::getClaimedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        eventPublisher.publish(new PaymentIntimationNotificationEvent(
+                intimation.getId(), memberId.toString(), null, total,
+                "SUBMITTED", null, tid));
+
         log.info("Intimation {} created by member {}", intimation.getId(), memberId);
         return toResponse(intimation);
     }
@@ -80,6 +99,9 @@ public class PaymentIntimationService {
         requireStatus(intimation, IntimationStatus.PENDING);
         intimation.setStatus(IntimationStatus.WITHDRAWN);
         intimationRepository.save(intimation);
+        logAudit(intimationId, intimation.getTenantId(), "WITHDRAWN",
+                IntimationStatus.PENDING, IntimationStatus.WITHDRAWN,
+                memberId.toString(), "MEMBER", null);
         return toResponse(intimation);
     }
 
@@ -115,6 +137,9 @@ public class PaymentIntimationService {
         intimation.setApprovedBy(adminId.toString());
         intimation.setApprovedAt(LocalDateTime.now());
         intimationRepository.save(intimation);
+        logAudit(intimationId, tid, "APPROVED",
+                IntimationStatus.PENDING, IntimationStatus.APPROVED,
+                adminId.toString(), "ADMIN", null);
         log.info("Intimation {} approved by admin {}", intimationId, adminId);
         return toResponse(intimation);
     }
@@ -130,6 +155,17 @@ public class PaymentIntimationService {
         intimation.setRejectedAt(LocalDateTime.now());
         intimation.setRejectReason(reason);
         intimationRepository.save(intimation);
+        logAudit(intimationId, tid, "REJECTED",
+                IntimationStatus.PENDING, IntimationStatus.REJECTED,
+                adminId.toString(), "ADMIN", reason);
+
+        BigDecimal total = intimation.getItems().stream()
+                .map(PaymentIntimationItem::getClaimedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        eventPublisher.publish(new PaymentIntimationNotificationEvent(
+                intimationId, intimation.getMemberId(), null, total,
+                "REJECTED", reason, tid));
+
         log.info("Intimation {} rejected by admin {}", intimationId, adminId);
         return toResponse(intimation);
     }
@@ -157,6 +193,9 @@ public class PaymentIntimationService {
         intimation.setVoidedAt(LocalDateTime.now());
         intimation.setVoidReason(reason);
         intimationRepository.save(intimation);
+        logAudit(intimationId, tid, "VOIDED",
+                IntimationStatus.APPROVED, IntimationStatus.VOIDED,
+                adminId.toString(), "ADMIN", reason);
         log.info("Intimation {} voided by admin {}", intimationId, adminId);
         return toResponse(intimation);
     }
@@ -181,6 +220,12 @@ public class PaymentIntimationService {
 
     public IntimationResponse getById(String intimationId) {
         return toResponse(findByTenant(intimationId, tenantId()));
+    }
+
+    public List<PaymentIntimationAuditLogResponse> getHistory(String intimationId) {
+        findByTenant(intimationId, tenantId()); // tenant + existence check
+        return auditLogRepository.findByIntimationIdOrderByPerformedAtAsc(intimationId)
+                .stream().map(PaymentIntimationAuditLogResponse::from).collect(Collectors.toList());
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -208,6 +253,21 @@ public class PaymentIntimationService {
             throw new BusinessException(ErrorCode.INTIMATION_INVALID_STATE,
                     "Expected status " + required + " but was " + intimation.getStatus());
         }
+    }
+
+    private void logAudit(String intimationId, String tenantId, String action,
+                          IntimationStatus from, IntimationStatus to,
+                          String performedBy, String performedByRole, String reason) {
+        auditLogRepository.save(PaymentIntimationAuditLog.builder()
+                .tenantId(tenantId)
+                .intimationId(intimationId)
+                .action(action)
+                .fromStatus(from != null ? from.name() : null)
+                .toStatus(to.name())
+                .performedBy(performedBy)
+                .performedByRole(performedByRole)
+                .reason(reason)
+                .build());
     }
 
     private IntimationResponse toResponse(PaymentIntimation i) {

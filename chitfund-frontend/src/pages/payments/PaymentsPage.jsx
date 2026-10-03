@@ -8,7 +8,7 @@ import {
   getPendingRemittance, remitPayment, voidPaymentBatch,
   adminCreateCashRequest, collectForRequest, voidCashPickup, getCashRequestAuditLog,
   updateCashRequest, getCashRequestSummary, getCancelledCashRequests,
-  getAllIntimations, approveIntimation, rejectIntimation, voidIntimation,
+  getAllIntimations, approveIntimation, rejectIntimation, voidIntimation, getIntimationHistory,
 } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useToastContext } from '../../components/layout/AppLayout';
@@ -2066,6 +2066,74 @@ export function HistoryTab() {
   );
 }
 
+// ─── Intimation history timeline ───────────────────────────────────────────
+
+const ACTION_META = {
+  CREATED:   { label: 'Submitted',   dot: 'bg-blue-500' },
+  WITHDRAWN: { label: 'Withdrawn',   dot: 'bg-gray-400' },
+  APPROVED:  { label: 'Approved',    dot: 'bg-green-500' },
+  REJECTED:  { label: 'Rejected',    dot: 'bg-red-500' },
+  VOIDED:    { label: 'Voided',      dot: 'bg-red-500' },
+};
+
+function IntimationHistorySection({ intimationId }) {
+  const [open, setOpen] = useState(false);
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: ['intimation-history', intimationId],
+    queryFn: () => getIntimationHistory(intimationId),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const fmtTs = (s) => {
+    if (!s) return '—';
+    const d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+    return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="border-t border-gray-100 mt-3 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+      >
+        {open ? '▲' : '▼'} Activity
+      </button>
+      {open && (
+        <div className="mt-2">
+          {isLoading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="text-xs text-gray-400">No history yet.</p>
+          ) : (
+            <ol className="relative border-l border-gray-200 ml-1.5 space-y-3">
+              {logs.map(log => {
+                const meta = ACTION_META[log.action] ?? { label: log.action, dot: 'bg-gray-400' };
+                return (
+                  <li key={log.id} className="ml-4">
+                    <span className={`absolute -left-1.5 mt-1 w-3 h-3 rounded-full border-2 border-white ${meta.dot}`} />
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xs font-semibold text-gray-700">{meta.label}</span>
+                      <span className="text-xs text-gray-400">{fmtTs(log.performedAt)}</span>
+                      {log.performedByRole && (
+                        <span className="text-xs text-gray-400">by {log.performedByRole.toLowerCase()}</span>
+                      )}
+                    </div>
+                    {log.reason && (
+                      <p className="text-xs text-gray-500 mt-0.5 italic">"{log.reason}"</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Intimations Tab ───────────────────────────────────────────────────────
 
 const INTIMATION_STATUS = {
@@ -2078,7 +2146,7 @@ const INTIMATION_STATUS = {
 
 export function IntimationsTab() {
   const qc = useQueryClient();
-  const { toast } = useToastContext();
+  const toast = useToastContext();
   const [statusFilter, setStatusFilter] = useState('PENDING');
   const [approveTarget, setApproveTarget] = useState(null);
   const [approvedAmounts, setApprovedAmounts] = useState({});
@@ -2107,32 +2175,32 @@ export function IntimationsTab() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation approved and payment recorded');
+      toast.success('Intimation approved and payment recorded');
       setApproveTarget(null);
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Approval failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Approval failed'),
   });
 
   const rejectMut = useMutation({
     mutationFn: () => rejectIntimation(rejectTarget.id, rejectReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation rejected');
+      toast.success('Intimation rejected');
       setRejectTarget(null);
       setRejectReason('');
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Rejection failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Rejection failed'),
   });
 
   const voidMut = useMutation({
     mutationFn: () => voidIntimation(voidTarget.id, voidReason),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-intimations'] });
-      toast('Intimation voided and payments reversed');
+      toast.success('Intimation voided and payments reversed');
       setVoidTarget(null);
       setVoidReason('');
     },
-    onError: (e) => toast(e?.response?.data?.message ?? 'Void failed', 'error'),
+    onError: (e) => toast.error(e?.response?.data?.message ?? 'Void failed'),
   });
 
   const fmtAmt = (n) => n != null ? `₹${Number(n).toLocaleString('en-IN')}` : '—';
@@ -2218,7 +2286,7 @@ export function IntimationsTab() {
             <Button variant="secondary" onClick={() => setVoidTarget(null)}>Cancel</Button>
             <Button
               variant="danger"
-              onClick={() => { if (!voidReason.trim()) { toast('Reason is required', 'error'); return; } voidMut.mutate(); }}
+              onClick={() => { if (!voidReason.trim()) { toast.error('Reason is required'); return; } voidMut.mutate(); }}
               disabled={voidMut.isPending}
             >
               {voidMut.isPending ? 'Voiding…' : 'Void & Reverse Payments'}
@@ -2322,6 +2390,8 @@ export function IntimationsTab() {
                     Void & Reverse
                   </Button>
                 )}
+
+                <IntimationHistorySection intimationId={item.id} />
               </div>
             );
           })}

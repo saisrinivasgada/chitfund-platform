@@ -4,10 +4,10 @@ import {
   ScrollView, TextInput, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getMyIntimations, createPaymentIntimation, withdrawPaymentIntimation,
-  getMyChits,
+  getMyChits, getMyMemberProfile, getMemberBalance,
 } from '../../../services/api';
 import { C, T, Card, Amount, EmptyState, ListLoadingScreen, fmtDate, Button } from '../../../components/ui';
 import { toast } from '../../../components/Toast';
@@ -31,6 +31,32 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
     queryKey: ['my-chits'],
     queryFn: getMyChits,
   });
+
+  const { data: memberProfile } = useQuery({
+    queryKey: ['my-member-profile'],
+    queryFn: getMyMemberProfile,
+    staleTime: 60_000,
+  });
+  const memberId: string | undefined = (memberProfile as any)?.id;
+
+  const balanceResults = useQueries({
+    queries: (chits as any[]).map((c: any) => ({
+      queryKey: ['memberBalance', memberId, c.id],
+      queryFn: () => getMemberBalance(memberId!, c.id),
+      enabled: !!memberId,
+      staleTime: 60_000,
+    })),
+  });
+  const balanceMap: Record<string, number | null> = Object.fromEntries(
+    (chits as any[]).map((c: any, i: number) => [
+      c.id,
+      (balanceResults[i]?.data as any)?.totalOutstanding != null
+        ? Number((balanceResults[i].data as any).totalOutstanding)
+        : null,
+    ])
+  );
+  // Only show chits where balance is unknown (still loading) or outstanding > 0
+  const chitsWithDues = (chits as any[]).filter((c: any) => balanceMap[c.id] === null || (balanceMap[c.id] ?? 0) > 0);
 
   const [items, setItems] = useState<ChitItem[]>([{ chitId: '', claimedAmount: '' }]);
   const [notes, setNotes] = useState('');
@@ -75,7 +101,11 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
               {items.map((it, idx) => (
                 <View key={idx} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>Chit {idx + 1}</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: C.navy }}>
+                      {it.chitId
+                        ? ((chits as any[]).find((c: any) => c.id === it.chitId)?.name ?? `Chit ${idx + 1}`)
+                        : `Chit ${idx + 1}`}
+                    </Text>
                     {items.length > 1 && (
                       <TouchableOpacity onPress={() => removeItem(idx)}>
                         <Text style={{ fontSize: 12, color: C.red }}>Remove</Text>
@@ -86,20 +116,29 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Select Chit</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                     <View style={{ flexDirection: 'row', gap: 6 }}>
-                      {(chits as any[]).map((c: any) => (
-                        <TouchableOpacity
-                          key={c.id}
-                          onPress={() => updateItem(idx, 'chitId', c.id)}
-                          style={{
-                            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-                            backgroundColor: it.chitId === c.id ? C.navy : C.gray100,
-                          }}
-                        >
-                          <Text style={{ fontSize: 12, fontWeight: '600', color: it.chitId === c.id ? '#fff' : C.gray700 }}>
-                            {c.name ?? c.id.substring(0, 8)}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                      {chitsWithDues.map((c: any) => {
+                        const due = balanceMap[c.id];
+                        const selected = it.chitId === c.id;
+                        return (
+                          <TouchableOpacity
+                            key={c.id}
+                            onPress={() => updateItem(idx, 'chitId', c.id)}
+                            style={{
+                              paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+                              backgroundColor: selected ? C.navy : C.gray100,
+                            }}
+                          >
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? '#fff' : C.gray700 }}>
+                              {c.name ?? c.id.substring(0, 8)}
+                            </Text>
+                            {due != null && due > 0 && (
+                              <Text style={{ fontSize: 10, color: selected ? '#CBD5E1' : C.gray500, marginTop: 1 }}>
+                                ₹{due.toLocaleString('en-IN')} due
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </ScrollView>
 

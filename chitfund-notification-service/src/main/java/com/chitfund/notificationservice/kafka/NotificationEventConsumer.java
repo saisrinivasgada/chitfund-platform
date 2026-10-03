@@ -80,6 +80,8 @@ public class NotificationEventConsumer {
                     onPushNotification(objectMapper.readValue(envelope.payload(), PushNotificationEvent.class));
                 case SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS ->
                     onBulkInAppByMemberIds(objectMapper.readValue(envelope.payload(), BulkInAppByMemberIdsEvent.class));
+                case SqsQueues.EVT_PAYMENT_INTIMATION ->
+                    onPaymentIntimation(objectMapper.readValue(envelope.payload(), PaymentIntimationNotificationEvent.class));
                 default -> throw new IllegalStateException("Validated event type was not handled");
             }
         } catch (Exception e) {
@@ -109,7 +111,8 @@ public class NotificationEventConsumer {
                 || SqsQueues.EVT_TRANSACTIONAL_EMAIL.equals(eventType)
                 || SqsQueues.EVT_IN_APP_NOTIFICATION.equals(eventType)
                 || SqsQueues.EVT_PUSH_NOTIFICATION.equals(eventType)
-                || SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS.equals(eventType);
+                || SqsQueues.EVT_BULK_IN_APP_BY_MEMBER_IDS.equals(eventType)
+                || SqsQueues.EVT_PAYMENT_INTIMATION.equals(eventType);
     }
 
     private String canonicalEventId(String eventId) {
@@ -272,8 +275,7 @@ public class NotificationEventConsumer {
                             "amount",           event.amount().toPlainString(),
                             "chitId",           event.chitId(),
                             "monthNumber",      String.valueOf(event.monthsSettled()),
-                            "remainingBalance", remaining,
-                            "recordedAt",       event.occurredAt().toString()
+                            "remainingBalance", remaining
                     )
             );
             notificationService.send(req);
@@ -285,8 +287,7 @@ public class NotificationEventConsumer {
                 inAppService.create(
                     UUID.fromString(userId), title, body, "PAYMENT_RECEIVED",
                     Map.of("chitId", event.chitId(), "amount", event.amount().toPlainString(),
-                           "monthsSettled", String.valueOf(event.monthsSettled()),
-                           "recordedAt", event.occurredAt().toString()),
+                           "monthsSettled", String.valueOf(event.monthsSettled())),
                     "/member/chits/" + event.chitId()
                 );
                 pushService.sendToUserWithData(UUID.fromString(userId), title, body,
@@ -615,6 +616,50 @@ public class NotificationEventConsumer {
                 pushService.sendToUserWithData(UUID.fromString(event.staffId()), title, body,
                         Map.of("screen", "tasks", "requestId", event.requestId()));
             }
+        }
+    }
+
+    // ── Payment intimation submitted / rejected ───────────────────────────────
+
+    private void onPaymentIntimation(PaymentIntimationNotificationEvent event) {
+        try {
+            String amtStr = event.totalAmount() != null ? " ₹" + event.totalAmount().toPlainString() : "";
+            String memberDisplay = event.memberName() != null && !event.memberName().isBlank()
+                    ? event.memberName() : "A member";
+
+            switch (event.eventSubType()) {
+                case "SUBMITTED" -> {
+                    notifyAdminsAndManagers(
+                        "New Payment Intimation",
+                        memberDisplay + " submitted a payment intimation" + amtStr + ". Please review and approve or reject.",
+                        "PAYMENT_INTIMATION_SUBMITTED",
+                        Map.of("intimationId", event.intimationId()),
+                        "/payments"
+                    );
+                }
+                case "REJECTED" -> {
+                    String userId = memberServiceClient.getUserId(event.memberId());
+                    if (userId != null) {
+                        String reasonStr = event.rejectReason() != null && !event.rejectReason().isBlank()
+                                ? " Reason: " + event.rejectReason() : "";
+                        String title = "Payment Intimation Rejected";
+                        String body  = "Your payment intimation" + amtStr + " was rejected." + reasonStr;
+                        inAppService.create(
+                            UUID.fromString(userId), title, body, "PAYMENT_INTIMATION_REJECTED",
+                            Map.of("intimationId", event.intimationId()),
+                            "/member"
+                        );
+                        pushService.sendToUserWithData(UUID.fromString(userId), title, body,
+                                Map.of("screen", "payments"));
+                    }
+                }
+                default -> log.warn("Unknown payment intimation sub-type: {}", event.eventSubType());
+            }
+            broadcaster.broadcast("INTIMATIONS_UPDATED");
+            broadcaster.broadcast("IN_APP_UPDATED");
+        } catch (Exception e) {
+            log.error("Failed to process PAYMENT_INTIMATION event: {}", e.getMessage(), e);
+            throw new IllegalStateException("PAYMENT_INTIMATION processing failed", e);
         }
     }
 
