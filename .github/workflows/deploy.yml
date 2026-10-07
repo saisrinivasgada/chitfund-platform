@@ -663,6 +663,27 @@ jobs:
             echo "corrective migration and redeploy."
             exit 1
           fi
+
+          # Audit history is protected by UPDATE/DELETE rejection triggers. A
+          # normal application/Flyway account (correctly) has no SUPER privilege,
+          # and MySQL refuses CREATE TRIGGER under binary logging unless this
+          # server prerequisite is enabled. Check it before pulling or restarting
+          # anything; otherwise V7 can partially apply because MySQL DDL commits
+          # one statement at a time.
+          AUDIT_TRIGGER_PREREQ=$(mysql -N -B -h "$DB_HOST" -u chitfund -p"$DB_PASSWORD" \
+            -e "SELECT CONCAT(@@GLOBAL.log_bin, ':', @@GLOBAL.log_bin_trust_function_creators);" \
+            2>/dev/null || true)
+          case "$AUDIT_TRIGGER_PREREQ" in
+            0:*|OFF:*|1:1|ON:ON|1:ON|ON:1)
+              ;;
+            *)
+              echo "Deploy aborted before migration: the audit append-only triggers cannot be created."
+              echo "When MySQL binary logging is enabled, set the managed database parameter"
+              echo "log_bin_trust_function_creators=ON, then rerun this deploy."
+              echo "Do not grant SUPER to the application account and do not delete Flyway history."
+              exit 1
+              ;;
+          esac
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           cd /app
           docker compose -f docker-compose.prod.yml pull

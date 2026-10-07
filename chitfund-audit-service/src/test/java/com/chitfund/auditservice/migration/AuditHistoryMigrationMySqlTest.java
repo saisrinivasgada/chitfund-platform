@@ -16,7 +16,12 @@ class AuditHistoryMigrationMySqlTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("chitfund_audit")
             .withUsername("chitfund")
-            .withPassword("testpassword");
+            .withPassword("testpassword")
+            // Production-style Flyway users deliberately do not have SUPER. MySQL
+            // requires this server setting to let such a user create the two
+            // append-only triggers while binary logging is enabled. deploy.yml
+            // checks the same prerequisite before any service is restarted.
+            .withCommand("--log-bin-trust-function-creators=1");
 
     @Test
     void migrationEnrichesAuditHistoryAndBuildsTimelineIndexes() throws Exception {
