@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Animated, Modal } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -242,19 +242,6 @@ export default function ActivityScreen() {
     setRecordedBefore(new Date().toISOString());
   }, [typeFilter, outcomeFilter, sourceFilter, datePreset, customFrom, customTo, debouncedSearch]);
 
-  // Blinking LIVE dot
-  const blink = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(blink, { toValue: 0, duration: 600, useNativeDriver: true }),
-        Animated.timing(blink, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-
   // This screen is an audit timeline. It must not synthesize or hide events from
   // current entity state: a void, retry, denial, or intermediate state is itself
   // important evidence for an administrator.
@@ -342,16 +329,15 @@ export default function ActivityScreen() {
             <Text style={T.h1}>Activity</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Animated.View style={{
-                width: 8, height: 8, borderRadius: 4,
-                backgroundColor: '#16A34A',
-                opacity: blink,
-              }} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#16A34A' }}>LIVE</Text>
+            <View style={{ alignItems: 'flex-end', gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#16A34A' }}>AUDITED</Text>
               {!isLoading && totalEvents > 0 && (
                 <Text style={{ fontSize: 12, color: C.gray400 }}>· {feed.length}/{totalEvents}</Text>
               )}
+              </View>
+              <Text style={{ fontSize: 10, color: C.gray400 }}>Snapshot {smartTime(recordedBefore)}</Text>
             </View>
             <ProfileAvatarButton size={34} />
           </View>
