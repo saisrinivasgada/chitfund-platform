@@ -24,4 +24,3 @@ CREATE TABLE domain_outbox_replay_audit (
     CONSTRAINT fk_domain_outbox_replay_delivery
         FOREIGN KEY (delivery_id) REFERENCES domain_event_outbox(delivery_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
