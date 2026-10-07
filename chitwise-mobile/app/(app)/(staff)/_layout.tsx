@@ -5,7 +5,7 @@ import { useStaffStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '◈', history: '≡' };
+  const icons: Record<string, string> = { index: '◈', history: '≡', more: '···' };
   return <NeumorphicTabIcon glyph={icons[name] ?? '●'} focused={focused} />;
 }
 
@@ -27,6 +27,7 @@ export default function StaffLayout() {
     >
       <Tabs.Screen name="index"   options={{ title: 'My Tasks' }} />
       <Tabs.Screen name="history" options={{ title: 'History' }} />
+      <Tabs.Screen name="more"    options={{ title: 'More' }} />
     </Tabs>
   );
 }

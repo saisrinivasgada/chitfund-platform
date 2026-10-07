@@ -41,6 +41,7 @@ import PaymentsPage, {
   CashRequestsTab,
   PendingRemittanceTab,
   HistoryTab,
+  IntimationsTab,
 } from './pages/payments/PaymentsPage';
 import PayoutsPage from './pages/payouts/PayoutsPage';
 import PayoutDetailPage from './pages/payouts/PayoutDetailPage';
@@ -126,6 +127,7 @@ export default function App() {
           <Route index element={<PaymentsDefaultRedirect />} />
           <Route path="record" element={<RecordPaymentTab />} />
           <Route path="cash-requests" element={<CashRequestsTab />} />
+          <Route path="intimations" element={<IntimationsTab />} />
           <Route path="remittance" element={<PendingRemittanceTab />} />
           <Route path="history" element={<HistoryTab />} />
         </Route>

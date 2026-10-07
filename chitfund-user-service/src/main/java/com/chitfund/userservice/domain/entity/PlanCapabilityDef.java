@@ -18,6 +18,12 @@ public class PlanCapabilityDef {
     @Column(name = "label", nullable = false, length = 120)
     private String label;
 
+    @Column(name = "description", columnDefinition = "text")
+    private String description;
+
+    @Column(name = "importance", columnDefinition = "text")
+    private String importance;
+
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
 }

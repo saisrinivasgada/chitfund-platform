@@ -173,12 +173,13 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
   });
 
   function reschedule(label: string, days: number) {
+    if (reschedMut.isPending) return;
     const d = new Date();
     d.setDate(d.getDate() + days);
     const iso = d.toISOString().slice(0, 10);
     Alert.alert('Reschedule', `Move this visit to ${label.toLowerCase()} (${iso})?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', onPress: () => reschedMut.mutate(iso) },
+      { text: 'Confirm', onPress: () => { if (!reschedMut.isPending) reschedMut.mutate(iso); } },
     ]);
   }
 
@@ -228,14 +229,18 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
               variant="primary"
               fullWidth
               loading={pickupMut.isPending}
-              onPress={() => Alert.alert(
-                'Confirm Cash Pickup',
-                `Confirm you physically collected ₹${requested.toLocaleString('en-IN')} from ${memberName}? Hand the cash to admin next.`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: "Yes, I Picked It Up", onPress: () => pickupMut.mutate() },
-                ]
-              )}
+              disabled={pickupMut.isPending || partialMut.isPending}
+              onPress={() => {
+                if (pickupMut.isPending || partialMut.isPending) return;
+                Alert.alert(
+                  'Confirm Cash Pickup',
+                  `Confirm you physically collected ₹${requested.toLocaleString('en-IN')} from ${memberName}? Hand the cash to admin next.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: "Yes, I Picked It Up", onPress: () => { if (!pickupMut.isPending) pickupMut.mutate(); } },
+                  ]
+                );
+              }}
             />
 
             {/* Partial collection */}
@@ -288,8 +293,8 @@ function PickupActionsModal({ task, memberName, chitName, onClose }: {
                   variant="primary"
                   fullWidth
                   loading={partialMut.isPending}
-                  disabled={!partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= requested}
-                  onPress={() => partialMut.mutate()}
+                  disabled={!partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= requested || partialMut.isPending || pickupMut.isPending}
+                  onPress={() => { if (!partialMut.isPending && !pickupMut.isPending) partialMut.mutate(); }}
                 />
               </View>
             )}

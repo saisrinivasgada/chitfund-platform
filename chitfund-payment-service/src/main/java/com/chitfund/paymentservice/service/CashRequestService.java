@@ -247,7 +247,7 @@ public class CashRequestService {
     @Transactional
     public CashRequestResponse assignStaff(UUID requestId, AssignWorkerRequest dto, UUID assignerId, String assignerRole) {
         planExpiryChecker.assertNotExpired();
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
         if (req.getStatus() != CashRequestStatus.PENDING && req.getStatus() != CashRequestStatus.SCHEDULED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Request is already " + req.getStatus() + " — cannot reassign");
@@ -652,7 +652,7 @@ public class CashRequestService {
     @Transactional
     public CashRequestResponse rescheduleRequest(UUID requestId, UUID staffId, LocalDateTime scheduledFor) {
         planExpiryChecker.assertNotExpired();
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -680,7 +680,7 @@ public class CashRequestService {
 
     @Transactional
     public CashRequestResponse cancelByStaff(UUID requestId, UUID staffId, String reason) {
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() != CashRequestStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
@@ -712,7 +712,7 @@ public class CashRequestService {
     @Transactional
     public CashRequestResponse cancelRequest(UUID requestId, String reason,
                                              UUID actorId, String actorRole) {
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
         if (req.getStatus() == CashRequestStatus.COLLECTED) {
             throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
                     "Cannot cancel a request that has already been collected");
@@ -730,7 +730,7 @@ public class CashRequestService {
 
     @Transactional
     public CashRequestResponse updateRequest(UUID requestId, UpdateCashRequestRequest dto, UUID adminId, String adminRole) {
-        CashPaymentRequest req = findOrThrow(requestId);
+        CashPaymentRequest req = findOrThrowForWrite(requestId);
 
         if (req.getStatus() == CashRequestStatus.PICKED_UP
                 || req.getStatus() == CashRequestStatus.COLLECTED

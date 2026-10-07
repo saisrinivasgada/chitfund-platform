@@ -5,9 +5,10 @@ import { NeumorphicTabBackground, NeumorphicTabIcon, neumorphicTabBarStyle, neum
 import { useUIStore } from '../../../store/uiStore';
 import { useManagerStartupPrefetch } from '../../../offline/useStartupPrefetch';
 import { useEntitlementRefresh } from '../../../hooks/useEntitlementRefresh';
+import CapabilityGateModal from '../../../components/CapabilityGateModal';
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', reports: '≡' };
+  const icons: Record<string, string> = { index: '⌂', pickups: '✋', payments: '₹', chits: '≡', members: '◉', more: '···' };
   return <NeumorphicTabIcon glyph={icons[name] ?? '●'} focused={focused} />;
 }
 
@@ -32,6 +33,7 @@ export default function ManagerLayout() {
           </Pressable>
         </Pressable>
       </Modal>
+    <CapabilityGateModal />
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
@@ -49,6 +51,7 @@ export default function ManagerLayout() {
       <Tabs.Screen name="payments" options={{ title: 'Payments' }} />
       <Tabs.Screen name="chits"    options={{ title: 'Chits' }} />
       <Tabs.Screen name="members"  options={{ title: 'Members' }} />
+      <Tabs.Screen name="more"     options={{ title: 'More' }} />
     </Tabs>
     </>
   );

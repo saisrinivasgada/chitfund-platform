@@ -33,7 +33,7 @@ public class MemberCreditService {
                 .orElse(BigDecimal.ZERO);
     }
 
-    /** Locks the balance while a financial workflow decides and records its use. */
+    /** Locks the balance row for the calling transaction. */
     @Transactional
     public BigDecimal getBalanceForUpdate(UUID memberId) {
         return creditBalanceRepository.findByTenantIdAndMemberIdForUpdate(tenantId(), memberId)

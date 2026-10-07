@@ -40,12 +40,14 @@ function TaskModal({
   const [partialAmount, setPartialAmount] = useState('');
   const [doneAmount, setDoneAmount] = useState(0);
   const [doneOffline, setDoneOffline] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [collectingFull, setCollectingFull] = useState(false);
+  const [collectingPartial, setCollectingPartial] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [reschedDate, setReschedDate] = useState('');
 
   async function handleFullCollect() {
-    if (loading) return;
-    setLoading(true);
+    if (collectingFull || collectingPartial) return;
+    setCollectingFull(true);
     try {
       const res = await markPickupOfflineCapable(task.id);
       // Optimistic update — task moves to PICKED_UP in local cache
@@ -60,15 +62,15 @@ function TaskModal({
     } catch (e: any) {
       Alert.alert('Error', e?.response?.data?.message ?? e?.message ?? 'Could not record pickup');
     } finally {
-      setLoading(false);
+      setCollectingFull(false);
     }
   }
 
   async function handlePartialCollect() {
     const amt = Number(partialAmount);
     if (!amt || amt <= 0 || amt >= Number(task.requestedAmount)) return;
-    if (loading) return;
-    setLoading(true);
+    if (collectingPartial || collectingFull) return;
+    setCollectingPartial(true);
     try {
       const res = await partialCollectOfflineCapable(task.id, amt);
       qc.setQueryData(['staff-tasks'], (old: any[]) =>
@@ -84,11 +86,12 @@ function TaskModal({
     } catch (e: any) {
       Alert.alert('Error', e?.response?.data?.message ?? e?.message ?? 'Could not record partial collection');
     } finally {
-      setLoading(false);
+      setCollectingPartial(false);
     }
   }
 
   function handleCancel() {
+    if (cancelling) return;
     Alert.alert(
       'Cancel Task',
       'Are you sure you want to cancel this collection? Admin will be notified.',
@@ -98,13 +101,16 @@ function TaskModal({
           text: 'Yes, cancel it',
           style: 'destructive',
           onPress: () => {
+            if (cancelling) return;
+            setCancelling(true);
             cancelByStaff(task.id)
               .then(() => {
                 qc.invalidateQueries({ queryKey: ['staff-tasks'] });
                 toast.cancelled('Task cancelled');
                 onClose();
               })
-              .catch((e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Cancel failed'));
+              .catch((e: any) => Alert.alert('Error', e?.response?.data?.message ?? 'Cancel failed'))
+              .finally(() => setCancelling(false));
           },
         },
       ],
@@ -247,17 +253,17 @@ function TaskModal({
               <>
                 <TouchableOpacity
                   onPress={handleFullCollect}
-                  disabled={loading}
+                  disabled={collectingFull || collectingPartial}
                   style={{
                     paddingVertical: 18, borderRadius: 14, alignItems: 'center',
-                    backgroundColor: loading ? C.gray300 : C.green,
+                    backgroundColor: collectingFull || collectingPartial ? C.gray300 : C.green,
                     marginBottom: 12,
                     shadowColor: C.green, shadowOffset: { width: 0, height: 4 },
                     shadowOpacity: 0.3, shadowRadius: 10,
                   }}
                 >
                   <Text style={{ fontSize: 17, fontWeight: '900', color: C.white }}>
-                    {loading ? 'Recording…' : `✓  I Collected ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
+                    {collectingFull ? 'Recording…' : `✓  I Collected ₹${Number(task.requestedAmount).toLocaleString('en-IN')}`}
                   </Text>
                   <Text style={{ fontSize: 12, color: C.white + 'CC', marginTop: 3 }}>
                     Full amount — tap to confirm
@@ -304,9 +310,12 @@ function TaskModal({
                 {/* Cancel */}
                 <TouchableOpacity
                   onPress={handleCancel}
-                  style={{ paddingVertical: 14, alignItems: 'center' }}
+                  disabled={cancelling}
+                  style={{ paddingVertical: 14, alignItems: 'center', opacity: cancelling ? 0.5 : 1 }}
                 >
-                  <Text style={{ fontSize: 14, color: C.red, fontWeight: '600' }}>Cancel This Task</Text>
+                  <Text style={{ fontSize: 14, color: C.red, fontWeight: '600' }}>
+                    {cancelling ? 'Cancelling…' : 'Cancel This Task'}
+                  </Text>
                   <Text style={{ fontSize: 11, color: C.gray400, marginTop: 2 }}>Admin will be notified</Text>
                 </TouchableOpacity>
               </>
@@ -349,17 +358,17 @@ function TaskModal({
 
                 <TouchableOpacity
                   onPress={handlePartialCollect}
-                  disabled={loading || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)}
+                  disabled={collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)}
                   style={{
                     paddingVertical: 18, borderRadius: 14, alignItems: 'center',
                     backgroundColor:
-                      loading || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)
+                      collectingPartial || collectingFull || !partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(task.requestedAmount)
                         ? C.gray200
                         : '#0D9488',
                   }}
                 >
                   <Text style={{ fontSize: 16, fontWeight: '800', color: C.white }}>
-                    {loading ? 'Recording…' : `Record ₹${Number(partialAmount || 0).toLocaleString('en-IN')} Collected`}
+                    {collectingPartial ? 'Recording…' : `Record ₹${Number(partialAmount || 0).toLocaleString('en-IN')} Collected`}
                   </Text>
                 </TouchableOpacity>
               </>

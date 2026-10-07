@@ -89,6 +89,7 @@ class ChitMonthDrawEventTimingTest {
         });
         lenient().when(chitServiceClient.getDrawDependencies(any(), anyInt())).thenReturn(noChitHistory());
         lenient().when(payoutServiceClient.getDrawDependencies(any(), anyInt())).thenReturn(noPayoutHistory());
+        lenient().when(memberCreditService.getBalanceForUpdate(any())).thenReturn(BigDecimal.ZERO);
     }
 
     @AfterEach

@@ -335,7 +335,11 @@ public class BillingService {
         }
 
         tenant.setPlan(newPlan.getPlan());
-        tenant.setPlanExpiresAt(preview.getNewPeriodEnd().atStartOfDay());
+        if ("BASIC".equalsIgnoreCase(newPlan.getPlan())) {
+            tenant.setPlanExpiresAt(java.time.LocalDateTime.of(9999, 12, 31, 23, 59, 59));
+        } else {
+            tenant.setPlanExpiresAt(preview.getNewPeriodEnd().atStartOfDay());
+        }
         tenant.setRequestedPlan(null);
         tenant.setUpgradeRequestedAt(null);
         tenantRepo.save(tenant);
@@ -345,9 +349,9 @@ public class BillingService {
         PlanReceipt receipt = generateReceipt(payment, "PAYMENT", tenant);
         auditBilling(payment, "DOWNGRADE_RECORDED", actorUserId, "ADMIN", before,
                 tenantBillingState(tenant), reason.trim(), idempotencyKey);
-        log.info("DOWNGRADE {} → {} for tenant {} — credit returned {}p, receipt {}",
+        log.info("DOWNGRADE {} → {} for tenant {} — credit returned {}p, receipt {}, expires {}",
                 oldPlan.getPlan(), newPlan.getPlan(), tenantId,
-                preview.getCreditToReturnPaise(), receipt.getReceiptNumber());
+                preview.getCreditToReturnPaise(), receipt.getReceiptNumber(), tenant.getPlanExpiresAt());
 
         return toResponse(payment, tenant, List.of(receipt));
     }

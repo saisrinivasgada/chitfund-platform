@@ -13,6 +13,7 @@ import { getAccountScope } from '../offline/accountScope';
 import { createOfflineQueryClient, offlinePersistenceOptions } from '../offline/queryPersistence';
 import { SyncRuntime } from '../offline/SyncRuntime';
 import { BrandLaunch } from '../components/BrandLaunch';
+import { FloatingToolkit } from '../components/FloatingToolkit';
 
 const hubQueryClient = new QueryClient({
   defaultOptions: {
@@ -157,6 +158,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function FloatingToolkitRoot() {
+  const user = useAuthStore((s) => s.user);
+  if (!user || HUB_BUILD || user.authSource === 'HUB') return null;
+  return <FloatingToolkit />;
+}
+
 export default function RootLayout() {
   const [showBrandLaunch, setShowBrandLaunch] = useState(true);
   const finishBrandLaunch = useCallback(() => setShowBrandLaunch(false), []);
@@ -171,6 +178,7 @@ export default function RootLayout() {
           </TutorialProvider>
         </AuthGuard>
         <ToastRoot />
+        <FloatingToolkitRoot />
       </ScopedQueryProvider>
       {showBrandLaunch && <BrandLaunch onFinish={finishBrandLaunch} />}
     </GestureHandlerRootView>

@@ -329,13 +329,12 @@ export default function TermsPage() {
             </ul>
           </S>
 
-          <S id="s13" title="13. Free Trial & Introductory Offer" icon={Globe} r={sectionRefs}>
+          <S id="s13" title="13. Free Plan & Pricing" icon={Globe} r={sectionRefs}>
             <p>
-              ChitWise currently offers a free introductory period (6 months) on all plans — no payment
-              method is required to start. At the end of the trial, your account will require an active
-              subscription to continue. Your data is preserved during and after the trial. We will notify
-              you before a trial converts to a paid plan, and we reserve the right to modify or
-              discontinue the free trial offer for new registrations.
+              ChitWise offers a permanently free Basic plan — no payment method is required to start.
+              Paid plans unlock higher limits and additional capabilities. Your data is preserved if you
+              upgrade or downgrade. We reserve the right to modify plan pricing and features for new
+              subscriptions with reasonable notice.
             </p>
           </S>
 

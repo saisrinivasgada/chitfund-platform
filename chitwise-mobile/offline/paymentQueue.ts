@@ -176,7 +176,9 @@ export async function recordPaymentOfflineCapable(input: RecordPaymentPayload): 
     // Manager/staff payment APIs have different authorization and accounting
     // semantics. Credit application also depends on current server balances.
     // Do not queue either from a potentially stale offline snapshot.
-    return recordPayment(input);
+    // Still attach an idempotency key so network-level retries don't create duplicates.
+    const idempotencyKey = input.idempotencyKey ?? Crypto.randomUUID();
+    return recordPayment({ ...input, idempotencyKey });
   }
 
   const account = requireOrganizationScope(user);

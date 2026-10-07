@@ -4,6 +4,7 @@ import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.dto.ApiResponse;
 import com.chitfund.common.exception.BusinessException;
 import com.chitfund.common.exception.ErrorCode;
+import com.chitfund.userservice.dto.response.CapabilityGateResponse;
 import com.chitfund.userservice.dto.response.PlanResponse;
 import com.chitfund.userservice.service.PlanService;
 import com.chitfund.userservice.service.TenantService;
@@ -32,6 +33,12 @@ public class PlanController {
         if (tenantId == null) throw new BusinessException(ErrorCode.UNAUTHORIZED, "No tenant context");
         tenantService.requestPlanUpgrade(tenantId, toPlan);
         return ResponseEntity.ok(ApiResponse.success(null, "Upgrade request submitted. Our team will review it shortly."));
+    }
+
+    @GetMapping("/capability-gate")
+    public ResponseEntity<ApiResponse<CapabilityGateResponse>> getCapabilityGate(@RequestParam String key) {
+        String tenantId = TenantContext.get();
+        return ResponseEntity.ok(ApiResponse.success(planService.getCapabilityGate(key, tenantId)));
     }
 
     @PostMapping("/renewal-request")
