@@ -12,6 +12,8 @@ import {
   getPaymentBatchById, getDrawPayments, listStaff,
 } from '../../../services/api';
 import { C, T, Card, Badge, Amount, EmptyState, ListLoadingScreen, SectionHeader, fmtDate } from '../../../components/ui';
+import { useAuthStore } from '../../../store/authStore';
+import { useUIStore } from '../../../store/uiStore';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: any) => `₹${Number(n ?? 0).toLocaleString('en-IN')}`;
@@ -1227,6 +1229,37 @@ function TreasuryReport() {
 export default function ReportsScreen() {
   const router = useRouter();
   const [activeReport, setActiveReport] = useState<ReportType>('Overview');
+  const analyticsEnabled = useAuthStore((state) => state.user?.analyticsEnabled === true);
+  const showCapabilityGate = useUIStore((state) => state.showCapabilityGate);
+
+  // More-screen visibility is not authorization. A stale deep link must not
+  // mount report queries when the refreshed tenant entitlement excludes them.
+  if (!analyticsEnabled) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
+        <View style={{ flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: C.gray100, alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
+            <Text style={{ fontSize: 28 }}>🔒</Text>
+          </View>
+          <Text style={{ fontSize: 19, fontWeight: '800', color: C.gray900, textAlign: 'center' }}>
+            Reports are not included in this plan
+          </Text>
+          <Text style={{ fontSize: 14, color: C.gray500, textAlign: 'center', lineHeight: 21, marginTop: 8, marginBottom: 22 }}>
+            Review the available plans to unlock analytics and downloadable reports.
+          </Text>
+          <TouchableOpacity
+            onPress={() => showCapabilityGate('full_analytics')}
+            style={{ backgroundColor: C.navy, borderRadius: 14, paddingHorizontal: 22, paddingVertical: 13 }}
+          >
+            <Text style={{ color: C.white, fontSize: 14, fontWeight: '800' }}>View plan options</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.back()} style={{ padding: 14, marginTop: 4 }}>
+            <Text style={{ color: C.gray500, fontSize: 14, fontWeight: '600' }}>Go back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.gray50 }}>
