@@ -49,7 +49,12 @@ function PlanCard({ plan }) {
       style={{ minWidth: 220, maxWidth: 280 }}
     >
       {(() => {
-        let bs = []; try { bs = JSON.parse(plan.badges || '[]'); } catch {}
+        let bs;
+        try {
+          bs = JSON.parse(plan.badges || '[]');
+        } catch {
+          bs = [];
+        }
         const enabled = bs.filter(b => b.enabled && b.text);
         if (!enabled.length) return null;
         return (

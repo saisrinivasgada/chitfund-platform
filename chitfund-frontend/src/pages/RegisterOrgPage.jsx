@@ -708,7 +708,12 @@ export default function RegisterOrgPage() {
                         }`}
                       >
                         {(() => {
-                          let eb = []; try { eb = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text); } catch {}
+                          let eb;
+                          try {
+                            eb = JSON.parse(p.badges || '[]').filter(b => b.enabled && b.text);
+                          } catch {
+                            eb = [];
+                          }
                           if (eb.length) return (
                             <div className="absolute -top-3 left-3 flex gap-1 flex-wrap max-w-[90%]">
                               {eb.slice(0, 2).map((b, bi) => (

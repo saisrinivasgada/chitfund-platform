@@ -2155,7 +2155,7 @@ export function IntimationsTab() {
   const [voidTarget, setVoidTarget] = useState(null);
   const [voidReason, setVoidReason] = useState('');
 
-  const { data: all = [], isLoading, refetch } = useQuery({
+  const { data: all = [], isLoading } = useQuery({
     queryKey: ['admin-intimations'],
     queryFn: getAllIntimations,
     refetchOnMount: true,
