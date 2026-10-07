@@ -65,11 +65,49 @@ class PlanServiceAuditTest {
         var created = service.addCapabilityDef(request, "owner-1");
 
         assertThat(created.getKey()).isEqualTo("advanced_collections");
+        assertThat(created.isEnforced()).isFalse();
         verify(planRepo, never()).save(any());
         verify(customLimitsRepo, never()).save(any());
         verify(auditClient).log(eq("CAPABILITY"), eq("advanced_collections"), eq("CREATED"),
                 eq("owner-1"), eq("SUPER_ADMIN"),
                 org.mockito.ArgumentMatchers.isNull(), any(), eq("PLATFORM"));
+    }
+
+    @Test
+    void cataloguedCapabilityCannotBeAssignedBeforeCodeEnforcesIt() {
+        CreatePlanRequest request = new CreatePlanRequest();
+        request.setPlan("FUTURE");
+        request.setDisplayName("Future Plan");
+        request.setEnabledCapabilities(List.of("advanced_collections"));
+        when(capabilityRepo.findAllById(List.of("advanced_collections"))).thenReturn(List.of(
+                PlanCapabilityDef.builder()
+                        .key("advanced_collections").label("Advanced Collections").build()));
+
+        assertThatThrownBy(() -> service.createPlan(request, "owner-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("catalogued but not implemented");
+
+        verify(planRepo, never()).save(any());
+        verifyNoInteractions(auditClient);
+    }
+
+    @Test
+    void implementedCapabilityIsReportedAsEnforcedAndCanBeAssigned() {
+        CreatePlanRequest request = new CreatePlanRequest();
+        request.setPlan("CHAT");
+        request.setDisplayName("Chat Plan");
+        request.setEnabledCapabilities(List.of("live_chat"));
+        PlanCapabilityDef liveChat = PlanCapabilityDef.builder()
+                .key("live_chat").label("Live Chat").sortOrder(3).build();
+        when(capabilityRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(liveChat));
+        when(planRepo.save(any())).thenAnswer(call -> call.getArgument(0));
+
+        assertThat(service.createPlan(request, "owner-1").getEnabledCapabilities())
+                .containsExactly("live_chat");
+
+        when(capabilityRepo.findAllByOrderBySortOrderAscLabelAsc()).thenReturn(List.of(liveChat));
+        assertThat(service.getCapabilityDefs()).singleElement()
+                .satisfies(capability -> assertThat(capability.isEnforced()).isTrue());
     }
 
     @Test
@@ -106,9 +144,9 @@ class PlanServiceAuditTest {
         CreatePlanRequest request = new CreatePlanRequest();
         request.setPlan("FIELD");
         request.setDisplayName("Field Plan");
-        request.setEnabledCapabilities(List.of("cash_pickups"));
-        when(capabilityRepo.findAllById(List.of("cash_pickups"))).thenReturn(List.of(
-                PlanCapabilityDef.builder().key("cash_pickups").label("Cash Pickups").build()));
+        request.setEnabledCapabilities(List.of("live_chat"));
+        when(capabilityRepo.findAllById(List.of("live_chat"))).thenReturn(List.of(
+                PlanCapabilityDef.builder().key("live_chat").label("Live Chat").build()));
         when(planRepo.save(any())).thenAnswer(call -> call.getArgument(0));
 
         var created = service.createPlan(request, "owner-1");

@@ -65,7 +65,6 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
     try {
       const created = await superAdminAddCapability(label);
       qc.setQueryData(['super-capabilities'], (prev: any[] = []) => [...prev, created]);
-      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (e: any) {
@@ -206,9 +205,18 @@ function PlanFormModal({ visible, plan, onClose, onDone }: {
             <View key={cap.key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.gray50, borderRadius: 12, padding: 14 }}>
               <View>
                 <Text style={{ fontSize: 14, color: C.gray900 }}>{cap.label}</Text>
-                {ENFORCED_KEYS.has(cap.key) && <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>}
+                {(cap.enforced ?? ENFORCED_KEYS.has(cap.key))
+                  ? <Text style={{ fontSize: 11, color: '#3B82F6' }}>enforced</Text>
+                  : <Text style={{ fontSize: 11, color: C.amber }}>
+                      {enabledCapabilities.includes(cap.key) ? 'not enforced · remove before saving' : 'planned · not assignable yet'}
+                    </Text>}
               </View>
-              <Switch value={enabledCapabilities.includes(cap.key)} onValueChange={v => toggleCapability(cap.label, v, cap.key)} trackColor={{ true: C.navy }} />
+              <Switch
+                value={enabledCapabilities.includes(cap.key)}
+                disabled={cap.enforced === false && !enabledCapabilities.includes(cap.key)}
+                onValueChange={v => toggleCapability(cap.label, v, cap.key)}
+                trackColor={{ true: C.navy }}
+              />
             </View>
           ))}
 

@@ -239,8 +239,6 @@ function PlanModal({ plan, onSave, onClose }) {
   const { data: capDefs = [] } = useQuery({ queryKey: ['super-capabilities'], queryFn: superAdminListCapabilities });
 
   const isLive = isEdit && plan.isPublic && plan.isActive;
-  const enabledSet = new Set(form.featuresText.split('\n').map(s => s.trim()).filter(Boolean));
-
   function set(k, v) { setForm(p => ({ ...p, [k]: v })); }
 
   function toggleCapability(label, checked, key) {
@@ -277,7 +275,6 @@ function PlanModal({ plan, onSave, onClose }) {
     try {
       const created = await superAdminAddCapability(label);
       queryClient.setQueryData(['super-capabilities'], (prev = []) => [...prev, created]);
-      toggleCapability(label, true, created.key);
       setNewCapLabel('');
       setShowAddCap(false);
     } catch (err) {
@@ -476,14 +473,19 @@ function PlanModal({ plan, onSave, onClose }) {
             {capDefs.length === 0 && <p className="text-xs text-gray-400 italic">No capabilities defined yet — click "+ Add capability"</p>}
             {capDefs.map(cap => (
               <div key={cap.key} className="flex items-center justify-between group">
-                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                <label className={`flex items-center gap-3 flex-1 ${cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key) ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                   <input type="checkbox"
-                    checked={enabledSet.has(cap.label)}
+                    checked={form.enabledCapabilityKeys.includes(cap.key)}
+                    disabled={cap.enforced === false && !form.enabledCapabilityKeys.includes(cap.key)}
                     onChange={e => toggleCapability(cap.label, e.target.checked, cap.key)}
                     className="rounded accent-[#1E3A5F]" />
                   <span className="text-sm text-gray-700">{cap.label}</span>
-                  {ENFORCED_KEYS.has(cap.key) && (
+                  {(cap.enforced ?? ENFORCED_KEYS.has(cap.key)) ? (
                     <span className="text-xs text-blue-500">(enforced)</span>
+                  ) : (
+                    <span className="text-xs text-amber-600">
+                      {form.enabledCapabilityKeys.includes(cap.key) ? '(not enforced · remove before saving)' : '(planned · not assignable yet)'}
+                    </span>
                   )}
                 </label>
                 <button type="button" onClick={() => handleDeleteCapability(cap.key, cap.label)}

@@ -9,4 +9,6 @@ public class CapabilityDefResponse {
     private String key;
     private String label;
     private int sortOrder;
+    /** True only after server, web and mobile enforcement exist for this key. */
+    private boolean enforced;
 }

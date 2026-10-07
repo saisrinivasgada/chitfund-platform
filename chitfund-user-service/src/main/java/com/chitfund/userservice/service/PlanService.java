@@ -56,6 +56,14 @@ public class PlanService {
 
     private static final List<Role> STAFF_ROLES = List.of(Role.MANAGER, Role.STAFF);
     private static final String PLATFORM_AUDIT_TENANT = "PLATFORM";
+    /**
+     * A database definition is only a catalogue entry. It must not become an
+     * entitlement until every authoritative server path implements the gate.
+     * Adding a future capability is therefore a code-reviewed change to this
+     * registry, not a label typed into the Super Admin UI.
+     */
+    private static final Set<String> ENFORCED_CAPABILITIES = Set.of(
+            "full_analytics", "priority_support", "live_chat", "settlement");
 
     public void checkStaffLimit(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) {
@@ -367,7 +375,9 @@ public class PlanService {
 
     private CapabilityDefResponse toCapabilityResponse(PlanCapabilityDef d) {
         return CapabilityDefResponse.builder()
-                .key(d.getKey()).label(d.getLabel()).sortOrder(d.getSortOrder()).build();
+                .key(d.getKey()).label(d.getLabel()).sortOrder(d.getSortOrder())
+                .enforced(ENFORCED_CAPABILITIES.contains(d.getKey()))
+                .build();
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
@@ -472,6 +482,13 @@ public class PlanService {
         if (!unknown.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED,
                     "Unknown capability keys: " + String.join(", ", unknown));
+        }
+        List<String> unenforced = normalized.stream()
+                .filter(key -> !ENFORCED_CAPABILITIES.contains(key)).toList();
+        if (!unenforced.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Capabilities are catalogued but not implemented for enforcement: "
+                            + String.join(", ", unenforced));
         }
         return normalized;
     }
