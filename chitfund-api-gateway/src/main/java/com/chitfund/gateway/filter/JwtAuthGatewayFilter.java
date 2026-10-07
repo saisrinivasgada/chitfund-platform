@@ -1,6 +1,7 @@
 package com.chitfund.gateway.filter;
 
 import com.chitfund.gateway.client.HubIdentityClient;
+import com.chitfund.gateway.client.TenantEntitlementClient;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
@@ -13,6 +14,7 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
@@ -23,7 +25,11 @@ import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * WHY validate JWT at the gateway?
@@ -43,11 +49,23 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     private String internalServiceKey;
 
     private final HubIdentityClient hubIdentityClient;
+    private final TenantEntitlementClient tenantEntitlementClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public JwtAuthGatewayFilter(HubIdentityClient hubIdentityClient) {
+    private static final Set<String> ACCOUNT_WRITE_PATHS = Set.of(
+            "/api/users/me/change-password",
+            "/api/users/me/profile",
+            "/api/users/me/phone/send-otp",
+            "/api/users/me/phone/verify-otp",
+            "/api/users/me/support-number/send-otp",
+            "/api/users/me/support-number/verify"
+    );
+
+    public JwtAuthGatewayFilter(HubIdentityClient hubIdentityClient,
+                                TenantEntitlementClient tenantEntitlementClient) {
         super(Config.class);
         this.hubIdentityClient = hubIdentityClient;
+        this.tenantEntitlementClient = tenantEntitlementClient;
     }
 
     @Override
@@ -115,6 +133,20 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
     private Mono<Void> forward(ServerWebExchange exchange, GatewayFilterChain chain,
                                Claims claims, String role) {
         String tenantId = claims.get("tenantId", String.class);
+        if (requiresLiveEntitlement(exchange, tenantId, role)) {
+            return tenantEntitlementClient.getEffectiveEntitlement(tenantId)
+                    .map(this::evaluateEntitlement)
+                    .switchIfEmpty(Mono.just(EntitlementDecision.unavailable()))
+                    .onErrorReturn(EntitlementDecision.unavailable())
+                    .flatMap(decision -> decision.allowed()
+                            ? forwardValidated(exchange, chain, claims, role, tenantId)
+                            : error(exchange, decision.status(), decision.errorCode(), decision.message()));
+        }
+        return forwardValidated(exchange, chain, claims, role, tenantId);
+    }
+
+    private Mono<Void> forwardValidated(ServerWebExchange exchange, GatewayFilterChain chain,
+                                        Claims claims, String role, String tenantId) {
         String username = claims.get("username", String.class);
         var reqBuilder = exchange.getRequest().mutate()
                 .headers(headers -> {
@@ -138,13 +170,78 @@ public class JwtAuthGatewayFilter extends AbstractGatewayFilterFactory<JwtAuthGa
         return chain.filter(exchange.mutate().request(mutatedRequest).build());
     }
 
+    private boolean requiresLiveEntitlement(ServerWebExchange exchange, String tenantId, String role) {
+        HttpMethod method = exchange.getRequest().getMethod();
+        if (tenantId == null || tenantId.isBlank() || "SUPER_ADMIN".equals(role)
+                || method == null || Set.of(HttpMethod.GET, HttpMethod.HEAD, HttpMethod.OPTIONS).contains(method)) {
+            return false;
+        }
+        String path = exchange.getRequest().getPath().value();
+        if (path.equals("/api/plans/upgrade-request") || path.equals("/api/plans/renewal-request")
+                || path.startsWith("/api/billing/")
+                || path.equals("/api/tickets") || path.startsWith("/api/tickets/")
+                || path.startsWith("/api/support/")) {
+            return false;
+        }
+        if (ACCOUNT_WRITE_PATHS.contains(path)) return false;
+        if (method == HttpMethod.PATCH && path.startsWith("/api/notifications/")) return false;
+        return !(method == HttpMethod.PUT && path.matches("^/api/reminders/[^/]+/seen$"));
+    }
+
+    private EntitlementDecision evaluateEntitlement(
+            TenantEntitlementClient.TenantEntitlement entitlement) {
+        if (entitlement == null || entitlement.tenantStatus() == null
+                || entitlement.tenantStatus().isBlank()) {
+            return EntitlementDecision.unavailable();
+        }
+        String status = entitlement.tenantStatus().trim().toUpperCase(Locale.ROOT);
+        if (!"ACTIVE".equals(status)) {
+            return EntitlementDecision.denied("TENANT_INACTIVE",
+                    "Organization is " + status.toLowerCase(Locale.ROOT)
+                            + ". Operational changes are disabled; billing and support remain available.");
+        }
+        if (entitlement.planExpiresAt() != null && !entitlement.planExpiresAt().isBlank()) {
+            try {
+                if (LocalDateTime.parse(entitlement.planExpiresAt()).isBefore(LocalDateTime.now())) {
+                    return EntitlementDecision.denied("PLAN_002",
+                            "Your subscription has expired. Operational changes are disabled; renew to continue.");
+                }
+            } catch (DateTimeParseException invalidEntitlement) {
+                return EntitlementDecision.unavailable();
+            }
+        }
+        return EntitlementDecision.permitted();
+    }
+
     private Mono<Void> unauthorized(ServerWebExchange exchange, String message) {
+        return error(exchange, HttpStatus.UNAUTHORIZED, "AUTH_001", message);
+    }
+
+    private record EntitlementDecision(boolean allowed, HttpStatus status,
+                                       String errorCode, String message) {
+        private static EntitlementDecision permitted() {
+            return new EntitlementDecision(true, null, null, null);
+        }
+
+        private static EntitlementDecision denied(String errorCode, String message) {
+            return new EntitlementDecision(false, HttpStatus.FORBIDDEN, errorCode, message);
+        }
+
+        private static EntitlementDecision unavailable() {
+            return new EntitlementDecision(false, HttpStatus.SERVICE_UNAVAILABLE,
+                    "PLAN_VERIFICATION_UNAVAILABLE",
+                    "Subscription could not be verified. Please try again.");
+        }
+    }
+
+    private Mono<Void> error(ServerWebExchange exchange, HttpStatus status,
+                             String errorCode, String message) {
         ServerHttpResponse response = exchange.getResponse();
-        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         try {
             byte[] bytes = objectMapper.writeValueAsBytes(
-                    Map.of("success", false, "errorCode", "AUTH_001", "message", message));
+                    Map.of("success", false, "errorCode", errorCode, "message", message));
             DataBuffer buffer = response.bufferFactory().wrap(bytes);
             return response.writeWith(Mono.just(buffer));
         } catch (JsonProcessingException ex) {

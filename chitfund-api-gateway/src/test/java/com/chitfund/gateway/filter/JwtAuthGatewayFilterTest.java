@@ -1,6 +1,7 @@
 package com.chitfund.gateway.filter;
 
 import com.chitfund.gateway.client.HubIdentityClient;
+import com.chitfund.gateway.client.TenantEntitlementClient;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +17,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,11 +32,13 @@ class JwtAuthGatewayFilterTest {
     private static final String SECRET = "gateway-test-secret-at-least-thirty-two-characters";
     private JwtAuthGatewayFilter factory;
     private HubIdentityClient hubIdentityClient;
+    private TenantEntitlementClient tenantEntitlementClient;
 
     @BeforeEach
     void setUp() {
         hubIdentityClient = mock(HubIdentityClient.class);
-        factory = new JwtAuthGatewayFilter(hubIdentityClient);
+        tenantEntitlementClient = mock(TenantEntitlementClient.class);
+        factory = new JwtAuthGatewayFilter(hubIdentityClient, tenantEntitlementClient);
         ReflectionTestUtils.setField(factory, "jwtSecret", SECRET);
         ReflectionTestUtils.setField(factory, "internalServiceKey", "trusted-internal-key");
     }
@@ -164,6 +168,124 @@ class JwtAuthGatewayFilterTest {
                 .hasMessageContaining("downstream unavailable");
     }
 
+    @Test
+    void activeTenantCanPerformOperationalWrite() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.just(new TenantEntitlementClient.TenantEntitlement(
+                        "ACTIVE", LocalDateTime.now().plusDays(5).toString())));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.empty());
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/payments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        verify(chain).filter(any());
+    }
+
+    @Test
+    void expiredTenantCannotBypassWriteGateWithValidStaleToken() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.just(new TenantEntitlementClient.TenantEntitlement(
+                        "ACTIVE", LocalDateTime.now().minusMinutes(1).toString())));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/chits")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(exchange.getResponse().getBodyAsString().block()).contains("PLAN_002");
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void suspendedTenantIsReadOnlyEvenWhenJwtStillSaysActive() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.just(new TenantEntitlementClient.TenantEntitlement(
+                        "SUSPENDED", LocalDateTime.now().plusDays(5).toString())));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .patch("/api/members/member-1/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(exchange.getResponse().getBodyAsString().block()).contains("TENANT_INACTIVE");
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void entitlementOutageFailsClosedWithoutHidingLaterDownstreamFailures() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.error(new IllegalStateException("user service unavailable")));
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/payments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(exchange.getResponse().getBodyAsString().block())
+                .contains("PLAN_VERIFICATION_UNAVAILABLE");
+        verify(chain, never()).filter(any());
+
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.just(new TenantEntitlementClient.TenantEntitlement("ACTIVE", null)));
+        when(chain.filter(any())).thenReturn(Mono.error(new IllegalStateException("downstream unavailable")));
+        var secondExchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/payments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+        assertThatThrownBy(() -> factory.apply(new JwtAuthGatewayFilter.Config())
+                .filter(secondExchange, chain).block())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("downstream unavailable");
+    }
+
+    @Test
+    void emptyEntitlementResponseFailsClosed() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        when(tenantEntitlementClient.getEffectiveEntitlement("tenant-1"))
+                .thenReturn(Mono.empty());
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .post("/api/payments")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+
+        factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        verify(chain, never()).filter(any());
+    }
+
+    @Test
+    void expiredTenantCanStillRenewOpenTicketsAndMaintainAccountSecurity() {
+        String token = tenantToken("admin-1", "ADMIN", "tenant-1");
+        GatewayFilterChain chain = mock(GatewayFilterChain.class);
+        when(chain.filter(any())).thenReturn(Mono.empty());
+
+        for (String path : new String[]{
+                "/api/plans/renewal-request",
+                "/api/tickets",
+                "/api/tickets/ticket-1/messages",
+                "/api/users/me/change-password"}) {
+            var exchange = MockServerWebExchange.from(MockServerHttpRequest
+                    .post(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token));
+            factory.apply(new JwtAuthGatewayFilter.Config()).filter(exchange, chain).block();
+        }
+
+        verify(tenantEntitlementClient, never()).getEffectiveEntitlement(any());
+        verify(chain, org.mockito.Mockito.times(4)).filter(any());
+    }
+
     private String token(String subject, String role, String scope) {
         var builder = Jwts.builder()
                 .subject(subject)
@@ -178,5 +300,16 @@ class JwtAuthGatewayFilterTest {
             builder.claim("authVersion", 7L);
         }
         return builder.signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8))).compact();
+    }
+
+    private String tenantToken(String subject, String role, String tenantId) {
+        return Jwts.builder()
+                .subject(subject)
+                .claim("role", role)
+                .claim("tenantId", tenantId)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 60_000))
+                .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)))
+                .compact();
     }
 }
