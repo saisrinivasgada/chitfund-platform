@@ -4013,6 +4013,12 @@ function IntimationApproveModal({
             <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 12 }}>
               Edit the approved amounts if needed, then tap Approve.
             </Text>
+            <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                {(intimation.paymentMode ?? 'Unknown method').replace(/_/g, ' ')}
+                {intimation.paymentReference ? ` · Ref: ${intimation.paymentReference}` : ''}
+              </Text>
+            </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               {(intimation.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
@@ -4099,7 +4105,7 @@ function IntimationsTab() {
             <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 12 }}>Reject Intimation</Text>
-                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (optional)</Text>
+                <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
                 <TextInput
                   value={rejectReason}
                   onChangeText={setRejectReason}
@@ -4107,7 +4113,12 @@ function IntimationsTab() {
                   placeholder="Why are you rejecting this?"
                   style={{ backgroundColor: C.gray50, borderRadius: 8, borderWidth: 1, borderColor: C.gray200, padding: 10, fontSize: 13, marginBottom: 14 }}
                 />
-                <Button label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'} variant="danger" onPress={() => rejectMut.mutate()} disabled={rejectMut.isPending} />
+                <Button
+                  label={rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'}
+                  variant="danger"
+                  onPress={() => { if (!rejectReason.trim()) { toast.noted('Reason is required'); return; } rejectMut.mutate(); }}
+                  disabled={rejectMut.isPending}
+                />
                 <View style={{ height: 8 }} />
                 <Button label="Cancel" variant="ghost" onPress={() => setRejectTarget(null)} />
                 <View style={{ height: 16 }} />
@@ -4125,7 +4136,7 @@ function IntimationsTab() {
               <View style={{ backgroundColor: C.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }}>
                 <Text style={{ fontSize: 16, fontWeight: '700', color: C.navy, marginBottom: 8 }}>Void Approved Intimation</Text>
                 <Text style={{ fontSize: 12, color: '#DC2626', marginBottom: 10 }}>
-                  This will reverse all payment batches created for this intimation.
+                  This will reverse the payment created for this intimation and all chit allocations.
                 </Text>
                 <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>Reason (required)</Text>
                 <TextInput
@@ -4203,6 +4214,11 @@ function IntimationsTab() {
                     </Text>
                   </View>
                   <Text style={{ fontSize: 12, color: C.gray500 }}>{fmtDate(item.createdAt)}</Text>
+                  {item.paymentMode && (
+                    <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginTop: 2 }}>
+                      {item.paymentMode.replace(/_/g, ' ')}{item.paymentReference ? ` · ${item.paymentReference}` : ''}
+                    </Text>
+                  )}
                   {item.notes && (
                     <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
                   )}

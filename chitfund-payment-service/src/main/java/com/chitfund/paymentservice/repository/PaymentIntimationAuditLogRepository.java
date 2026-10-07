@@ -8,4 +8,7 @@ import java.util.UUID;
 
 public interface PaymentIntimationAuditLogRepository extends JpaRepository<PaymentIntimationAuditLog, UUID> {
     List<PaymentIntimationAuditLog> findByIntimationIdOrderByPerformedAtAsc(String intimationId);
+
+    List<PaymentIntimationAuditLog> findByTenantIdAndIntimationIdOrderByPerformedAtAsc(
+            String tenantId, String intimationId);
 }

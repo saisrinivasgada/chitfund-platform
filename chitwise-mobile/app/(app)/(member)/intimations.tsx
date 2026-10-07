@@ -59,6 +59,8 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
   const chitsWithDues = (chits as any[]).filter((c: any) => balanceMap[c.id] === null || (balanceMap[c.id] ?? 0) > 0);
 
   const [items, setItems] = useState<ChitItem[]>([{ chitId: '', claimedAmount: '' }]);
+  const [paymentMode, setPaymentMode] = useState<'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE'>('UPI');
+  const [paymentReference, setPaymentReference] = useState('');
   const [notes, setNotes] = useState('');
 
   const mutation = useMutation({
@@ -67,7 +69,8 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
         .filter(it => it.chitId && it.claimedAmount)
         .map(it => ({ chitId: it.chitId, claimedAmount: Number(it.claimedAmount) }));
       if (payload.length === 0) throw new Error('Add at least one chit and amount');
-      return createPaymentIntimation(payload, notes || undefined);
+      if (paymentMode !== 'CASH' && !paymentReference.trim()) throw new Error('Enter the payment reference');
+      return createPaymentIntimation(payload, paymentMode, paymentReference.trim() || undefined, notes || undefined);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-intimations'] });
@@ -157,13 +160,43 @@ function CreateIntimationModal({ onClose }: { onClose: () => void }) {
                 <Text style={{ fontSize: 13, color: C.navy, fontWeight: '600' }}>+ Add another chit</Text>
               </TouchableOpacity>
 
+              <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>How did you pay?</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+                {(['UPI', 'BANK_TRANSFER', 'CHEQUE', 'CASH'] as const).map(mode => {
+                  const selected = paymentMode === mode;
+                  return (
+                    <TouchableOpacity key={mode} onPress={() => { setPaymentMode(mode); setPaymentReference(''); }}
+                      style={{ paddingHorizontal: 11, paddingVertical: 7, borderRadius: 8, backgroundColor: selected ? C.navy : C.gray100 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: selected ? '#fff' : C.gray700 }}>
+                        {mode === 'BANK_TRANSFER' ? 'Bank' : mode.charAt(0) + mode.slice(1).toLowerCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {paymentMode !== 'CASH' && (
+                <>
+                  <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
+                    {paymentMode === 'CHEQUE' ? 'Cheque number' : 'Transaction reference'}
+                  </Text>
+                  <TextInput
+                    value={paymentReference}
+                    onChangeText={setPaymentReference}
+                    maxLength={100}
+                    autoCapitalize="characters"
+                    placeholder={paymentMode === 'UPI' ? 'UPI UTR / transaction ID' : paymentMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                    style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: C.gray900, marginBottom: 12 }}
+                  />
+                </>
+              )}
+
               <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Notes (optional)</Text>
               <TextInput
                 value={notes}
                 onChangeText={setNotes}
                 multiline
                 numberOfLines={2}
-                placeholder="e.g. Paid via UPI on 25 Sep"
+                placeholder="Anything the admin should know"
                 style={{ backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13, color: C.gray900, marginBottom: 16 }}
               />
 
@@ -205,6 +238,17 @@ function IntimationDetailModal({ item, onClose, onWithdraw }: { item: any; onClo
               </View>
               <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(item.createdAt)}</Text>
             </View>
+
+            {item.paymentMode && (
+              <View style={{ backgroundColor: C.navy50, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.navy }}>
+                  {item.paymentMode.replace(/_/g, ' ')}
+                </Text>
+                {item.paymentReference && (
+                  <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }}>Reference: {item.paymentReference}</Text>
+                )}
+              </View>
+            )}
 
             {item.rejectReason && (
               <View style={{ backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -334,6 +378,11 @@ export default function MemberIntimationsScreen() {
                       <Text style={{ fontSize: 11, color: C.gray400 }}>{(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</Text>
                     </View>
                     <Text style={{ fontSize: 12, color: C.gray400 }}>{fmtDate(item.createdAt)}</Text>
+                    {item.paymentMode && (
+                      <Text style={{ fontSize: 12, color: C.navy, fontWeight: '600', marginTop: 2 }}>
+                        {item.paymentMode.replace(/_/g, ' ')}
+                      </Text>
+                    )}
                     {item.notes && (
                       <Text style={{ fontSize: 12, color: C.gray600, marginTop: 2 }} numberOfLines={1}>{item.notes}</Text>
                     )}

@@ -1319,6 +1319,8 @@ function IntimationMemberTab({ memberId, chits = [] }) {
   const { toasts, toast, dismiss } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [items, setItems] = useState([{ chitId: '', claimedAmount: '' }]);
+  const [paymentMode, setPaymentMode] = useState('UPI');
+  const [paymentReference, setPaymentReference] = useState('');
   const [notes, setNotes] = useState('');
   const [withdrawTarget, setWithdrawTarget] = useState(null);
 
@@ -1355,13 +1357,18 @@ function IntimationMemberTab({ memberId, chits = [] }) {
         .filter(it => it.chitId && it.claimedAmount)
         .map(it => ({ chitId: it.chitId, claimedAmount: Number(it.claimedAmount) }));
       if (payload.length === 0) throw new Error('Add at least one chit and amount');
-      return createPaymentIntimation(payload, notes || undefined);
+      if (paymentMode !== 'CASH' && !paymentReference.trim()) {
+        throw new Error('Enter the payment reference');
+      }
+      return createPaymentIntimation(payload, paymentMode, paymentReference.trim() || undefined, notes || undefined);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-intimations'] });
       toast.success('Payment intimation submitted');
       setShowCreate(false);
       setItems([{ chitId: '', claimedAmount: '' }]);
+      setPaymentMode('UPI');
+      setPaymentReference('');
       setNotes('');
     },
     onError: (e) => toast.error(e?.response?.data?.message ?? e?.message ?? 'Failed to submit'),
@@ -1453,11 +1460,29 @@ function IntimationMemberTab({ memberId, chits = [] }) {
           >
             + Add another chit
           </button>
+          <FormField label="How did you pay?">
+            <Select value={paymentMode} onChange={e => setPaymentMode(e.target.value)}>
+              <option value="UPI">UPI</option>
+              <option value="BANK_TRANSFER">Bank transfer</option>
+              <option value="CHEQUE">Cheque</option>
+              <option value="CASH">Cash</option>
+            </Select>
+          </FormField>
+          {paymentMode !== 'CASH' && (
+            <FormField label={paymentMode === 'CHEQUE' ? 'Cheque number' : 'Transaction reference'}>
+              <Input
+                value={paymentReference}
+                onChange={e => setPaymentReference(e.target.value)}
+                placeholder={paymentMode === 'UPI' ? 'UPI UTR / transaction ID' : paymentMode === 'CHEQUE' ? 'Cheque number' : 'NEFT / IMPS / RTGS reference'}
+                maxLength={100}
+              />
+            </FormField>
+          )}
           <FormField label="Notes (optional)">
             <Textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Paid via UPI on 25 Sep"
+              placeholder="Anything the admin should know"
               rows={2}
             />
           </FormField>
@@ -1499,6 +1524,7 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
                     <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
                     <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
+                    {item.paymentMode && <span className="text-xs font-medium text-blue-700">· {item.paymentMode.replaceAll('_', ' ')}</span>}
                   </div>
                   <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
                 </div>
@@ -1518,6 +1544,7 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                 </div>
 
                 {item.notes && <p className="text-xs text-gray-500 italic mb-2">"{item.notes}"</p>}
+                {item.paymentReference && <p className="text-xs text-gray-500 mb-2">Reference: {item.paymentReference}</p>}
                 {item.rejectReason && <p className="text-xs text-red-600 mb-2">Rejected: {item.rejectReason}</p>}
                 {item.voidReason   && <p className="text-xs text-red-600 mb-2">Voided: {item.voidReason}</p>}
 

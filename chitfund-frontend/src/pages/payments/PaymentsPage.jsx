@@ -2222,6 +2222,10 @@ export function IntimationsTab() {
           <p className="text-sm text-gray-500 mb-4">
             Edit the approved amounts if needed, then confirm.
           </p>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 mb-4 text-sm text-blue-900">
+            <span className="font-semibold">{approveTarget.paymentMode?.replaceAll('_', ' ') ?? 'Unknown method'}</span>
+            {approveTarget.paymentReference && <span> · Ref: {approveTarget.paymentReference}</span>}
+          </div>
           <div className="space-y-3 mb-4">
             {(approveTarget.items ?? []).map((it, idx) => (
               <div key={it.id} className="bg-gray-50 rounded-lg p-3">
@@ -2251,7 +2255,7 @@ export function IntimationsTab() {
       {/* Reject modal */}
       {rejectTarget && (
         <Modal title="Reject Intimation" onClose={() => setRejectTarget(null)}>
-          <FormField label="Reason (optional)">
+          <FormField label="Reason (required)">
             <Textarea
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
@@ -2261,7 +2265,10 @@ export function IntimationsTab() {
           </FormField>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="secondary" onClick={() => setRejectTarget(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => rejectMut.mutate()} disabled={rejectMut.isPending}>
+            <Button variant="danger" onClick={() => {
+              if (!rejectReason.trim()) { toast.error('Reason is required'); return; }
+              rejectMut.mutate();
+            }} disabled={rejectMut.isPending}>
               {rejectMut.isPending ? 'Rejecting…' : 'Confirm Reject'}
             </Button>
           </div>
@@ -2272,7 +2279,7 @@ export function IntimationsTab() {
       {voidTarget && (
         <Modal title="Void Approved Intimation" onClose={() => setVoidTarget(null)}>
           <p className="text-sm text-red-600 mb-3">
-            This will reverse all payment batches created for this intimation.
+            This will reverse the payment created for this intimation and all of its chit allocations.
           </p>
           <FormField label="Reason (required)">
             <Textarea
@@ -2331,6 +2338,7 @@ export function IntimationsTab() {
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
                     <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
                     <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
+                    {item.paymentMode && <span className="text-xs font-medium text-blue-700">· {item.paymentMode.replaceAll('_', ' ')}</span>}
                   </div>
                   <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
                 </div>
@@ -2352,6 +2360,9 @@ export function IntimationsTab() {
 
                 {item.notes && (
                   <p className="text-xs text-gray-500 mb-3 italic">"{item.notes}"</p>
+                )}
+                {item.paymentReference && (
+                  <p className="text-xs text-gray-500 mb-3">Reference: {item.paymentReference}</p>
                 )}
                 {item.rejectReason && (
                   <p className="text-xs text-red-600 mb-3">Reject reason: {item.rejectReason}</p>

@@ -648,8 +648,12 @@ export const memberApproveCashRequest = async (requestId: string, approved: bool
   unwrapObj(await api.patch(`/payments/requests/${requestId}/member-approve`, { approved, reason }));
 
 // ── Payment Intimations ───────────────────────────────────────────────────────
-export const createPaymentIntimation = async (items: Array<{ chitId: string; claimedAmount: number }>, notes?: string) =>
-  unwrapObj(await api.post('/payments/intimations', { items, notes }));
+export const createPaymentIntimation = async (
+  items: Array<{ chitId: string; claimedAmount: number }>,
+  paymentMode: 'CASH' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+  paymentReference?: string,
+  notes?: string,
+) => unwrapObj(await api.post('/payments/intimations', { items, paymentMode, paymentReference, notes }));
 export const withdrawPaymentIntimation = async (id: string) =>
   unwrapObj(await api.post(`/payments/intimations/${id}/withdraw`));
 export const getMyIntimations = async () =>

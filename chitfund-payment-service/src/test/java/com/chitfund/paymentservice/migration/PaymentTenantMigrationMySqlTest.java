@@ -217,6 +217,90 @@ class PaymentTenantMigrationMySqlTest {
         }
     }
 
+    @Test
+    void paymentIntimationApprovalSerializesConcurrentReviewOnRealMySql() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        String intimationId = UUID.randomUUID().toString();
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+             var statement = connection.prepareStatement("""
+                     INSERT INTO payment_intimations
+                         (id, tenant_id, member_id, status, payment_mode, payment_reference,
+                          created_at, updated_at)
+                     VALUES (?, 'tenant-a', ?, 'PENDING', 'UPI', ?, NOW(6), NOW(6))
+                     """)) {
+            statement.setString(1, intimationId);
+            statement.setString(2, UUID.randomUUID().toString());
+            statement.setString(3, "UTR-" + UUID.randomUUID());
+            statement.executeUpdate();
+        }
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger approvals = new AtomicInteger();
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var tasks = java.util.stream.IntStream.range(0, 2).mapToObj(index ->
+                    executor.submit(() -> {
+                        try (var connection = DriverManager.getConnection(
+                                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+                            connection.setAutoCommit(false);
+                            ready.countDown();
+                            start.await(10, TimeUnit.SECONDS);
+                            String status;
+                            try (var lock = connection.prepareStatement(
+                                    "SELECT status FROM payment_intimations WHERE id=? AND tenant_id=? FOR UPDATE")) {
+                                lock.setString(1, intimationId);
+                                lock.setString(2, "tenant-a");
+                                try (var result = lock.executeQuery()) {
+                                    assertThat(result.next()).isTrue();
+                                    status = result.getString(1);
+                                }
+                            }
+                            if ("PENDING".equals(status)) {
+                                insertIdempotentIntimationBatch(connection, intimationId);
+                                try (var update = connection.prepareStatement(
+                                        "UPDATE payment_intimations SET status='APPROVED', updated_at=NOW(6) WHERE id=?")) {
+                                    update.setString(1, intimationId);
+                                    update.executeUpdate();
+                                }
+                                approvals.incrementAndGet();
+                            }
+                            connection.commit();
+                        }
+                        return null;
+                    })).toList();
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            for (var task : tasks) task.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(approvals.get()).isEqualTo(1);
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            try (var statement = connection.prepareStatement(
+                    "SELECT status FROM payment_intimations WHERE id=?")) {
+                statement.setString(1, intimationId);
+                try (var result = statement.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getString(1)).isEqualTo("APPROVED");
+                }
+            }
+            try (var statement = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM payment_batches WHERE tenant_id='tenant-a' " +
+                            "AND idempotency_operation='RECORD_PAYMENT' AND idempotency_key=?")) {
+                statement.setString(1, "INTIM:" + intimationId);
+                try (var result = statement.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(1);
+                }
+            }
+        }
+    }
+
     private static void insertBatch(
             java.sql.Connection connection,
             String id,
@@ -234,6 +318,25 @@ class PaymentTenantMigrationMySqlTest {
             statement.setString(4, UUID.randomUUID().toString());
             statement.setString(5, mode);
             statement.setString(6, reference);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void insertIdempotentIntimationBatch(
+            java.sql.Connection connection, String intimationId) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "INSERT INTO payment_batches " +
+                        "(id, tenant_id, chit_id, member_id, total_amount, payment_mode, status, " +
+                        "payment_reference, recorded_at, synced_at, idempotency_key, " +
+                        "idempotency_operation, idempotency_request_hash, created_at, updated_at) " +
+                        "VALUES (?, 'tenant-a', ?, ?, 100.00, 'UPI', 'COMPLETED', ?, NOW(6), NOW(6), " +
+                        "?, 'RECORD_PAYMENT', ?, NOW(6), NOW(6))")) {
+            statement.setString(1, UUID.randomUUID().toString());
+            statement.setString(2, UUID.randomUUID().toString());
+            statement.setString(3, UUID.randomUUID().toString());
+            statement.setString(4, "UTR-BATCH-" + UUID.randomUUID());
+            statement.setString(5, "INTIM:" + intimationId);
+            statement.setString(6, "c".repeat(64));
             statement.executeUpdate();
         }
     }

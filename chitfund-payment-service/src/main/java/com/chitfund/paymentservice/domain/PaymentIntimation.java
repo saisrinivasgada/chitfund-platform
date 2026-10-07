@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.domain;
 
 import com.chitfund.paymentservice.domain.enums.IntimationStatus;
+import com.chitfund.paymentservice.domain.enums.PaymentMode;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Filter;
@@ -32,6 +33,13 @@ public class PaymentIntimation {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, columnDefinition = "varchar(20)")
     private IntimationStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private PaymentMode paymentMode;
+
+    @Column(length = 100)
+    private String paymentReference;
 
     @Column(columnDefinition = "text")
     private String notes;

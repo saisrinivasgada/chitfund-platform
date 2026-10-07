@@ -1337,8 +1337,8 @@ export const getMemberPaymentHistoryByChit = async (memberId, chitId) => {
 };
 
 // ─── Payment Intimations (payment-service) ────────────────────────────────
-export const createPaymentIntimation = async (items, notes) => {
-  const res = await api.post('/payments/intimations', { items, notes });
+export const createPaymentIntimation = async (items, paymentMode, paymentReference, notes) => {
+  const res = await api.post('/payments/intimations', { items, paymentMode, paymentReference, notes });
   return res.data.data;
 };
 export const withdrawPaymentIntimation = async (id) => {
