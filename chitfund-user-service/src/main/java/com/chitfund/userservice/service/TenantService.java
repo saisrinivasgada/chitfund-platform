@@ -52,6 +52,10 @@ import java.util.HexFormat;
 @Slf4j
 public class TenantService {
 
+    private static final java.time.LocalDateTime FREE_PLAN_EXPIRY =
+            java.time.LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+    private static final int MANUAL_PAID_PLAN_DAYS = 30;
+
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final MemberUserLinkRepository memberLinkRepository;
@@ -83,6 +87,10 @@ public class TenantService {
         }
 
         String plan = (req.getPlan() != null && !req.getPlan().isBlank()) ? req.getPlan().toUpperCase() : "BASIC";
+        planLimitsRepository.findById(plan)
+                .filter(candidate -> candidate.isActive() && candidate.isPublic())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Select a public active subscription plan"));
 
         // Create tenant (status = PENDING until super-admin activates)
         String referralCode = "REF-" + req.getSlug().toUpperCase().replace("-", "");
@@ -210,28 +218,30 @@ public class TenantService {
     }
 
     public ActivationResponse activateTenant(UUID tenantId, String actorId) {
-        Tenant t = tenantRepository.findById(tenantId)
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        String planCode = t.getPlan() != null ? t.getPlan().trim().toUpperCase() : "BASIC";
+        PlanLimits planLimits = planLimitsRepository.findById(planCode)
+                .filter(PlanLimits::isActive)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "The assigned subscription plan is missing or inactive"));
         String prevStatus = t.getStatus();
+        applyAssignmentExpiry(t, planCode);
         t.setStatus("ACTIVE");
         tenantRepository.save(t);
 
         // Ensure a limits row exists (seed from plan if not already set)
         if (!customLimitsRepository.existsById(tenantId.toString())) {
-            String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-            planLimitsRepository.findById(planCode).ifPresent(p -> seedLimitsFromPlan(tenantId.toString(), p));
+            seedLimitsFromPlan(tenantId.toString(), planLimits);
         }
 
         promotionService.onTenantActivated(tenantId);
         auditClient.log("TENANT", tenantId.toString(),
                 "TENANT_ACTIVATED", actorId, "ROLE_SUPER_ADMIN",
                 java.util.Map.of("status", prevStatus != null ? prevStatus : "PENDING"),
-                java.util.Map.of("status", "ACTIVE", "plan", t.getPlan() != null ? t.getPlan() : "BASIC"),
+                java.util.Map.of("status", "ACTIVE", "plan", planCode,
+                        "planExpiresAt", t.getPlanExpiresAt().toString()),
                 tenantId.toString());
-
-        // Look up plan limits once to include in approval email
-        String planCode = t.getPlan() != null ? t.getPlan().toUpperCase() : "BASIC";
-        PlanLimits planLimits = planLimitsRepository.findById(planCode).orElse(null);
 
         // Check if an ADMIN user already exists for this org
         List<User> admins = userRepository.findByTenantIdAndRoleInAndDeletedAtIsNull(
@@ -388,7 +398,7 @@ public class TenantService {
 
     public TenantResponse updatePlan(UUID tenantId, String plan, String actorId, String reason) {
         String auditReason = requireEntitlementReason(reason);
-        Tenant t = tenantRepository.findById(tenantId)
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         String targetPlan = plan == null ? "" : plan.trim().toUpperCase(java.util.Locale.ROOT);
         PlanLimits targetLimits = planLimitsRepository.findById(targetPlan)
@@ -396,7 +406,8 @@ public class TenantService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Active plan not found: " + targetPlan));
         java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
-                customLimitsRepository.findById(tenantId.toString()).orElse(null));
+                customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt());
+        applyAssignmentExpiry(t, targetPlan);
         t.setPlan(targetPlan);
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
@@ -407,18 +418,41 @@ public class TenantService {
         seedLimitsFromPlan(tenantId.toString(), targetLimits);
         auditClient.log("TENANT", tenantId.toString(),
                 "PLAN_CHANGED", actorId, "ROLE_SUPER_ADMIN",
-                before, standardPlanSnapshot(targetLimits),
+                before, entitlementSnapshot(targetPlan,
+                        customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt()),
                 tenantId.toString(), auditReason);
         return toResponse(t);
     }
 
     @Transactional
-    public void requestPlanUpgrade(String tenantId, String toPlan) {
-        Tenant t = tenantRepository.findById(UUID.fromString(tenantId))
+    public void requestPlanUpgrade(String tenantId, String toPlan, String actorId) {
+        String targetPlan = toPlan == null ? "" : toPlan.trim().toUpperCase(java.util.Locale.ROOT);
+        PlanLimits target = planLimitsRepository.findById(targetPlan)
+                .filter(plan -> plan.isActive() && plan.isPublic())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Public active plan not found: " + targetPlan));
+        Tenant t = tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
-        t.setRequestedPlan(toPlan.toUpperCase());
+        PlanLimits current = planLimitsRepository.findById(
+                        t.getPlan() == null ? "" : t.getPlan().trim().toUpperCase(java.util.Locale.ROOT))
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "Organization subscription plan is invalid"));
+        if (target.getPlan().equalsIgnoreCase(current.getPlan())
+                || target.getPriceMonthlyInr() <= current.getPriceMonthlyInr()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "Upgrade requests must select a higher-priced active plan");
+        }
+        if (targetPlan.equalsIgnoreCase(t.getRequestedPlan())) {
+            return;
+        }
+        String previousRequest = t.getRequestedPlan();
+        t.setRequestedPlan(targetPlan);
         t.setUpgradeRequestedAt(java.time.LocalDateTime.now());
         tenantRepository.save(t);
+        auditClient.log("TENANT", tenantId,
+                "PLAN_UPGRADE_REQUESTED", actorId, "ROLE_ADMIN",
+                java.util.Map.of("requestedPlan", previousRequest != null ? previousRequest : "none"),
+                java.util.Map.of("requestedPlan", targetPlan), tenantId);
     }
 
     public List<TenantResponse> listPendingUpgradeRequests() {
@@ -441,13 +475,20 @@ public class TenantService {
                 null, null, tenantId.toString());
     }
 
-    public void requestRenewal(String tenantId) {
-        Tenant t = tenantRepository.findById(UUID.fromString(tenantId))
+    public void requestRenewal(String tenantId, String actorId) {
+        Tenant t = tenantRepository.findByIdForUpdate(UUID.fromString(tenantId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
+        if ("BASIC".equalsIgnoreCase(t.getPlan())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "The free Basic plan does not require renewal");
+        }
+        if (t.getRenewalRequestedAt() != null) {
+            return;
+        }
         t.setRenewalRequestedAt(java.time.LocalDateTime.now());
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId,
-                "RENEWAL_REQUESTED", null, "ROLE_ADMIN",
+                "RENEWAL_REQUESTED", actorId, "ROLE_ADMIN",
                 null, java.util.Map.of("plan", t.getPlan() != null ? t.getPlan() : "BASIC"),
                 tenantId);
 
@@ -686,12 +727,12 @@ public class TenantService {
     public EffectiveLimitsResponse setCustomLimits(UUID tenantId, SetCustomLimitsRequest req,
                                                     String actorId, String reason) {
         String auditReason = requireEntitlementReason(reason);
-        Tenant t = tenantRepository.findById(tenantId)
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
 
         TenantCustomLimits limits = customLimitsRepository.findById(tenantId.toString())
                 .orElse(TenantCustomLimits.builder().tenantId(tenantId.toString()).build());
-        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(), limits);
+        java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(), limits, t.getPlanExpiresAt());
         limits.setMaxActiveChits(req.getMaxActiveChits());
         limits.setMaxMembers(req.getMaxMembers());
         limits.setMaxStaff(req.getMaxStaff());
@@ -708,6 +749,7 @@ public class TenantService {
         customLimitsRepository.save(limits);
 
         // Automatically set plan to CUSTOM
+        applyAssignmentExpiry(t, "CUSTOM");
         t.setPlan("CUSTOM");
         t.setRequestedPlan(null);
         t.setUpgradeRequestedAt(null);
@@ -715,7 +757,7 @@ public class TenantService {
 
         auditClient.log("TENANT", tenantId.toString(),
                 "CUSTOM_LIMITS_SET", actorId, "ROLE_SUPER_ADMIN",
-                before, entitlementSnapshot("CUSTOM", limits),
+                before, entitlementSnapshot("CUSTOM", limits, t.getPlanExpiresAt()),
                 tenantId.toString(), auditReason);
 
         return toEffectiveLimits(limits, t.getStatus(), t.getPlanExpiresAt(),
@@ -730,17 +772,19 @@ public class TenantService {
                 .filter(PlanLimits::isActive)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
                         "Active fallback plan not found: " + planCode));
-        Tenant t = tenantRepository.findById(tenantId)
+        Tenant t = tenantRepository.findByIdForUpdate(tenantId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Tenant not found"));
         java.util.Map<String, Object> before = entitlementSnapshot(t.getPlan(),
-                customLimitsRepository.findById(tenantId.toString()).orElse(null));
+                customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt());
         // Reset limits row to plan defaults (never delete — always keep a row)
         seedLimitsFromPlan(tenantId.toString(), plan);
+        applyAssignmentExpiry(t, planCode);
         t.setPlan(planCode);
         tenantRepository.save(t);
         auditClient.log("TENANT", tenantId.toString(),
                 "CUSTOM_LIMITS_REMOVED", actorId, "ROLE_SUPER_ADMIN",
-                before, standardPlanSnapshot(plan),
+                before, entitlementSnapshot(planCode,
+                        customLimitsRepository.findById(tenantId.toString()).orElse(null), t.getPlanExpiresAt()),
                 tenantId.toString(), auditReason);
     }
 
@@ -754,9 +798,10 @@ public class TenantService {
     }
 
     private static java.util.Map<String, Object> entitlementSnapshot(
-            String planCode, TenantCustomLimits limits) {
+            String planCode, TenantCustomLimits limits, java.time.LocalDateTime planExpiresAt) {
         java.util.Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
         snapshot.put("plan", planCode != null ? planCode : "UNASSIGNED");
+        snapshot.put("planExpiresAt", planExpiresAt != null ? planExpiresAt.toString() : "none");
         if (limits != null) {
             snapshot.put("maxActiveChits", limits.getMaxActiveChits());
             snapshot.put("maxMembers", limits.getMaxMembers());
@@ -766,6 +811,19 @@ public class TenantService {
             snapshot.put("capabilities", limits.getCapabilities());
         }
         return snapshot;
+    }
+
+    private static void applyAssignmentExpiry(Tenant tenant, String targetPlan) {
+        if ("BASIC".equalsIgnoreCase(targetPlan)) {
+            tenant.setPlanExpiresAt(FREE_PLAN_EXPIRY);
+            return;
+        }
+        java.time.LocalDateTime current = tenant.getPlanExpiresAt();
+        // Null historically meant unlimited, and BASIC uses a year-9999 sentinel.
+        // Neither may leak into a paid/custom entitlement during a manual change.
+        if (current == null || current.getYear() >= 9000) {
+            tenant.setPlanExpiresAt(java.time.LocalDateTime.now().plusDays(MANUAL_PAID_PLAN_DAYS));
+        }
     }
 
     private static java.util.Map<String, Object> standardPlanSnapshot(PlanLimits plan) {

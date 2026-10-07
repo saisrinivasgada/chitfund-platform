@@ -72,7 +72,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET,
                     "/api/auth/check-slug",
-                    "/api/auth/check-username").permitAll()
+                    "/api/auth/check-username",
+                    "/api/plans/public").permitAll()
                 .requestMatchers(HttpMethod.POST,
                     "/api/auth/register-org",
                     "/api/auth/register",
@@ -98,7 +99,6 @@ public class SecurityConfig {
                     "/api/chitfund-requests/recovery/verify-email-otp").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/chitfund-requests/public").permitAll()
                 .requestMatchers("/api/auth/forgot-password/**").permitAll()
-                .requestMatchers("/api/plans/**").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
                 .requestMatchers("/internal/**").permitAll()
