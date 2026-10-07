@@ -206,7 +206,7 @@ class PlanServiceAuditTest {
         request.setMaxMembers(250);
         request.setMaxStaff(8);
         request.setAllowedChitTypes("reservation, auction");
-        when(planRepo.findById("GROWTH")).thenReturn(Optional.of(growth));
+        when(planRepo.findByPlanForUpdate("GROWTH")).thenReturn(Optional.of(growth));
         when(planRepo.save(growth)).thenReturn(growth);
         when(customLimitsRepo.findAllByPlanCode("GROWTH")).thenReturn(List.of(tenantLimits));
 
@@ -226,7 +226,7 @@ class PlanServiceAuditTest {
         PlanLimits growth = PlanLimits.builder()
                 .plan("GROWTH").displayName("Growth").isActive(true)
                 .maxMembers(100).displayOrder(2).build();
-        when(planRepo.findById("GROWTH")).thenReturn(Optional.of(growth));
+        when(planRepo.findByPlanForUpdate("GROWTH")).thenReturn(Optional.of(growth));
         when(planRepo.save(growth)).thenReturn(growth);
 
         UpdatePlanRequest entitlementChange = new UpdatePlanRequest();
@@ -271,10 +271,11 @@ class PlanServiceAuditTest {
         PlanLimits inactive = PlanLimits.builder()
                 .plan("RETIRED").displayName("Retired")
                 .isActive(false).isPublic(false).build();
-        when(planRepo.findById("RETIRED")).thenReturn(Optional.of(inactive));
+        when(planRepo.findByPlanForUpdate("RETIRED")).thenReturn(Optional.of(inactive));
 
         service.deletePlan("retired", "owner-1", "Retire obsolete plan");
 
+        verify(planRepo).findByPlanForUpdate("RETIRED");
         verify(planRepo, never()).save(any());
         verifyNoInteractions(auditClient);
     }

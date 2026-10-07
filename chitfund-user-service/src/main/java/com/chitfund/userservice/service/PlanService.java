@@ -162,7 +162,7 @@ public class PlanService {
         String auditReason = hasSensitivePlanChange(req)
                 ? requireChangeReason(reason, "A reason is required for plan entitlement changes")
                 : normalizeOptionalReason(reason);
-        PlanLimits p = planRepo.findById(code.toUpperCase())
+        PlanLimits p = planRepo.findByPlanForUpdate(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
         PlanResponse before = toResponse(p);
         if (req.getDisplayName() != null) p.setDisplayName(req.getDisplayName());
@@ -197,7 +197,7 @@ public class PlanService {
     @Transactional
     public void deletePlan(String code, String actorId, String reason) {
         String auditReason = requireChangeReason(reason, "A reason is required to deactivate a plan");
-        PlanLimits p = planRepo.findById(code.toUpperCase())
+        PlanLimits p = planRepo.findByPlanForUpdate(code.toUpperCase())
                 .orElseThrow(() -> new RuntimeException("Plan not found: " + code));
         if (!p.isActive() && !p.isPublic()) {
             return;
