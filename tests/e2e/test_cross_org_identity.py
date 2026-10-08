@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import time
 import uuid
 
 import pytest
@@ -75,6 +76,25 @@ def _latest_code(db, table: str, reference_column: str, reference: str, purpose:
     )
     assert row is not None, f"no {purpose} code generated for disposable test reference"
     return row["verification_code"]
+
+
+def _wait_for_member_activation(db, request_id: str, timeout: float = 10.0):
+    """Wait for the durable cross-service projection, not merely the identity commit."""
+    deadline = time.monotonic() + timeout
+    row = None
+    while time.monotonic() < deadline:
+        row = db.one(
+            "chitfund_user",
+            """SELECT status,attempts,last_error_code,last_error
+               FROM member_activation_command_outbox WHERE request_id=%s""",
+            (request_id,),
+        )
+        if row is not None and row["status"] == "COMPLETED":
+            return row
+        if row is not None and row["status"] == "FAILED":
+            pytest.fail(f"member activation command failed: {row!r}")
+        time.sleep(0.25)
+    pytest.fail(f"timed out waiting for member activation command: {row!r}")
 
 
 def _create_member(api, admin_token: str, *, name: str, phone: str, email: str,
@@ -265,6 +285,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
     activated_a = _data(api.as_role(
         "POST", f"{api.user}/api/chitfund-requests/{request_a_id}/confirm", admin_a))
     assert activated_a["status"] == "ACTIVE"
+    _wait_for_member_activation(db, request_a_id)
 
     first_login = _login(api, username, first_password)
     assert first_login["requiresTenantSelection"] is True
@@ -360,6 +381,7 @@ def test_one_global_member_securely_joins_two_organizations(api, db, token):
         "chitfund_user",
         "SELECT COUNT(*) FROM chitfund_request_audit WHERE request_id=%s AND action='ACCESS_ACTIVATED'",
         (request_b_id,)) == 1
+    _wait_for_member_activation(db, request_b_id)
 
     # A fresh real login now exposes both tenant choices. Each scoped session
     # resolves only that tenant's member profile and each refresh remains scoped.
