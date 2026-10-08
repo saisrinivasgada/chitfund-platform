@@ -22,7 +22,8 @@ public class InternalFinancialOperation {
     @Column(name = "operation_type", nullable = false, length = 40, updatable = false)
     private String operationType;
 
-    @Column(name = "request_hash", nullable = false, length = 64, updatable = false)
+    @Column(name = "request_hash", nullable = false, length = 64,
+            columnDefinition = "char(64)", updatable = false)
     private String requestHash;
 
     @Column(name = "completed_at", nullable = false, updatable = false)
