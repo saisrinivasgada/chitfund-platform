@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -25,7 +26,7 @@ public class NotificationDeliveryOutbox {
     /** Participates in the current inbox/business transaction when one exists. */
     public boolean enqueue(String eventId, String dedupeKey, String tenantId,
                            String notificationId, String deliveryType, String payload) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
         try {
             return jdbcTemplate.update("""
                     INSERT INTO notification_delivery_outbox (
@@ -34,7 +35,7 @@ public class NotificationDeliveryOutbox {
                     VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), 'PENDING', 0, ?, ?)
                     """, UUID.randomUUID().toString(), eventId, dedupeKey, tenantId,
                     notificationId, deliveryType, payload,
-                    Timestamp.valueOf(now), Timestamp.valueOf(now)) == 1;
+                    Timestamp.from(now), Timestamp.from(now)) == 1;
         } catch (DuplicateKeyException ignored) {
             return false;
         }
@@ -44,7 +45,7 @@ public class NotificationDeliveryOutbox {
     public List<NotificationDelivery> claimBatch(int requestedBatchSize, Duration leaseDuration) {
         int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
         String leaseToken = UUID.randomUUID().toString();
-        LocalDateTime claimedUntil = LocalDateTime.now(ZoneOffset.UTC).plus(leaseDuration);
+        Instant claimedUntil = Instant.now().plus(leaseDuration);
         List<NotificationDelivery> selected = new ArrayList<>(select("""
                 status = 'PENDING' AND available_at <= UTC_TIMESTAMP(6)
                 ORDER BY available_at, delivery_id
@@ -60,7 +61,7 @@ public class NotificationDeliveryOutbox {
 
         List<Object[]> updates = new ArrayList<>(selected.size());
         for (NotificationDelivery delivery : selected) {
-            updates.add(new Object[]{leaseToken, Timestamp.valueOf(claimedUntil), delivery.deliveryId()});
+            updates.add(new Object[]{leaseToken, Timestamp.from(claimedUntil), delivery.deliveryId()});
         }
         jdbcTemplate.batchUpdate("""
                 UPDATE notification_delivery_outbox
@@ -117,7 +118,8 @@ public class NotificationDeliveryOutbox {
                 SET status=?, attempts=?, available_at=?, lease_token=NULL, claimed_until=NULL,
                     last_error_code=?, last_error=?
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
-                """, terminal ? "FAILED" : "PENDING", attempts, Timestamp.valueOf(retryAt),
+                """, terminal ? "FAILED" : "PENDING", attempts,
+                Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)),
                 errorCode, sanitizedError, delivery.deliveryId(), delivery.leaseToken());
         if (updated == 1 && terminal && delivery.notificationId() != null) {
             int notificationUpdated = jdbcTemplate.update("""

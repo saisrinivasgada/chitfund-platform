@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -25,7 +26,7 @@ public class PayoutOutboxStore {
     public void enqueue(String eventId, String tenantId, String aggregateType,
                         String aggregateId, String eventType, String payload,
                         List<String> destinations) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
         for (String destination : destinations) {
             jdbcTemplate.update("""
                     INSERT INTO event_outbox (
@@ -36,7 +37,7 @@ public class PayoutOutboxStore {
                             'PENDING', 0, ?, ?)
                     """, UUID.randomUUID().toString(), eventId, tenantId, aggregateType,
                     aggregateId, eventType, destination, payload,
-                    Timestamp.valueOf(now), Timestamp.valueOf(now));
+                    Timestamp.from(now), Timestamp.from(now));
         }
     }
 
@@ -44,7 +45,7 @@ public class PayoutOutboxStore {
     public List<OutboxDelivery> claimBatch(int requestedBatchSize, Duration leaseDuration) {
         int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
         String leaseToken = UUID.randomUUID().toString();
-        LocalDateTime claimedUntil = LocalDateTime.now(ZoneOffset.UTC).plus(leaseDuration);
+        Instant claimedUntil = Instant.now().plus(leaseDuration);
         List<OutboxDelivery> selected = new ArrayList<>(selectEligible(
                 "status='PENDING' AND available_at <= UTC_TIMESTAMP(6)",
                 "available_at", batchSize, leaseToken));
@@ -57,7 +58,7 @@ public class PayoutOutboxStore {
         if (selected.isEmpty()) return List.of();
 
         List<Object[]> updates = selected.stream()
-                .map(delivery -> new Object[]{leaseToken, Timestamp.valueOf(claimedUntil),
+                .map(delivery -> new Object[]{leaseToken, Timestamp.from(claimedUntil),
                         delivery.deliveryId()})
                 .toList();
         jdbcTemplate.batchUpdate("""
@@ -107,7 +108,7 @@ public class PayoutOutboxStore {
                     claimed_until=NULL, last_error_code=?, last_error=?
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
                 """, terminal ? "FAILED" : "PENDING", attempts,
-                Timestamp.valueOf(retryAt), errorCode, sanitizedError,
+                Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)), errorCode, sanitizedError,
                 delivery.deliveryId(), delivery.leaseToken());
         return new FailureResult(updated == 1, terminal, attempts);
     }
@@ -137,7 +138,7 @@ public class PayoutOutboxStore {
                       WHERE audit.delivery_id=event_outbox.delivery_id)
                 ORDER BY published_at, delivery_id
                 LIMIT %d
-                """.formatted(batchSize), Timestamp.valueOf(cutoff));
+                """.formatted(batchSize), Timestamp.from(cutoff.toInstant(ZoneOffset.UTC)));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -25,7 +26,7 @@ public class PaymentOutboxStore {
     public void enqueue(String eventId, String tenantId, String aggregateType,
                         String aggregateId, String eventType, String payload,
                         List<String> destinations) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
         for (String destination : destinations) {
             jdbcTemplate.update("""
                     INSERT INTO event_outbox (
@@ -36,7 +37,7 @@ public class PaymentOutboxStore {
                     """,
                     UUID.randomUUID().toString(), eventId, tenantId, aggregateType,
                     aggregateId, eventType, destination, payload,
-                    Timestamp.valueOf(now), Timestamp.valueOf(now));
+                    Timestamp.from(now), Timestamp.from(now));
         }
     }
 
@@ -45,7 +46,7 @@ public class PaymentOutboxStore {
     public List<OutboxDelivery> claimBatch(int requestedBatchSize, Duration leaseDuration) {
         int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
         String leaseToken = UUID.randomUUID().toString();
-        LocalDateTime claimedUntil = LocalDateTime.now(ZoneOffset.UTC).plus(leaseDuration);
+        Instant claimedUntil = Instant.now().plus(leaseDuration);
         List<OutboxDelivery> selected = new ArrayList<>(jdbcTemplate.query("""
                 SELECT delivery_id, event_id, event_type, destination,
                        CAST(payload AS CHAR) payload, attempts
@@ -80,7 +81,7 @@ public class PaymentOutboxStore {
         if (selected.isEmpty()) return List.of();
         List<Object[]> updates = new ArrayList<>(selected.size());
         for (OutboxDelivery delivery : selected) {
-            updates.add(new Object[]{leaseToken, Timestamp.valueOf(claimedUntil), delivery.deliveryId()});
+            updates.add(new Object[]{leaseToken, Timestamp.from(claimedUntil), delivery.deliveryId()});
         }
         jdbcTemplate.batchUpdate("""
                 UPDATE event_outbox
@@ -114,7 +115,7 @@ public class PaymentOutboxStore {
                     last_error_code=?, last_error=?
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
                 """, terminal ? "FAILED" : "PENDING", attempts,
-                Timestamp.valueOf(retryAt), errorCode, sanitizedError,
+                Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)), errorCode, sanitizedError,
                 delivery.deliveryId(), delivery.leaseToken());
         return new FailureResult(updated == 1, terminal, attempts);
     }
@@ -167,7 +168,7 @@ public class PaymentOutboxStore {
                       WHERE audit.delivery_id=event_outbox.delivery_id)
                 ORDER BY published_at, delivery_id
                 LIMIT %d
-                """.formatted(batchSize), Timestamp.valueOf(cutoff));
+                """.formatted(batchSize), Timestamp.from(cutoff.toInstant(ZoneOffset.UTC)));
     }
 
     public record FailureResult(boolean updated, boolean terminal, int attempts) {}

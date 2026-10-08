@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -24,7 +25,7 @@ public class DurableEventOutbox {
      * transaction the single insert is committed by the connection's autocommit.
      */
     public void enqueue(String eventId, String eventType, String payload, String destination) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
         jdbcTemplate.update("""
                 INSERT INTO domain_event_outbox (
                     delivery_id, event_id, event_type, destination, payload,
@@ -32,14 +33,14 @@ public class DurableEventOutbox {
                 VALUES (?, ?, ?, ?, CAST(? AS JSON), 'PENDING', 0, ?, ?)
                 """,
                 UUID.randomUUID().toString(), eventId, eventType, destination,
-                payload, Timestamp.valueOf(now), Timestamp.valueOf(now));
+                payload, Timestamp.from(now), Timestamp.from(now));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
     public List<EventOutboxDelivery> claimBatch(int requestedBatchSize, Duration leaseDuration) {
         int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
         String leaseToken = UUID.randomUUID().toString();
-        LocalDateTime claimedUntil = LocalDateTime.now(ZoneOffset.UTC).plus(leaseDuration);
+        Instant claimedUntil = Instant.now().plus(leaseDuration);
         List<EventOutboxDelivery> selected = new ArrayList<>(jdbcTemplate.query("""
                 SELECT delivery_id, event_id, event_type, destination,
                        CAST(payload AS CHAR) payload, attempts
@@ -74,7 +75,7 @@ public class DurableEventOutbox {
         if (selected.isEmpty()) return List.of();
         List<Object[]> updates = new ArrayList<>(selected.size());
         for (EventOutboxDelivery delivery : selected) {
-            updates.add(new Object[]{leaseToken, Timestamp.valueOf(claimedUntil), delivery.deliveryId()});
+            updates.add(new Object[]{leaseToken, Timestamp.from(claimedUntil), delivery.deliveryId()});
         }
         jdbcTemplate.batchUpdate("""
                 UPDATE domain_event_outbox
@@ -109,7 +110,7 @@ public class DurableEventOutbox {
                     last_error_code=?, last_error=?
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
                 """, terminal ? "FAILED" : "PENDING", attempts,
-                Timestamp.valueOf(retryAt), errorCode, sanitizedError,
+                Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)), errorCode, sanitizedError,
                 delivery.deliveryId(), delivery.leaseToken());
         return new FailureResult(updated == 1, terminal, attempts);
     }

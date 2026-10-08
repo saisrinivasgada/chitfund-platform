@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -21,7 +22,7 @@ public class MemberActivationCommandOutbox {
     private final JdbcTemplate jdbcTemplate;
 
     public void enqueue(UUID requestId, UUID tenantId, UUID memberId, UUID userId) {
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
         jdbcTemplate.update("""
                 INSERT INTO member_activation_command_outbox (
                     delivery_id, request_id, tenant_id, member_id, user_id,
@@ -29,14 +30,14 @@ public class MemberActivationCommandOutbox {
                 VALUES (?, ?, ?, ?, ?, 'PENDING', 0, ?, ?)
                 ON DUPLICATE KEY UPDATE request_id=request_id
                 """, UUID.randomUUID().toString(), requestId.toString(), tenantId.toString(),
-                memberId.toString(), userId.toString(), Timestamp.valueOf(now), Timestamp.valueOf(now));
+                memberId.toString(), userId.toString(), Timestamp.from(now), Timestamp.from(now));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
     public List<MemberActivationCommand> claimBatch(int requestedBatchSize, Duration leaseDuration) {
         int batchSize = Math.max(1, Math.min(requestedBatchSize, 500));
         String leaseToken = UUID.randomUUID().toString();
-        LocalDateTime claimedUntil = LocalDateTime.now(ZoneOffset.UTC).plus(leaseDuration);
+        Instant claimedUntil = Instant.now().plus(leaseDuration);
         List<MemberActivationCommand> selected = new ArrayList<>(jdbcTemplate.query("""
                 SELECT delivery_id, request_id, tenant_id, member_id, user_id, attempts
                 FROM member_activation_command_outbox
@@ -64,7 +65,7 @@ public class MemberActivationCommandOutbox {
 
         if (selected.isEmpty()) return List.of();
         List<Object[]> updates = selected.stream()
-                .map(command -> new Object[]{leaseToken, Timestamp.valueOf(claimedUntil), command.deliveryId()})
+                .map(command -> new Object[]{leaseToken, Timestamp.from(claimedUntil), command.deliveryId()})
                 .toList();
         jdbcTemplate.batchUpdate("""
                 UPDATE member_activation_command_outbox
@@ -94,7 +95,8 @@ public class MemberActivationCommandOutbox {
                 SET status=?, attempts=?, available_at=?, lease_token=NULL, claimed_until=NULL,
                     last_error_code=?, last_error=?
                 WHERE delivery_id=? AND lease_token=? AND status='IN_FLIGHT'
-                """, terminal ? "FAILED" : "PENDING", attempts, Timestamp.valueOf(retryAt),
+                """, terminal ? "FAILED" : "PENDING", attempts,
+                Timestamp.from(retryAt.toInstant(ZoneOffset.UTC)),
                 errorCode, error, command.deliveryId(), command.leaseToken());
         return new FailureResult(updated == 1, terminal, attempts);
     }
