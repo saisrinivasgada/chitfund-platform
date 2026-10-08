@@ -6,7 +6,7 @@
 
 The tested backend, financial, identity, entitlement, audit, event-delivery, web-build, and mobile-bundle paths are green. The audit found and repaired multiple release-blocking defects, including duplicate settlement money movement, non-atomic payout effects, cross-tenant access paths, fail-open entitlement checks, and durable-event timestamps that could delay every outbox message by the host timezone offset.
 
-The product should not yet be described as completely production-certified because physical-device/manual UI workflows, real provider delivery, and a gateway-driven browser/mobile E2E suite were not completed in this environment. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths, but the exception needs an owner and an Expo upgrade plan.
+The product should not yet be described as completely production-certified because physical-device/manual UI workflows, real provider delivery, and a gateway-driven browser/mobile E2E suite were not completed in this environment. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
 
 There are **no unresolved Critical or High application defects in the workflows changed and exercised by the automated suites**. The remaining scanner and validation gaps are listed explicitly below.
 
@@ -21,7 +21,7 @@ There are **no unresolved Critical or High application defects in the workflows 
 - Previously applied Flyway files were not edited; schema work used additive migrations.
 - Management migration V9 remains absent and did not execute. It was intentionally not reintroduced.
 
-At the final fetch, `origin/test` contained two newer bookkeeping commits that rename Claude's new payment table migration to V46 and add checksums. The audit branch already has an existing V46, so the same new table is safely represented as V51 here. MySQL 8 applied and validated all 51 payment migrations. Blindly merging the V46 rename would create a duplicate migration version.
+The latest `origin/test` bookkeeping commits rename Claude's new payment table migration to V46 and add checksums. They are merged into the audit branch's ancestry, but the conflict was deliberately resolved as V51 because this branch already has an existing V46. MySQL 8 applied and validated all 51 payment migrations, and the migration safety manifest contains exactly one entry for the new table.
 
 ## Product inventory
 
@@ -180,13 +180,14 @@ Security review also covered enumeration, refresh/session revocation, internal s
 | Expo Doctor | 18/18 checks passed |
 | Ordinary ChitWise bundle | iOS and Android production bundles passed |
 | ChitWise Hub bundle | iOS and Android production bundles passed |
+| Mobile dependency policy | 4/4 fail-closed policy tests passed; only two pinned Expo build-tool exceptions accepted |
 | Migration safety/checksum script | passed, including payment V51 |
 
 One clean-stack run had a single first-request timeout while six Spring services were cold-starting inside a 4 GB Docker VM. The same focused wallet test passed in 1.5 seconds after warm-up, followed by a complete warm run of 112/112. This is recorded as test-host resource contention, not hidden as an application pass.
 
 ## Remaining limitations and required release work
 
-1. **Mobile dependency exception.** `npm audit` currently reports high advisories through Expo 54's Node-side Metro globbing and code-signing tooling (`braces` and `node-forge`). Current patched dependency paths require a major Expo/React Native change. Do not use `npm audit fix --force`. Track an Expo upgrade, constrain build inputs to trusted repository/certificate data, and review the exception on every SDK update.
+1. **Mobile dependency exception.** `npm audit` currently reports high advisories through Expo 54's Node-side Metro globbing and code-signing tooling (`braces` and `node-forge`). Current patched dependency paths require a major Expo/React Native change. Do not use `npm audit fix --force`. CI accepts only the exact reviewed advisory URLs and installed versions, fails on unknown High/Critical findings, and expires the exception on 2027-01-31. Complete an Expo upgrade before that deadline.
 2. **Physical devices not completed.** Run the full admin/manager/staff/member and Hub journeys on current iOS and Android devices, including background/resume, token expiry, offline record/reconnect, tenant switching, push deep links, and small-screen text wrapping.
 3. **Not gateway/client full-stack E2E.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They are service-integration tests, not inflated as full-stack E2E.
 4. **External providers mocked.** Real SMS, WhatsApp, email, push, bank/payment, and production SQS delivery were not invoked. Provider sandbox acceptance tests remain required.
@@ -195,17 +196,15 @@ One clean-stack run had a single first-request timeout while six Spring services
 7. **Cold-start test capacity.** Six concurrent Spring containers approach the local 4 GB Docker limit. CI should have more memory or stage health warm-up before the first latency-sensitive request.
 8. **Production data was not inspected or changed.** The read-only duplicate-settlement production query was not executed in this environment. Run only with the approved read-only procedure if production evidence is still required.
 9. **Paise conversion is intentionally incomplete.** Admin wallet uses the expand/dual-write pattern. The remaining financial columns require the separately approved multi-release expand/backfill/reconcile/flip/contract plan.
-10. **Latest shared-branch bookkeeping.** `origin/test` has two post-audit migration-number commits. Their functional table is already V51 here; reconcile branch numbering deliberately rather than merging V46 blindly.
 
 ## Release recommendation
 
 The backend financial and authorization repairs are strong enough for a controlled test release. Before calling the entire web/mobile product production-ready:
 
-1. Resolve or formally time-box the Expo build-tool dependency exception.
+1. Upgrade Expo before the pinned build-tool exception expires on 2027-01-31.
 2. Run physical iOS/Android manual journeys and capture evidence.
 3. Add browser/mobile value assertions through the gateway for the highest-risk financial and capability flows.
 4. Execute provider sandbox tests and confirm alert routing/runbook ownership.
-5. Re-run this exact regression set after reconciling the two latest `origin/test` migration-bookkeeping commits.
+5. Re-run this exact regression set after any future shared-branch application change.
 
 No push, deployment, or production mutation was performed by this audit.
-

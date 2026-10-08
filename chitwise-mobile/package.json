@@ -10,6 +10,8 @@
     "ios": "expo run:ios",
     "ios:hub": "EXPO_PUBLIC_APP_VARIANT=hub expo run:ios",
     "web": "expo start --web",
+    "audit:ci": "node scripts/audit-dependencies.mjs",
+    "audit:test": "node --test scripts/audit-dependencies.test.mjs",
     "type-check": "tsc --noEmit",
     "doctor": "expo-doctor"
   },

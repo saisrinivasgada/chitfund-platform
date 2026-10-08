@@ -5,10 +5,12 @@ on:
     branches: [main, test]
     paths:
       - 'chitwise-mobile/**'
+      - '.github/workflows/mobile-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'chitwise-mobile/**'
+      - '.github/workflows/mobile-ci.yml'
 
 defaults:
   run:
@@ -34,8 +36,10 @@ jobs:
         run: npm run type-check
 
       - name: Dependency security audit
-        # Fail on high or critical severity advisories; warn on moderate.
-        run: npm audit --audit-level=high
+        # Fails on every Critical or unknown High advisory. The script contains
+        # narrow, version-pinned, expiring exceptions for two Expo SDK 54
+        # build-tool advisories that have no compatible vendor fix.
+        run: npm run audit:test && npm run audit:ci
         continue-on-error: false
 
       - name: Expo Doctor
