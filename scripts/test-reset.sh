@@ -55,6 +55,7 @@ SCHEMAS=(
   chitfund_notification
   chitfund_reporting
   chitfund_audit
+  chitwise_management
 )
 
 echo "Resetting ${#SCHEMAS[@]} schemas in $TEST_CONTAINER ..."
