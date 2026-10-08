@@ -35,7 +35,7 @@ public class PaymentIntimation {
     private IntimationStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 20)
+    @Column(length = 20, columnDefinition = "varchar(20)")
     private PaymentMode paymentMode;
 
     @Column(length = 100)

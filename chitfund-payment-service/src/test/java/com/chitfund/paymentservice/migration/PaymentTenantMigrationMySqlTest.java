@@ -1,6 +1,7 @@
 package com.chitfund.paymentservice.migration;
 
 import com.chitfund.paymentservice.domain.InternalFinancialOperation;
+import com.chitfund.paymentservice.domain.PaymentIntimation;
 import jakarta.persistence.Column;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -172,6 +173,31 @@ class PaymentTenantMigrationMySqlTest {
         Column mapping = InternalFinancialOperation.class.getDeclaredField("requestHash")
                 .getAnnotation(Column.class);
         assertThat(mapping.columnDefinition()).isEqualToIgnoringCase("char(64)");
+    }
+
+    @Test
+    void paymentIntimationModeMappingMatchesFreshMySqlSchema() throws Exception {
+        Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+
+        try (var connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+             var statement = connection.prepareStatement(
+                     "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH " +
+                             "FROM information_schema.COLUMNS " +
+                             "WHERE TABLE_SCHEMA=DATABASE() " +
+                             "AND TABLE_NAME='payment_intimations' " +
+                             "AND COLUMN_NAME='payment_mode'")) {
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString("DATA_TYPE")).isEqualTo("varchar");
+                assertThat(result.getInt("CHARACTER_MAXIMUM_LENGTH")).isEqualTo(20);
+            }
+        }
+
+        Column mapping = PaymentIntimation.class.getDeclaredField("paymentMode")
+                .getAnnotation(Column.class);
+        assertThat(mapping.columnDefinition()).isEqualToIgnoringCase("varchar(20)");
     }
 
     @Test
