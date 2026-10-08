@@ -44,6 +44,6 @@ public class PayoutDisbursement {
     @Column(name = "idempotency_key", length = 64)
     private String idempotencyKey;
 
-    @Column(name = "idempotency_request_hash", length = 64)
+    @Column(name = "idempotency_request_hash", length = 64, columnDefinition = "char(64)")
     private String idempotencyRequestHash;
 }

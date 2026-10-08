@@ -1,6 +1,8 @@
 package com.chitfund.payoutservice.migration;
 
+import com.chitfund.payoutservice.domain.PayoutDisbursement;
 import com.chitfund.payoutservice.service.PayoutCreationIdempotencyStore;
+import jakarta.persistence.Column;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -70,6 +72,35 @@ class PayoutIdempotencyMigrationMySqlTest {
                 }
             }
         }
+    }
+
+    @Test
+    void disbursementRequestHashMappingMatchesFreshMySqlSchema() throws Exception {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+             var statement = connection.prepareStatement(
+                     "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH " +
+                             "FROM information_schema.COLUMNS " +
+                             "WHERE TABLE_SCHEMA=DATABASE() " +
+                             "AND TABLE_NAME='payout_disbursements' " +
+                             "AND COLUMN_NAME='idempotency_request_hash'")) {
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString("DATA_TYPE")).isEqualTo("char");
+                assertThat(result.getInt("CHARACTER_MAXIMUM_LENGTH")).isEqualTo(64);
+            }
+        }
+
+        Column mapping = PayoutDisbursement.class
+                .getDeclaredField("idempotencyRequestHash")
+                .getAnnotation(Column.class);
+        assertThat(mapping.columnDefinition()).isEqualToIgnoringCase("char(64)");
     }
 
     @Test
