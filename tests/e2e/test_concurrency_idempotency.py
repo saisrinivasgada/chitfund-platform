@@ -26,7 +26,7 @@ pytestmark = pytest.mark.concurrency
 
 
 @pytest.fixture
-def chit_month(api, token, db):
+def chit_month(api, token, db, active_chit, member_factory):
     """
     Opens a real draw with two members, each owing 1,000.
 
@@ -34,8 +34,8 @@ def chit_month(api, token, db):
     are created the way production creates them.
     """
     admin = token("ADMIN")
-    chit_id = str(uuid.uuid4())
-    m1, m2 = str(uuid.uuid4()), str(uuid.uuid4())
+    m1, m2 = member_factory(admin), member_factory(admin)
+    chit_id = active_chit(admin, [m1, m2])
 
     r = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id, "monthNumber": 1, "dueDate": "2026-03-01",

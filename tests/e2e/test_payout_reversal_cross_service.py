@@ -31,11 +31,11 @@ pytestmark = pytest.mark.void
 
 
 @pytest.fixture
-def winner(api, token):
+def winner(api, token, active_chit, member_factory):
     """A member with one open, unpaid installment of 1,000."""
     admin = token("ADMIN")
-    chit_id = str(uuid.uuid4())
-    member_id = str(uuid.uuid4())
+    member_id = member_factory(admin)
+    chit_id = active_chit(admin, [member_id])
 
     r = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id, "monthNumber": 1, "dueDate": "2026-03-01",
@@ -43,6 +43,12 @@ def winner(api, token):
         "members": [{"memberId": member_id, "amountDue": 1000}],
     })
     assert r.status_code == 201, f"draw setup failed: {r.text[:200]}"
+
+    assigned = api.as_role(
+        "POST", f"{api.chit}/api/chits/{chit_id}/winners", admin,
+        json={"monthNumber": 1, "winnerId": member_id,
+              "winningAmount": 50000, "discountAmount": 1000})
+    assert assigned.status_code == 201, assigned.text[:300]
     return {"chit_id": chit_id, "member_id": member_id, "admin": admin}
 
 
@@ -60,13 +66,30 @@ def _payout_row(db, payout_id):
                   (payout_id,))
 
 
+def _wait_financial_sync(db, payout_id, timeout=20):
+    deadline = time.monotonic() + timeout
+    rows = []
+    while time.monotonic() < deadline:
+        rows = list(db.query(
+            "chitfund_payout",
+            """SELECT command_type, status, sequence_no FROM payout_financial_commands
+               WHERE payout_id=%s ORDER BY sequence_no""",
+            (payout_id,)))
+        if rows and all(row["status"] == "COMPLETED" for row in rows):
+            return rows
+        time.sleep(0.25)
+    pytest.fail(f"payout financial commands did not complete: {rows!r}")
+
+
 def _create_payout(api, winner, *, winning="50000", discount="1000",
                    installment_settlement="1000"):
     """
     Creates a payout whose discount withholds the member's current installment —
     the case that makes payment-service mark the record PAYOUT_DEDUCTED.
     """
-    return api.as_role("POST", f"{api.payout}/payouts", winner["admin"], json={
+    return api.as_role(
+        "POST", f"{api.payout}/payouts", winner["admin"],
+        headers={"X-Idempotency-Key": str(uuid.uuid4())}, json={
         "chitId": winner["chit_id"],
         "memberId": winner["member_id"],
         "monthNumber": 1,
@@ -77,7 +100,7 @@ def _create_payout(api, winner, *, winning="50000", discount="1000",
         "manualAdjustment": "0",
         "collectCurrentMonthInstallment": True,
         "notes": "cross-service reversal test",
-    })
+        })
 
 
 class TestPayoutCreation:
@@ -105,7 +128,7 @@ class TestPayoutCreation:
             "a second payout was created for the same chit month — the winner "
             "would be paid twice")
 
-    def test_create_commits_one_logical_event_for_both_destinations(self, api, db, winner):
+    def test_create_commits_business_and_audit_events_atomically(self, api, db, winner):
         created = _create_payout(api, winner)
         assert created.status_code in (200, 201), created.text[:300]
         payout_id = created.json()["data"]["id"]
@@ -115,12 +138,17 @@ class TestPayoutCreation:
             """SELECT delivery_id, event_id, event_type, destination, status
                FROM event_outbox WHERE aggregate_id=%s ORDER BY destination""",
             (payout_id,))
-        assert len(rows) == 2
-        assert len({row["delivery_id"] for row in rows}) == 2
-        assert len({row["event_id"] for row in rows}) == 1
-        assert {row["event_type"] for row in rows} == {"PAYOUT_CREATED"}
+        assert len(rows) == 3
+        assert len({row["delivery_id"] for row in rows}) == 3
+        business_rows = [row for row in rows
+                         if row["event_type"] == "PAYOUT_CREATED"]
+        audit_rows = [row for row in rows if row["event_type"] == "AUDIT_LOG"]
+        assert len(business_rows) == 2
+        assert len({row["event_id"] for row in business_rows}) == 1
+        assert len(audit_rows) == 1
         assert {row["destination"] for row in rows} == {
-            "chitfund-notification-events", "chitfund-reporting-events"}
+            "chitfund-audit-events", "chitfund-notification-events",
+            "chitfund-reporting-events"}
 
         # The disposable stack intentionally has no SQS endpoint. Durable rows
         # must survive the outage and eventually become operator-visible FAILED
@@ -151,6 +179,10 @@ class TestVoidRevertsAcrossServices:
         assert created.status_code in (200, 201), created.text[:300]
         payout_id = created.json()["data"]["id"]
 
+        created_commands = _wait_financial_sync(db, payout_id)
+        assert [row["command_type"] for row in created_commands] == [
+            "MARK_INSTALLMENT_DEDUCTION"]
+
         after_create = _record(db, winner["chit_id"], winner["member_id"])
 
         voided = api.as_role(
@@ -161,7 +193,11 @@ class TestVoidRevertsAcrossServices:
         # payout-service side
         assert _payout_row(db, payout_id)["status"] == "VOIDED"
 
-        # payment-service side — the half that a post-commit HTTP failure loses.
+        void_commands = _wait_financial_sync(db, payout_id)
+        assert [row["command_type"] for row in void_commands] == [
+            "MARK_INSTALLMENT_DEDUCTION", "REVERT_DEDUCTIONS"]
+
+        # payment-service side — the durable command must eventually restore it.
         after_void = _record(db, winner["chit_id"], winner["member_id"])
         assert after_void["status"] != "PAYOUT_DEDUCTED", (
             f"installment is still PAYOUT_DEDUCTED after the payout was voided "
@@ -171,8 +207,10 @@ class TestVoidRevertsAcrossServices:
     def test_no_record_still_points_at_a_voided_payout(self, api, db, winner):
         created = _create_payout(api, winner)
         payout_id = created.json()["data"]["id"]
+        _wait_financial_sync(db, payout_id)
         api.as_role("POST", f"{api.payout}/payouts/{payout_id}/void", winner["admin"],
                     json={"reason": "reversal test"})
+        _wait_financial_sync(db, payout_id)
 
         orphan = db.query(
             "chitfund_payment",

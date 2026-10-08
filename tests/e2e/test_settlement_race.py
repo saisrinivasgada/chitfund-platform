@@ -30,11 +30,11 @@ pytestmark = pytest.mark.concurrency
 
 
 @pytest.fixture
-def settleable_member(api, token, db):
+def settleable_member(api, token, db, active_chit, member_factory):
     """A member with one unpaid installment, eligible to be settled."""
     admin = token("ADMIN")
-    chit_id = str(uuid.uuid4())
-    member_id = str(uuid.uuid4())
+    member_id = member_factory(admin)
+    chit_id = active_chit(admin, [member_id])
 
     r = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id, "monthNumber": 1, "dueDate": "2026-03-01",

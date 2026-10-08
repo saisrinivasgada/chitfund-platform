@@ -28,10 +28,11 @@ def _wait_until(description, query, predicate, timeout=30):
     pytest.fail(f"timed out waiting for {description}; last value={value!r}")
 
 
-def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
+def test_dual_publish_is_delivered_once_per_consumer(
+        api, db, token, active_chit, member_factory):
     admin = token("ADMIN")
-    chit_id = str(uuid.uuid4())
-    member_id = str(uuid.uuid4())
+    member_id = member_factory(admin)
+    chit_id = active_chit(admin, [member_id])
 
     opened = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id,
@@ -42,6 +43,12 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
         "members": [{"memberId": member_id, "amountDue": "1000.00"}],
     })
     assert opened.status_code == 201, opened.text[:300]
+
+    assigned = api.as_role(
+        "POST", f"{api.chit}/api/chits/{chit_id}/winners", admin,
+        json={"monthNumber": 1, "winnerId": member_id,
+              "winningAmount": "50000.00", "discountAmount": "1000.00"})
+    assert assigned.status_code == 201, assigned.text[:300]
 
     # DRAW_OPENED is one of the direct HTTP audit paths (not SQS). This pins
     # the Docker service URL wiring so a container cannot silently call its own
@@ -57,7 +64,9 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
         lambda count: count == 1)
     assert direct_audit_count == 1
 
-    created = api.as_role("POST", f"{api.payout}/payouts", admin, json={
+    created = api.as_role(
+        "POST", f"{api.payout}/payouts", admin,
+        headers={"X-Idempotency-Key": str(uuid.uuid4())}, json={
         "chitId": chit_id,
         "memberId": member_id,
         "monthNumber": 1,
@@ -68,7 +77,7 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
         "manualAdjustment": "0.00",
         "collectCurrentMonthInstallment": True,
         "notes": "disposable SQS delivery test",
-    })
+        })
     assert created.status_code in (200, 201), created.text[:300]
     payout_id = created.json()["data"]["id"]
 
@@ -131,10 +140,11 @@ def test_dual_publish_is_delivered_once_per_consumer(api, db, token):
     assert reporting_count == 1
 
 
-def test_payment_event_is_audited_once_when_dual_published(api, db, token):
+def test_payment_event_is_audited_once_when_dual_published(
+        api, db, token, active_chit, member_factory):
     admin = token("ADMIN")
-    chit_id = str(uuid.uuid4())
-    member_id = str(uuid.uuid4())
+    member_id = member_factory(admin)
+    chit_id = active_chit(admin, [member_id])
 
     opened = api.as_role("POST", f"{api.payment}/admin/draws/open", admin, json={
         "chitId": chit_id,
