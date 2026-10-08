@@ -50,9 +50,8 @@ def test_dual_publish_is_delivered_once_per_consumer(
               "winningAmount": "50000.00", "discountAmount": "1000.00"})
     assert assigned.status_code == 201, assigned.text[:300]
 
-    # DRAW_OPENED is one of the direct HTTP audit paths (not SQS). This pins
-    # the Docker service URL wiring so a container cannot silently call its own
-    # localhost and drop the record.
+    # DRAW_OPENED uses the durable audit outbox. Pin the complete path from the
+    # payment transaction through SQS, the audit inbox and immutable audit log.
     direct_audit_count = _wait_until(
         "direct draw-open audit record",
         lambda: db.scalar(
@@ -94,20 +93,28 @@ def test_dual_publish_is_delivered_once_per_consumer(
 
     outbox = db.query(
         "chitfund_payout",
-        """SELECT delivery_id, event_id, destination, status
+        """SELECT delivery_id, event_id, event_type, destination, status
            FROM event_outbox WHERE aggregate_id=%s ORDER BY destination""",
         (payout_id,))
-    assert len(outbox) == 2
-    assert len({row["event_id"] for row in outbox}) == 1
-    event_id = outbox[0]["event_id"]
+    assert len(outbox) == 3
+    domain_deliveries = [row for row in outbox if row["event_type"] == "PAYOUT_CREATED"]
+    audit_deliveries = [row for row in outbox if row["event_type"] == "AUDIT_LOG"]
+    assert len(domain_deliveries) == 2
+    assert len(audit_deliveries) == 1
+    assert {row["destination"] for row in domain_deliveries} == {
+        "chitfund-notification-events", "chitfund-reporting-events"}
+    assert audit_deliveries[0]["destination"] == "chitfund-audit-events"
+    assert len({row["event_id"] for row in domain_deliveries}) == 1
+    assert audit_deliveries[0]["event_id"] != domain_deliveries[0]["event_id"]
+    event_id = domain_deliveries[0]["event_id"]
 
     _wait_until(
-        "both outbox deliveries to publish",
+        "all payout and audit outbox deliveries to publish",
         lambda: db.scalar(
             "chitfund_payout",
             "SELECT COUNT(*) FROM event_outbox WHERE aggregate_id=%s AND status='PUBLISHED'",
             (payout_id,)),
-        lambda count: count == 2)
+        lambda count: count == 3)
 
     # DUAL mode sends the same event once through the legacy path and once via
     # the outbox. Each consumer therefore receives two queue messages, but the
