@@ -1,6 +1,7 @@
 package com.chitfund.payoutservice.migration;
 
 import com.chitfund.payoutservice.domain.PayoutDisbursement;
+import com.chitfund.payoutservice.domain.PayoutFinancialCommand;
 import com.chitfund.payoutservice.service.PayoutCreationIdempotencyStore;
 import jakarta.persistence.Column;
 import org.flywaydb.core.Flyway;
@@ -101,6 +102,27 @@ class PayoutIdempotencyMigrationMySqlTest {
                 .getDeclaredField("idempotencyRequestHash")
                 .getAnnotation(Column.class);
         assertThat(mapping.columnDefinition()).isEqualToIgnoringCase("char(64)");
+    }
+
+    @Test
+    void financialCommandEnumMappingsMatchFreshMySqlSchema() throws Exception {
+        Flyway.configure()
+                .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        assertVarcharColumn("payout_financial_commands", "command_type", 40);
+        assertVarcharColumn("payout_financial_commands", "disbursement_mode", 20);
+
+        Column commandType = PayoutFinancialCommand.class
+                .getDeclaredField("commandType")
+                .getAnnotation(Column.class);
+        Column disbursementMode = PayoutFinancialCommand.class
+                .getDeclaredField("disbursementMode")
+                .getAnnotation(Column.class);
+        assertThat(commandType.columnDefinition()).isEqualToIgnoringCase("varchar(40)");
+        assertThat(disbursementMode.columnDefinition()).isEqualToIgnoringCase("varchar(20)");
     }
 
     @Test
@@ -268,6 +290,24 @@ class PayoutIdempotencyMigrationMySqlTest {
             statement.setInt(4, month);
             statement.setString(5, UUID.randomUUID().toString());
             statement.executeUpdate();
+        }
+    }
+
+    private static void assertVarcharColumn(String table, String column, int length)
+            throws SQLException {
+        try (Connection connection = DriverManager.getConnection(
+                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+             var statement = connection.prepareStatement(
+                     "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH " +
+                             "FROM information_schema.COLUMNS " +
+                             "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?")) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString("DATA_TYPE")).isEqualTo("varchar");
+                assertThat(result.getInt("CHARACTER_MAXIMUM_LENGTH")).isEqualTo(length);
+            }
         }
     }
 

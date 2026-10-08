@@ -40,7 +40,8 @@ public class PayoutFinancialCommand {
     private String dedupeKey;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "command_type", nullable = false, length = 40, updatable = false)
+    @Column(name = "command_type", nullable = false, length = 40,
+            columnDefinition = "varchar(40)", updatable = false)
     private PayoutFinancialCommandType commandType;
 
     @Column(name = "chit_id", updatable = false)
@@ -56,7 +57,8 @@ public class PayoutFinancialCommand {
     private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "disbursement_mode", length = 20, updatable = false)
+    @Column(name = "disbursement_mode", length = 20,
+            columnDefinition = "varchar(20)", updatable = false)
     private DisbursementMode disbursementMode;
 
     @Column(nullable = false, length = 12)
