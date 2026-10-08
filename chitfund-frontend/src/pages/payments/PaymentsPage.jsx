@@ -2162,6 +2162,18 @@ export function IntimationsTab() {
     refetchInterval: 30_000,
   });
 
+  const { data: allMembers = [] } = useQuery({ queryKey: ['members'], queryFn: getMembers, staleTime: 60_000 });
+  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: listStaff, staleTime: 60_000 });
+  const { data: allChitsList = [] } = useQuery({ queryKey: ['chits'], queryFn: getChits, staleTime: 60_000 });
+  const memberMap = Object.fromEntries([
+    ...(staff ?? []).map((s) => [s.id, `${s.fullName ?? s.username ?? 'Staff'} (Admin)`]),
+    ...(allMembers ?? []).flatMap((m) => {
+      const name = m.fullName ?? m.name ?? 'Member';
+      return m.userId ? [[m.id, name], [m.userId, name]] : [[m.id, name]];
+    }),
+  ]);
+  const chitMap = Object.fromEntries((allChitsList?.content ?? allChitsList ?? []).map((c) => [c.id, c.name]));
+
   const filtered = all.filter(i => statusFilter === 'ALL' || i.status === statusFilter);
   const pendingCount = all.filter(i => i.status === 'PENDING').length;
 
@@ -2226,7 +2238,7 @@ export function IntimationsTab() {
             {(approveTarget.items ?? []).map((it, idx) => (
               <div key={it.id} className="bg-gray-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">
-                  Chit {idx + 1} · Member claimed {fmtAmt(it.claimedAmount)}
+                  {chitMap[it.chitId] ?? `Chit ${idx + 1}`} · Member claimed {fmtAmt(it.claimedAmount)}
                 </div>
                 <FormField label="Approved Amount (₹)">
                   <Input
@@ -2326,20 +2338,25 @@ export function IntimationsTab() {
             const total = (item.items ?? []).reduce((sum, it) => sum + Number(it.claimedAmount ?? 0), 0);
             return (
               <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
-                    <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
-                    <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
-                  </div>
+                <div className="flex items-start justify-between mb-1">
+                  <span className="text-sm font-semibold text-gray-900">
+                    {memberMap[item.memberId] ?? <span className="font-mono text-xs text-gray-400">{item.memberId?.slice(0, 8)}…</span>}
+                  </span>
                   <span className="text-base font-bold" style={{ color: '#1E3A5F' }}>{fmtAmt(total)}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.cls}`}>{s.label}</span>
+                  <span className="text-xs text-gray-400">{fmtTs(item.createdAt)}</span>
+                  <span className="text-xs text-gray-400">· {(item.items ?? []).length} chit{item.items?.length !== 1 ? 's' : ''}</span>
                 </div>
 
                 {/* Per-chit breakdown */}
                 <div className="bg-gray-50 rounded-lg divide-y divide-gray-100 mb-3">
                   {(item.items ?? []).map((it, idx) => (
                     <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
-                      <span className="text-gray-500">Chit {idx + 1}</span>
+                      <span className="text-gray-600 font-medium">
+                        {chitMap[it.chitId] ?? `Chit ${idx + 1}`}
+                      </span>
                       <div className="text-right">
                         <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
                         {it.approvedAmount != null && (
