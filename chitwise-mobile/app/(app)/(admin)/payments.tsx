@@ -3965,6 +3965,19 @@ const INTIMATION_STATUS: Record<string, { label: string; bg: string; text: strin
   VOIDED:    { label: 'Voided',    bg: '#FEE2E2', text: '#DC2626' },
 };
 
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item: any): { text: string; color: string } | null {
+  const roleLabel = (r?: string) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  const make = (verb: string, name: string | undefined, role: string | undefined, at: string | undefined, color: string) => ({
+    text: `${verb} by ${name ?? 'Unknown'} (${roleLabel(role)})${at ? ` · ${fmtDate(at)}` : ''}`,
+    color,
+  });
+  if (item.status === 'APPROVED' && item.approvedBy) return make('Approved', item.approvedByName, item.approvedByRole, item.approvedAt, '#15803D');
+  if (item.status === 'REJECTED' && item.rejectedBy) return make('Rejected', item.rejectedByName, item.rejectedByRole, item.rejectedAt, '#DC2626');
+  if (item.status === 'VOIDED' && item.voidedBy) return make('Voided', item.voidedByName, item.voidedByRole, item.voidedAt, '#DC2626');
+  return null;
+}
+
 function IntimationApproveModal({
   intimation,
   onClose,
@@ -4012,7 +4025,7 @@ function IntimationApproveModal({
               {(intimation.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ backgroundColor: C.gray50, borderRadius: 12, padding: 12, marginBottom: 10 }}>
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>
-                    Chit {idx + 1} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
+                    {it.chitName ?? `Chit ${idx + 1}`} · Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
                   </Text>
                   <Text style={{ fontSize: 12, color: C.gray500, marginBottom: 4 }}>Approved Amount (₹)</Text>
                   <TextInput
@@ -4208,7 +4221,7 @@ function IntimationsTab() {
               {/* Per-chit breakdown */}
               {(item.items ?? []).map((it: any, idx: number) => (
                 <View key={it.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderTopWidth: idx === 0 ? 1 : 0, borderTopColor: C.gray100 }}>
-                  <Text style={{ fontSize: 12, color: C.gray500 }}>Chit {idx + 1}</Text>
+                  <Text style={{ fontSize: 12, color: C.gray700, fontWeight: '600', flex: 1, marginRight: 8 }} numberOfLines={1}>{it.chitName ?? `Chit ${idx + 1}`}</Text>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ fontSize: 12, color: C.gray700 }}>
                       Claimed ₹{Number(it.claimedAmount).toLocaleString('en-IN')}
@@ -4221,6 +4234,13 @@ function IntimationsTab() {
                   </View>
                 </View>
               ))}
+
+              {(() => {
+                const a = intimationActor(item);
+                return a ? (
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: a.color, marginTop: 8 }}>{a.text}</Text>
+                ) : null;
+              })()}
 
               {/* Action buttons */}
               {item.status === 'PENDING' && (

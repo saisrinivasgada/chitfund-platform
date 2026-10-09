@@ -1241,6 +1241,18 @@ function PaymentsTab() {
 
 // ─── Requests tab ─────────────────────────────────────────────────────────────
 
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item) {
+  const roleLabel = (r) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  if (item.status === 'APPROVED' && item.approvedBy)
+    return { verb: 'Approved', name: item.approvedByName, role: roleLabel(item.approvedByRole), at: item.approvedAt, cls: 'text-green-700' };
+  if (item.status === 'REJECTED' && item.rejectedBy)
+    return { verb: 'Rejected', name: item.rejectedByName, role: roleLabel(item.rejectedByRole), at: item.rejectedAt, cls: 'text-red-600' };
+  if (item.status === 'VOIDED' && item.voidedBy)
+    return { verb: 'Voided', name: item.voidedByName, role: roleLabel(item.voidedByRole), at: item.voidedAt, cls: 'text-red-600' };
+  return null;
+}
+
 // ─── Intimations Tab (Member) ──────────────────────────────────────────────
 
 const INTIMATION_STATUS_WEB = {
@@ -1339,8 +1351,9 @@ function IntimationMemberTab({ memberId, chits = [] }) {
         : null,
     ])
   );
-  // Show chits where balance is unknown (still loading) OR outstanding > 0
-  const chitsWithDues = chits.filter(c => balanceMap[c.id] === null || balanceMap[c.id] > 0);
+  // Only chits (any status — active, paused or completed) where the member still owes money
+  const chitsWithDues = chits.filter(c => balanceMap[c.id] > 0);
+  const duesLoading = balanceResults.some(r => r.isLoading);
 
   const { data: intimations = [], isLoading } = useQuery({
     queryKey: ['my-intimations'],
@@ -1412,7 +1425,7 @@ function IntimationMemberTab({ memberId, chits = [] }) {
               <div key={idx} className="bg-gray-50 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-medium text-gray-700">
-                    {it.chitId ? (chits.find(c => c.id === it.chitId)?.name ?? `Chit ${idx + 1}`) : `Chit ${idx + 1}`}
+                    {it.chitId ? (chits.find(c => c.id === it.chitId)?.name ?? 'Chit') : `Payment ${idx + 1} — select a chit`}
                   </span>
                   {items.length > 1 && (
                     <button type="button" className="text-xs text-red-500 hover:text-red-700"
@@ -1426,11 +1439,14 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                     value={it.chitId}
                     onChange={e => setItems(prev => prev.map((x, i) => i === idx ? { ...x, chitId: e.target.value } : x))}
                   >
-                    <option value="">Select a chit…</option>
+                    <option value="">
+                      {chitsWithDues.length > 0 ? 'Select a chit…' : duesLoading ? 'Loading dues…' : 'No chits with outstanding dues'}
+                    </option>
                     {chitsWithDues.map(c => {
                       const due = balanceMap[c.id];
                       const suffix = due > 0 ? ` — ₹${due.toLocaleString('en-IN')} due` : '';
-                      return <option key={c.id} value={c.id}>{c.name ?? c.id.substring(0, 8)}{suffix}</option>;
+                      const statusTag = c.status && c.status !== 'ACTIVE' ? ` (${c.status.charAt(0)}${c.status.slice(1).toLowerCase()})` : '';
+                      return <option key={c.id} value={c.id}>{c.name ?? c.id.substring(0, 8)}{statusTag}{suffix}</option>;
                     })}
                   </Select>
                 </FormField>
@@ -1506,7 +1522,7 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                 <div className="bg-gray-50 rounded-lg divide-y divide-gray-100 mb-2">
                   {(item.items ?? []).map((it, idx) => (
                     <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
-                      <span className="text-gray-500">Chit {idx + 1}</span>
+                      <span className="text-gray-700 font-medium">{it.chitName ?? chits.find(c => c.id === it.chitId)?.name ?? `Chit ${idx + 1}`}</span>
                       <div className="text-right">
                         <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
                         {it.approvedAmount != null && (
@@ -1520,6 +1536,14 @@ function IntimationMemberTab({ memberId, chits = [] }) {
                 {item.notes && <p className="text-xs text-gray-500 italic mb-2">"{item.notes}"</p>}
                 {item.rejectReason && <p className="text-xs text-red-600 mb-2">Rejected: {item.rejectReason}</p>}
                 {item.voidReason   && <p className="text-xs text-red-600 mb-2">Voided: {item.voidReason}</p>}
+                {(() => {
+                  const a = intimationActor(item);
+                  return a ? (
+                    <p className={`text-xs font-medium mb-2 ${a.cls}`}>
+                      {a.verb} by {a.name ?? 'Unknown'} ({a.role}){a.at ? ` · ${fmtTs(a.at)}` : ''}
+                    </p>
+                  ) : null;
+                })()}
 
                 {item.status === 'PENDING' && (
                   <Button size="sm" variant="secondary" onClick={() => setWithdrawTarget(item)}>

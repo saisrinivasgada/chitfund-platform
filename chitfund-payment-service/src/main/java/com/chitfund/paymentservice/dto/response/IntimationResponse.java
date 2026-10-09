@@ -20,5 +20,15 @@ public class IntimationResponse {
     private LocalDateTime approvedAt;
     private LocalDateTime rejectedAt;
     private LocalDateTime voidedAt;
+    /** Who acted on the intimation — user id, display name and role (ADMIN / MANAGER). */
+    private String approvedBy;
+    private String approvedByName;
+    private String approvedByRole;
+    private String rejectedBy;
+    private String rejectedByName;
+    private String rejectedByRole;
+    private String voidedBy;
+    private String voidedByName;
+    private String voidedByRole;
     private List<IntimationItemResponse> items;
 }

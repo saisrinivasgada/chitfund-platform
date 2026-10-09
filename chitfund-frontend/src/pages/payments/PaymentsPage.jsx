@@ -2134,6 +2134,18 @@ function IntimationHistorySection({ intimationId }) {
   );
 }
 
+// Who approved / rejected / voided an intimation, for the "Approved by …" line.
+function intimationActor(item) {
+  const roleLabel = (r) => (r === 'MANAGER' ? 'Manager' : 'Admin');
+  if (item.status === 'APPROVED' && item.approvedBy)
+    return { verb: 'Approved', name: item.approvedByName, role: roleLabel(item.approvedByRole), at: item.approvedAt, cls: 'text-green-700' };
+  if (item.status === 'REJECTED' && item.rejectedBy)
+    return { verb: 'Rejected', name: item.rejectedByName, role: roleLabel(item.rejectedByRole), at: item.rejectedAt, cls: 'text-red-600' };
+  if (item.status === 'VOIDED' && item.voidedBy)
+    return { verb: 'Voided', name: item.voidedByName, role: roleLabel(item.voidedByRole), at: item.voidedAt, cls: 'text-red-600' };
+  return null;
+}
+
 // ─── Intimations Tab ───────────────────────────────────────────────────────
 
 const INTIMATION_STATUS = {
@@ -2238,7 +2250,7 @@ export function IntimationsTab() {
             {(approveTarget.items ?? []).map((it, idx) => (
               <div key={it.id} className="bg-gray-50 rounded-lg p-3">
                 <div className="text-xs text-gray-500 mb-1">
-                  {chitMap[it.chitId] ?? `Chit ${idx + 1}`} · Member claimed {fmtAmt(it.claimedAmount)}
+                  {it.chitName ?? chitMap[it.chitId] ?? `Chit ${idx + 1}`} · Member claimed {fmtAmt(it.claimedAmount)}
                 </div>
                 <FormField label="Approved Amount (₹)">
                   <Input
@@ -2355,7 +2367,7 @@ export function IntimationsTab() {
                   {(item.items ?? []).map((it, idx) => (
                     <div key={it.id} className="flex justify-between items-center px-3 py-2 text-sm">
                       <span className="text-gray-600 font-medium">
-                        {chitMap[it.chitId] ?? `Chit ${idx + 1}`}
+                        {it.chitName ?? chitMap[it.chitId] ?? `Chit ${idx + 1}`}
                       </span>
                       <div className="text-right">
                         <div className="text-gray-700">Claimed {fmtAmt(it.claimedAmount)}</div>
@@ -2376,6 +2388,14 @@ export function IntimationsTab() {
                 {item.voidReason && (
                   <p className="text-xs text-red-600 mb-3">Void reason: {item.voidReason}</p>
                 )}
+                {(() => {
+                  const a = intimationActor(item);
+                  return a ? (
+                    <p className={`text-xs font-medium mb-3 ${a.cls}`}>
+                      {a.verb} by {a.name ?? 'Unknown'} ({a.role}){a.at ? ` · ${fmtTs(a.at)}` : ''}
+                    </p>
+                  ) : null;
+                })()}
 
                 {/* Action buttons */}
                 {item.status === 'PENDING' && (

@@ -17,6 +17,8 @@ import com.chitfund.paymentservice.dto.response.IntimationResponse;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
 import com.chitfund.paymentservice.domain.PaymentIntimationAuditLog;
 import com.chitfund.paymentservice.dto.response.PaymentIntimationAuditLogResponse;
+import com.chitfund.paymentservice.client.ChitServiceClient;
+import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.PaymentIntimationAuditLogRepository;
 import com.chitfund.paymentservice.repository.PaymentIntimationRepository;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -45,6 +48,8 @@ public class PaymentIntimationService {
     private final PaymentIntimationAuditLogRepository auditLogRepository;
     private final PaymentService paymentService;
     private final PaymentEventPublisher eventPublisher;
+    private final UserServiceClient userServiceClient;
+    private final ChitServiceClient chitServiceClient;
 
     private String tenantId() {
         String tid = TenantContext.get();
@@ -107,7 +112,7 @@ public class PaymentIntimationService {
 
     @Transactional
     public IntimationResponse approveIntimation(String intimationId, UUID adminId,
-                                                ApproveIntimationRequest request) {
+                                                ApproveIntimationRequest request, String actorRole) {
         String tid = tenantId();
         PaymentIntimation intimation = findByTenant(intimationId, tid);
         requireStatus(intimation, IntimationStatus.PENDING);
@@ -139,13 +144,14 @@ public class PaymentIntimationService {
         intimationRepository.save(intimation);
         logAudit(intimationId, tid, "APPROVED",
                 IntimationStatus.PENDING, IntimationStatus.APPROVED,
-                adminId.toString(), "ADMIN", null);
+                adminId.toString(), actorRole, null);
         log.info("Intimation {} approved by admin {}", intimationId, adminId);
         return toResponse(intimation);
     }
 
     @Transactional
-    public IntimationResponse rejectIntimation(String intimationId, UUID adminId, String reason) {
+    public IntimationResponse rejectIntimation(String intimationId, UUID adminId, String reason,
+                                               String actorRole) {
         String tid = tenantId();
         PaymentIntimation intimation = findByTenant(intimationId, tid);
         requireStatus(intimation, IntimationStatus.PENDING);
@@ -157,7 +163,7 @@ public class PaymentIntimationService {
         intimationRepository.save(intimation);
         logAudit(intimationId, tid, "REJECTED",
                 IntimationStatus.PENDING, IntimationStatus.REJECTED,
-                adminId.toString(), "ADMIN", reason);
+                adminId.toString(), actorRole, reason);
 
         BigDecimal total = intimation.getItems().stream()
                 .map(PaymentIntimationItem::getClaimedAmount)
@@ -171,7 +177,8 @@ public class PaymentIntimationService {
     }
 
     @Transactional
-    public IntimationResponse voidIntimation(String intimationId, UUID adminId, String reason) {
+    public IntimationResponse voidIntimation(String intimationId, UUID adminId, String reason,
+                                             String actorRole) {
         String tid = tenantId();
         PaymentIntimation intimation = findByTenant(intimationId, tid);
         requireStatus(intimation, IntimationStatus.APPROVED);
@@ -195,7 +202,7 @@ public class PaymentIntimationService {
         intimationRepository.save(intimation);
         logAudit(intimationId, tid, "VOIDED",
                 IntimationStatus.APPROVED, IntimationStatus.VOIDED,
-                adminId.toString(), "ADMIN", reason);
+                adminId.toString(), actorRole, reason);
         log.info("Intimation {} voided by admin {}", intimationId, adminId);
         return toResponse(intimation);
     }
@@ -203,19 +210,19 @@ public class PaymentIntimationService {
     public List<IntimationResponse> getMyIntimations(UUID memberId) {
         return intimationRepository
                 .findByTenantIdAndMemberIdOrderByCreatedAtDesc(tenantId(), memberId.toString())
-                .stream().map(this::toResponse).collect(Collectors.toList());
+                .stream().map(toResponseMapper()).collect(Collectors.toList());
     }
 
     public List<IntimationResponse> getPendingIntimations() {
         return intimationRepository
                 .findByTenantIdAndStatusOrderByCreatedAtDesc(tenantId(), IntimationStatus.PENDING)
-                .stream().map(this::toResponse).collect(Collectors.toList());
+                .stream().map(toResponseMapper()).collect(Collectors.toList());
     }
 
     public List<IntimationResponse> getAllIntimations() {
         return intimationRepository
                 .findByTenantIdOrderByCreatedAtDesc(tenantId())
-                .stream().map(this::toResponse).collect(Collectors.toList());
+                .stream().map(toResponseMapper()).collect(Collectors.toList());
     }
 
     public IntimationResponse getById(String intimationId) {
@@ -271,28 +278,84 @@ public class PaymentIntimationService {
     }
 
     private IntimationResponse toResponse(PaymentIntimation i) {
-        List<IntimationItemResponse> items = i.getItems() == null ? List.of() :
-                i.getItems().stream()
-                        .map(it -> IntimationItemResponse.builder()
-                                .id(it.getId())
-                                .chitId(it.getChitId())
-                                .claimedAmount(it.getClaimedAmount())
-                                .approvedAmount(it.getApprovedAmount())
-                                .paymentBatchId(it.getPaymentBatchId())
-                                .build())
-                        .collect(Collectors.toList());
-        return IntimationResponse.builder()
-                .id(i.getId())
-                .memberId(i.getMemberId())
-                .status(i.getStatus())
-                .notes(i.getNotes())
-                .rejectReason(i.getRejectReason())
-                .voidReason(i.getVoidReason())
-                .createdAt(i.getCreatedAt())
-                .approvedAt(i.getApprovedAt())
-                .rejectedAt(i.getRejectedAt())
-                .voidedAt(i.getVoidedAt())
-                .items(items)
-                .build();
+        return toResponseMapper().apply(i);
+    }
+
+    /**
+     * Maps intimations to responses, resolving chit names and the name/role of
+     * whoever approved, rejected or voided them. Lookups are cached for the
+     * lifetime of the returned mapper so a list call fetches each name once.
+     */
+    private java.util.function.Function<PaymentIntimation, IntimationResponse> toResponseMapper() {
+        Map<String, String> userNames = new HashMap<>();
+        Map<String, String> chitNames = new HashMap<>();
+        return i -> {
+            List<IntimationItemResponse> items = i.getItems() == null ? List.of() :
+                    i.getItems().stream()
+                            .map(it -> IntimationItemResponse.builder()
+                                    .id(it.getId())
+                                    .chitId(it.getChitId())
+                                    .chitName(chitNames.computeIfAbsent(it.getChitId(), this::lookupChitName))
+                                    .claimedAmount(it.getClaimedAmount())
+                                    .approvedAmount(it.getApprovedAmount())
+                                    .paymentBatchId(it.getPaymentBatchId())
+                                    .build())
+                            .collect(Collectors.toList());
+            Map<String, String> actorRoles = i.getApprovedBy() == null && i.getRejectedBy() == null
+                    && i.getVoidedBy() == null ? Map.of() : actorRoles(i.getId());
+            return IntimationResponse.builder()
+                    .id(i.getId())
+                    .memberId(i.getMemberId())
+                    .status(i.getStatus())
+                    .notes(i.getNotes())
+                    .rejectReason(i.getRejectReason())
+                    .voidReason(i.getVoidReason())
+                    .createdAt(i.getCreatedAt())
+                    .approvedAt(i.getApprovedAt())
+                    .rejectedAt(i.getRejectedAt())
+                    .voidedAt(i.getVoidedAt())
+                    .approvedBy(i.getApprovedBy())
+                    .approvedByName(userName(i.getApprovedBy(), userNames))
+                    .approvedByRole(i.getApprovedBy() != null ? actorRoles.getOrDefault("APPROVED", "ADMIN") : null)
+                    .rejectedBy(i.getRejectedBy())
+                    .rejectedByName(userName(i.getRejectedBy(), userNames))
+                    .rejectedByRole(i.getRejectedBy() != null ? actorRoles.getOrDefault("REJECTED", "ADMIN") : null)
+                    .voidedBy(i.getVoidedBy())
+                    .voidedByName(userName(i.getVoidedBy(), userNames))
+                    .voidedByRole(i.getVoidedBy() != null ? actorRoles.getOrDefault("VOIDED", "ADMIN") : null)
+                    .items(items)
+                    .build();
+        };
+    }
+
+    /** Action → role of the user who performed it, from the audit trail. */
+    private Map<String, String> actorRoles(String intimationId) {
+        Map<String, String> roles = new HashMap<>();
+        for (PaymentIntimationAuditLog entry : auditLogRepository.findByIntimationIdOrderByPerformedAtAsc(intimationId)) {
+            if (entry.getPerformedByRole() != null) roles.put(entry.getAction(), entry.getPerformedByRole());
+        }
+        return roles;
+    }
+
+    private String userName(String userId, Map<String, String> cache) {
+        if (userId == null) return null;
+        String name = cache.computeIfAbsent(userId, id -> {
+            try {
+                return userServiceClient.getUserName(UUID.fromString(id));
+            } catch (IllegalArgumentException e) {
+                return "";
+            }
+        });
+        return name.isBlank() ? null : name;
+    }
+
+    private String lookupChitName(String chitId) {
+        if (chitId == null) return null;
+        try {
+            ChitServiceClient.ChitDto chit = chitServiceClient.getChit(UUID.fromString(chitId));
+            return chit != null ? chit.getName() : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 }

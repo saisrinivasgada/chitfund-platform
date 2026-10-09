@@ -102,7 +102,7 @@ public class PaymentIntimationController {
             @Valid @RequestBody ApproveIntimationRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request)));
+        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request, actorRole(auth))));
     }
 
     /** Admin/Manager: reject with a reason. */
@@ -114,7 +114,7 @@ public class PaymentIntimationController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.rejectIntimation(id, adminId, body.get("reason"))));
+                intimationService.rejectIntimation(id, adminId, body.get("reason"), actorRole(auth))));
     }
 
     /** Admin: void an already-approved intimation — reverses all created payment batches. */
@@ -126,6 +126,15 @@ public class PaymentIntimationController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.voidIntimation(id, adminId, body.get("reason"))));
+                intimationService.voidIntimation(id, adminId, body.get("reason"), actorRole(auth))));
+    }
+
+    /** ADMIN / MANAGER — recorded so the UI can show who acted on an intimation. */
+    private static String actorRole(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
+                .filter(r -> r.equals("ADMIN") || r.equals("MANAGER"))
+                .findFirst()
+                .orElse("ADMIN");
     }
 }
