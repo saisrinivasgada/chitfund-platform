@@ -6,14 +6,15 @@
 
 The tested backend, financial, identity, entitlement, audit, event-delivery, web-build, and mobile-bundle paths are green. The audit found and repaired multiple release-blocking defects, including duplicate settlement money movement, non-atomic payout effects, cross-tenant access paths, fail-open entitlement checks, and durable-event timestamps that could delay every outbox message by the host timezone offset.
 
-The product should not yet be described as completely production-certified because physical-device/manual UI workflows, real provider delivery, and a gateway-driven browser/mobile E2E suite were not completed in this environment. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
+The product should not yet be described as completely production-certified because physical-device workflows, real provider delivery, Android rendered-client E2E, and a gateway-driven browser-value suite were not completed in this environment. A real release iOS build was exercised through the gateway on an iOS 26.5 simulator, including authentication, six-box OTP, navigation, session restoration, logout, and a real offline payment/reconnect cycle. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
 
 There are **no unresolved Critical or High application defects in the workflows changed and exercised by the automated suites**. The remaining scanner and validation gaps are listed explicitly below.
 
 ## Scope and Git evidence
 
 - Audit starting commit: `20243d89ce005a2801a14a216973fccf80f30809`
-- Code-under-test commit after the last remediation: `032cb0e`
+- Code-under-test commit after the last application remediation: `40b43f4`
+- Mobile verification-harness commit: `892de44`
 - Working branch: `codex/full-product-audit`
 - Shared integration branch inspected: `origin/test`
 - Production, `main`, and production data were not changed.
@@ -122,7 +123,7 @@ Legend: **Automated** means assertions exist in Java or disposable service-integ
 | Chit Invitations | Automated + code-reviewed | kept separate from Chitfund Requests and tenant-scoped |
 | Chitfund Requests | Automated | first-time/existing account proof, resend, decline, revoke, expiry, multi-org link |
 | Payments | Automated | idempotency, over-allocation protection, void, failure resilience, treasury reconciliation |
-| Offline payments/sync | Code-reviewed; manual pending | original occurrence/sync timestamps and client queue behavior |
+| Offline payments/sync | Automated + iOS simulator verified | local queue, restart persistence, automatic reconnect, original occurrence/sync timestamps, idempotency, history and treasury |
 | Cash pickup/custody | Automated + code-reviewed | tenant controls and transaction boundaries; full staff-device journey pending |
 | Payout/disbursement | Automated | creation, limits, duplicate prevention, deduction, void/reversal, append-only history |
 | Settlement | Automated | duplicate protection, concurrency, partial/full collection, credit, supersession chains |
@@ -130,7 +131,7 @@ Legend: **Automated** means assertions exist in Java or disposable service-integ
 | Plans/capabilities/billing | Automated | fail-closed gates, custom limits, exact-limit concurrency, idempotent billing/refunds |
 | Super Admin/Hub | Automated + code-reviewed | employee permissions, platform capability, tenant controls, identity-case owner approval |
 | Web UI values | Build/lint + code-reviewed; manual pending | no complete Playwright/Cypress browser-value suite exists |
-| Mobile UI values | Type-check/bundle + code-reviewed; manual pending | no complete Detox/Maestro physical/simulator suite exists |
+| Mobile UI values | Automated iOS simulator + type-check/bundle | admin login/OTP, navigation, session/logout and offline payment values; physical iOS and rendered Android remain pending |
 
 ## Functional and security verification
 
@@ -146,6 +147,8 @@ The automated suites cover:
 - Outbox claim leasing, stale-worker protection, retention, failed-delivery visibility, replay, SQS duplicate delivery, and inbox deduplication.
 - Read-only operational metrics authentication.
 - Recycled-phone investigation, protected-owner approval, retry safety, session revocation, and immutable old history.
+- Release-iOS simulator journeys through the real gateway for admin login/OTP, dashboard, members, chits, entitled messaging, finance, persisted session, and logout/account-vault behavior.
+- Offline UPI capture while payment-service was unavailable, queue survival across app restart, automatic reconnect, durable synced status, and a single matching history row.
 
 Security review also covered enumeration, refresh/session revocation, internal service authentication, tenant scoping, role escalation, capability bypass, sensitive logs, CSP, and AWS Secrets Manager usage. No credentials, tokens, full OTPs, or production personal information were added to Git by this audit.
 
@@ -162,6 +165,8 @@ Security review also covered enumeration, refresh/session revocation, internal s
 - Supersession reverses prior money and credit before replacement.
 - Admin-wallet decimal and paise shadow values agree exactly.
 - Migration V37/V38 generated-column uniqueness works in real MySQL 8, not only H2.
+- The simulator-recorded offline UPI scenario produced exactly one ₹3,500 batch, one ₹3,500 allocation, and one ₹3,500 bank-treasury credit. A ₹7,000 record became `PARTIALLY_PAID` at ₹3,500, and device occurrence time preceded server sync time by 87 seconds.
+- The same offline batch retained one idempotency key and one 64-character request fingerprint; no duplicate history row was rendered.
 
 ## Test evidence
 
@@ -181,15 +186,19 @@ Security review also covered enumeration, refresh/session revocation, internal s
 | Ordinary ChitWise bundle | iOS and Android production bundles passed |
 | ChitWise Hub bundle | iOS and Android production bundles passed |
 | Mobile dependency policy | 4/4 fail-closed policy tests passed; only two pinned Expo build-tool exceptions accepted |
+| Release iOS simulator admin suite | 8/8 stateful Maestro flows passed serially through the gateway |
+| Release iOS simulator offline payment | 3/3 phases passed: queue, restart persistence, reconnect/history; MySQL reconciliation exact |
 | Migration safety/checksum script | passed, including payment V51 |
 
 One clean-stack run had a single first-request timeout while six Spring services were cold-starting inside a 4 GB Docker VM. The same focused wallet test passed in 1.5 seconds after warm-up, followed by a complete warm run of 112/112. This is recorded as test-host resource contention, not hidden as an application pass.
 
+The offline simulator stack deliberately omitted LocalStack while reconnecting the payment. Its three destination deliveries became visible `FAILED` outbox rows after three attempts rather than disappearing. The separate MySQL 8 + LocalStack overlay above passed both delivery/deduplication cases; no real production queue or provider was contacted.
+
 ## Remaining limitations and required release work
 
 1. **Mobile dependency exception.** `npm audit` currently reports high advisories through Expo 54's Node-side Metro globbing and code-signing tooling (`braces` and `node-forge`). Current patched dependency paths require a major Expo/React Native change. Do not use `npm audit fix --force`. CI accepts only the exact reviewed advisory URLs and installed versions, fails on unknown High/Critical findings, and expires the exception on 2027-01-31. Complete an Expo upgrade before that deadline.
-2. **Physical devices not completed.** Run the full admin/manager/staff/member and Hub journeys on current iOS and Android devices, including background/resume, token expiry, offline record/reconnect, tenant switching, push deep links, and small-screen text wrapping.
-3. **Not gateway/client full-stack E2E.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They are service-integration tests, not inflated as full-stack E2E.
+2. **Physical devices not completed.** The release iOS simulator covered the admin paths stated above, but current physical iOS/Android devices must still run the full admin/manager/staff/member and Hub journeys, including background/resume, token expiry, offline record/reconnect, tenant switching, push deep links, and small-screen text wrapping.
+3. **Service-integration label retained.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They remain service-integration tests. Only the separately reported iOS simulator flows used the gateway and rendered application.
 4. **External providers mocked.** Real SMS, WhatsApp, email, push, bank/payment, and production SQS delivery were not invoked. Provider sandbox acceptance tests remain required.
 5. **Web UI assertion gap.** There is no Playwright/Cypress suite asserting rendered financial values, navigation, capability lock states, and activity filters.
 6. **Performance.** The web build emits a ~2.40 MB minified/~559 KB gzip main chunk warning. Add route-level code splitting before high traffic.
