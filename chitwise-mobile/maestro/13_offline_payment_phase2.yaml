@@ -12,9 +12,12 @@ name: Offline Payment — Phase 2 (session and queue persist across restart)
       text: "Dashboard"
     timeout: 15000
 
-# Queue must still show the pending payment
-- assertVisible:
-    text: "waiting"
+# Dashboard retries its payment-backed summary while the service is unavailable.
+# Wait through that bounded network timeout and then prove the durable queue reappears.
+- extendedWaitUntil:
+    visible:
+      text: "1 payment waiting.*"
+    timeout: 30000
 
 # Payment service is still down here — verify indicator stays amber (not red)
 - assertNotVisible:

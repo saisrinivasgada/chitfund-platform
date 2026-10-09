@@ -18,6 +18,7 @@ name: Admin Login
       - tapOn:
           text: "Enter your password"
       - inputText: ${ADMIN_PASSWORD}
+      - waitForAnimationToEnd
       - pressKey: Enter
       - extendedWaitUntil:
           visible:
@@ -25,7 +26,12 @@ name: Admin Login
           timeout: 10000
       - waitForAnimationToEnd
       - runScript: helpers/read_otp.js
-      - inputText: ${output.otp}
+      - inputText: ${output.digit1}
+      - inputText: ${output.digit2}
+      - inputText: ${output.digit3}
+      - inputText: ${output.digit4}
+      - inputText: ${output.digit5}
+      - inputText: ${output.digit6}
       - tapOn:
           text: "Verify & Sign In"
       - waitForAnimationToEnd
