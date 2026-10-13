@@ -304,10 +304,17 @@ jobs:
         run: |
           report="chitwise-management-service/target/surefire-reports/TEST-com.chitfund.supportservice.migration.EmployeePasswordMigrationMySqlTest.xml"
           test -f "$report"
-          grep -q 'tests="1"' "$report"
-          grep -q 'failures="0"' "$report"
-          grep -q 'errors="0"' "$report"
-          grep -q 'skipped="0"' "$report"
+          python3 - "$report" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse(sys.argv[1]).getroot()
+          counts = {name: int(suite.attrib.get(name, "0"))
+                    for name in ("tests", "failures", "errors", "skipped")}
+          if (counts["tests"] < 1 or any(counts[name] for name in ("failures", "errors", "skipped"))):
+              raise SystemExit(f"MySQL migration test guard failed: {counts}")
+          print(f"MySQL migration test guard passed: {counts}")
+          PY
 
   build-frontend:
     name: "frontend"
