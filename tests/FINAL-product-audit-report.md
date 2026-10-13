@@ -6,14 +6,14 @@
 
 The tested backend, financial, identity, entitlement, audit, event-delivery, web-build, and mobile-bundle paths are green. The audit found and repaired multiple release-blocking defects, including duplicate settlement money movement, non-atomic payout effects, cross-tenant access paths, fail-open entitlement checks, and durable-event timestamps that could delay every outbox message by the host timezone offset.
 
-The product should not yet be described as completely production-certified because physical-device workflows, real provider delivery, Android rendered-client E2E, and a gateway-driven browser-value suite were not completed in this environment. A real release iOS build was exercised through the gateway on an iOS 26.5 simulator, including authentication, six-box OTP, navigation, session restoration, logout, and a real offline payment/reconnect cycle. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
+The product should not yet be described as completely production-certified because physical-device workflows, real provider delivery, Android rendered-client E2E, and a full gateway-driven browser suite were not completed in this environment. Deterministic Playwright coverage now renders and asserts the organization audit timeline, capability locks, exact payment/allocation values, offline sync time, and full-void behavior. A real release iOS build was exercised through the gateway on an iOS 26.5 simulator, including authentication, six-box OTP, navigation, session restoration, logout, and a real offline payment/reconnect cycle. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
 
 There are **no unresolved Critical or High application defects in the workflows changed and exercised by the automated suites**. The remaining scanner and validation gaps are listed explicitly below.
 
 ## Scope and Git evidence
 
 - Audit starting commit: `20243d89ce005a2801a14a216973fccf80f30809`
-- Code-under-test commit after the latest shared-branch integration: `4213f07`
+- Code-under-test commit after the latest remediation: `e867339`
 - Mobile verification-harness commit: `892de44`
 - Working branch: `codex/full-product-audit`
 - Shared integration branch inspected and fully integrated: `origin/test` at `d344892`
@@ -107,6 +107,12 @@ The server is authoritative. Missing, malformed, expired, or stale entitlement i
 - `source-map-js` is pinned to 1.2.2.
 - Web `npm audit --audit-level=high` now reports zero vulnerabilities.
 
+### Rendered UI correctness
+
+- Playwright browser assertions now run in frontend CI for audit filters, direct-URL capability locks, payment values, allocations, offline sync timestamps, and reasoned full voids.
+- The first rendered receipt run exposed a real date-only timezone defect: a `2026-01-01` chit start date appeared as `31 Dec 2025` in Pacific time. Web receipt formatting and the shared mobile date formatter now preserve calendar dates without timezone shifting.
+- The browser runner uses a dedicated strict port and refuses to reuse an existing development server, preventing a developer's stale main checkout from being mistaken for the branch under test.
+
 ## Audit coverage matrix
 
 Legend: **Automated** means assertions exist in Java or disposable service-integration tests. **Code-reviewed** means the mutation/audit path was inspected and repaired but does not have a complete user-facing E2E journey here. **Manual pending** means physical UI/provider confirmation is still required.
@@ -132,7 +138,7 @@ Legend: **Automated** means assertions exist in Java or disposable service-integ
 | Tickets/chat | Automated + code-reviewed | permissions, required reasons, post-commit messages, reopen/assignment history |
 | Plans/capabilities/billing | Automated | fail-closed gates, custom limits, exact-limit concurrency, idempotent billing/refunds |
 | Super Admin/Hub | Automated + code-reviewed | employee permissions, platform capability, tenant controls, identity-case owner approval |
-| Web UI values | Build/lint + code-reviewed; manual pending | no complete Playwright/Cypress browser-value suite exists |
+| Web UI values | Rendered Playwright + build/lint + code-reviewed | audit filters, capability lock states, payment/allocation values, sync timestamp and void state; full gateway-driven journey pending |
 | Mobile UI values | Automated iOS simulator + type-check/bundle | admin login/OTP, navigation, session/logout and offline payment values; physical iOS and rendered Android remain pending |
 
 ## Functional and security verification
@@ -184,6 +190,7 @@ Security review also covered enumeration, refresh/session revocation, internal s
 | Web lint | passed |
 | Web production build | passed |
 | Web dependency audit | 0 vulnerabilities |
+| Rendered Playwright web suite | 3/3 passed in Chromium; also passed with CI worker/retry configuration |
 | Mobile TypeScript | passed |
 | Expo Doctor | 18/18 checks passed |
 | Ordinary ChitWise bundle | iOS and Android production bundles passed |
@@ -203,7 +210,7 @@ The offline simulator stack deliberately omitted LocalStack while reconnecting t
 2. **Physical devices not completed.** The release iOS simulator covered the admin paths stated above, but current physical iOS/Android devices must still run the full admin/manager/staff/member and Hub journeys, including background/resume, token expiry, offline record/reconnect, tenant switching, push deep links, and small-screen text wrapping.
 3. **Service-integration label retained.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They remain service-integration tests. Only the separately reported iOS simulator flows used the gateway and rendered application.
 4. **External providers mocked.** Real SMS, WhatsApp, email, push, bank/payment, and production SQS delivery were not invoked. Provider sandbox acceptance tests remain required.
-5. **Web UI assertion gap.** There is no Playwright/Cypress suite asserting rendered financial values, navigation, capability lock states, and activity filters.
+5. **Gateway/browser expansion.** The new Playwright suite proves rendered values, audit filters, direct-URL capability locks and payment void behavior with deterministic API fixtures. It does not claim full-stack E2E: add gateway-backed browser scenarios for live financial creation, concurrency outcomes and Hub/Super Admin mutations.
 6. **Performance.** The web build emits a ~2.40 MB minified/~559 KB gzip main chunk warning. Add route-level code splitting before high traffic.
 7. **Cold-start test capacity.** Six concurrent Spring containers approach the local 4 GB Docker limit. CI should have more memory or stage health warm-up before the first latency-sensitive request.
 8. **Production data was not inspected or changed.** The read-only duplicate-settlement production query was not executed in this environment. Run only with the approved read-only procedure if production evidence is still required.
@@ -215,7 +222,7 @@ The backend financial and authorization repairs are strong enough for a controll
 
 1. Upgrade Expo before the pinned build-tool exception expires on 2027-01-31.
 2. Run physical iOS/Android manual journeys and capture evidence.
-3. Add browser/mobile value assertions through the gateway for the highest-risk financial and capability flows.
+3. Expand the new browser assertions through the real gateway for the remaining high-risk financial, Hub and capability flows.
 4. Execute provider sandbox tests and confirm alert routing/runbook ownership.
 5. Re-run this exact regression set after any future shared-branch application change.
 
