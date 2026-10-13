@@ -578,6 +578,12 @@ export function RowItem({ onPress, left, right, sub }: {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 export function fmtDate(d?: string | null) {
   if (!d) return '—';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [year, month, day] = d.split('-').map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    });
+  }
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 

@@ -67,6 +67,7 @@ test('renders exact payment values and reflects a reasoned full void', async ({ 
   await expect(page.getByRole('paragraph').filter({ hasText: /^Lakshmi Monthly ₹1 Lakh$/ }).first()).toBeVisible();
   await expect(page.getByText('₹5,000', { exact: true })).toBeVisible();
   await expect(page.getByText('₹3,500', { exact: true })).toBeVisible();
+  await expect(page.getByRole('paragraph').filter({ hasText: /^01 Jan 2026$/ })).toBeVisible();
   await expect(page.getByText('Synced At', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Void', exact: true }).click();
