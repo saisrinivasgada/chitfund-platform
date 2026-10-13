@@ -314,7 +314,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -322,9 +322,18 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: chitfund-frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: chitfund-frontend
+        run: npm ci
+      - name: Install browser test runtime
+        working-directory: chitfund-frontend
+        run: npx playwright install --with-deps chromium
+      - name: Rendered browser assertions
+        working-directory: chitfund-frontend
+        run: npm run test:browser
       - name: Build
         working-directory: chitfund-frontend
-        run: npm ci && npm run build
+        run: npm run build
 
   # ── 3. Build summary — satisfies branch protection rule ───────────────────────
   build-summary:
