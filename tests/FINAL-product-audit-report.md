@@ -6,14 +6,14 @@
 
 The tested backend, financial, identity, entitlement, audit, event-delivery, web-build, and mobile-bundle paths are green. The audit found and repaired multiple release-blocking defects, including duplicate settlement money movement, non-atomic payout effects, cross-tenant access paths, fail-open entitlement checks, and durable-event timestamps that could delay every outbox message by the host timezone offset.
 
-The product should not yet be described as completely production-certified because physical-device workflows, real provider delivery, Android rendered-client E2E, and a full gateway-driven browser suite were not completed in this environment. Deterministic Playwright coverage now renders and asserts the organization audit timeline, capability locks, exact payment/allocation values, offline sync time, and full-void behavior. A real release iOS build was exercised through the gateway on an iOS 26.5 simulator, including authentication, six-box OTP, navigation, session restoration, logout, and a real offline payment/reconnect cycle. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
+The product should not yet be described as completely production-certified because physical-device workflows, real provider delivery, Android rendered-client E2E, and a complete gateway-driven browser suite were not completed in this environment. Deterministic Playwright coverage now renders and asserts the organization audit timeline, capability locks, exact payment/allocation values, offline sync time, and full-void behavior. A separate rendered Chromium journey creates a member through the real gateway and member service against disposable MySQL 8, renders the returned server value, deletes it through the gateway, and verifies cleanup. A real release iOS build was exercised through the gateway on an iOS 26.5 simulator, including authentication, six-box OTP, navigation, session restoration, logout, and a real offline payment/reconnect cycle. The mobile dependency scanner also reports high-severity advisories in Expo's Node-side build/signing toolchain for which Expo 54 has no compatible patched dependency path. The shipped iOS/Android bundles build successfully, and the vulnerable packages are not application business-code paths. CI now permits only those two exact advisories at exact package versions, fails for every other High/Critical finding, and expires the exception on 2027-01-31.
 
 There are **no unresolved Critical or High application defects in the workflows changed and exercised by the automated suites**. The remaining scanner and validation gaps are listed explicitly below.
 
 ## Scope and Git evidence
 
 - Audit starting commit: `20243d89ce005a2801a14a216973fccf80f30809`
-- Code-under-test commit after the latest remediation: `e867339`
+- Code-under-test commit after the latest remediation: `55b0d5f`
 - Mobile verification-harness commit: `892de44`
 - Working branch: `codex/full-product-audit`
 - Shared integration branch inspected and fully integrated: `origin/test` at `d344892`
@@ -110,6 +110,7 @@ The server is authoritative. Missing, malformed, expired, or stale entitlement i
 ### Rendered UI correctness
 
 - Playwright browser assertions now run in frontend CI for audit filters, direct-URL capability locks, payment values, allocations, offline sync timestamps, and reasoned full voids.
+- The disposable MySQL 8 CI job now also runs a rendered browser member journey through the real gateway. The synthetic browser identity mocks only three user-row-bound session/limit reads because a clean schema deliberately has no seeded organization admin; create, list, render, delete, authorization and database cleanup remain real.
 - The first rendered receipt run exposed a real date-only timezone defect: a `2026-01-01` chit start date appeared as `31 Dec 2025` in Pacific time. Web receipt formatting and the shared mobile date formatter now preserve calendar dates without timezone shifting.
 - The browser runner uses a dedicated strict port and refuses to reuse an existing development server, preventing a developer's stale main checkout from being mistaken for the branch under test.
 
@@ -138,7 +139,7 @@ Legend: **Automated** means assertions exist in Java or disposable service-integ
 | Tickets/chat | Automated + code-reviewed | permissions, required reasons, post-commit messages, reopen/assignment history |
 | Plans/capabilities/billing | Automated | fail-closed gates, custom limits, exact-limit concurrency, idempotent billing/refunds |
 | Super Admin/Hub | Automated + code-reviewed | employee permissions, platform capability, tenant controls, identity-case owner approval |
-| Web UI values | Rendered Playwright + build/lint + code-reviewed | audit filters, capability lock states, payment/allocation values, sync timestamp and void state; full gateway-driven journey pending |
+| Web UI values | Rendered Playwright + gateway journey + build/lint | audit filters, capability lock states, payment/allocation values, sync timestamp, void state, and real member create/list/delete; remaining financial/Hub gateway journeys pending |
 | Mobile UI values | Automated iOS simulator + type-check/bundle | admin login/OTP, navigation, session/logout and offline payment values; physical iOS and rendered Android remain pending |
 
 ## Functional and security verification
@@ -158,6 +159,7 @@ The automated suites cover:
 - Release-iOS simulator journeys through the real gateway for admin login/OTP, dashboard, members, chits, entitled messaging, finance, persisted session, and logout/account-vault behavior.
 - Offline UPI capture while payment-service was unavailable, queue survival across app restart, automatic reconnect, durable synced status, and a single matching history row.
 - Payment-intimation actor role/name and chit-name enrichment without cross-tenant role leakage, while retaining payment mode/reference and safe missing-name fallback.
+- Rendered Chromium member creation, listing and deletion through the real gateway and member service against disposable MySQL 8; unauthenticated gateway access returned 401 and no active test member remained after cleanup.
 
 Security review also covered enumeration, refresh/session revocation, internal service authentication, tenant scoping, role escalation, capability bypass, sensitive logs, CSP, and AWS Secrets Manager usage. No credentials, tokens, full OTPs, or production personal information were added to Git by this audit.
 
@@ -191,6 +193,7 @@ Security review also covered enumeration, refresh/session revocation, internal s
 | Web production build | passed |
 | Web dependency audit | 0 vulnerabilities |
 | Rendered Playwright web suite | 3/3 passed in Chromium; also passed with CI worker/retry configuration |
+| Rendered gateway browser journey | 1/1 passed: member create/list/delete through gateway + member service + MySQL 8; cleanup count 0; unauthenticated request 401 |
 | Mobile TypeScript | passed |
 | Expo Doctor | 18/18 checks passed |
 | Ordinary ChitWise bundle | iOS and Android production bundles passed |
@@ -208,9 +211,9 @@ The offline simulator stack deliberately omitted LocalStack while reconnecting t
 
 1. **Mobile dependency exception.** `npm audit` currently reports high advisories through Expo 54's Node-side Metro globbing and code-signing tooling (`braces` and `node-forge`). Current patched dependency paths require a major Expo/React Native change. Do not use `npm audit fix --force`. CI accepts only the exact reviewed advisory URLs and installed versions, fails on unknown High/Critical findings, and expires the exception on 2027-01-31. Complete an Expo upgrade before that deadline.
 2. **Physical devices not completed.** The release iOS simulator covered the admin paths stated above, but current physical iOS/Android devices must still run the full admin/manager/staff/member and Hub journeys, including background/resume, token expiry, offline record/reconnect, tenant switching, push deep links, and small-screen text wrapping.
-3. **Service-integration label retained.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They remain service-integration tests. Only the separately reported iOS simulator flows used the gateway and rendered application.
+3. **Service-integration label retained.** The 112 Python cases call real services and MySQL but do not all pass through the real gateway and rendered clients. They remain service-integration tests. The separately reported iOS simulator flows and one Chromium member journey used the gateway and rendered applications.
 4. **External providers mocked.** Real SMS, WhatsApp, email, push, bank/payment, and production SQS delivery were not invoked. Provider sandbox acceptance tests remain required.
-5. **Gateway/browser expansion.** The new Playwright suite proves rendered values, audit filters, direct-URL capability locks and payment void behavior with deterministic API fixtures. It does not claim full-stack E2E: add gateway-backed browser scenarios for live financial creation, concurrency outcomes and Hub/Super Admin mutations.
+5. **Gateway/browser expansion.** The new Playwright suite proves rendered values, audit filters, direct-URL capability locks and payment void behavior with deterministic API fixtures, plus one real gateway/MySQL member lifecycle. It does not claim complete full-stack E2E: add gateway-backed browser scenarios for live financial creation, concurrency outcomes and Hub/Super Admin mutations.
 6. **Performance.** The web build emits a ~2.40 MB minified/~559 KB gzip main chunk warning. Add route-level code splitting before high traffic.
 7. **Cold-start test capacity.** Six concurrent Spring containers approach the local 4 GB Docker limit. CI should have more memory or stage health warm-up before the first latency-sensitive request.
 8. **Production data was not inspected or changed.** The read-only duplicate-settlement production query was not executed in this environment. Run only with the approved read-only procedure if production evidence is still required.
