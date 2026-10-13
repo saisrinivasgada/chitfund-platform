@@ -26,5 +26,9 @@ export default defineConfig({
     url: 'http://127.0.0.1:3101',
     reuseExistingServer: false,
     timeout: 120_000,
+    env: {
+      ...process.env,
+      VITE_DEV_PROXY_TARGET: process.env.CHITWISE_GATEWAY_URL ?? 'http://127.0.0.1:9080',
+    },
   },
 });

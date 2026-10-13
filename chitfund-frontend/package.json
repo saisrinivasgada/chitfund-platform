@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:browser": "playwright test",
-    "test:browser:headed": "playwright test --headed"
+    "test:browser:headed": "playwright test --headed",
+    "test:browser:gateway": "CHITWISE_GATEWAY_E2E=1 CHITWISE_GATEWAY_URL=http://127.0.0.1:9080 playwright test tests/browser/gateway-members.spec.js"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.3.0",
