@@ -108,7 +108,7 @@ public class PaymentIntimationController {
             @Valid @RequestBody ApproveIntimationRequest request,
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
-        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request)));
+        return ResponseEntity.ok(ApiResponse.success(intimationService.approveIntimation(id, adminId, request, actorRole(auth))));
     }
 
     /** Admin/Manager: reject with a reason. */
@@ -120,7 +120,7 @@ public class PaymentIntimationController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.rejectIntimation(id, adminId, request.getReason())));
+                intimationService.rejectIntimation(id, adminId, request.getReason(), actorRole(auth))));
     }
 
     /** Admin: void an already-approved intimation — reverses all created payment batches. */
@@ -132,7 +132,7 @@ public class PaymentIntimationController {
             Authentication auth) {
         UUID adminId = (UUID) auth.getPrincipal();
         return ResponseEntity.ok(ApiResponse.success(
-                intimationService.voidIntimation(id, adminId, request.getReason())));
+                intimationService.voidIntimation(id, adminId, request.getReason(), actorRole(auth))));
     }
 
     private UUID requireMemberProfile(UUID userId) {
@@ -147,5 +147,14 @@ public class PaymentIntimationController {
     private boolean isMember(Authentication auth) {
         return auth.getAuthorities().stream()
                 .anyMatch(authority -> "ROLE_MEMBER".equals(authority.getAuthority()));
+    }
+
+    /** Record the effective actor role so audit/history UI can explain who acted. */
+    private static String actorRole(Authentication auth) {
+        return auth.getAuthorities().stream()
+                .map(a -> a.getAuthority().replaceFirst("^ROLE_", ""))
+                .filter(r -> r.equals("ADMIN") || r.equals("MANAGER"))
+                .findFirst()
+                .orElse("ADMIN");
     }
 }

@@ -2,7 +2,10 @@ package com.chitfund.paymentservice.service;
 
 import com.chitfund.common.context.TenantContext;
 import com.chitfund.common.exception.BusinessException;
+import com.chitfund.paymentservice.client.ChitServiceClient;
+import com.chitfund.paymentservice.client.UserServiceClient;
 import com.chitfund.paymentservice.domain.PaymentIntimation;
+import com.chitfund.paymentservice.domain.PaymentIntimationAuditLog;
 import com.chitfund.paymentservice.domain.PaymentIntimationItem;
 import com.chitfund.paymentservice.domain.enums.IntimationStatus;
 import com.chitfund.paymentservice.domain.enums.PaymentMode;
@@ -10,6 +13,7 @@ import com.chitfund.paymentservice.dto.request.ApproveIntimationRequest;
 import com.chitfund.paymentservice.dto.request.CreateIntimationRequest;
 import com.chitfund.paymentservice.dto.request.RecordPaymentRequest;
 import com.chitfund.paymentservice.dto.response.PaymentBatchResponse;
+import com.chitfund.paymentservice.dto.response.IntimationResponse;
 import com.chitfund.paymentservice.kafka.PaymentEventPublisher;
 import com.chitfund.paymentservice.repository.PaymentIntimationAuditLogRepository;
 import com.chitfund.paymentservice.repository.PaymentIntimationRepository;
@@ -42,6 +46,8 @@ class PaymentIntimationServiceSafetyTest {
     @Mock PaymentIntimationAuditLogRepository auditLogRepository;
     @Mock PaymentService paymentService;
     @Mock PaymentEventPublisher eventPublisher;
+    @Mock UserServiceClient userServiceClient;
+    @Mock ChitServiceClient chitServiceClient;
 
     @AfterEach
     void clearTenant() {
@@ -151,9 +157,48 @@ class PaymentIntimationServiceSafetyTest {
         verify(intimationRepository, never()).save(any());
     }
 
+    @Test
+    void responseEnrichmentIsTenantScopedAndToleratesMissingDisplayNames() {
+        TenantContext.set("tenant-a");
+        PaymentIntimation intimation = pendingIntimation(1);
+        UUID actorId = UUID.randomUUID();
+        intimation.setStatus(IntimationStatus.APPROVED);
+        intimation.setApprovedBy(actorId.toString());
+        when(intimationRepository.findByIdAndTenantId(intimation.getId(), "tenant-a"))
+                .thenReturn(Optional.of(intimation));
+        when(auditLogRepository.findByTenantIdAndIntimationIdOrderByPerformedAtAsc(
+                "tenant-a", intimation.getId()))
+                .thenReturn(List.of(PaymentIntimationAuditLog.builder()
+                        .tenantId("tenant-a")
+                        .intimationId(intimation.getId())
+                        .action("APPROVED")
+                        .toStatus("APPROVED")
+                        .performedBy(actorId.toString())
+                        .performedByRole("MANAGER")
+                        .build()));
+        when(userServiceClient.getUserName(actorId)).thenReturn(null);
+
+        ChitServiceClient.ChitDto chit = new ChitServiceClient.ChitDto();
+        chit.setName("Lakshmi Monthly Chit");
+        UUID chitId = UUID.fromString(intimation.getItems().get(0).getChitId());
+        when(chitServiceClient.getChit(chitId)).thenReturn(chit);
+
+        IntimationResponse response = service().getById(intimation.getId());
+
+        assertThat(response.getApprovedByName()).isNull();
+        assertThat(response.getApprovedByRole()).isEqualTo("MANAGER");
+        assertThat(response.getPaymentMode()).isEqualTo(PaymentMode.UPI);
+        assertThat(response.getPaymentReference()).isEqualTo("UTR-123");
+        assertThat(response.getItems().get(0).getChitName()).isEqualTo("Lakshmi Monthly Chit");
+        verify(auditLogRepository).findByTenantIdAndIntimationIdOrderByPerformedAtAsc(
+                "tenant-a", intimation.getId());
+        verify(auditLogRepository, never()).findByIntimationIdOrderByPerformedAtAsc(anyString());
+    }
+
     private PaymentIntimationService service() {
         return new PaymentIntimationService(
-                intimationRepository, auditLogRepository, paymentService, eventPublisher);
+                intimationRepository, auditLogRepository, paymentService, eventPublisher,
+                userServiceClient, chitServiceClient);
     }
 
     private PaymentIntimation pendingIntimation(int itemCount) {
