@@ -13,16 +13,18 @@ There are **no unresolved Critical or High application defects in the workflows 
 ## Scope and Git evidence
 
 - Audit starting commit: `20243d89ce005a2801a14a216973fccf80f30809`
-- Code-under-test commit after the last application remediation: `40b43f4`
+- Code-under-test commit after the latest shared-branch integration: `4213f07`
 - Mobile verification-harness commit: `892de44`
 - Working branch: `codex/full-product-audit`
-- Shared integration branch inspected: `origin/test`
+- Shared integration branch inspected and fully integrated: `origin/test` at `d344892`
 - Production, `main`, and production data were not changed.
 - No force push or production deployment was performed.
 - Previously applied Flyway files were not edited; schema work used additive migrations.
 - Management migration V9 remains absent and did not execute. It was intentionally not reintroduced.
 
-The latest `origin/test` bookkeeping commits rename Claude's new payment table migration to V46 and add checksums. They are merged into the audit branch's ancestry, but the conflict was deliberately resolved as V51 because this branch already has an existing V46. MySQL 8 applied and validated all 51 payment migrations, and the migration safety manifest contains exactly one entry for the new table.
+The earlier `origin/test` bookkeeping commits rename Claude's new payment table migration to V46 and add checksums. They are merged into the audit branch's ancestry, but the conflict was deliberately resolved as V51 because this branch already has an existing V46. MySQL 8 applied and validated all 51 payment migrations, and the migration safety manifest contains exactly one entry for the new table.
+
+The final shared-branch synchronization also integrated the actor name/role and chit-name enrichment for payment intimations plus the `shell-quote` dependency patch. The merge preserves the audit branch's tenant locking, idempotency, multi-chit allocation, payment-mode/reference, and complete-void behavior. A new regression verifies that response enrichment is tenant-scoped and tolerates missing display names instead of failing a successful financial response.
 
 ## Product inventory
 
@@ -149,6 +151,7 @@ The automated suites cover:
 - Recycled-phone investigation, protected-owner approval, retry safety, session revocation, and immutable old history.
 - Release-iOS simulator journeys through the real gateway for admin login/OTP, dashboard, members, chits, entitled messaging, finance, persisted session, and logout/account-vault behavior.
 - Offline UPI capture while payment-service was unavailable, queue survival across app restart, automatic reconnect, durable synced status, and a single matching history row.
+- Payment-intimation actor role/name and chit-name enrichment without cross-tenant role leakage, while retaining payment mode/reference and safe missing-name fallback.
 
 Security review also covered enumeration, refresh/session revocation, internal service authentication, tenant scoping, role escalation, capability bypass, sensitive logs, CSP, and AWS Secrets Manager usage. No credentials, tokens, full OTPs, or production personal information were added to Git by this audit.
 
@@ -172,8 +175,8 @@ Security review also covered enumeration, refresh/session revocation, internal s
 
 | Verification | Result |
 | --- | --- |
-| Maven reactor | 623 tests, 0 failures, 0 errors |
-| Payment service | 174 tests green, including MySQL migration/concurrency |
+| Maven reactor | 626 tests, 0 failures, 0 errors across all 12 modules |
+| Payment service | 175 tests green, including MySQL migration/concurrency and tenant-scoped intimation enrichment |
 | Payout service | 83 tests green |
 | Disposable MySQL 8 service integration | 112 passed, 1 optional event-overlay test skipped |
 | Real SQS event overlay (MySQL 8 + LocalStack) | 2 passed; legacy/outbox duplicate delivery deduplicated |
@@ -185,7 +188,7 @@ Security review also covered enumeration, refresh/session revocation, internal s
 | Expo Doctor | 18/18 checks passed |
 | Ordinary ChitWise bundle | iOS and Android production bundles passed |
 | ChitWise Hub bundle | iOS and Android production bundles passed |
-| Mobile dependency policy | 4/4 fail-closed policy tests passed; only two pinned Expo build-tool exceptions accepted |
+| Mobile dependency policy | 4/4 fail-closed policy tests passed; 0 Critical; `shell-quote` resolved to patched 1.12.0; only two pinned Expo build-tool exceptions accepted |
 | Release iOS simulator admin suite | 8/8 stateful Maestro flows passed serially through the gateway |
 | Release iOS simulator offline payment | 3/3 phases passed: queue, restart persistence, reconnect/history; MySQL reconciliation exact |
 | Migration safety/checksum script | passed, including payment V51 |
