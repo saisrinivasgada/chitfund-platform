@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Runs Certbot with the GoDaddy credential fetched just-in-time from Secrets
+# Manager. The credential lives only in /run (tmpfs) for this process and is
+# removed on every normal/error exit.
+set -euo pipefail
+
+if [[ -r /etc/chitwise-environment ]]; then
+  # shellcheck disable=SC1091
+  source /etc/chitwise-environment
+fi
+
+REGION="${AWS_REGION:-ap-south-1}"
+SECRET_ID="${CHITWISE_CERTBOT_SECRET_ID:-chitwise/certbot-godaddy}"
+RUNTIME_DIR=/run/chitwise-certbot
+CREDENTIAL_FILE="$RUNTIME_DIR/godaddy.ini"
+
+cleanup() {
+  if [[ -f "$CREDENTIAL_FILE" ]]; then
+    unlink "$CREDENTIAL_FILE"
+  fi
+}
+trap cleanup EXIT
+
+install -d -m 0700 "$RUNTIME_DIR"
+umask 077
+aws secretsmanager get-secret-value \
+  --region "$REGION" \
+  --secret-id "$SECRET_ID" \
+  --query SecretString \
+  --output text > "$CREDENTIAL_FILE"
+chmod 0600 "$CREDENTIAL_FILE"
+
+/opt/chitwise-certbot/bin/certbot "$@"
