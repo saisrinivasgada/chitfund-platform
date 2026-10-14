@@ -49,6 +49,9 @@ app:
     from: ${MAIL_FROM:noreply@thechitwise.com}
   email:
     enabled: ${EMAIL_ENABLED:false}
+    # Keep email on a separately approved SES region while queues and the
+    # database run close to Indian users in Mumbai.
+    region: ${SES_REGION:${AWS_REGION:ap-south-1}}
   otp:
     logging-enabled: ${OTP_LOGGING_ENABLED:false}
 

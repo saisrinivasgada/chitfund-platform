@@ -63,6 +63,9 @@ app:
     from: ${MAIL_FROM:noreply@thechitwise.com}
   email:
     enabled: ${EMAIL_ENABLED:false}
+    # SES identities and production-access approvals are regional. This may
+    # deliberately differ from AWS_REGION, which controls Mumbai SQS.
+    region: ${SES_REGION:${AWS_REGION:ap-south-1}}
   sms:
     enabled: ${SMS_ENABLED:false}
   otp:
