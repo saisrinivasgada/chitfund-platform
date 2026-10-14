@@ -1587,7 +1587,7 @@ const REPEAT_OPTIONS = [
   { label: 'Once daily (pick a time)', value: 'daily' },
 ];
 
-function ReminderModal({ memberId, onClose }) {
+function ReminderModal({ memberId, hasAppAccess, onClose }) {
   const toast = useToastContext();
   const qc = useQueryClient();
   const [message, setMessage] = useState('');
@@ -1671,6 +1671,17 @@ function ReminderModal({ memberId, onClose }) {
   return (
     <Modal title="Send Reminder" onClose={onClose} size="md">
       <div className="space-y-4">
+        {!hasAppAccess && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Member hasn't linked the app</p>
+              <p className="mt-0.5 text-xs text-amber-700">Reminders are delivered via push notification. This member needs to download and log in to the ChitWise app before reminders can be sent.</p>
+            </div>
+          </div>
+        )}
         {chits.length > 0 && (
           <div>
             <p className="text-sm font-semibold text-gray-700 mb-2">Select chits to include</p>
@@ -1781,7 +1792,7 @@ function ReminderModal({ memberId, onClose }) {
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 cursor-pointer">Cancel</button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !message.trim()}
+            disabled={mutation.isPending || !message.trim() || !hasAppAccess}
             className="px-5 py-2 text-sm font-semibold text-white rounded-lg cursor-pointer disabled:opacity-60"
             style={{ backgroundColor: '#1E3A5F' }}
           >
@@ -2857,7 +2868,7 @@ export default function MemberDetailPage() {
         />
       )}
       {showReminderModal && (
-        <ReminderModal memberId={id} onClose={() => setShowReminderModal(false)} />
+        <ReminderModal memberId={id} hasAppAccess={member?.hasAppAccess} onClose={() => setShowReminderModal(false)} />
       )}
     </div>
   );
