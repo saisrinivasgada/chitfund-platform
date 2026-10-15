@@ -19,7 +19,6 @@ public class CreateMemberRequest {
     // E.164 country dialing code, e.g. "+91", "+1". Defaults to "+91" if omitted.
     private String phoneCountryCode;
 
-    @NotBlank(message = "Email is required")
     @Email
     private String email;
 

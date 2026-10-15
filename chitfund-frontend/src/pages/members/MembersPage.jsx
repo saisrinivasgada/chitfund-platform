@@ -76,6 +76,10 @@ function AddMemberModal({ onClose }) {
   function handleSubmit(e) {
     e.preventDefault();
     setFe({});
+    if (form.sendAppAccess && !form.email) {
+      setFe({ email: 'Email is required to send App Access' });
+      return;
+    }
     const payload = Object.fromEntries(
       Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
     );
@@ -139,13 +143,12 @@ function AddMemberModal({ onClose }) {
             />
           </div>
 
-          <FormField label="Email" required error={fe.email}>
+          <FormField label="Email" error={fe.email}>
             <Input
               type="email"
               placeholder="email@example.com"
               value={form.email}
               onChange={(e) => set('email', e.target.value)}
-              required
             />
           </FormField>
           <FormField label="City" error={fe.city}>
@@ -193,7 +196,7 @@ function AddMemberModal({ onClose }) {
             className="mt-0.5 w-4 h-4 accent-[#1E3A5F]" />
           <span>
             <span className="block text-sm font-semibold text-gray-800">Send ChitWise App Access</span>
-            <span className="block text-xs text-gray-500 mt-1">The member verifies their phone and chooses their own PIN/password. You confirm access afterward.</span>
+            <span className="block text-xs text-gray-500 mt-1">A setup link is emailed to the member. They choose their own credentials. Email above is required.</span>
           </span>
         </label>
 

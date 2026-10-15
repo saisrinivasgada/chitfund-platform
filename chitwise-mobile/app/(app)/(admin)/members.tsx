@@ -209,7 +209,7 @@ export default function AdminMembersScreen() {
   const createMutation = useOnlineMutation({
     mutationFn: () => createMember({
       fullName: cFullName, phone: cPhone, phoneCountryCode: cPhoneCountryCode,
-      email: cEmail.trim(),
+      email: cEmail.trim() || null,
       address: cAddress || null, city: cCity || null, notes: cNotes || null,
       aadhaarLast4: cAadhaar || null, panNumber: cPan || null,
       bankName: cBankName || null, bankAccountNumber: cBankAccount || null,
@@ -976,7 +976,7 @@ export default function AdminMembersScreen() {
                     ESCALATED: { bg: '#FEE2E2', text: '#B91C1C' },
                   };
                   const statusLabel: Record<string, string> = {
-                    PENDING_MEMBER: 'WAITING FOR MEMBER',
+                    PENDING_MEMBER: 'SETUP EMAIL SENT',
                     MEMBER_VERIFIED: 'MEMBER VERIFIED',
                     AWAITING_ADMIN: 'PENDING ACTIVATION',
                     SUSPENDED: 'SUSPENDED',
@@ -1994,7 +1994,7 @@ export default function AdminMembersScreen() {
             <PhoneInput label="Phone" required phone={cPhone} countryCode={cPhoneCountryCode}
               onPhoneChange={setCPhone} onCountryChange={setCPhoneCountryCode} />
             <View>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email *</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.gray700, marginBottom: 6 }}>Email <Text style={{ fontWeight: '400', color: C.gray400 }}>(required for App Access)</Text></Text>
               <TextInput value={cEmail} onChangeText={setCEmail} placeholder="email@example.com"
                 keyboardType="email-address" autoCapitalize="none" placeholderTextColor={C.gray400}
                 style={{ borderWidth: 1.5, borderColor: C.gray300, borderRadius: 10, padding: 12, fontSize: 14, color: C.gray900 }} />
@@ -2069,8 +2069,14 @@ export default function AdminMembersScreen() {
 
           </ScrollView>
           <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: C.gray200 }}>
-            <Button label="Create Member" variant="primary" onPress={() => createMutation.mutate()}
-              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone || !cEmail.trim()} fullWidth />
+            <Button label="Create Member" variant="primary" onPress={() => {
+                if (cSendAppAccess && !cEmail.trim()) {
+                  Alert.alert('Email required', 'Email is required to send App Access.');
+                  return;
+                }
+                createMutation.mutate();
+              }}
+              loading={createMutation.isPending} disabled={isExpired || !cFullName || !cPhone} fullWidth />
           </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
